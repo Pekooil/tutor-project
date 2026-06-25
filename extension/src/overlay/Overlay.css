@@ -1,0 +1,46 @@
+/* MathMentor overlay styles — Sprint 02.
+ *
+ * These rules are injected INTO the shadow root (the content script sets
+ * cssInjectionMode: 'ui' in Task 3), never the host page <head>, so they cannot
+ * leak onto the host page. The job here is the other direction: keep the host
+ * page's CSS from leaking IN. See /docs/adr/ADR-002-overlay-shadow-dom.md. */
+
+/* (1) Hard reset. Stop ALL host-page inheritance from crossing into the shadow
+ * tree through the host element. Inherited properties (color, font-family,
+ * font-size, line-height, letter-spacing, ...) pierce the shadow boundary even
+ * though selectors do not — this is the single most common cause of bleed. */
+:host {
+  all: initial;
+}
+
+/* (2) Re-establish an explicit, self-contained base on top of the reset. Never
+ * rely on inherited or browser-initial values — both vary by host page and
+ * platform. The shadow subtree inherits this baseline from the host element. */
+:host {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
+    Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #0f172a;
+}
+
+/* (3) The placeholder panel. Fixed and floating so the host page stays visible
+ * behind it; a top-tier z-index keeps it above host stacking contexts. */
+.mm-overlay {
+  box-sizing: border-box;
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483647; /* max 32-bit signed int — above host page layers */
+
+  min-width: 180px;
+  padding: 16px 20px;
+
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+
+  font-weight: 600;
+  text-align: left;
+}
