@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 01 — Monorepo scaffold and extension shell
+Sprint 02 — Overlay shell (no AI)
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions
