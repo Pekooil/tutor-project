@@ -25,5 +25,14 @@ export default defineConfig({
     host_permissions: [
       '<all_urls>', // content script must run on any page the student visits
     ],
+    // Keyboard command (Sprint 02). A custom command, separate from the popup's
+    // reserved _execute_action. The key is user-rebindable at
+    // chrome://extensions/shortcuts and is verified in Task 5.
+    commands: {
+      'toggle-overlay': {
+        suggested_key: { default: 'Ctrl+Shift+M', mac: 'Command+Shift+M' },
+        description: 'Toggle the MathMentor overlay',
+      },
+    },
   },
 });

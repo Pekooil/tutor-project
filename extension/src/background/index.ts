@@ -29,6 +29,15 @@ export default defineBackground(() => {
     return true;
   });
 
+  // (4) Relay the toggle-overlay keyboard command to the active tab's content
+  // script, which owns the overlay. Commands are delivered to the service
+  // worker only, so the SW forwards them. Registered synchronously like the
+  // listeners above, so it is in place before any command fires after a wake.
+  chrome.commands.onCommand.addListener((command) => {
+    if (command !== 'toggle-overlay') return;
+    void toggleOverlayInActiveTab();
+  });
+
   // (2) Every wake: read → increment → persist → log the wake counter.
   void recordWake();
 });
@@ -44,4 +53,21 @@ async function recordWake(): Promise<void> {
   const next = current + 1;
   await chrome.storage.local.set({ wakeCount: next });
   console.log(`MathMentor SW: wake #${next}`);
+}
+
+/**
+ * Forwards a TOGGLE_OVERLAY message to the active tab's content script.
+ * chrome.tabs.sendMessage rejects on tabs with no content script (chrome://
+ * pages, the Web Store, the New Tab page), so the call is guarded and such a
+ * failure is a deliberate no-op.
+ */
+async function toggleOverlayInActiveTab(): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return;
+  const message: MathMentorMessage = { type: 'TOGGLE_OVERLAY' };
+  try {
+    await chrome.tabs.sendMessage(tab.id, message);
+  } catch {
+    // No content script on this page — nothing to toggle.
+  }
 }

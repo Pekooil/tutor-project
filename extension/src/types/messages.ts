@@ -1,8 +1,9 @@
 // Shared message types exchanged between the content script and the background
-// service worker. Kept intentionally small in Sprint 01 — more message types
-// arrive in later sprints.
-
-export type MessageType = 'CONTENT_READY';
+// service worker.
+//   CONTENT_READY  (Sprint 01) — content script announces it has injected.
+//   TOGGLE_OVERLAY (Sprint 02) — background relays the keyboard command to the
+//                  active tab's content script to show/hide the overlay.
+export type MessageType = 'CONTENT_READY' | 'TOGGLE_OVERLAY';
 
 export interface MathMentorMessage {
   type: MessageType;

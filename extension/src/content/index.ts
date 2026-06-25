@@ -58,5 +58,18 @@ export default defineContentScript({
         if (root) unmountOverlay(root);
       },
     });
+
+    // (5) Toggle the overlay when the background relays the keyboard command.
+    // mount()/remove() (rather than hiding) keeps the host-page footprint at
+    // zero while the overlay is closed, honoring the read-only DOM policy.
+    chrome.runtime.onMessage.addListener((message: MathMentorMessage) => {
+      if (message.type !== 'TOGGLE_OVERLAY') return;
+      if (!overlayUi) return;
+      if (overlayUi.mounted) {
+        overlayUi.remove();
+      } else {
+        overlayUi.mount();
+      }
+    });
   },
 });
