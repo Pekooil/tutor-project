@@ -1,0 +1,27 @@
+{
+  "name": "mathmentor",
+  "version": "0.0.0",
+  "private": true,
+  "description": "MathMentor — Chromium AI math tutor (monorepo root)",
+  "workspaces": [
+    "extension",
+    "web",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
