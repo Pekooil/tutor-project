@@ -1,0 +1,3 @@
+-- Intentionally empty. There is no seed data this sprint: the only rows in
+-- public.users come from real signups via the handle_new_user() trigger
+-- (see 0001_init_users.sql), and public.sessions rows come from real usage.
