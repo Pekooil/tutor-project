@@ -1,0 +1,67 @@
+# Supabase CLI project config.
+#
+# The Supabase CLI / Docker are not installed on this machine, so this file is
+# hand-authored to match the standard `supabase init` output rather than
+# generated. Run `supabase init` once the CLI is available to verify/refresh
+# it, then `supabase link --project-ref bowqktakezzsviwvslew` to link this
+# directory to the hosted "calyxa" project.
+project_id = "calyxa"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[db.pooler]
+enabled = false
+port = 54329
+pool_mode = "transaction"
+default_pool_size = 20
+max_client_conn = 100
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://127.0.0.1"
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["https://127.0.0.1:3000"]
+jwt_expiry = 3600
+enable_signup = true
+enable_anonymous_sign_ins = false
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+# Dev-only: lets signup be tested without SMTP. This setting only governs the
+# local stack started via `supabase start` — the hosted "calyxa" project's
+# equivalent ("Confirm email" under Authentication > Providers > Email in the
+# dashboard) has no MCP tool to toggle it and must be disabled there by hand.
+enable_confirmations = false
+
+[auth.sms]
+enable_signup = false
+enable_confirmations = false
+
+[edge_runtime]
+enabled = true
