@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 03 — Auth + database (no extension yet)
+Sprint 04 — API proxy layer (no AI yet)
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions

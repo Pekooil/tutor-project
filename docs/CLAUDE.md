@@ -17,7 +17,7 @@
 - TTS: ElevenLabs streaming API
 
 ## Current phase
-Phase 1, Sprint 3
+Phase 1, Sprint 4
 
 ## File structure reference
 See /docs/architecture.md
