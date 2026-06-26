@@ -24,6 +24,10 @@ export default defineConfig({
     ],
     host_permissions: [
       '<all_urls>', // content script must run on any page the student visits
+      // Backend origin (Sprint 04 Task 6) so the background worker's fetch
+      // calls in src/lib/api.ts are cross-origin-clean. Dev only -- the
+      // production origin is added alongside this at launch, not replacing it.
+      'http://localhost:3000/*',
     ],
     // Keyboard command (Sprint 02). A custom command, separate from the popup's
     // reserved _execute_action. The key is user-rebindable at
