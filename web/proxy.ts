@@ -6,7 +6,14 @@ import { NextResponse, type NextRequest } from 'next/server'
 const PUBLIC_PATHS = ['/', '/login', '/signup']
 
 function isPublicPath(pathname: string) {
-  return PUBLIC_PATHS.includes(pathname) || pathname.startsWith('/api/auth')
+  // /api/session/* is bearer-only (ADR-006): the extension never sends our
+  // cookie, so this cookie-based gate must not run for it — clientFromBearer
+  // does that route's own auth instead.
+  return (
+    PUBLIC_PATHS.includes(pathname) ||
+    pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/api/session')
+  )
 }
 
 export async function proxy(request: NextRequest) {

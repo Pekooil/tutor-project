@@ -82,10 +82,14 @@ begin
     raise exception 'start_session: no authenticated user';
   end if;
 
+  -- `users.id` must be qualified: RETURNS TABLE(id uuid, ...) makes `id` an
+  -- implicit out-parameter in scope for this whole function body, which
+  -- collides with the bare column name and raises "ambiguous column
+  -- reference" otherwise.
   select subscription_tier, free_period_started_at
     into v_tier, v_period_started
     from public.users
-   where id = v_uid
+   where users.id = v_uid
      and deleted_at is null;
 
   if v_tier is null then
@@ -99,7 +103,7 @@ begin
     update public.users
        set free_session_count = 0,
            free_period_started_at = now()
-     where id = v_uid;
+     where users.id = v_uid;
   end if;
 
   -- Atomic gate (PLAN.md §2.3 query 3): increment-and-check in one statement
@@ -108,7 +112,7 @@ begin
   -- "not degraded, unlimited".
   update public.users
      set free_session_count = free_session_count + 1
-   where id = v_uid
+   where users.id = v_uid
      and subscription_tier = 'free'
      and free_session_count < p_free_limit
      and deleted_at is null
