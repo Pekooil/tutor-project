@@ -6,6 +6,9 @@
       "outputs": ["dist/**", ".output/**", ".wxt/**"]
     },
     "lint": {},
-    "typecheck": {}
+    "typecheck": {},
+    "test": {
+      "cache": false
+    }
   }
 }
