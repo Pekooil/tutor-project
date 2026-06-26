@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 04 — API proxy layer (no AI yet)
+Sprint 05 — AI integration (hardcoded profile)
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions
