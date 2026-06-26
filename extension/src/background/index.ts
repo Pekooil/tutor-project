@@ -1,5 +1,12 @@
 import { defineBackground } from '#imports';
-import type { CalyxaMessage, SessionStatePayload, SignInPayload, StartSessionPayload } from '../types/messages';
+import type {
+  AiTurnPayload,
+  CalyxaMessage,
+  SessionStatePayload,
+  SignInPayload,
+  StartSessionPayload,
+  TurnMessage,
+} from '../types/messages';
 import * as api from '../lib/api';
 import { getActiveSession, getAuth } from '../lib/storage';
 
@@ -70,6 +77,9 @@ export default defineBackground(() => {
         return true;
       case 'END_SESSION':
         void handleEndSession().then(sendResponse);
+        return true;
+      case 'AI_TURN':
+        void handleAiTurn((message.payload as AiTurnPayload).messages).then(sendResponse);
         return true;
       default:
         return false;
@@ -203,5 +213,21 @@ async function handleEndSession(): Promise<CalyxaMessage> {
     return buildSessionState();
   } catch (error) {
     return buildSessionState(toErrorMessage(error));
+  }
+}
+
+/**
+ * Relays one AI_TURN to the Claude proxy. Reads nothing token-ish itself --
+ * api.aiTurn() -> authorizedFetch() re-reads chrome.storage.session fresh,
+ * per the ephemeral-worker discipline used throughout this file. On
+ * SignedOutError the reply carries the exact "not signed in" text (via
+ * toErrorMessage) the overlay shows as "sign in via the popup".
+ */
+async function handleAiTurn(messages: TurnMessage[]): Promise<CalyxaMessage> {
+  try {
+    const reply = await api.aiTurn(messages);
+    return { type: 'AI_REPLY', payload: { reply } };
+  } catch (error) {
+    return { type: 'AI_REPLY', payload: { error: toErrorMessage(error) } };
   }
 }

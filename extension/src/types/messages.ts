@@ -21,6 +21,15 @@ import type { ActiveSession, AuthUser } from '../lib/storage';
 //   SESSION_STATE  (Sprint 04) — background -> popup, the reply to every
 //                  message above. Carries display fields only, never a
 //                  token (PLAN §2.2: the popup holds no session logic).
+//   AI_TURN        (Sprint 05) — overlay -> content -> background:
+//                  AiTurnPayload. Carries the FULL running transcript from
+//                  the overlay on every call, not just the new message --
+//                  the worker is stateless and holds no conversation memory
+//                  (ADR-008 history model).
+//   AI_REPLY       (Sprint 05) — background -> caller, the reply to AI_TURN:
+//                  AiReplyPayload ({reply} on success, {error} otherwise --
+//                  a SignedOutError surfaces as the literal string "not
+//                  signed in").
 export type MessageType =
   | 'CONTENT_READY'
   | 'TOGGLE_OVERLAY'
@@ -29,7 +38,9 @@ export type MessageType =
   | 'SIGN_OUT'
   | 'START_SESSION'
   | 'END_SESSION'
-  | 'SESSION_STATE';
+  | 'SESSION_STATE'
+  | 'AI_TURN'
+  | 'AI_REPLY';
 
 export interface CalyxaMessage {
   type: MessageType;
@@ -52,3 +63,14 @@ export type SessionStatePayload = {
   activeSession: ActiveSession | null;
   error?: string;
 };
+
+export type TurnMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+export type AiTurnPayload = {
+  messages: TurnMessage[];
+};
+
+export type AiReplyPayload = { reply: string } | { error: string };

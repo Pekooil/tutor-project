@@ -9,6 +9,7 @@ import {
   type SessionMode,
   type StoredAuth,
 } from './storage';
+import type { TurnMessage } from '../types/messages';
 
 // Backend HTTP client for the extension (Sprint 04 Task 6 / ADR-006).
 //
@@ -164,4 +165,28 @@ export async function endSession(sessionId: string): Promise<void> {
   }
 
   await clearActiveSession();
+}
+
+/**
+ * Sends the running transcript to the Claude proxy (Sprint 05 / ADR-008) and
+ * returns the tutor's reply text. `/api/ai/turn` is stateless -- the worker
+ * holds no conversation memory, so the overlay must pass the full transcript
+ * (including the new user turn) on every call.
+ *
+ * Reuses authorizedFetch verbatim, so a dead refresh token surfaces
+ * SignedOutError exactly as the session helpers above do.
+ */
+export async function aiTurn(messages: TurnMessage[]): Promise<string> {
+  const res = await authorizedFetch('/api/ai/turn', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages }),
+  });
+
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body.error ?? `ai_turn failed: ${res.status}`);
+  }
+
+  return body.reply;
 }
