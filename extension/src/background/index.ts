@@ -1,5 +1,7 @@
 import { defineBackground } from '#imports';
-import type { CalyxaMessage } from '../types/messages';
+import type { CalyxaMessage, SessionStatePayload, SignInPayload, StartSessionPayload } from '../types/messages';
+import * as api from '../lib/api';
+import { getActiveSession, getAuth } from '../lib/storage';
 
 // Calyxa background service worker (Manifest V3).
 //
@@ -40,6 +42,38 @@ export default defineBackground(() => {
     console.log('Calyxa SW: command received', command);
     if (command !== 'toggle-overlay') return;
     void toggleOverlayInActiveTab();
+  });
+
+  // (4b) Auth + session messages from the popup (Sprint 04 Task 7). Unlike
+  // listener (3) above, every branch here calls sendResponse asynchronously,
+  // so this listener MUST return true for the types it handles — `true`
+  // keeps the message channel open until sendResponse fires. It returns
+  // false for anything else so it never blocks listener (3)'s synchronous
+  // logging path. Every handler re-reads chrome.storage.session itself
+  // (directly, or via lib/api.ts) rather than trusting any in-memory value,
+  // since the worker can have been killed and woken between messages.
+  chrome.runtime.onMessage.addListener((message: CalyxaMessage, _sender, sendResponse) => {
+    switch (message.type) {
+      case 'GET_STATE':
+        void buildSessionState().then(sendResponse);
+        return true;
+      case 'SIGN_IN':
+        void handleSignIn(message.payload as SignInPayload).then(sendResponse);
+        return true;
+      case 'SIGN_OUT':
+        void handleSignOut().then(sendResponse);
+        return true;
+      case 'START_SESSION':
+        void handleStartSession((message.payload as StartSessionPayload | undefined) ?? { pageDomain: null }).then(
+          sendResponse,
+        );
+        return true;
+      case 'END_SESSION':
+        void handleEndSession().then(sendResponse);
+        return true;
+      default:
+        return false;
+    }
   });
 
   // (2) Every wake: read → increment → persist → log the wake counter.
@@ -109,5 +143,65 @@ async function warnIfToggleShortcutUnbound(): Promise<void> {
         'applies suggested_key only on first install — set it at ' +
         'chrome://extensions/shortcuts, or fully restart `wxt dev`.',
     );
+  }
+}
+
+/**
+ * Builds the SESSION_STATE reply from chrome.storage.session, read fresh —
+ * never from an in-memory value, since the worker may have woken between the
+ * action that triggered this and the read. Carries display fields only
+ * (AuthUser/ActiveSession have no token fields); never the access_token.
+ */
+async function buildSessionState(error?: string): Promise<CalyxaMessage> {
+  const auth = await getAuth();
+  const activeSession = await getActiveSession();
+  const payload: SessionStatePayload = {
+    signedIn: auth !== null,
+    user: auth?.user ?? null,
+    activeSession,
+    ...(error ? { error } : {}),
+  };
+  return { type: 'SESSION_STATE', payload };
+}
+
+/** SignedOutError -> the exact "not signed in" text Task 8's manual gate checks for. */
+function toErrorMessage(error: unknown): string {
+  if (error instanceof api.SignedOutError) return 'not signed in';
+  return error instanceof Error ? error.message : 'unknown error';
+}
+
+async function handleSignIn(payload: SignInPayload): Promise<CalyxaMessage> {
+  try {
+    await api.signIn(payload.email, payload.password);
+    return buildSessionState();
+  } catch (error) {
+    return buildSessionState(toErrorMessage(error));
+  }
+}
+
+async function handleSignOut(): Promise<CalyxaMessage> {
+  await api.signOut();
+  return buildSessionState();
+}
+
+async function handleStartSession(payload: StartSessionPayload): Promise<CalyxaMessage> {
+  try {
+    await api.startSession({ pageDomain: payload.pageDomain, mode: payload.mode ?? 'voice' });
+    return buildSessionState();
+  } catch (error) {
+    return buildSessionState(toErrorMessage(error));
+  }
+}
+
+async function handleEndSession(): Promise<CalyxaMessage> {
+  const active = await getActiveSession();
+  if (!active) {
+    return buildSessionState('no active session');
+  }
+  try {
+    await api.endSession(active.sessionId);
+    return buildSessionState();
+  } catch (error) {
+    return buildSessionState(toErrorMessage(error));
   }
 }

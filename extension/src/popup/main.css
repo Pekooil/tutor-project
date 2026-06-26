@@ -1,0 +1,41 @@
+body {
+  margin: 0;
+  width: 260px;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.calyxa-form,
+.calyxa-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+
+.calyxa-form h1,
+.calyxa-panel h1 {
+  font-size: 16px;
+  margin: 0 0 4px;
+}
+
+.calyxa-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.calyxa-status {
+  padding: 16px;
+  margin: 0;
+}
+
+.calyxa-error {
+  color: #b3261e;
+  margin: 0;
+}
+
+.calyxa-hint {
+  margin: 0;
+  color: #555;
+}
