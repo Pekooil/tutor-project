@@ -390,4 +390,55 @@ bump WXT mid-sprint — a patch bump that changes the UI API costs a day.
 ---
 
 ## What the next sprint needs to know
-[Fill this in after all acceptance criteria pass and tasks are committed]
+
+Sprint 02 is functionally complete: Task 5 passed on all five pages (overlay
+renders, shadow-root isolated, zero CSS bleed, no `<head>` style leak). Git
+commits for the sprint are still outstanding.
+
+**Overlay is now an extension point, not a feature.** The shell is done; future
+sprints replace the placeholder, they don't rebuild the plumbing.
+- The overlay UI lives in `/extension/src/overlay` — `Overlay.tsx` (the
+  placeholder panel), `Overlay.css` (shadow-scoped styles), `mount.tsx`
+  (`mountOverlay`/`unmountOverlay` React-root helpers). To build real UI, swap
+  the contents of `<Overlay>`; the isolation and mount/unmount plumbing stay.
+- The content script (`/extension/src/content/index.ts`) creates the shadow-root
+  UI once via WXT `createShadowRootUi` (`cssInjectionMode: 'ui'`), host element
+  `<mathmentor-overlay>` appended to the document root, and holds the `ui` handle
+  in a module-scope variable (`overlayUi`). Safe at module scope because the
+  content script context lives for the page's lifetime.
+
+**Toggle / messaging flow** (extend, don't replace):
+- `toggle-overlay` manifest command → `chrome.commands.onCommand` (background) →
+  `chrome.tabs.sendMessage(activeTab, { type: 'TOGGLE_OVERLAY' })` → content
+  script `onMessage` runs `ui.mounted ? ui.remove() : ui.mount()`.
+- New message types go in the `MessageType` union in
+  `/extension/src/types/messages.ts`. Commands are delivered to the SW only, so
+  anything tab-facing must be relayed like this (uses the existing `tabs`
+  permission — no new permissions were added this sprint).
+
+**CSS isolation contract (ADR-002) — read before styling the overlay.** WXT
+auto-injects `:host { all: initial !important }`. Because it is `!important`,
+inherited/base properties (font, color, size) must be set on a child element
+(e.g. `.mm-overlay`), **never on `:host`** — a `:host` declaration is silently
+overridden. The content script stays read-only on the host page except the one
+sanctioned shadow host it appends and removes.
+
+**Keyboard-shortcut gotcha (cost us real debugging time — onboarding note).**
+Chrome applies a command's `suggested_key` **only on first install**, never on
+reload/update. The original default `Ctrl/Cmd+Shift+M` is reserved by Chrome
+(profile switcher) and was refused, so the command stayed unbound even after the
+default was corrected to `Ctrl/Cmd+Shift+Y`. Fix: assign the key at
+`chrome://extensions/shortcuts`, or remove + re-add the extension for a clean
+install. The background now ships `warnIfToggleShortcutUnbound()`, which logs a
+warning when the command has no bound key so this can never fail silently again.
+
+**Loose ends carried forward:**
+- Verbose diagnostic `console.log`s remain in the toggle chain (background +
+  content) from live debugging — candidates for a cleanup pass. The
+  `warnIfToggleShortcutUnbound()` warning is intentional and should stay.
+- `wxt dev` exits when `wxt.config.ts` changes (it restarts the server) and on
+  some hot reloads — expect to relaunch it; and reload any open test tab after an
+  extension reload, since Chrome does not re-inject content scripts into existing
+  tabs.
+- Still no AI, network, or persistence — the overlay is a static placeholder.
+  Sprint 03 is web + Supabase (Next.js, RLS), per the locked roadmap.
