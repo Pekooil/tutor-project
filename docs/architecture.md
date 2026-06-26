@@ -1,8 +1,8 @@
-# MathMentor — Architecture
+# Calyxa — Architecture
 
 > **Status: stub.** To be filled in during the planning phase.
 
-This document will describe how MathMentor fits together: the extension, the
+This document will describe how Calyxa fits together: the extension, the
 web app, the backend API proxy, the database, and the AI / STT / TTS
 integrations.
 

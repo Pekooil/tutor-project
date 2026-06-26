@@ -221,7 +221,7 @@ Acceptance gate before Task 2:
 
 Scope: /supabase + repo-root env wiring only.
 
-Create the Supabase project for MathMentor and capture its credentials. Either:
+Create the Supabase project for Calyxa and capture its credentials. Either:
 (a) the hosted project via the Supabase MCP / dashboard, or (b) the local stack
 via `supabase init` + `supabase start`. State which you used.
 

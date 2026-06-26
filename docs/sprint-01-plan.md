@@ -167,11 +167,11 @@ Prompt to use:
   Create /extension/src/background/index.ts as a WXT background entry point.
 
   It must:
-  1. On chrome.runtime.onInstalled: log "MathMentor SW: installed" and write
+  1. On chrome.runtime.onInstalled: log "Calyxa SW: installed" and write
      { wakeCount: 0 } to chrome.storage.local
   2. On every wake (top-level module execution): read wakeCount from
      chrome.storage.local, increment it, write it back, and log
-     "MathMentor SW: wake #N"
+     "Calyxa SW: wake #N"
   3. Add a chrome.runtime.onMessage listener that receives messages and logs
      them. Do not handle any specific message types yet — just log and return
      true (keeps the message channel open for async responses later)
@@ -185,7 +185,7 @@ Prompt to use:
 
   Create /extension/src/types/messages.ts with:
     export type MessageType = "CONTENT_READY"
-    export interface MathMentorMessage {
+    export interface CalyxaMessage {
       type: MessageType
       payload?: unknown
     }
@@ -207,7 +207,7 @@ Prompt to use:
 
   It must:
   1. Run on all URLs (matches: ["<all_urls>"])
-  2. Log "MathMentor content: injected on [hostname]" where hostname is
+  2. Log "Calyxa content: injected on [hostname]" where hostname is
      window.location.hostname
   3. Send a CONTENT_READY message to the background service worker:
        chrome.runtime.sendMessage({ type: "CONTENT_READY" })
@@ -216,7 +216,7 @@ Prompt to use:
   Constraints:
   - Do not mutate the DOM in any way. No elements added, no styles changed,
     no attributes modified. Read-only access only.
-  - Import MathMentorMessage from /extension/src/types/messages.ts
+  - Import CalyxaMessage from /extension/src/types/messages.ts
   - Use async/await with a try/catch around sendMessage — the background
     worker may not be awake yet and sendMessage can throw
 
@@ -239,7 +239,7 @@ Acceptance gate (manual verification steps):
 
 Use this exact content for /CLAUDE.md:
 
-  # MathMentor — Claude Code working instructions
+  # Calyxa — Claude Code working instructions
 
   ## Read this file at the start of every session before doing anything else.
 

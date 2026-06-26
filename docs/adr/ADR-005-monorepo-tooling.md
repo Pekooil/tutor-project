@@ -2,7 +2,7 @@
 
 **Status:** Decided
 
-**Context:** MathMentor spans several units that share TypeScript config and
+**Context:** Calyxa spans several units that share TypeScript config and
 types: the extension, a Next.js web app, and shared packages
 (`ai`, `learning`, `auth`, `types`, `utils`). They need consistent package
 linking and a cached, dependency-aware build/lint/typecheck pipeline. We had

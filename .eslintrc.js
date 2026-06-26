@@ -1,5 +1,5 @@
 /**
- * Shared ESLint config for the MathMentor monorepo.
+ * Shared ESLint config for the Calyxa monorepo.
  * Each workspace extends this from its own .eslintrc.
  */
 /** @type {import('eslint').Linter.Config} */

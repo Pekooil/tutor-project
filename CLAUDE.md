@@ -1,4 +1,4 @@
-# MathMentor — Claude Code working instructions
+# Calyxa — Claude Code working instructions
 
 ## Read this file at the start of every session before doing anything else.
 

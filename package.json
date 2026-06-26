@@ -1,8 +1,8 @@
 {
-  "name": "mathmentor",
+  "name": "calyxa",
   "version": "0.0.0",
   "private": true,
-  "description": "MathMentor — Chromium AI math tutor (monorepo root)",
+  "description": "Calyxa — Chromium AI math tutor (monorepo root)",
   "workspaces": [
     "extension",
     "web",

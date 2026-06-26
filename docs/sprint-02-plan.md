@@ -1,10 +1,10 @@
 # Sprint 02 — Overlay shell (no AI)
 
 ## Goal
-A student presses a keyboard shortcut on any page and a MathMentor overlay
+A student presses a keyboard shortcut on any page and a Calyxa overlay
 appears, rendered inside a shadow DOM so it is fully isolated from the host
 page's CSS. Pressing the shortcut again dismisses it. The overlay is a
-placeholder — a single panel that says "MathMentor" — with no AI, no input
+placeholder — a single panel that says "Calyxa" — with no AI, no input
 handling, and no backend. This sprint proves the one hard part of the UI
 foundation: rendering our own UI on arbitrary third-party pages without CSS
 bleed in either direction.
@@ -73,7 +73,7 @@ were a non-extension responsibility.
 /docs/sprint-02-plan.md                    ← this file
 
 ### overlay-ui agent creates:
-/extension/src/overlay/Overlay.tsx         ← placeholder React component ("MathMentor")
+/extension/src/overlay/Overlay.tsx         ← placeholder React component ("Calyxa")
 /extension/src/overlay/Overlay.css         ← shadow-scoped styles incl. the :host reset
 /extension/src/overlay/mount.tsx           ← createRoot/unmount helpers for the shadow container
 
@@ -93,7 +93,7 @@ were a non-extension responsibility.
 
 Also out of scope this sprint (no pre-empting later work):
 - Any AI, STT, or TTS call, or any network request of any kind.
-- Overlay content beyond the "MathMentor" placeholder — no chat, no input box,
+- Overlay content beyond the "Calyxa" placeholder — no chat, no input box,
   no buttons, no resize/drag, no settings.
 - Persisting overlay open/closed state. The overlay starts closed on every page
   load; the shortcut toggles it for the lifetime of that page only.
@@ -160,7 +160,7 @@ Prompt to use:
 
   Create /extension/src/overlay/Overlay.tsx:
   - A function component `Overlay` that renders a single panel containing the
-    text "MathMentor". No props required this sprint.
+    text "Calyxa". No props required this sprint.
   - Give the root element a stable class (e.g. "mm-overlay") used by the CSS.
   - Position is the overlay's own concern: a fixed panel (e.g. bottom-right),
     not full-screen, so the host page stays visible behind it.
@@ -210,7 +210,7 @@ Prompt to use:
   - Set `cssInjectionMode: 'ui'` in defineContentScript so the overlay
     stylesheet is injected INTO the shadow root, never the page <head>.
   - In main(), create the UI once with createShadowRootUi(ctx, { ... }):
-      - name: a custom element tag, e.g. "mathmentor-overlay"
+      - name: a custom element tag, e.g. "calyxa-overlay"
       - position/anchor: append the host element to the document root so it is
         not trapped inside a host-page stacking context
       - onMount(container): call mountOverlay(container) from
@@ -244,14 +244,14 @@ Prompt to use:
 
   1) /extension/src/types/messages.ts — extend the union:
        export type MessageType = 'CONTENT_READY' | 'TOGGLE_OVERLAY';
-     Leave the MathMentorMessage interface unchanged.
+     Leave the CalyxaMessage interface unchanged.
 
   2) /extension/wxt.config.ts — add a commands block to the manifest (WXT passes
      it through verbatim). Do not touch the permissions arrays.
        commands: {
          'toggle-overlay': {
            suggested_key: { default: 'Ctrl+Shift+M', mac: 'Command+Shift+M' },
-           description: 'Toggle the MathMentor overlay',
+           description: 'Toggle the Calyxa overlay',
          },
        }
      Note: this is a custom command, separate from the popup's reserved
@@ -303,9 +303,9 @@ isolation from different directions:
   5. khanacademy.org      — the real target domain (open a math exercise page)
 
 On EACH page, confirm:
-  - The shortcut shows the overlay; the panel reads "MathMentor".
+  - The shortcut shows the overlay; the panel reads "Calyxa".
   - The shortcut again removes it; pressing repeatedly toggles cleanly.
-  - In DevTools Elements, the overlay lives under a <mathmentor-overlay> host
+  - In DevTools Elements, the overlay lives under a <calyxa-overlay> host
     with a #shadow-root; the overlay's markup is inside the shadow root.
   - No overlay <style> appears in the page <head> (styles are in the shadow root).
   - Overlay typography/color/spacing look identical across all five pages — no
@@ -313,7 +313,7 @@ On EACH page, confirm:
   - The host page is visually unchanged with the overlay open (no layout shift,
     no leaked styles), and unchanged again after the overlay is closed.
   - The overlay floats above host content (verify especially on github.com).
-  - chrome://extensions/shortcuts shows "Toggle the MathMentor overlay" with a
+  - chrome://extensions/shortcuts shows "Toggle the Calyxa overlay" with a
     bound key; if Chrome reports the default as unavailable, rebind and note it.
 
 ---
@@ -330,9 +330,9 @@ On EACH page, confirm:
       tabs (no additions this sprint)
 - [ ] dist/manifest.json host_permissions are exactly: <all_urls>
 - [ ] Load unpacked in chrome://extensions — zero errors, zero warnings
-- [ ] chrome://extensions/shortcuts lists "Toggle the MathMentor overlay" bound
-- [ ] Shortcut shows the overlay reading "MathMentor"; shortcut again removes it
-- [ ] Overlay renders inside a <mathmentor-overlay> shadow root (verified in
+- [ ] chrome://extensions/shortcuts lists "Toggle the Calyxa overlay" bound
+- [ ] Shortcut shows the overlay reading "Calyxa"; shortcut again removes it
+- [ ] Overlay renders inside a <calyxa-overlay> shadow root (verified in
       Elements), not in the host light DOM
 - [ ] No overlay <style> is injected into the page <head>
 - [ ] Overlay looks identical on all five test pages — no inherited CSS bleed
@@ -403,7 +403,7 @@ sprints replace the placeholder, they don't rebuild the plumbing.
   the contents of `<Overlay>`; the isolation and mount/unmount plumbing stay.
 - The content script (`/extension/src/content/index.ts`) creates the shadow-root
   UI once via WXT `createShadowRootUi` (`cssInjectionMode: 'ui'`), host element
-  `<mathmentor-overlay>` appended to the document root, and holds the `ui` handle
+  `<calyxa-overlay>` appended to the document root, and holds the `ui` handle
   in a module-scope variable (`overlayUi`). Safe at module scope because the
   content script context lives for the page's lifetime.
 

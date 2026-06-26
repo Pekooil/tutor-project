@@ -7,7 +7,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 function App() {
-  return <h1>MathMentor</h1>;
+  return <h1>Calyxa</h1>;
 }
 
 const root = document.getElementById('root');

@@ -1,6 +1,6 @@
 import { defineConfig } from 'wxt';
 
-// MathMentor extension — WXT configuration.
+// Calyxa extension — WXT configuration.
 // Sprint 01:
 //   - Task 2 created the bare scaffold (entry-points dir, output dir).
 //   - Task 3 (this) declares the Manifest V3 permissions below.
@@ -34,7 +34,7 @@ export default defineConfig({
     commands: {
       'toggle-overlay': {
         suggested_key: { default: 'Ctrl+Shift+Y', mac: 'Command+Shift+Y' },
-        description: 'Toggle the MathMentor overlay',
+        description: 'Toggle the Calyxa overlay',
       },
     },
   },

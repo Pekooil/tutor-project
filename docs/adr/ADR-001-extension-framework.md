@@ -2,7 +2,7 @@
 
 **Status:** Decided
 
-**Context:** The MathMentor browser extension needs a Manifest V3 build
+**Context:** The Calyxa browser extension needs a Manifest V3 build
 toolchain that supports React + TypeScript, fast hot-reload during
 development, and a typed manifest. The candidates considered were a
 hand-rolled vanilla MV3 build, Plasmo, and WXT.

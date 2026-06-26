@@ -1,4 +1,4 @@
-# MathMentor — Claude Code Working Instructions
+# Calyxa — Claude Code Working Instructions
 
 ## Architecture decisions (locked)
 - Manifest V3 only. Never suggest MV2 patterns.

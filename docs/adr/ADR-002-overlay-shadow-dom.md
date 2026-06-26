@@ -2,7 +2,7 @@
 
 **Status:** Decided
 
-**Context:** MathMentor renders its tutoring overlay on top of arbitrary
+**Context:** Calyxa renders its tutoring overlay on top of arbitrary
 third-party pages the student is already viewing. The overlay must not inherit
 the host page's styles, and its own styles must not leak onto the host page —
 zero CSS collision in either direction, on pages whose CSS we do not control.

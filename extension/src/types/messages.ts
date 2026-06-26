@@ -5,7 +5,7 @@
 //                  active tab's content script to show/hide the overlay.
 export type MessageType = 'CONTENT_READY' | 'TOGGLE_OVERLAY';
 
-export interface MathMentorMessage {
+export interface CalyxaMessage {
   type: MessageType;
   payload?: unknown;
 }

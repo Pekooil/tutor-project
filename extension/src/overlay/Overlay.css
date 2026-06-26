@@ -1,4 +1,4 @@
-/* MathMentor overlay styles — Sprint 02.
+/* Calyxa overlay styles — Sprint 02.
  *
  * These rules are injected INTO the shadow root (the content script sets
  * cssInjectionMode: 'ui'), never the host page <head>, so they cannot leak onto

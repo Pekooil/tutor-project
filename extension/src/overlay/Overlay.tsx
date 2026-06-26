@@ -1,6 +1,6 @@
 import './Overlay.css';
 
-// MathMentor overlay — Sprint 02 placeholder.
+// Calyxa overlay — Sprint 02 placeholder.
 //
 // Presentational only. This component knows nothing about chrome.* APIs,
 // messaging, or the keyboard shortcut — those live in the content and
@@ -11,5 +11,5 @@ import './Overlay.css';
 // shadow root (cssInjectionMode: 'ui', Task 3) so nothing bleeds onto — or in
 // from — the host page. See /docs/adr/ADR-002-overlay-shadow-dom.md.
 export function Overlay() {
-  return <div className="mm-overlay">MathMentor</div>;
+  return <div className="mm-overlay">Calyxa</div>;
 }

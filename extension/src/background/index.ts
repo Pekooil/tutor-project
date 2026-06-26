@@ -1,7 +1,7 @@
 import { defineBackground } from '#imports';
-import type { MathMentorMessage } from '../types/messages';
+import type { CalyxaMessage } from '../types/messages';
 
-// MathMentor background service worker (Manifest V3).
+// Calyxa background service worker (Manifest V3).
 //
 // MV3 constraints observed here:
 //   - The service worker is NOT persistent. No in-memory variable is assumed to
@@ -17,7 +17,7 @@ export default defineBackground(() => {
 
   // (1) First install: announce, then initialise the persisted wake counter.
   chrome.runtime.onInstalled.addListener(() => {
-    console.log('MathMentor SW: installed');
+    console.log('Calyxa SW: installed');
     void chrome.storage.local.set({ wakeCount: 0 });
   });
 
@@ -27,8 +27,8 @@ export default defineBackground(() => {
   // `await chrome.runtime.sendMessage(...)` hangs forever waiting for a
   // response that never arrives. Returning false/undefined resolves the
   // sender's promise immediately with `undefined`.
-  chrome.runtime.onMessage.addListener((message: MathMentorMessage) => {
-    console.log('MathMentor SW: message received', message);
+  chrome.runtime.onMessage.addListener((message: CalyxaMessage) => {
+    console.log('Calyxa SW: message received', message);
     return false;
   });
 
@@ -37,7 +37,7 @@ export default defineBackground(() => {
   // worker only, so the SW forwards them. Registered synchronously like the
   // listeners above, so it is in place before any command fires after a wake.
   chrome.commands.onCommand.addListener((command) => {
-    console.log('MathMentor SW: command received', command);
+    console.log('Calyxa SW: command received', command);
     if (command !== 'toggle-overlay') return;
     void toggleOverlayInActiveTab();
   });
@@ -61,7 +61,7 @@ async function recordWake(): Promise<void> {
   const current = typeof stored.wakeCount === 'number' ? stored.wakeCount : 0;
   const next = current + 1;
   await chrome.storage.local.set({ wakeCount: next });
-  console.log(`MathMentor SW: wake #${next}`);
+  console.log(`Calyxa SW: wake #${next}`);
 }
 
 /**
@@ -72,16 +72,16 @@ async function recordWake(): Promise<void> {
  */
 async function toggleOverlayInActiveTab(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  console.log('MathMentor SW: relaying TOGGLE_OVERLAY to active tab', tab?.id, tab?.url);
+  console.log('Calyxa SW: relaying TOGGLE_OVERLAY to active tab', tab?.id, tab?.url);
   if (!tab?.id) return;
-  const message: MathMentorMessage = { type: 'TOGGLE_OVERLAY' };
+  const message: CalyxaMessage = { type: 'TOGGLE_OVERLAY' };
   try {
     await chrome.tabs.sendMessage(tab.id, message);
   } catch (error) {
     // Most common cause: the page was open before the extension's last reload,
     // so it has no live content script. Reloading the page fixes it.
     console.warn(
-      'MathMentor SW: could not reach the content script — reload the page and retry',
+      'Calyxa SW: could not reach the content script — reload the page and retry',
       error,
     );
   }
@@ -105,7 +105,7 @@ async function warnIfToggleShortcutUnbound(): Promise<void> {
   const toggle = commands.find((command) => command.name === 'toggle-overlay');
   if (toggle && !toggle.shortcut) {
     console.warn(
-      'MathMentor SW: "toggle-overlay" has no keyboard shortcut bound. Chrome ' +
+      'Calyxa SW: "toggle-overlay" has no keyboard shortcut bound. Chrome ' +
         'applies suggested_key only on first install — set it at ' +
         'chrome://extensions/shortcuts, or fully restart `wxt dev`.',
     );
