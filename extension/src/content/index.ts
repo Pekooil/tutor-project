@@ -31,7 +31,29 @@ export default defineContentScript({
     // (2) Confirm injection.
     console.log(`MathMentor content: injected on ${window.location.hostname}`);
 
-    // (3) Announce readiness to the background service worker (Sprint 01). The
+    // (3) Toggle the overlay when the background relays the keyboard command.
+    // Registered FIRST and synchronously, before any `await` below — the two
+    // awaits that follow (the CONTENT_READY round-trip and createShadowRootUi's
+    // stylesheet fetch) take real time, and a command can arrive in that window.
+    // If `overlayUi` isn't built yet when that happens, queue the toggle instead
+    // of dropping it, so a fast shortcut press right after page load still
+    // shows the overlay once setup finishes.
+    let pendingToggle = false;
+    chrome.runtime.onMessage.addListener((message: MathMentorMessage) => {
+      if (message.type !== 'TOGGLE_OVERLAY') return;
+      console.log('MathMentor content: TOGGLE_OVERLAY received; overlay ready =', !!overlayUi);
+      if (!overlayUi) {
+        pendingToggle = true;
+        return;
+      }
+      if (overlayUi.mounted) {
+        overlayUi.remove();
+      } else {
+        overlayUi.mount();
+      }
+    });
+
+    // (4) Announce readiness to the background service worker (Sprint 01). The
     // worker may be asleep and sendMessage can throw / reject, so guard it.
     const message: MathMentorMessage = { type: 'CONTENT_READY' };
     try {
@@ -43,7 +65,7 @@ export default defineContentScript({
       console.warn('MathMentor content: CONTENT_READY not acknowledged', error);
     }
 
-    // (4) Build the overlay UI once. createShadowRootUi is async because it
+    // (5) Build the overlay UI once. createShadowRootUi is async because it
     // fetches the bundled stylesheet to inject into the shadow root. The host
     // element is appended to the document root (<html>) so it cannot be trapped
     // inside a host-page stacking context. We do NOT mount here — the overlay
@@ -59,17 +81,10 @@ export default defineContentScript({
       },
     });
 
-    // (5) Toggle the overlay when the background relays the keyboard command.
-    // mount()/remove() (rather than hiding) keeps the host-page footprint at
-    // zero while the overlay is closed, honoring the read-only DOM policy.
-    chrome.runtime.onMessage.addListener((message: MathMentorMessage) => {
-      if (message.type !== 'TOGGLE_OVERLAY') return;
-      if (!overlayUi) return;
-      if (overlayUi.mounted) {
-        overlayUi.remove();
-      } else {
-        overlayUi.mount();
-      }
-    });
+    // (6) Apply a toggle that arrived before setup finished (see step 3).
+    if (pendingToggle) {
+      console.log('MathMentor content: applying queued toggle from before overlay was ready');
+      overlayUi.mount();
+    }
   },
 });

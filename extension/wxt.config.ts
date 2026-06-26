@@ -28,9 +28,12 @@ export default defineConfig({
     // Keyboard command (Sprint 02). A custom command, separate from the popup's
     // reserved _execute_action. The key is user-rebindable at
     // chrome://extensions/shortcuts and is verified in Task 5.
+    //
+    // Avoid Ctrl/Cmd+Shift+M — that is reserved by Chrome (profile switcher),
+    // so Chrome refuses to bind it to an extension. Ctrl/Cmd+Shift+Y is free.
     commands: {
       'toggle-overlay': {
-        suggested_key: { default: 'Ctrl+Shift+M', mac: 'Command+Shift+M' },
+        suggested_key: { default: 'Ctrl+Shift+Y', mac: 'Command+Shift+Y' },
         description: 'Toggle the MathMentor overlay',
       },
     },

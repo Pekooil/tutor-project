@@ -21,12 +21,15 @@ export default defineBackground(() => {
     void chrome.storage.local.set({ wakeCount: 0 });
   });
 
-  // (3) Log every inbound message. No specific message types are handled yet;
-  // returning true keeps the message channel open for async responses that
-  // later sprints will send.
+  // (3) Log every inbound message. No specific message types are handled yet,
+  // and nothing here calls sendResponse, so the listener must NOT return true —
+  // `true` tells Chrome an async response is coming, and the sender's
+  // `await chrome.runtime.sendMessage(...)` hangs forever waiting for a
+  // response that never arrives. Returning false/undefined resolves the
+  // sender's promise immediately with `undefined`.
   chrome.runtime.onMessage.addListener((message: MathMentorMessage) => {
     console.log('MathMentor SW: message received', message);
-    return true;
+    return false;
   });
 
   // (4) Relay the toggle-overlay keyboard command to the active tab's content
@@ -34,12 +37,18 @@ export default defineBackground(() => {
   // worker only, so the SW forwards them. Registered synchronously like the
   // listeners above, so it is in place before any command fires after a wake.
   chrome.commands.onCommand.addListener((command) => {
+    console.log('MathMentor SW: command received', command);
     if (command !== 'toggle-overlay') return;
     void toggleOverlayInActiveTab();
   });
 
   // (2) Every wake: read → increment → persist → log the wake counter.
   void recordWake();
+
+  // (5) Dev diagnostic: warn loudly if the toggle command has no bound key, so
+  // an unbound shortcut is never a silent failure (see the helper for why this
+  // happens after a hot reload).
+  void warnIfToggleShortcutUnbound();
 });
 
 /**
@@ -63,11 +72,42 @@ async function recordWake(): Promise<void> {
  */
 async function toggleOverlayInActiveTab(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  console.log('MathMentor SW: relaying TOGGLE_OVERLAY to active tab', tab?.id, tab?.url);
   if (!tab?.id) return;
   const message: MathMentorMessage = { type: 'TOGGLE_OVERLAY' };
   try {
     await chrome.tabs.sendMessage(tab.id, message);
-  } catch {
-    // No content script on this page — nothing to toggle.
+  } catch (error) {
+    // Most common cause: the page was open before the extension's last reload,
+    // so it has no live content script. Reloading the page fixes it.
+    console.warn(
+      'MathMentor SW: could not reach the content script — reload the page and retry',
+      error,
+    );
+  }
+}
+
+/**
+ * Logs a warning when the `toggle-overlay` command has no keyboard shortcut.
+ *
+ * Chrome applies a command's manifest `suggested_key` ONLY on first install —
+ * never on an update or in-place reload (which is what `wxt dev` hot-reload and
+ * the chrome://extensions "Reload" button do). So if the extension was first
+ * loaded with a different or unbindable key (e.g. Cmd+Shift+M, which Chrome
+ * reserves for the profile switcher), the command stays unbound even after the
+ * manifest is corrected and rebuilt — and the keypress silently does nothing.
+ * Surfacing it here makes that invisible failure actionable: assign the key at
+ * chrome://extensions/shortcuts, or fully restart `wxt dev` (a new profile means
+ * a fresh install, so the suggested_key is applied).
+ */
+async function warnIfToggleShortcutUnbound(): Promise<void> {
+  const commands = await chrome.commands.getAll();
+  const toggle = commands.find((command) => command.name === 'toggle-overlay');
+  if (toggle && !toggle.shortcut) {
+    console.warn(
+      'MathMentor SW: "toggle-overlay" has no keyboard shortcut bound. Chrome ' +
+        'applies suggested_key only on first install — set it at ' +
+        'chrome://extensions/shortcuts, or fully restart `wxt dev`.',
+    );
   }
 }
