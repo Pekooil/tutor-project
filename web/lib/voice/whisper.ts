@@ -15,6 +15,14 @@ function createClient(): OpenAI {
   return new OpenAI({ apiKey })
 }
 
+// Whisper infers the audio format from the upload's filename extension, not
+// just its Content-Type — an extensionless filename risks a 400 even with a
+// correct mimeType.
+function filenameForMimeType(mimeType: string): string {
+  const subtype = mimeType.split(';')[0].split('/')[1] ?? 'webm'
+  return `utterance.${subtype}`
+}
+
 export async function transcribe({
   audio,
   mimeType,
@@ -22,7 +30,7 @@ export async function transcribe({
   audio: ArrayBuffer | Uint8Array
   mimeType: string
 }): Promise<{ transcript: string }> {
-  const file = await toFile(audio, 'utterance', { type: mimeType })
+  const file = await toFile(audio, filenameForMimeType(mimeType), { type: mimeType })
 
   const response = await createClient().audio.transcriptions.create({
     model: 'whisper-1',

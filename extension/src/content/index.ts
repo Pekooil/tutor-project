@@ -2,7 +2,14 @@ import { createShadowRootUi, defineContentScript } from '#imports';
 import type { ShadowRootContentScriptUi } from '#imports';
 import type { Root } from 'react-dom/client';
 import { mountOverlay, unmountOverlay } from '../overlay/mount';
-import type { AiReplyPayload, CalyxaMessage, TurnMessage } from '../types/messages';
+import type { Utterance } from '../overlay/VoiceController';
+import type {
+  AiReplyPayload,
+  CalyxaMessage,
+  TurnMessage,
+  VoiceSttReplyPayload,
+  VoiceTtsReplyPayload,
+} from '../types/messages';
 
 // Overlay UI handle, created once per page in main(). Held at module scope
 // because a content script's execution context lives for the page's lifetime —
@@ -24,6 +31,58 @@ async function sendAiTurn(messages: TurnMessage[]): Promise<string> {
     throw new Error(payload.error);
   }
   return payload.reply;
+}
+
+// The overlay's VOICE_STT/VOICE_TTS transports (Sprint 06). Same role as
+// sendAiTurn above: the ONLY chrome.* surface threaded into the overlay for
+// voice, relaying to the background worker and adding no host-page read.
+// `audio` crosses the messaging boundary as base64 (ADR-010 — see the
+// binary-over-messaging note in types/messages.ts), so each direction is
+// encoded/decoded here, the mirror image of background/index.ts's helpers.
+async function sendVoiceStt(audio: Utterance): Promise<{ transcript: string; sttMs: number }> {
+  const message: CalyxaMessage = {
+    type: 'VOICE_STT',
+    payload: { audio: arrayBufferToBase64(audio.bytes), mimeType: audio.mimeType },
+  };
+  const response: CalyxaMessage = await chrome.runtime.sendMessage(message);
+  const payload = response.payload as VoiceSttReplyPayload;
+  if ('error' in payload) {
+    throw new Error(payload.error);
+  }
+  return payload;
+}
+
+async function sendVoiceTts(text: string): Promise<{ audio: ArrayBuffer; ttsMs: number }> {
+  const message: CalyxaMessage = { type: 'VOICE_TTS', payload: { text } };
+  const response: CalyxaMessage = await chrome.runtime.sendMessage(message);
+  const payload = response.payload as VoiceTtsReplyPayload;
+  if ('error' in payload) {
+    throw new Error(payload.error);
+  }
+  return { audio: base64ToArrayBuffer(payload.audio), ttsMs: payload.ttsMs };
+}
+
+/**
+ * btoa/atob operate on binary strings, not bytes directly, so a typed-array
+ * walk is needed on each side. Fine for a single short push-to-talk
+ * utterance (ADR-010) -- this is not a bulk-data path.
+ */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
 }
 
 // Calyxa content script.
@@ -91,7 +150,8 @@ export default defineContentScript({
       position: 'inline',
       anchor: document.documentElement,
       append: 'last',
-      onMount: (container) => mountOverlay(container, sendAiTurn),
+      onMount: (container) =>
+        mountOverlay(container, { onSend: sendAiTurn, onTranscribe: sendVoiceStt, onSynthesize: sendVoiceTts }),
       onRemove: (root) => {
         if (root) unmountOverlay(root);
       },

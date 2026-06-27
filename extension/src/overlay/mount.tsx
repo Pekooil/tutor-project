@@ -2,23 +2,31 @@ import { StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Overlay } from './Overlay';
 import type { TurnMessage } from '../types/messages';
+import type { Utterance } from './VoiceController';
 
 // Framework plumbing only. The content script calls these from WXT's
 // createShadowRootUi onMount / onRemove callbacks (Task 3). Keeping React's
 // createRoot / unmount here means the content script never imports react-dom
 // directly — the overlay package owns its own mounting.
 
+export type OverlayTransports = {
+  onSend: (messages: TurnMessage[]) => Promise<string>;
+  onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
+  onSynthesize: (text: string) => Promise<{ audio: ArrayBuffer; ttsMs: number }>;
+};
+
 /**
  * Creates a React root on the shadow-root container and renders the overlay,
- * threading the AI_TURN transport through. `onSend` is built by the content
- * script (Task 6) — the overlay itself never imports chrome.*.
- * Returns the Root so the caller can tear it down on dismissal.
+ * threading the AI_TURN / VOICE_STT / VOICE_TTS transports through. All
+ * three are built by the content script (Sprint 05 Task 6 / Sprint 06 Task
+ * 6) — the overlay itself never imports chrome.*. Returns the Root so the
+ * caller can tear it down on dismissal.
  */
-export function mountOverlay(container: HTMLElement, onSend: (messages: TurnMessage[]) => Promise<string>): Root {
+export function mountOverlay(container: HTMLElement, transports: OverlayTransports): Root {
   const root = createRoot(container);
   root.render(
     <StrictMode>
-      <Overlay onSend={onSend} />
+      <Overlay {...transports} />
     </StrictMode>,
   );
   return root;

@@ -99,11 +99,67 @@
   font-size: 13px;
 }
 
-/* (4) Input row, pinned below the transcript. */
+/* (4) Voice-turn indicators — Sprint 06. Audio-playing state and the
+ * per-turn latency readout, both rendered inline in the transcript list. */
+.mm-playing {
+  margin: 0;
+  color: #0f172a;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.mm-latency {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+/* (5) Input row, pinned below the transcript. */
 .mm-form {
   display: flex;
   gap: 6px;
   flex: 0 0 auto;
+}
+
+/* (6) Mic button — push-to-talk (Sprint 06). Idle state matches .mm-send's
+ * dark-panel look; the recording state pulses red so press-and-hold has an
+ * unmistakable, glance-able indicator while the button is held. */
+.mm-mic {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: 36px;
+  padding: 8px 0;
+  border: none;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #ffffff;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mm-mic:disabled {
+  background: #cbd5e1;
+  cursor: default;
+}
+
+.mm-mic--recording {
+  background: #dc2626;
+  animation: mm-mic-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes mm-mic-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.15);
+  }
 }
 
 .mm-input {
