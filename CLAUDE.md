@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 05 — AI integration (hardcoded profile)
+Sprint 06 — Voice pipeline
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions
