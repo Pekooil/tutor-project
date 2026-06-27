@@ -32,8 +32,13 @@ export async function transcribe({
 }): Promise<{ transcript: string }> {
   const file = await toFile(audio, filenameForMimeType(mimeType), { type: mimeType })
 
+  // Same OpenAI transcription endpoint ("OpenAI Whisper API" per the locked
+  // stack), but the gpt-4o-mini-transcribe model, not whisper-1. Task 7's
+  // 20-trial measurement showed whisper-1 batch latency (~1.7s) as the dominant
+  // leg blowing the <2.5s budget; gpt-4o-mini-transcribe is materially faster on
+  // short push-to-talk clips. Recorded in the ADR-010 amendment (2026-06-27).
   const response = await createClient().audio.transcriptions.create({
-    model: 'whisper-1',
+    model: 'gpt-4o-mini-transcribe',
     file,
   })
 

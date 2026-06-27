@@ -70,6 +70,9 @@ export function Overlay({
 
     try {
       const reply = await onSend(history);
+      if (!reply.trim()) {
+        throw new Error('The tutor returned an empty reply.');
+      }
       setMessages((current) => [...current, { role: 'assistant', content: reply }]);
     } catch (error) {
       setNotice(describeError(error, "Couldn't reach the tutor — try again."));
@@ -111,6 +114,9 @@ export function Overlay({
       const aiStart = performance.now();
       const reply = await onSend(history);
       const aiMs = Math.round(performance.now() - aiStart);
+      if (!reply.trim()) {
+        throw new Error('The tutor returned an empty reply.');
+      }
       setMessages((current) => [...current, { role: 'assistant', content: reply }]);
       replyDelivered = true;
 

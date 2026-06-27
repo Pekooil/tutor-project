@@ -35,8 +35,10 @@ export async function POST(request: Request) {
         'x-tts-ms': String(ms),
       },
     })
-  } catch {
-    // Never relay the provider's error text or any key material to the client.
+  } catch (error) {
+    // Server-side terminal only — never relay the provider's error text or
+    // any key material to the client (the response below stays generic).
+    console.error('voice/tts: ElevenLabs call failed', error)
     return NextResponse.json({ error: 'Could not generate audio right now.' }, { status: 502 })
   }
 }

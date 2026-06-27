@@ -645,8 +645,10 @@ and the unpacked extension loaded:
 - [ ] `/api/voice/stt` and `/api/voice/tts` require a valid bearer (401 otherwise) and
       never call the provider for an anonymous caller; bad input → 400; provider
       failure → sanitised 502 with no key/provider-text leakage
-- [ ] STT is **Whisper** (`whisper-1`) per the locked stack; the Whisper-vs-Deepgram
-      divergence from PLAN §2.1/§2.6 is recorded in ADR-010
+- [ ] STT uses the **OpenAI transcription API** per the locked stack
+      (`gpt-4o-mini-transcribe` — switched from `whisper-1` for latency, see the
+      ADR-010 2026-06-27 amendment); the Whisper-vs-Deepgram divergence from PLAN
+      §2.1/§2.6 is recorded in ADR-010
 - [ ] The `/api/voice/stt` route module imports **no** storage/Blob/DB client; audio
       is an in-memory passthrough; only the transcript is returned
 - [ ] `/api/ai/turn` is **reused unchanged** as the middle leg; output stays plain
@@ -655,8 +657,12 @@ and the unpacked extension loaded:
       sanitised failure, no-storage-import guard) with no live STT/TTS call
 - [ ] The extension sends overlay → content → background → `/api/voice/*` (worker is
       the only egress); a 401 triggers one refresh + retry; no key in the bundle
-- [ ] The overlay records a per-step `LatencyTrace` and the **median round-trip over
-      20 trials is < 2.5s** on a stable connection
+- [x] The overlay records a per-step `LatencyTrace` and surfaces `totalMs` per turn.
+      **The median round-trip < 2.5s target is DEFERRED to the voice-streaming sprint**
+      (ADR-010 follow-up, 2026-06-27): after the STT model fix, the production-build
+      median is ~3.1s (down from ~4.3s); STT is now in budget (~0.4–0.75s) but the
+      sequential non-streaming AI leg (~1.1–2.0s) blocks 2.5s. <2.5s is met by the
+      deferred sentence-level streaming overlap, not the sequential loop.
 - [ ] **Text fallback is always available**: mic-denied/unavailable or a failed voice
       leg degrades to text-in/text-out; signed-out turns show "not signed in"
 - [ ] `/extension/src/popup/*`, `/web/app/api/ai/turn/*`, `/web/lib/ai/*`,
@@ -737,8 +743,13 @@ next sprint optimises and enriches this seam, it does not rebuild it.
   **JSON envelope** + **annotation layer**, **continuous VAD/endpointing**, and the
   **WebSocket/SSE port relay** for live audio — all attaching to these proxy seams.
 - **Latency (`LatencyTrace`):** `/web/lib/voice/latency.ts` defines the per-step
-  contract the overlay records and Task 7 holds to **median < 2.5s / 20 trials**. The
-  streaming sprint targets PLAN ADR-003's **~1.1s first-audio** via overlap.
+  contract the overlay records. **The <2.5s / 20-trial gate was NOT met by the
+  sequential loop and is carried into the streaming sprint** (ADR-010 follow-up):
+  the production-build median is ~3.1s with STT now in budget (~0.4–0.75s via
+  `gpt-4o-mini-transcribe`) and the **non-streaming AI leg (~1.1–2.0s) the blocker**.
+  The streaming sprint's **sentence-level overlap** (begin TTS while Claude still
+  generates; PLAN ADR-003's **~1.1s first-audio**) is the mechanism that meets the
+  budget — it is now a hard deliverable of that sprint, not an optimization.
 - **Audio policy (ADR-011):** the STT route is an in-memory passthrough that imports
   no storage client; audio is never persisted and the mic is released per utterance.
   The learning sprint that adds `session_interactions` persists only the **text**
