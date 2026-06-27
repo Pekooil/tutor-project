@@ -190,3 +190,57 @@ export async function aiTurn(messages: TurnMessage[]): Promise<string> {
 
   return body.reply;
 }
+
+/**
+ * Sends one push-to-talk utterance to the Whisper proxy (Task 3 / ADR-010)
+ * as a raw body + Content-Type header (matching the route's accepted shape)
+ * and returns the transcript. Audio is held only in memory on both legs --
+ * this function never writes it anywhere (ADR-011).
+ *
+ * Reuses authorizedFetch verbatim, so a dead refresh token surfaces
+ * SignedOutError exactly as the other helpers above do.
+ */
+export async function sttTranscribe(audio: { bytes: ArrayBuffer; mimeType: string }): Promise<{
+  transcript: string;
+  sttMs: number;
+}> {
+  const res = await authorizedFetch('/api/voice/stt', {
+    method: 'POST',
+    headers: { 'Content-Type': audio.mimeType },
+    body: audio.bytes,
+  });
+
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body.error ?? `stt_transcribe failed: ${res.status}`);
+  }
+
+  return { transcript: body.transcript, sttMs: body.sttMs };
+}
+
+/**
+ * Sends the tutor's reply text to the ElevenLabs proxy (Task 3 / ADR-010)
+ * and returns the synthesized audio bytes plus the route's reported
+ * processing time (the `x-tts-ms` header, not buffered into the JSON body so
+ * the route can stream the audio straight through).
+ *
+ * Reuses authorizedFetch verbatim, so a dead refresh token surfaces
+ * SignedOutError exactly as the other helpers above do.
+ */
+export async function ttsSynthesize(text: string): Promise<{ audio: ArrayBuffer; ttsMs: number }> {
+  const res = await authorizedFetch('/api/voice/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json();
+    throw new Error(body.error ?? `tts_synthesize failed: ${res.status}`);
+  }
+
+  const ttsMs = Number(res.headers.get('x-tts-ms') ?? 0);
+  const audio = await res.arrayBuffer();
+
+  return { audio, ttsMs };
+}

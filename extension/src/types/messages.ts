@@ -30,6 +30,31 @@ import type { ActiveSession, AuthUser } from '../lib/storage';
 //                  AiReplyPayload ({reply} on success, {error} otherwise --
 //                  a SignedOutError surfaces as the literal string "not
 //                  signed in").
+//   VOICE_STT      (Sprint 06) — overlay -> content -> background:
+//                  VoiceSttPayload. Carries a SINGLE short push-to-talk
+//                  utterance per turn, never a live stream (ADR-010); the
+//                  worker hands it to Whisper and never writes it to
+//                  disk/DB (ADR-011). `audio` crosses this boundary as
+//                  base64, not a raw ArrayBuffer -- see the
+//                  binary-over-messaging note below.
+//   VOICE_STT_REPLY (Sprint 06) — background -> caller, the reply to
+//                  VOICE_STT: VoiceSttReplyPayload ({transcript,sttMs} on
+//                  success, {error} otherwise -- a SignedOutError surfaces
+//                  as the literal string "not signed in", same as AI_REPLY).
+//   VOICE_TTS      (Sprint 06) — overlay -> content -> background:
+//                  VoiceTtsPayload ({text}).
+//   VOICE_TTS_REPLY (Sprint 06) — background -> caller, the reply to
+//                  VOICE_TTS: VoiceTtsReplyPayload ({audio,ttsMs} on
+//                  success, {error} otherwise). `audio` is base64-encoded
+//                  audio/mpeg bytes, decoded for playback only -- never
+//                  persisted (ADR-011).
+//
+//   Binary-over-messaging caveat (ADR-010): chrome.runtime.sendMessage
+//   payloads are structured-cloned/JSON, so a raw ArrayBuffer/Blob is not a
+//   safe bet to survive every hop overlay -> content -> background intact.
+//   VOICE_STT/VOICE_TTS_REPLY carry audio as base64 strings instead, and
+//   keep it small -- this is a single push-to-talk utterance per turn, not a
+//   live stream.
 export type MessageType =
   | 'CONTENT_READY'
   | 'TOGGLE_OVERLAY'
@@ -40,7 +65,11 @@ export type MessageType =
   | 'END_SESSION'
   | 'SESSION_STATE'
   | 'AI_TURN'
-  | 'AI_REPLY';
+  | 'AI_REPLY'
+  | 'VOICE_STT'
+  | 'VOICE_STT_REPLY'
+  | 'VOICE_TTS'
+  | 'VOICE_TTS_REPLY';
 
 export interface CalyxaMessage {
   type: MessageType;
@@ -74,3 +103,27 @@ export type AiTurnPayload = {
 };
 
 export type AiReplyPayload = { reply: string } | { error: string };
+
+export type VoiceSttPayload = {
+  audio: string; // base64-encoded utterance bytes -- see the binary-over-messaging note above
+  mimeType: string;
+};
+
+export type VoiceSttReplyPayload = { transcript: string; sttMs: number } | { error: string };
+
+export type VoiceTtsPayload = {
+  text: string;
+};
+
+export type VoiceTtsReplyPayload = { audio: string; ttsMs: number } | { error: string };
+
+// Mirrors /web/lib/voice/latency.ts exactly -- that file is the source of
+// truth; this is a by-convention re-declaration for the client side (no
+// shared module spans the extension/web boundary).
+export type LatencyTrace = {
+  sttMs: number;
+  aiMs: number;
+  ttsMs: number;
+  networkMs: number;
+  totalMs: number;
+};

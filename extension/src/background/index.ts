@@ -6,6 +6,8 @@ import type {
   SignInPayload,
   StartSessionPayload,
   TurnMessage,
+  VoiceSttPayload,
+  VoiceTtsPayload,
 } from '../types/messages';
 import * as api from '../lib/api';
 import { getActiveSession, getAuth } from '../lib/storage';
@@ -80,6 +82,12 @@ export default defineBackground(() => {
         return true;
       case 'AI_TURN':
         void handleAiTurn((message.payload as AiTurnPayload).messages).then(sendResponse);
+        return true;
+      case 'VOICE_STT':
+        void handleVoiceStt(message.payload as VoiceSttPayload).then(sendResponse);
+        return true;
+      case 'VOICE_TTS':
+        void handleVoiceTts(message.payload as VoiceTtsPayload).then(sendResponse);
         return true;
       default:
         return false;
@@ -230,4 +238,63 @@ async function handleAiTurn(messages: TurnMessage[]): Promise<CalyxaMessage> {
   } catch (error) {
     return { type: 'AI_REPLY', payload: { error: toErrorMessage(error) } };
   }
+}
+
+/**
+ * Relays one VOICE_STT to the Whisper proxy (Task 3 / ADR-010). `audio`
+ * crosses the chrome.runtime messaging boundary as base64 (see the
+ * binary-over-messaging note in types/messages.ts) and is decoded back to
+ * an ArrayBuffer here before api.sttTranscribe hands it to the proxy, which
+ * never persists it (ADR-011). On SignedOutError the reply carries the
+ * exact "not signed in" text, matching handleAiTurn.
+ */
+async function handleVoiceStt(payload: VoiceSttPayload): Promise<CalyxaMessage> {
+  try {
+    const { transcript, sttMs } = await api.sttTranscribe({
+      bytes: base64ToArrayBuffer(payload.audio),
+      mimeType: payload.mimeType,
+    });
+    return { type: 'VOICE_STT_REPLY', payload: { transcript, sttMs } };
+  } catch (error) {
+    return { type: 'VOICE_STT_REPLY', payload: { error: toErrorMessage(error) } };
+  }
+}
+
+/**
+ * Relays one VOICE_TTS to the ElevenLabs proxy (Task 3 / ADR-010). The
+ * synthesized audio is encoded to base64 to cross the messaging boundary
+ * back to the content script -- the same caveat as VOICE_STT, reversed
+ * direction. On SignedOutError the reply carries the exact "not signed in"
+ * text, matching handleAiTurn.
+ */
+async function handleVoiceTts(payload: VoiceTtsPayload): Promise<CalyxaMessage> {
+  try {
+    const { audio, ttsMs } = await api.ttsSynthesize(payload.text);
+    return { type: 'VOICE_TTS_REPLY', payload: { audio: arrayBufferToBase64(audio), ttsMs } };
+  } catch (error) {
+    return { type: 'VOICE_TTS_REPLY', payload: { error: toErrorMessage(error) } };
+  }
+}
+
+/**
+ * btoa/atob operate on binary strings, not bytes directly, so a typed-array
+ * walk is needed on each side. Fine for a single short push-to-talk
+ * utterance (ADR-010) -- this is not a bulk-data path.
+ */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
 }
