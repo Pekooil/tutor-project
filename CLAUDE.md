@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 06 — Voice pipeline
+Sprint 07 — Screen capture + content extraction
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions
