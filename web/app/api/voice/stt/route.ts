@@ -9,8 +9,12 @@ import { timed } from '@/lib/voice/latency'
 // transcript, never the audio.
 
 // Push-to-talk utterances are short; this just bounds abuse/budget, not a
-// realistic recording length.
-const MAX_AUDIO_BYTES = 10 * 1024 * 1024
+// realistic recording length. Kept well under proxy.ts's 10MB body-size
+// ceiling (Next.js's default `proxyClientMaxBodySize`) — a body over that
+// ceiling is silently truncated before this route ever sees it, so this cap
+// must stay lower than 10MB or an oversized upload would be truncated to
+// "fits" instead of rejected (found in Task 4's oversized-body test).
+const MAX_AUDIO_BYTES = 5 * 1024 * 1024
 
 export async function POST(request: Request) {
   const auth = await clientFromBearer(request)

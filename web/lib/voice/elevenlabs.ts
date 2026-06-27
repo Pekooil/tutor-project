@@ -5,7 +5,10 @@ import 'server-only'
 // ELEVENLABS_API_KEY / ELEVENLABS_VOICE_ID; no persistence, the audio stream
 // is relayed straight through to the caller.
 
-const ELEVENLABS_TTS_URL = 'https://api.elevenlabs.io/v1/text-to-speech'
+// Overridable for tests (voice.test.ts points this at a local fake server,
+// mirroring how @anthropic-ai/sdk and openai read ANTHROPIC_BASE_URL /
+// OPENAI_BASE_URL); unset in production, so this defaults to the real API.
+const ELEVENLABS_TTS_URL = process.env.ELEVENLABS_API_BASE_URL ?? 'https://api.elevenlabs.io/v1/text-to-speech'
 const MODEL_ID = 'eleven_flash_v2_5'
 
 export async function synthesize({ text }: { text: string }): Promise<ReadableStream<Uint8Array>> {
