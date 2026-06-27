@@ -18,10 +18,12 @@
   all: initial;
 }
 
-/* (2) The placeholder panel, carrying its own explicit typographic base.
- * Typography is declared here, directly on .mm-overlay (not on :host), so WXT's
- * `:host { all: initial !important }` cannot override it. Never rely on
- * inherited or browser-initial values — both vary by host page and platform. */
+/* (2) The fixed bottom-right panel, carrying its own explicit typographic
+ * base. Typography is declared here, directly on .mm-overlay (not on :host),
+ * so WXT's `:host { all: initial !important }` cannot override it. Never rely
+ * on inherited or browser-initial values — both vary by host page and
+ * platform. Sprint 05 grows this from a static label into a flex column
+ * (transcript above, input form pinned below) — still the same fixed panel. */
 .mm-overlay {
   box-sizing: border-box;
   position: fixed;
@@ -29,8 +31,12 @@
   bottom: 20px;
   z-index: 2147483647; /* max 32-bit signed int — above host page layers */
 
-  min-width: 180px;
-  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  max-height: 420px;
+  gap: 8px;
+  padding: 12px;
 
   background: #ffffff;
   border: 1px solid #e2e8f0;
@@ -41,7 +47,93 @@
     Arial, sans-serif;
   font-size: 14px;
   line-height: 1.5;
-  font-weight: 600;
+  font-weight: 400;
   color: #0f172a;
   text-align: left;
+}
+
+/* (3) Transcript — the scrollable message list, oldest first. All box-model
+ * rules here are scoped to .mm-overlay's children, never :host. */
+.mm-transcript {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mm-empty {
+  margin: 0;
+  color: #64748b;
+  font-style: italic;
+}
+
+.mm-message {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  max-width: 85%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mm-message--user {
+  align-self: flex-end;
+  background: #0f172a;
+  color: #ffffff;
+}
+
+.mm-message--assistant {
+  align-self: flex-start;
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.mm-notice {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+/* (4) Input row, pinned below the transcript. */
+.mm-form {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.mm-input {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+}
+
+.mm-input:disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.mm-send {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mm-send:disabled {
+  background: #cbd5e1;
+  cursor: default;
 }

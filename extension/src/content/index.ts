@@ -2,13 +2,29 @@ import { createShadowRootUi, defineContentScript } from '#imports';
 import type { ShadowRootContentScriptUi } from '#imports';
 import type { Root } from 'react-dom/client';
 import { mountOverlay, unmountOverlay } from '../overlay/mount';
-import type { CalyxaMessage } from '../types/messages';
+import type { AiReplyPayload, CalyxaMessage, TurnMessage } from '../types/messages';
 
 // Overlay UI handle, created once per page in main(). Held at module scope
 // because a content script's execution context lives for the page's lifetime —
 // unlike the background service worker, where module-level state is lost between
 // wakes. Task 4 toggles it (mount/remove) when the keyboard shortcut fires.
 let overlayUi: ShadowRootContentScriptUi<Root> | undefined;
+
+// The overlay's AI_TURN transport (Sprint 05). This is the ONLY chrome.*
+// surface threaded into the overlay — Overlay.tsx itself never imports
+// chrome.*, so this function is its sole window onto the extension. It only
+// relays messages to the background worker (the sole network-egress
+// context, PLAN §2.2); it adds no host-page read, keeping the DOM policy
+// unchanged.
+async function sendAiTurn(messages: TurnMessage[]): Promise<string> {
+  const message: CalyxaMessage = { type: 'AI_TURN', payload: { messages } };
+  const response: CalyxaMessage = await chrome.runtime.sendMessage(message);
+  const payload = response.payload as AiReplyPayload;
+  if ('error' in payload) {
+    throw new Error(payload.error);
+  }
+  return payload.reply;
+}
 
 // Calyxa content script.
 //
@@ -75,7 +91,7 @@ export default defineContentScript({
       position: 'inline',
       anchor: document.documentElement,
       append: 'last',
-      onMount: (container) => mountOverlay(container),
+      onMount: (container) => mountOverlay(container, sendAiTurn),
       onRemove: (root) => {
         if (root) unmountOverlay(root);
       },
