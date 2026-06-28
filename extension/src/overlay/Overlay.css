@@ -52,6 +52,30 @@
   text-align: left;
 }
 
+/* (2.5) Page-context indicator chip — Sprint 07. Lets the student know the
+ * tutor read math off their current screen (or, when extraction found
+ * nothing, shows the same "type or paste it" steer the prompt itself
+ * falls back to). Scoped to .mm-overlay's children, never :host (ADR-002). */
+.mm-page-context {
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.mm-page-context--detected {
+  background: #ecfdf5;
+  color: #047857;
+  font-weight: 600;
+}
+
+.mm-page-context--empty {
+  background: #f8fafc;
+  color: #64748b;
+  font-style: italic;
+}
+
 /* (3) Transcript — the scrollable message list, oldest first. All box-model
  * rules here are scoped to .mm-overlay's children, never :host. */
 .mm-transcript {

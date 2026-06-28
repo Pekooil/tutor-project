@@ -3,9 +3,11 @@ import type { ShadowRootContentScriptUi } from '#imports';
 import type { Root } from 'react-dom/client';
 import { mountOverlay, unmountOverlay } from '../overlay/mount';
 import type { Utterance } from '../overlay/VoiceController';
+import { extractPageContext } from './pageExtractor';
 import type {
   AiReplyPayload,
   CalyxaMessage,
+  PageContext,
   TurnMessage,
   VoiceSttReplyPayload,
   VoiceTtsReplyPayload,
@@ -17,14 +19,27 @@ import type {
 // wakes. Task 4 toggles it (mount/remove) when the keyboard shortcut fires.
 let overlayUi: ShadowRootContentScriptUi<Root> | undefined;
 
-// The overlay's AI_TURN transport (Sprint 05). This is the ONLY chrome.*
-// surface threaded into the overlay — Overlay.tsx itself never imports
-// chrome.*, so this function is its sole window onto the extension. It only
-// relays messages to the background worker (the sole network-egress
-// context, PLAN §2.2); it adds no host-page read, keeping the DOM policy
-// unchanged.
+// The PageContext captured on the most recent overlay open (Sprint 07 Task
+// 5/6, ADR-012/ADR-013). Re-captured fresh every time the overlay mounts —
+// never cached across opens, never persisted to disk/DB — and read by
+// sendAiTurn below to attach to the next AI_TURN. Undefined until the
+// overlay has been opened at least once in this page's lifetime.
+let capturedPageContext: PageContext | undefined;
+
+// The overlay's AI_TURN transport (Sprint 05; Sprint 07 attaches
+// pageContext). This is the ONLY chrome.* surface threaded into the
+// overlay — Overlay.tsx itself never imports chrome.*, so this function is
+// its sole window onto the extension. It only relays messages to the
+// background worker (the sole network-egress context, PLAN §2.2); the
+// host-page READ happens in extractPageContext (this content-script
+// context, the only place with host-DOM access) at overlay-open time —
+// sendAiTurn just attaches whatever was captured at the most recent open,
+// it performs no read of its own.
 async function sendAiTurn(messages: TurnMessage[]): Promise<string> {
-  const message: CalyxaMessage = { type: 'AI_TURN', payload: { messages } };
+  const message: CalyxaMessage = {
+    type: 'AI_TURN',
+    payload: { messages, pageContext: capturedPageContext },
+  };
   const response: CalyxaMessage = await chrome.runtime.sendMessage(message);
   const payload = response.payload as AiReplyPayload;
   if ('error' in payload) {
@@ -96,6 +111,13 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 // styles, so nothing the overlay does is observable in the host page's light
 // DOM. createShadowRootUi does not touch the host DOM until ui.mount() runs, so
 // while the overlay is closed the host-page footprint is zero.
+//
+// Sprint 07 adds the first actual READ of host-page content: on every
+// overlay open, extractPageContext() (pageExtractor.ts) makes a one-shot,
+// synchronous, read-only pass over the page's math + visible text,
+// excluding this script's own <calyxa-overlay> host. The result is held at
+// module scope only long enough to attach to the next AI_TURN — it is never
+// written to disk/DB (ADR-012/ADR-013).
 export default defineContentScript({
   // (1) Inject on every page the student visits.
   matches: ['<all_urls>'],
@@ -150,8 +172,20 @@ export default defineContentScript({
       position: 'inline',
       anchor: document.documentElement,
       append: 'last',
-      onMount: (container) =>
-        mountOverlay(container, { onSend: sendAiTurn, onTranscribe: sendVoiceStt, onSynthesize: sendVoiceTts }),
+      onMount: (container) => {
+        // Fresh read every time the overlay opens — never cached across
+        // opens, never persisted. Runs in this content-script context, the
+        // only place with host-DOM access; extractPageContext reads the
+        // host page only and excludes this very shadow host from what it
+        // reads (ADR-012).
+        capturedPageContext = extractPageContext();
+        return mountOverlay(container, {
+          onSend: sendAiTurn,
+          onTranscribe: sendVoiceStt,
+          onSynthesize: sendVoiceTts,
+          pageContextSummary: { equationCount: capturedPageContext.equations.length },
+        });
+      },
       onRemove: (root) => {
         if (root) unmountOverlay(root);
       },

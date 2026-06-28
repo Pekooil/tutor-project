@@ -29,14 +29,26 @@ import { startRecording, type RecordingHandle, type Utterance } from './VoiceCon
 // All styling lives in Overlay.css, which the content script injects INTO the
 // shadow root (cssInjectionMode: 'ui', Task 3) so nothing bleeds onto — or in
 // from — the host page. See /docs/adr/ADR-002-overlay-shadow-dom.md.
+//
+// pageContextSummary (Sprint 07) is purely presentational: a count, not the
+// raw PageContext. This component never imports pageExtractor.ts or
+// chrome.* — the content script captures the page and passes down only
+// this small summary (ADR-012/ADR-013), so the indicator chip below is the
+// full extent of what the overlay knows about the page.
+export type PageContextSummary = {
+  equationCount: number;
+};
+
 export function Overlay({
   onSend,
   onTranscribe,
   onSynthesize,
+  pageContextSummary,
 }: {
   onSend: (messages: TurnMessage[]) => Promise<string>;
   onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
   onSynthesize: (text: string) => Promise<{ audio: ArrayBuffer; ttsMs: number }>;
+  pageContextSummary?: PageContextSummary;
 }) {
   const [messages, setMessages] = useState<TurnMessage[]>([]);
   const [input, setInput] = useState('');
@@ -142,6 +154,7 @@ export function Overlay({
 
   return (
     <div className="mm-overlay">
+      {renderPageContextNotice(pageContextSummary)}
       <div className="mm-transcript">
         {messages.length === 0 && <p className="mm-empty">Ask a math question to get started.</p>}
         {messages.map((message, index) => (
@@ -193,6 +206,29 @@ export function Overlay({
         </button>
       </form>
     </div>
+  );
+}
+
+// Lets the student know whether the tutor can see their screen this turn.
+// Renders nothing when pageContextSummary is absent (e.g. before the
+// overlay has ever opened); when extraction ran but found nothing (an
+// image/canvas-only page), shows the same "type or paste it" steer as the
+// prompt's empty-slot fallback (ADR-012) rather than a silent no-op.
+function renderPageContextNotice(summary?: PageContextSummary) {
+  if (!summary) return null;
+
+  if (summary.equationCount > 0) {
+    return (
+      <p className="mm-page-context mm-page-context--detected">
+        👁 Reading your page — {summary.equationCount} equation{summary.equationCount === 1 ? '' : 's'} detected
+      </p>
+    );
+  }
+
+  return (
+    <p className="mm-page-context mm-page-context--empty">
+      No equations detected on this page — type or paste your problem.
+    </p>
   );
 }
 
