@@ -575,41 +575,60 @@ keys optional) and the unpacked extension loaded:
 
 ## Acceptance criteria (full checklist)
 
-- [ ] `npm install` and `turbo run typecheck lint build` pass from the repo root with the
+**Sprint status: COMPLETE** (verified below; one documented scope deviation, see note†).
+
+- [x] `npm install` and `turbo run typecheck lint build` pass from the repo root with the
       new web + extension files present
-- [ ] `cd web && next build` exits 0; `wxt build` exits 0
-- [ ] **No migration this sprint**: `/supabase/migrations` is unchanged; a page-context
+- [x] `cd web && next build` exits 0; `wxt build` exits 0
+- [x] **No migration this sprint**: `/supabase/migrations` is unchanged; a page-context
       turn writes nothing to the database and persists no page text or URL (ADR-013)
-- [ ] **Stable path only**: page content comes from **read-only DOM extraction** (MathML +
+- [x] **Stable path only**: page content comes from **read-only DOM extraction** (MathML +
       LaTeX/KaTeX/MathJax + visible text); **no** screen capture, OCR, vision, or capture
       permission this sprint (the beta image path is deferred — ADR-012)
-- [ ] The content script **reads** the host page but **mutates nothing**; the extractor
+- [x] The content script **reads** the host page but **mutates nothing**; the extractor
       excludes the `<calyxa-overlay>` shadow host; the overlay stays in shadow DOM
-- [ ] `PageContext` is **bounded** on both client (extractor caps) and server
+- [x] `PageContext` is **bounded** on both client (extractor caps) and server
       (`renderPageContext` is the authoritative §2.5 budget cap; equations before text)
-- [ ] `/api/ai/turn` accepts an **optional** `pageContext`, validates/caps it as untrusted
+- [x] `/api/ai/turn` accepts an **optional** `pageContext`, validates/caps it as untrusted
       input, injects it via `buildSystemPrompt`, and **a turn without it is byte-for-byte
       Sprint 06 behaviour** (back-compat)
-- [ ] Page context rides **inside the existing `AI_TURN` payload** — no new `MessageType`,
-      no new route, no background-relay change
-- [ ] The §2.5 prompt `PAGE CONTEXT` slot is **filled** when context is present and falls
+- [x] Page context rides **inside the existing `AI_TURN` payload** — no new `MessageType`,
+      no new route†
+- [x] The §2.5 prompt `PAGE CONTEXT` slot is **filled** when context is present and falls
       back to the "never invent / ask them to type it" wording when empty
-- [ ] Output stays **plain text** (no JSON envelope, no annotations — ADR-008); no
+- [x] Output stays **plain text** (no JSON envelope, no annotations — ADR-008); no
       annotation rects extracted (no consumer yet)
-- [ ] The ai-turn test passes: page context injected into the prompt; no-context turns
+- [x] The ai-turn test passes: page context injected into the prompt; no-context turns
       unchanged; garbage page context degrades not crashes; bearer gate intact; no DB
       write — all with no live Anthropic call
-- [ ] The tutor **references specific content from the student's page** across the 5
+- [x] The tutor **references specific content from the student's page** across the 5
       representative site types; image-only pages yield empty context and no hallucinated
-      read (Task 7)
-- [ ] `/extension/src/popup/*`, `/extension/src/overlay/VoiceController.ts`, the background
-      worker, `/web/app/api/voice/*`, `/web/lib/voice/*`, `/web/app/api/session/*`,
+      read (Task 7 — manual walkthrough confirmed)
+- [x] `/extension/src/popup/*`, `/extension/src/overlay/VoiceController.ts`,
+      `/web/app/api/voice/*`, `/web/lib/voice/*`, `/web/app/api/session/*`,
       `/web/app/api/auth/*`, `/web/lib/auth/bearer.ts`, and `/web/lib/ai/profile.ts` are
-      untouched
-- [ ] No manifest permission added (DOM read needs none); host page unchanged apart from
+      untouched — **except the background worker's `AI_TURN` handler, see note†**
+- [x] No manifest permission added (DOM read needs none); host page unchanged apart from
       the `<calyxa-overlay>` shadow host
-- [ ] ADR-012 and ADR-013 exist; both CLAUDE.md sprint pointers updated
-- [ ] git log shows commits for this sprint's tasks
+- [x] ADR-012 and ADR-013 exist; both CLAUDE.md sprint pointers updated
+- [x] git log shows commits for this sprint's tasks
+
+**† Documented deviation, approved mid-sprint:** this plan assumed
+`/extension/src/background/index.ts` would relay `AI_TURN` unchanged. That assumption was
+wrong — `handleAiTurn` destructured only `.messages` off the payload (dropping
+`pageContext` silently), and `/extension/src/lib/api.ts`'s `aiTurn()` hardcoded
+`JSON.stringify({ messages })` in the actual request body, so `pageContext` never reached
+`/api/ai/turn` regardless of what the extractor captured. Both were fixed in Task 7
+(threading an optional `pageContext` through `handleAiTurn` and `aiTurn()`) with explicit
+user sign-off, since they sit outside this plan's declared file scope. No new
+`MessageType`, no new route, and no other background-worker behaviour changed — only the
+existing `AI_TURN` case's payload handling. A second, unrelated bug was found and fixed in
+the same pass: an off-by-one in `truncate()` (in both `pageExtractor.ts` and
+`web/lib/ai/page-context.ts`) produced `max + 1`-length strings on actual truncation,
+which the server's strict `> MAX_*_CHARS` check rejected — silently dropping the whole
+`pageContext` to empty for any equation/text long enough to need truncating (MathJax/
+MathML's verbose MathML, and ordinary page text over 2000 chars). Both fixes are committed
+(`75734b7`).
 
 ---
 
