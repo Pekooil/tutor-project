@@ -11,7 +11,13 @@ import type {
   VoiceTtsPayload,
 } from '../types/messages';
 import * as api from '../lib/api';
-import { getActiveSession, getAuth } from '../lib/storage';
+import {
+  clearRunningTranscript,
+  getActiveSession,
+  getAuth,
+  getRunningTranscript,
+  setRunningTranscript,
+} from '../lib/storage';
 
 // Calyxa background service worker (Manifest V3).
 //
@@ -202,6 +208,9 @@ async function handleSignIn(payload: SignInPayload): Promise<CalyxaMessage> {
 
 async function handleSignOut(): Promise<CalyxaMessage> {
   await api.signOut();
+  // Same lifetime discipline as the auth/active-session clears just above --
+  // the running transcript must not outlive the signed-out user (ADR-015).
+  await clearRunningTranscript();
   return buildSessionState();
 }
 
@@ -214,13 +223,25 @@ async function handleStartSession(payload: StartSessionPayload): Promise<CalyxaM
   }
 }
 
+/**
+ * Ends the active session and, if handleAiTurn cached a running transcript
+ * for it (Sprint 08 / ADR-015), forwards that transcript for the backend's
+ * end-of-session summary write -- the sprint's only new DB write. The cache
+ * is read fresh (never an in-memory value, per the ephemeral-worker
+ * discipline) and cleared only after api.endSession succeeds, mirroring how
+ * api.endSession itself only clears the active session on success. A
+ * session ended with no prior AI_TURN (no cached transcript) still ends
+ * cleanly -- transcript is simply omitted from the request body.
+ */
 async function handleEndSession(): Promise<CalyxaMessage> {
   const active = await getActiveSession();
   if (!active) {
     return buildSessionState('no active session');
   }
   try {
-    await api.endSession(active.sessionId);
+    const transcript = await getRunningTranscript();
+    await api.endSession(active.sessionId, transcript ?? undefined);
+    await clearRunningTranscript();
     return buildSessionState();
   } catch (error) {
     return buildSessionState(toErrorMessage(error));
@@ -237,10 +258,19 @@ async function handleEndSession(): Promise<CalyxaMessage> {
  * pageContext (Sprint 07) is forwarded as-is -- this worker does not
  * inspect or persist it, it only relays whatever the content script
  * captured straight through to api.aiTurn (ADR-012/ADR-013).
+ *
+ * On a successful relay, caches `messages` -- the full running transcript
+ * the overlay just sent -- via setRunningTranscript (Sprint 08 / ADR-015).
+ * This is no new network traffic: the overlay already sends the full
+ * transcript on every AI_TURN (ADR-008 history model); the worker simply
+ * keeps the latest copy in chrome.storage.session so handleEndSession can
+ * forward it for the session-summary write. Never cached on a failed
+ * relay -- a failed turn was never actually part of the conversation.
  */
 async function handleAiTurn(messages: TurnMessage[], pageContext?: PageContext): Promise<CalyxaMessage> {
   try {
     const reply = await api.aiTurn(messages, pageContext);
+    await setRunningTranscript(messages);
     return { type: 'AI_REPLY', payload: { reply } };
   } catch (error) {
     return { type: 'AI_REPLY', payload: { error: toErrorMessage(error) } };

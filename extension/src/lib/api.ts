@@ -152,11 +152,16 @@ export async function startSession({
   return active;
 }
 
-export async function endSession(sessionId: string): Promise<void> {
+// transcript (Sprint 08 / ADR-015) is OPTIONAL and, when present, rides in
+// the same request body -- no new route. The backend treats it as untrusted
+// input and runs the session-summary write best-effort, so it is forwarded
+// as-is here with no validation on this side, same discipline as
+// pageContext in aiTurn() below.
+export async function endSession(sessionId: string, transcript?: TurnMessage[]): Promise<void> {
   const res = await authorizedFetch('/api/session/end', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId }),
+    body: JSON.stringify({ sessionId, ...(transcript ? { transcript } : {}) }),
   });
 
   const body = await res.json();
