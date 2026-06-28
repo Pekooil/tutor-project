@@ -2,6 +2,7 @@ import { defineBackground } from '#imports';
 import type {
   AiTurnPayload,
   CalyxaMessage,
+  PageContext,
   SessionStatePayload,
   SignInPayload,
   StartSessionPayload,
@@ -80,9 +81,11 @@ export default defineBackground(() => {
       case 'END_SESSION':
         void handleEndSession().then(sendResponse);
         return true;
-      case 'AI_TURN':
-        void handleAiTurn((message.payload as AiTurnPayload).messages).then(sendResponse);
+      case 'AI_TURN': {
+        const { messages, pageContext } = message.payload as AiTurnPayload;
+        void handleAiTurn(messages, pageContext).then(sendResponse);
         return true;
+      }
       case 'VOICE_STT':
         void handleVoiceStt(message.payload as VoiceSttPayload).then(sendResponse);
         return true;
@@ -230,10 +233,14 @@ async function handleEndSession(): Promise<CalyxaMessage> {
  * per the ephemeral-worker discipline used throughout this file. On
  * SignedOutError the reply carries the exact "not signed in" text (via
  * toErrorMessage) the overlay shows as "sign in via the popup".
+ *
+ * pageContext (Sprint 07) is forwarded as-is -- this worker does not
+ * inspect or persist it, it only relays whatever the content script
+ * captured straight through to api.aiTurn (ADR-012/ADR-013).
  */
-async function handleAiTurn(messages: TurnMessage[]): Promise<CalyxaMessage> {
+async function handleAiTurn(messages: TurnMessage[], pageContext?: PageContext): Promise<CalyxaMessage> {
   try {
-    const reply = await api.aiTurn(messages);
+    const reply = await api.aiTurn(messages, pageContext);
     return { type: 'AI_REPLY', payload: { reply } };
   } catch (error) {
     return { type: 'AI_REPLY', payload: { error: toErrorMessage(error) } };

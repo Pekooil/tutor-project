@@ -26,8 +26,10 @@ export const MAX_EQUATIONS = 12
 export const MAX_EQUATION_CHARS = 400
 export const MAX_TEXT_CHARS = 2000
 
+// Slices to max - 1 + the ellipsis so the result is exactly `max` chars,
+// never max + 1.
 function truncate(value: string, max: number): string {
-  return value.length > max ? `${value.slice(0, max)}…` : value
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value
 }
 
 function renderEquation(equation: PageEquation): string | null {

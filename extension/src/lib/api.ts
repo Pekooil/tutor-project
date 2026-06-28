@@ -9,7 +9,7 @@ import {
   type SessionMode,
   type StoredAuth,
 } from './storage';
-import type { TurnMessage } from '../types/messages';
+import type { PageContext, TurnMessage } from '../types/messages';
 
 // Backend HTTP client for the extension (Sprint 04 Task 6 / ADR-006).
 //
@@ -173,14 +173,19 @@ export async function endSession(sessionId: string): Promise<void> {
  * holds no conversation memory, so the overlay must pass the full transcript
  * (including the new user turn) on every call.
  *
+ * pageContext (Sprint 07, ADR-012/ADR-013) is optional and rides in the same
+ * request body -- no new route. /api/ai/turn treats it as untrusted input
+ * and degrades to no-page-context on anything malformed, so it is forwarded
+ * as-is here with no validation on this side.
+ *
  * Reuses authorizedFetch verbatim, so a dead refresh token surfaces
  * SignedOutError exactly as the session helpers above do.
  */
-export async function aiTurn(messages: TurnMessage[]): Promise<string> {
+export async function aiTurn(messages: TurnMessage[], pageContext?: PageContext): Promise<string> {
   const res = await authorizedFetch('/api/ai/turn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, pageContext }),
   });
 
   const body = await res.json();

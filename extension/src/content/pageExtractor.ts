@@ -40,9 +40,13 @@ function queryExcludingOverlay<E extends Element>(selector: string): E[] {
   return Array.from(document.querySelectorAll<E>(selector)).filter((el) => !isInsideOverlay(el));
 }
 
+// Slices to max - 1 + the ellipsis so the RESULT is exactly `max` chars,
+// never max + 1 -- the server's parsePageContext rejects (and drops the
+// WHOLE pageContext for) any field over its cap, so an off-by-one here
+// would silently blank out an otherwise-valid capture.
 function truncate(value: string, max: number): string {
   const trimmed = value.trim();
-  return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
+  return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed;
 }
 
 function collapseWhitespace(value: string): string {
