@@ -19,14 +19,89 @@ export type RecordingHandle = {
   cancel: () => void;
 };
 
-// Whisper's supported formats include webm (the locked stack's STT target —
-// see ADR-010); Chrome's MediaRecorder already defaults to this for audio,
-// requesting it explicitly is just defensive.
+// Chrome's MediaRecorder records webm/opus (its audio default); requesting it
+// explicitly is just defensive. We do NOT send that webm to the STT proxy
+// directly: the gpt-4o-mini-transcribe model (the ADR-010 latency amendment,
+// 2026-06-27) rejects Chrome's MediaRecorder webm/opus as "corrupted or
+// unsupported" where the old whisper-1 tolerated it. Instead every utterance
+// is normalised to 16-bit PCM WAV in-browser before it leaves stop() (see
+// toWavUtterance) — a format the model reliably accepts — so the STT leg works
+// with no server-side transcode (Vercel has no ffmpeg) and no model change.
 const PREFERRED_MIME_TYPE = 'audio/webm';
 
 function pickMimeType(): string | undefined {
   if (typeof MediaRecorder === 'undefined') return undefined;
   return MediaRecorder.isTypeSupported(PREFERRED_MIME_TYPE) ? PREFERRED_MIME_TYPE : undefined;
+}
+
+// Decode whatever the recorder produced (webm/opus on Chrome) with the Web
+// Audio API and re-encode it as a canonical 16-bit PCM WAV, the format
+// gpt-4o-mini-transcribe accepts. Decoding happens entirely in-browser — no
+// network, no persistence (ADR-011). If decoding ever fails, fall back to the
+// raw recording rather than dropping the turn (no worse than before).
+async function toWavUtterance(recorded: ArrayBuffer, recordedMimeType: string): Promise<Utterance> {
+  try {
+    const AudioCtx =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return { bytes: recorded, mimeType: recordedMimeType };
+
+    const ctx = new AudioCtx();
+    try {
+      // decodeAudioData detaches its input buffer, so hand it a copy — the
+      // original `recorded` stays usable for the fallback path.
+      const audioBuffer = await ctx.decodeAudioData(recorded.slice(0));
+      const channels: Float32Array[] = [];
+      for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
+        channels.push(audioBuffer.getChannelData(c));
+      }
+      return { bytes: encodeWav(channels, audioBuffer.sampleRate), mimeType: 'audio/wav' };
+    } finally {
+      void ctx.close();
+    }
+  } catch {
+    return { bytes: recorded, mimeType: recordedMimeType };
+  }
+}
+
+// Minimal PCM-Float32 -> 16-bit PCM WAV encoder (RIFF/WAVE, format 1). No deps;
+// short push-to-talk clips only, so a single contiguous buffer is fine.
+function encodeWav(channels: Float32Array[], sampleRate: number): ArrayBuffer {
+  const numChannels = channels.length;
+  const numFrames = channels[0]?.length ?? 0;
+  const bytesPerSample = 2;
+  const blockAlign = numChannels * bytesPerSample;
+  const dataSize = numFrames * blockAlign;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const writeStr = (off: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i));
+  };
+
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true); // PCM fmt chunk size
+  view.setUint16(20, 1, true); // audio format: PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true); // byte rate
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 8 * bytesPerSample, true); // bits per sample
+  writeStr(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let off = 44;
+  for (let f = 0; f < numFrames; f++) {
+    for (let c = 0; c < numChannels; c++) {
+      const s = Math.max(-1, Math.min(1, channels[c][f]));
+      view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      off += 2;
+    }
+  }
+
+  return buffer;
 }
 
 /**
@@ -75,7 +150,8 @@ export async function startRecording(): Promise<RecordingHandle> {
             const blob = new Blob(chunks, { type: resolvedMimeType });
             blob
               .arrayBuffer()
-              .then((bytes) => resolve({ bytes, mimeType: resolvedMimeType }))
+              .then((recorded) => toWavUtterance(recorded, resolvedMimeType))
+              .then(resolve)
               .catch(reject);
           },
           { once: true },
