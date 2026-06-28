@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { clientFromBearer } from '@/lib/auth/bearer'
 import { runTutorTurn, type TurnMessage } from '@/lib/ai/claude'
+import { loadProfile } from '@/lib/learning/profile-read'
 import {
   MAX_EQUATIONS,
   MAX_EQUATION_CHARS,
@@ -9,9 +10,10 @@ import {
   type PageEquation,
 } from '@/lib/ai/page-context'
 
-// This route writes nothing to the database. messages and pageContext are
-// both rendered into the prompt for this turn only and then discarded — no
-// migration exists for either (ADR-009, ADR-013).
+// This route reads the live learning profile (ADR-014) and writes nothing
+// to the database. messages, pageContext, and the loaded profile are all
+// rendered into the prompt for this turn only and then discarded — no
+// migration exists for any of them (ADR-009, ADR-013, ADR-014).
 
 // Defends the token budget against abusive payloads, not an exact token
 // count — PLAN.md §2.5 targets the last 6–8 turns (well under MAX_MESSAGES).
@@ -161,8 +163,14 @@ export async function POST(request: Request) {
   // than failing the turn (ADR-013).
   const pageContext = parsePageContext(body)
 
+  // The live profile (ADR-014) replaces HARDCODED_PROFILE (ADR-009). A read,
+  // not a write — loadProfile never throws (it degrades to the calibrating
+  // empty profile on any query failure), so it sits outside the try/catch
+  // below, which is reserved for the Anthropic call.
+  const profile = await loadProfile(auth.supabase)
+
   try {
-    const { reply } = await runTutorTurn({ messages, pageContext })
+    const { reply } = await runTutorTurn({ messages, pageContext, profile })
     return NextResponse.json({ reply })
   } catch {
     // Never relay the provider's error text or any key material to the client.
