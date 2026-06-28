@@ -25,7 +25,11 @@ import type { ActiveSession, AuthUser } from '../lib/storage';
 //                  AiTurnPayload. Carries the FULL running transcript from
 //                  the overlay on every call, not just the new message --
 //                  the worker is stateless and holds no conversation memory
-//                  (ADR-008 history model).
+//                  (ADR-008 history model). Sprint 07 adds an OPTIONAL
+//                  pageContext: a single bounded PageContext snapshot read
+//                  by pageExtractor.ts on overlay open, read-only, and never
+//                  persisted (ADR-012/ADR-013) -- it rides this existing
+//                  message, no new MessageType was added.
 //   AI_REPLY       (Sprint 05) — background -> caller, the reply to AI_TURN:
 //                  AiReplyPayload ({reply} on success, {error} otherwise --
 //                  a SignedOutError surfaces as the literal string "not
@@ -98,8 +102,30 @@ export type TurnMessage = {
   content: string;
 };
 
+// Mirrors /web/lib/ai/page-context.ts exactly -- that file is the source of
+// truth for the page-context shape and the §2.5 budget (by-convention
+// re-declaration, same as LatencyTrace below). No URL, no element rects --
+// persistence and the annotation layer are both deferred (ADR-012/ADR-013).
+export type PageEquation = {
+  latex?: string;
+  mathml?: string;
+  text?: string;
+};
+
+export type PageContext = {
+  title?: string;
+  text?: string;
+  equations: PageEquation[];
+};
+
 export type AiTurnPayload = {
   messages: TurnMessage[];
+  // A single bounded PageContext snapshot, captured fresh by
+  // pageExtractor.ts on overlay open and re-captured on every open -- never
+  // cached across turns, never persisted (ADR-012/ADR-013). Absent when
+  // extraction found nothing (e.g. an image-only page); the server falls
+  // back to the empty-slot prompt wording in that case.
+  pageContext?: PageContext;
 };
 
 export type AiReplyPayload = { reply: string } | { error: string };
