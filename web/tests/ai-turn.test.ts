@@ -44,6 +44,14 @@ let fakeAnthropic: Server
 let user: { id: string }
 let token: string
 
+// Sprint 08: a second fixture user, seeded with one knowledge_nodes row, so
+// the "live profile in the prompt" test has a non-calibrating profile to
+// assert against without polluting `user`/`token` (which every other test in
+// this file relies on staying at zero nodes -- the cold-start case).
+let userWithProfile: { id: string }
+let tokenWithProfile: string
+const SEEDED_CONCEPT_KEY = 'algebra.quadratics.factoring'
+
 // --- Fake Anthropic backend ---
 // We spawn a REAL `next dev` below (not a direct route-function call) for the
 // same reason session.test.ts does: it exercises proxy.ts for real, which
@@ -150,9 +158,52 @@ beforeAll(async () => {
   const { data: signIn, error: signInErr } = await client.auth.signInWithPassword({ email, password: PASSWORD })
   if (signInErr || !signIn.session) throw new Error(`sign-in failed: ${signInErr?.message}`)
   token = signIn.session.access_token
+
+  // Sprint 08 fixture: a second user with one knowledge_nodes row inserted
+  // directly via the service role (fixture setup, not an assertion). Mirrors
+  // /supabase/seed/seed.sql's dev-only seed, just scoped to this test's own
+  // disposable user instead of the shared dev account.
+  const profileEmail = `darcy20080911+calyxaaiturnprofile${Date.now()}@gmail.com`
+  const { data: createdProfile, error: profileErr } = await admin.auth.admin.createUser({
+    email: profileEmail,
+    password: PASSWORD,
+    email_confirm: true,
+  })
+  if (profileErr || !createdProfile.user) {
+    throw new Error(`fixture setup failed (profile user): ${profileErr?.message}`)
+  }
+  userWithProfile = { id: createdProfile.user.id }
+
+  const { error: seedErr } = await admin.from('knowledge_nodes').insert({
+    user_id: userWithProfile.id,
+    concept_key: SEEDED_CONCEPT_KEY,
+    mastery: 0.42,
+    state: 'learning',
+    confidence_band: 'medium',
+    observation_count: 4,
+  })
+  if (seedErr) throw new Error(`fixture setup failed (knowledge_nodes seed): ${seedErr.message}`)
+
+  const profileClient = createClient(url, anonKey)
+  const { data: signInProfile, error: signInProfileErr } = await profileClient.auth.signInWithPassword({
+    email: profileEmail,
+    password: PASSWORD,
+  })
+  if (signInProfileErr || !signInProfile.session) {
+    throw new Error(`sign-in failed (profile user): ${signInProfileErr?.message}`)
+  }
+  tokenWithProfile = signInProfile.session.access_token
 }, 45000)
 
 afterAll(async () => {
+  if (userWithProfile) {
+    // knowledge_nodes.user_id -> public.users.id has no ON DELETE CASCADE
+    // (0004_knowledge_graph.sql) -- clear the seeded row first so deleting
+    // the auth user below doesn't hit a foreign-key violation.
+    await admin.from('knowledge_nodes').delete().eq('user_id', userWithProfile.id)
+    await admin.auth.admin.deleteUser(userWithProfile.id)
+  }
+
   if (user) {
     await admin.auth.admin.deleteUser(user.id)
   }
@@ -194,7 +245,7 @@ describe('/api/ai/turn', () => {
     expect(receivedRequests).toHaveLength(0)
   })
 
-  it('the system prompt carries the math-only rule, the Socratic pedagogy block, and the hardcoded profile; the page-context slot is empty', async () => {
+  it('the system prompt carries the math-only rule, the Socratic pedagogy block, and the live (cold-start) profile; the page-context slot is empty', async () => {
     const { status } = await turn(token, {
       messages: [{ role: 'user', content: 'How do I factor x^2+5x+6?' }],
     })
@@ -206,12 +257,56 @@ describe('/api/ai/turn', () => {
     expect(typeof system).toBe('string')
     expect(system).toContain('NEVER answer anything outside mathematics')
     expect(system).toContain('DEFAULT MODE IS SOCRATIC')
-    expect(system).toContain('sign_error.distribution') // the hardcoded misconception (ADR-009)
+    // `user` has zero knowledge_nodes -- loadProfile's cold-start fallback
+    // (ADR-014), replacing the retired HARDCODED_PROFILE (ADR-009).
+    expect(system).toContain('(no mastery data yet)')
+    expect(system).toContain('(none active)')
+    expect(system).toContain('Calibrating — early estimate.')
     expect(system).toContain('(no page context this turn)')
 
     expect(receivedRequests[0].messages).toEqual([
       { role: 'user', content: 'How do I factor x^2+5x+6?' },
     ])
+  })
+
+  // --- Sprint 08 Task 7: live profile read replaces HARDCODED_PROFILE ---
+
+  it('live profile in the prompt: a seeded knowledge_node replaces the calibrating fallback', async () => {
+    const { status } = await turn(tokenWithProfile, {
+      messages: [{ role: 'user', content: 'How do I factor x^2+5x+6?' }],
+    })
+
+    expect(status).toBe(200)
+    expect(receivedRequests).toHaveLength(1)
+
+    const system = receivedRequests[0].system as string
+    expect(system).toContain(`${SEEDED_CONCEPT_KEY}: mastery 0.42, state learning, confidence medium`)
+    expect(system).not.toContain('(no mastery data yet)')
+    expect(system).toContain('Confidence: Based on recorded session history.')
+  })
+
+  it('writes nothing to knowledge_nodes on a turn (ADR-013 holds for the live profile read)', async () => {
+    const before = await admin
+      .from('knowledge_nodes')
+      .select('mastery, observation_count')
+      .eq('user_id', userWithProfile.id)
+      .eq('concept_key', SEEDED_CONCEPT_KEY)
+      .single()
+
+    const { status } = await turn(tokenWithProfile, {
+      messages: [{ role: 'user', content: 'Can you check my work on this one?' }],
+    })
+    expect(status).toBe(200)
+
+    const after = await admin
+      .from('knowledge_nodes')
+      .select('mastery, observation_count')
+      .eq('user_id', userWithProfile.id)
+      .eq('concept_key', SEEDED_CONCEPT_KEY)
+      .single()
+
+    // The turn route only reads loadProfile -- the seeded row is untouched.
+    expect(after.data).toEqual(before.data)
   })
 
   it('relays the model reply verbatim', async () => {

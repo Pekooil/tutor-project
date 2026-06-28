@@ -41,6 +41,8 @@ let userB: { id: string; email: string }
 let clientA: SupabaseClient
 let clientB: SupabaseClient
 let sessionAId: string
+let knowledgeNodeAId: string
+let misconceptionAId: string
 
 beforeAll(async () => {
   const emailA = testEmail('a')
@@ -80,6 +82,16 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // Teardown via the service role only, mirroring the setup above.
+  // knowledge_nodes/misconceptions are cleared before the sessions/users
+  // deletes below -- both reference public.users with no ON DELETE CASCADE
+  // (0004_knowledge_graph.sql), so a leftover row here would otherwise block
+  // the users delete with a foreign-key violation.
+  if (misconceptionAId) {
+    await admin.from('misconceptions').delete().eq('id', misconceptionAId)
+  }
+  if (knowledgeNodeAId) {
+    await admin.from('knowledge_nodes').delete().eq('id', knowledgeNodeAId)
+  }
   if (sessionAId) {
     await admin.from('sessions').delete().eq('id', sessionAId)
   }
@@ -154,5 +166,91 @@ describe('RLS isolation: sessions and users', () => {
     expect(error).toBeNull()
     expect(data).toHaveLength(1)
     expect(data?.[0].id).toBe(userA.id)
+  })
+})
+
+// Sprint 08 Task 7 / ADR-014: the live knowledge graph must be owner-only
+// before it ever receives real data, matching the canonical `sessions`
+// policy shape asserted above (0004_knowledge_graph.sql).
+describe('RLS isolation: knowledge_nodes and misconceptions', () => {
+  it("A can insert and read A's own knowledge_nodes row", async () => {
+    const { data: inserted, error: insertErr } = await clientA
+      .from('knowledge_nodes')
+      .insert({ user_id: userA.id, concept_key: 'algebra.linear-equations.one-variable', mastery: 0.5 })
+      .select()
+      .single()
+
+    expect(insertErr).toBeNull()
+    expect(inserted).toBeTruthy()
+    knowledgeNodeAId = inserted!.id
+
+    const { data: ownRead, error: ownReadErr } = await clientA
+      .from('knowledge_nodes')
+      .select()
+      .eq('id', knowledgeNodeAId)
+
+    expect(ownReadErr).toBeNull()
+    expect(ownRead).toHaveLength(1)
+  })
+
+  it("B cannot SELECT A's knowledge_nodes row", async () => {
+    const { data, error } = await clientB.from('knowledge_nodes').select().eq('id', knowledgeNodeAId)
+
+    // RLS denial via USING is silent: zero rows, not a thrown error.
+    expect(error).toBeNull()
+    expect(data).toHaveLength(0)
+  })
+
+  it("B cannot UPDATE A's knowledge_nodes row", async () => {
+    const { data, error } = await clientB
+      .from('knowledge_nodes')
+      .update({ mastery: 0.99 })
+      .eq('id', knowledgeNodeAId)
+      .select()
+
+    expect(error).toBeNull()
+    expect(data).toHaveLength(0)
+  })
+
+  it("A can insert and read A's own misconceptions row", async () => {
+    const { data: inserted, error: insertErr } = await clientA
+      .from('misconceptions')
+      .insert({
+        user_id: userA.id,
+        concept_key: 'algebra.linear-equations.one-variable',
+        category: 'sign_error.distribution',
+      })
+      .select()
+      .single()
+
+    expect(insertErr).toBeNull()
+    expect(inserted).toBeTruthy()
+    misconceptionAId = inserted!.id
+
+    const { data: ownRead, error: ownReadErr } = await clientA
+      .from('misconceptions')
+      .select()
+      .eq('id', misconceptionAId)
+
+    expect(ownReadErr).toBeNull()
+    expect(ownRead).toHaveLength(1)
+  })
+
+  it("B cannot SELECT A's misconceptions row", async () => {
+    const { data, error } = await clientB.from('misconceptions').select().eq('id', misconceptionAId)
+
+    expect(error).toBeNull()
+    expect(data).toHaveLength(0)
+  })
+
+  it("B cannot UPDATE A's misconceptions row", async () => {
+    const { data, error } = await clientB
+      .from('misconceptions')
+      .update({ status: 'resolved' })
+      .eq('id', misconceptionAId)
+      .select()
+
+    expect(error).toBeNull()
+    expect(data).toHaveLength(0)
   })
 })
