@@ -1,4 +1,5 @@
 import type { LearningProfile } from './profile'
+import { renderPageContext, type PageContext } from './page-context'
 
 // PLAN.md §2.5 truncation intent: top-K weakest/relevant nodes (K≈12) and
 // active misconceptions only (cap ≈8). The hardcoded profile is already
@@ -32,12 +33,35 @@ function renderProfileSummary(profile: LearningProfile): string {
   ].join('\n')
 }
 
+// The Sprint 05/06 empty-slot wording, reproduced verbatim (ADR-013
+// back-compat): a turn with no pageContext -- or one that extracted
+// nothing, e.g. an image-only page -- gets this exact text rather than a
+// guess at what might be on screen.
+const PAGE_CONTEXT_EMPTY = `(no page context this turn)
+Page-context extraction is not wired in yet this sprint. Do not claim to see anything on the
+student's screen — ask them to describe or type the problem instead.`
+
+// Renders the PAGE CONTEXT block: the extracted page (with the §2.5 "anchor
+// the session to THIS content" wording) when renderPageContext has
+// something to say, else the unchanged empty-slot fallback (ADR-012/013).
+function renderPageContextBlock(pageContext?: PageContext): string {
+  const rendered = pageContext ? renderPageContext(pageContext) : ''
+
+  if (!rendered) {
+    return PAGE_CONTEXT_EMPTY
+  }
+
+  return `${rendered}
+Anchor the session to THIS content. Refer to "the equation on your screen," not abstractions.`
+}
+
 // Assembles the §2.5 system prompt. The PEDAGOGY and HARD RULES blocks are
 // static and reproduced verbatim from PLAN.md §2.5; STUDENT PROFILE renders
-// the injected profile; PAGE CONTEXT is explicitly empty (extraction is out
-// of scope this sprint, PLAN §2.6); OUTPUT FORMAT is overridden to plain
-// text per ADR-008 (the §2.5 JSON envelope is deferred to the voice sprint).
-export function buildSystemPrompt(profile: LearningProfile): string {
+// the injected profile; PAGE CONTEXT renders the extracted page when present
+// (ADR-012/013) and falls back to the empty-slot wording otherwise; OUTPUT
+// FORMAT is overridden to plain text per ADR-008 (the §2.5 JSON envelope is
+// deferred to the voice sprint).
+export function buildSystemPrompt(profile: LearningProfile, pageContext?: PageContext): string {
   return `You are Calyxa, a patient, encouraging math tutor for an independent high-school or
 college student. You teach MATH ONLY. This turn happens over text chat, so write the way a
 great tutor talks: warm, concise, one idea at a time.
@@ -61,9 +85,7 @@ Use this to calibrate difficulty and to watch for the listed misconceptions WITH
 clinically. If a profile estimate is low-confidence, verify with a quick question before assuming.
 
 ═══════════════════ PAGE CONTEXT (injected) ═══════════════════
-(no page context this turn)
-Page-context extraction is not wired in yet this sprint. Do not claim to see anything on the
-student's screen — ask them to describe or type the problem instead.
+${renderPageContextBlock(pageContext)}
 
 ═══════════════════ HARD RULES — NEVER ═══════════════════
 - NEVER give a final answer without scaffolding while in Socratic mode.

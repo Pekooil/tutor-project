@@ -2,6 +2,7 @@ import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
 import { buildSystemPrompt } from './system-prompt'
 import { HARDCODED_PROFILE } from './profile'
+import type { PageContext } from './page-context'
 
 export type TurnMessage = {
   role: 'user' | 'assistant'
@@ -26,13 +27,15 @@ function createClient(): Anthropic {
 // sprint adds streaming alongside the §2.5 JSON output envelope.
 export async function runTutorTurn({
   messages,
+  pageContext,
 }: {
   messages: TurnMessage[]
+  pageContext?: PageContext
 }): Promise<{ reply: string }> {
   const response = await createClient().messages.create({
     model: MODEL,
     max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(HARDCODED_PROFILE),
+    system: buildSystemPrompt(HARDCODED_PROFILE, pageContext),
     messages,
   })
 
