@@ -261,4 +261,93 @@ describe('/api/ai/turn', () => {
     expect(raw).not.toContain('sk-ant-totally-real-should-not-leak')
     expect(json.error).toBe('Tutor is unavailable right now.')
   })
+
+  // --- Sprint 07 Task 4: page-context injection (ADR-012/ADR-013) ---
+  // The "page-context slot is empty" case above already covers the
+  // no-pageContext back-compat path (Sprint 05/06 behaviour); these add the
+  // present-pageContext side.
+
+  it('injects pageContext into the prompt so the tutor can reference on-screen content', async () => {
+    const { status } = await turn(token, {
+      messages: [{ role: 'user', content: 'what equation is this?' }],
+      pageContext: { equations: [{ latex: 'x^2 + 5x + 6 = 0' }] },
+    })
+
+    expect(status).toBe(200)
+    expect(receivedRequests).toHaveLength(1)
+
+    const system = receivedRequests[0].system as string
+    expect(system).toContain('x^2 + 5x + 6 = 0')
+    expect(system).toContain('Anchor the session to THIS content')
+    expect(system).not.toContain('(no page context this turn)')
+  })
+
+  it('degrades a malformed or oversized pageContext to "no page context" instead of crashing', async () => {
+    const cases: unknown[] = [
+      { equations: [] }, // valid but otherwise the cases below cover the failure shapes
+      'just a string', // not an object at all
+      { equations: 'not-an-array' },
+      { equations: [{ latex: 12345 }] }, // wrong field type
+      { equations: Array.from({ length: 50 }, (_, i) => ({ latex: `eq${i}` })) }, // over MAX_EQUATIONS
+      { equations: [{ latex: 'x'.repeat(500) }] }, // over MAX_EQUATION_CHARS
+      { equations: [], text: 'x'.repeat(3000) }, // over MAX_TEXT_CHARS
+    ]
+
+    for (const pageContext of cases) {
+      const { status } = await turn(token, {
+        messages: [{ role: 'user', content: 'hi' }],
+        pageContext,
+      })
+      expect(status).toBe(200)
+    }
+
+    // The first case ({ equations: [] }) is well-formed-but-empty and also
+    // falls back to the empty-slot wording (Task 2); every case here
+    // degrades to the same short, bounded fallback rather than 500ing or
+    // injecting unbounded text.
+    for (const captured of receivedRequests) {
+      expect(captured.system as string).toContain('(no page context this turn)')
+    }
+  })
+
+  it('a missing bearer still 401s even when a pageContext is attached', async () => {
+    const { status } = await turn(null, {
+      messages: [{ role: 'user', content: 'hi' }],
+      pageContext: { equations: [{ latex: 'x=1' }] },
+    })
+
+    expect(status).toBe(401)
+    expect(receivedRequests).toHaveLength(0)
+  })
+
+  it('writes nothing to the database on a page-context turn (ADR-013 guard)', async () => {
+    const before = await admin
+      .from('sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+
+    const { status } = await turn(token, {
+      messages: [{ role: 'user', content: 'what equation is this?' }],
+      pageContext: { equations: [{ latex: 'x^2 + 5x + 6 = 0' }] },
+    })
+    expect(status).toBe(200)
+
+    const after = await admin
+      .from('sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+
+    // No row appeared in the one user-data table that exists today
+    // (sessions) — the AI turn route is entirely separate from
+    // /api/session/start and never touches it.
+    expect(after.count).toBe(before.count)
+
+    // Structural guard, mirroring the ADR-011 no-storage-import assertion
+    // in voice.test.ts: the route's own source never imports the
+    // service-role/write-capable client or calls an insert/upsert.
+    const source = readFileSync(resolve(process.cwd(), 'app/api/ai/turn/route.ts'), 'utf-8')
+    expect(source).not.toMatch(/from\s+['"]@\/lib\/supabase\/admin['"]/)
+    expect(source).not.toMatch(/\.insert\(/)
+    expect(source).not.toMatch(/\.upsert\(/)
+  })
 })
