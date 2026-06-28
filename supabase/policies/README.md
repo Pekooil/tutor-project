@@ -61,3 +61,5 @@ create policy <table>_modify_own on public.<table>
 |---|---|---|
 | `users` | 1 (`id`) | `0001_init_users.sql` |
 | `sessions` | 2 (`user_id`) | `0002_sessions.sql` |
+| `knowledge_nodes` | 2 (`user_id`) | `0004_knowledge_graph.sql` |
+| `misconceptions` | 2 (`user_id`) | `0004_knowledge_graph.sql` |
