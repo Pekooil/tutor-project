@@ -63,3 +63,10 @@ create policy <table>_modify_own on public.<table>
 | `sessions` | 2 (`user_id`) | `0002_sessions.sql` |
 | `knowledge_nodes` | 2 (`user_id`) | `0004_knowledge_graph.sql` |
 | `misconceptions` | 2 (`user_id`) | `0004_knowledge_graph.sql` |
+
+## Additive columns (no policy change)
+
+- `misconceptions.embedding` (`0005_misconception_embeddings.sql`, ADR-017)
+  — a nullable `vector(1024)` column added to an existing Shape 2 table.
+  Additive columns inherit the table's existing policies above; no new
+  policy is needed.
