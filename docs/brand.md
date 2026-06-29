@@ -191,11 +191,32 @@ Calm, encouraging, precise — a patient tutor, not a hype product. Concretely:
 |---|---|---|
 | Logomark + wordmark lockup | `/web/public/logo.svg` | primary lockup, §2–3 rules |
 | Logomark only | `/web/public/logomark.svg` | square, for favicon/avatar contexts |
-| Favicon | `/web/app/icon.svg` | Next.js auto-favicon convention, generated from `logomark.svg` |
-| OG image | `/web/public/og.png` | social preview; consumed by the (later) marketing sprint |
-| Extension icons | `/extension/public/icon/{16,32,48,128}.png` | rasterized from `logomark.svg`, wired into the WXT manifest |
+| Favicon | `/web/app/icon.svg` | Next.js auto-favicon convention (file-based metadata, no `layout.tsx` edit needed); identical content to `logomark.svg` |
+| OG image | `/web/public/og.png` | 1200×630, social preview; consumed by the (later) marketing sprint |
+| Extension icons | `/extension/public/icon/{16,32,48,128}.png` | rasterized from `logomark.svg`; WXT auto-discovers the `icon/<size>.png` convention and populates `manifest.icons` — no `wxt.config.ts` edit needed (verified via `wxt build`) |
+
+**Construction record:**
+- **Logomark** (`logomark.svg`, `viewBox="0 0 64 64"`): three sepal shapes (one straight, two at
+  ±42° rotation from a shared base anchor) plus an 8px-radius bud circle offset above and clear of
+  the sepals — the negative-space gap between bud and sepals is what reads as "cradled," since the
+  whole mark is one flat `--color-accent` fill with no internal stroke or second color. Verified
+  legible down to 16px (rendered and visually inspected at 16/32/48/512px before finalizing).
+- **Wordmark**: not a separate shipped file — it is real Geist Sans **outlined to vector paths** at
+  weight 600 (the brand's locked semibold), not live `<text>`. Outlines were extracted by
+  instancing the actual variable Geist Sans binary `next/font/google` resolves to in this repo
+  (`fontTools.varLib.instancer` pinned to `wght=600`, glyph contours exported via `SVGPathPen`),
+  so the lockup's letterforms are pixel-for-pixel the brand font's real semibold shapes, not an
+  approximation — satisfying §3's "carries the exact shape" requirement.
+- **Lockup** (`logo.svg`): mark height 64 units, gap = 32 units (0.5× mark height, per §2), wordmark
+  cap-height scaled to 0.6× mark height and vertically centered on the mark's bounding-box midline;
+  total viewBox `0 0 268.04 64`.
+- **OG image**: lockup composed on a `--color-surface` (`#f7f7f5`) ground, centered, scaled to 60% of
+  the 1200×630 canvas width.
 
 Usage rule for all of the above: **never recolor the logomark** outside the accent/neutral tokens
 defined in §4, and never apply a drop shadow, outline, or gradient to it — flat fill only, per §2.
-*(This section is updated with final asset specifics — exact viewBox, export sizes — once Task 4
-produces them.)*
+
+**First-pass caveat:** this is a from-scratch mark designed and reviewed programmatically (rendered
+and visually inspected at multiple sizes), not by a human designer. Per the sprint's own risk note,
+a revision is a single-asset swap (`logomark.svg` + regenerate the lockup/icons/OG from it), not a
+re-theme — flag here if the direction doesn't land after seeing it in place.
