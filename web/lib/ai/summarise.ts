@@ -1,7 +1,8 @@
 import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
 import type { TurnMessage } from './claude'
-import { KNOWN_CONCEPT_KEYS, type ConceptObservation, type SessionSummary } from '@/lib/learning/types'
+import { CONCEPT_KEYS } from '@calyxa/curriculum'
+import type { ConceptObservation, SessionSummary } from '@/lib/learning/types'
 
 const MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 500 // a compact JSON summary, not a chat reply -- PLAN.md §2.5's per-turn budget does not apply here
@@ -25,7 +26,7 @@ student practiced. Respond with ONLY a JSON object, no prose, no markdown fences
 
 Rules:
 - "conceptKey" MUST be exactly one of these known keys (skip anything that does not clearly match one):
-${KNOWN_CONCEPT_KEYS.map((key) => `  - ${key}`).join('\n')}
+${CONCEPT_KEYS.map((key) => `  - ${key}`).join('\n')}
 - "outcome" reflects the student's final attempt on that concept this session: "correct",
   "partial", "incorrect", or "none" if the concept was only discussed, never attempted.
 - Only include "misconception" when the student showed a clear, repeated error pattern (e.g. a
@@ -64,7 +65,7 @@ function parseSummary(raw: string): SessionSummary {
 
       const { conceptKey, outcome, misconception } = candidate as Record<string, unknown>
 
-      if (typeof conceptKey !== 'string' || !KNOWN_CONCEPT_KEYS.includes(conceptKey)) continue
+      if (typeof conceptKey !== 'string' || !CONCEPT_KEYS.includes(conceptKey)) continue
       if (!isValidOutcome(outcome)) continue
 
       const observation: ConceptObservation = { conceptKey, outcome }
