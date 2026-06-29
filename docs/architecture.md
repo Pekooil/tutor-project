@@ -9,7 +9,9 @@ integrations.
 ## Monorepo layout
 - `/extension` — WXT Chrome extension (Manifest V3)
 - `/web` — Next.js marketing site + mastery dashboard
-- `/packages` — shared libraries: `ai`, `learning`, `auth`, `types`, `utils`
+- `/packages` — shared libraries: `learning-model` (pure FSRS update + decay,
+  Sprint 09), `curriculum` (pure concept graph, Sprint 09); `ai`, `auth`,
+  `types`, `utils` remain unextracted
 - `/supabase` — migrations, RLS policies, seed data
 - `/docs` — architecture doc, ADRs, sprint plans
 

@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 08 — Live learning profile
+Sprint 09 — Learning-model package
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions
