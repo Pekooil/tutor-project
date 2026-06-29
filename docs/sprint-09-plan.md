@@ -476,33 +476,57 @@ With `cd web && next dev` (`ANTHROPIC_API_KEY` set) and the unpacked extension l
 
 ## Acceptance criteria (full checklist)
 
-**Sprint status: PLANNED.**
+**Sprint status: DONE.** Closed with two documented manual-acceptance gaps (fuzzy collapse and
+3-session resolution were never observed live — see Task 8's checklist line and "what the next
+sprint needs to know" below); the underlying mechanism for both is proven correct by Task 7's
+automated suite. Darcy reviewed and accepted closing on this basis rather than spending further
+live sessions chasing a summariser-prompt judgment call.
 
-- [ ] `npm install` + `turbo run typecheck lint build test` pass from the root with the new
+- [x] `npm install` + `turbo run typecheck lint build test` pass from the root with the new
       `/packages/learning-model` + `/packages/curriculum` workspaces present
-- [ ] `cd web && next build` exits 0; the extension is untouched (its diff is empty)
-- [ ] `supabase db reset` runs 0001→0005 cleanly; `pg_trgm` + `vector` enabled; `misconceptions`
-      has `embedding vector(1024)` + the trigram GIN; **no** ivfflat, **no** backfill (deferred)
-- [ ] The full §2.4 `updateKnowledgeNode` lives in pure `/packages/learning-model` and **replaces**
+- [x] `cd web && next build` exits 0; the extension is untouched (its diff is empty)
+- [x] `pg_trgm` + `vector` enabled; `misconceptions` has `embedding vector(1024)` + the trigram GIN;
+      **no** ivfflat, **no** backfill (deferred) — verified by querying the live hosted project's
+      schema directly. **Caveat:** this sandbox has no Docker/linked Supabase CLI, so this was never
+      verified via an actual `supabase db reset` 0001→0006 (0006 was added after this line was
+      written — the trigram RPC, not in the original Task 5 file list; see ADR-017).
+- [x] The full §2.4 `updateKnowledgeNode` lives in pure `/packages/learning-model` and **replaces**
       `/web/lib/learning/update.ts`; it is unit-tested in isolation (§2.10)
-- [ ] FSRS runs at **session-end granularity** off the enriched summary; `stability`/`difficulty`
+- [x] FSRS runs at **session-end granularity** off the enriched summary; `stability`/`difficulty`
       are **persisted**; mastery is **decay-adjusted on read**; the `response_latency_ms` lucky-guess
-      sub-guard is documented **off** (per-turn persistence still deferred — ADR-016)
-- [ ] Concept keys come from `/packages/curriculum` (`CONCEPT_KEYS`); the inline
+      sub-guard is documented **off** (per-turn persistence still deferred — ADR-016). Confirmed both
+      by the automated suite and live against a real account in Task 8 (hand-verified FSRS math
+      matched the database exactly for a real lucky-guess-discounted session).
+- [x] Concept keys come from `/packages/curriculum` (`CONCEPT_KEYS`); the inline
       `KNOWN_CONCEPT_KEYS` is retired; the Sprint 08 round-trip still works
-- [ ] Misconception matching is exact-category → **`pg_trgm` trigram > 0.6**, with the **3-correct
-      resolution** streak; `pgvector`/`embedding` cosine + ivfflat are **deferred infra** (ADR-017)
-- [ ] `system-prompt.ts`, `claude.ts`, `/api/ai/turn`, `/api/session/end` (the route),
+- [x] Misconception matching is exact-category → **`pg_trgm` trigram**, with the **3-correct
+      resolution** streak; `pgvector`/`embedding` cosine + ivfflat are **deferred infra** (ADR-017).
+      **Threshold revised 0.6 → 0.35 during Task 8** (ADR-017 amendment) — the mechanism is
+      mechanically proven (Task 7, scripted inputs) but **promotion-to-`active` was never observed
+      live** even after the revision; see the summariser-flagging-variance finding above.
+- [x] `system-prompt.ts`, `claude.ts`, `/api/ai/turn`, `/api/session/end` (the route),
       `/web/lib/tier/*`, voice/auth, and the whole extension are **untouched**; `/api/ai/turn` still
-      **writes nothing** (ADR-013)
-- [ ] The reinforcement scheduler, `reinforcement_schedule`, `session_interactions`, cold-start
-      onboarding, topic detection, and the mastery dashboard remain **deferred**
-- [ ] The test suite passes (package isolation + web: decay-on-read, stability persisted, fuzzy
-      collapse, resolution, back-compat, RLS) with no live Anthropic call
-- [ ] Manual: decay, lucky-guess discount, fuzzy collapse, and 3-session resolution all observed
-      (Task 8)
-- [ ] ADR-016 + ADR-017 exist and revisit ADR-014; both CLAUDE.md pointers + architecture.md
-      updated; git log shows commits for each task
+      **writes nothing** (ADR-013) — also reconfirmed live in Task 8 (an open, unended session wrote
+      nothing at all until ended).
+- [x] The reinforcement scheduler, `reinforcement_schedule`, `session_interactions`, cold-start
+      onboarding, topic detection, and the mastery dashboard remain **deferred** — also reconfirmed
+      live in Task 8 (neither table exists in the live schema).
+- [x] The test suite passes (package isolation + web: decay-on-read, stability persisted, fuzzy
+      collapse, resolution, back-compat, RLS) with no live Anthropic call — 70/70, including two
+      test-infra fixes found and fixed during Task 8 verification (dist/ test-file pollution; a too-
+      tight default test timeout under load), unrelated to the model code itself.
+- [ ] **Manual (Task 8) — partial.** Decay-on-read, the lucky-guess discount, no-scheduler/no-
+      per-turn-write, and cold start were all directly observed against a real account with a real
+      `ANTHROPIC_API_KEY` and verified against the live database. **Fuzzy collapse and 3-session
+      resolution were not observed live** — five real attempts at reproducing the same error
+      produced four differently-flagged one-off misconceptions and one unflagged session; none
+      reached the 2-instance `active` promotion needed before resolution can even be attempted. This
+      is a documented finding (see "what the next sprint needs to know"), not a code defect — the
+      underlying matching/promotion/resolution mechanism is proven correct by Task 7's scripted
+      automated tests. Whether this gap is acceptable to close the sprint on is a call for Darcy, not
+      this checklist.
+- [x] ADR-016 + ADR-017 exist and revisit ADR-014; both CLAUDE.md pointers + architecture.md
+      updated; git log shows commits for each task. ADR-017 additionally amended during Task 8.
 
 ---
 
@@ -561,5 +585,30 @@ misconceptions match fuzzily (`pg_trgm`) and resolve after 3 clean performances.
 - **Still deferred deliberately:** topic detection / page bias / `page_url_hash` (privacy sprint),
   the mastery dashboard, model routing/escalation, Pro-gating. Audio + page context stay ephemeral
   (ADR-011/ADR-013).
+- **`TRIGRAM_THRESHOLD` was revised from 0.6 to 0.35 during Task 8 manual acceptance** (ADR-017
+  amendment) — real same-error descriptions, independently narrated by the summariser across
+  sessions, measured only ~0.41 similarity at best against this hosted project's `pg_trgm`;
+  genuinely different errors measured ~0.18–0.27. 0.35 sits between those two observed clusters.
+  Still a small, single-account sample — worth re-checking against more data once real usage
+  accumulates.
+- **Summariser misconception-flagging is judgment-sensitive to session tone, not just error
+  content (Task 8 finding).** The same surface-level mistake (guessing equal factors, e.g.
+  `(x+4)(x+4)` or `(x+2)(x+2)`, without checking the product/sum requirement) got flagged as a
+  `misconception` in some manual-test sessions and not in others — specifically, sessions where the
+  student recovered quickly and confidently (correctly self-expanding both the wrong guess and the
+  right answer, no hesitation) did *not* get flagged, while sessions with more visible friction
+  (uncertainty, the tutor having to directly explain) did. `summarise.ts`'s prompt asks for a
+  "clear, **repeated** error pattern," which plausibly biases the model toward reading a single,
+  cleanly-self-corrected slip as normal Socratic problem-solving rather than a tracked
+  misconception — even though our backend's promotion design *wants* every single occurrence
+  logged as a 1-count `pending` row so repetition can accumulate *across* sessions. Net effect: in
+  five real manual-test sessions making variations of the same error, four got flagged as
+  *different* one-off misconceptions and one wasn't flagged at all — none reached the 2-instance
+  `active` promotion live, even after the threshold fix above. The matching/promotion/resolution
+  *mechanism* itself is still mechanically proven correct (Task 7's automated suite, scripted
+  inputs); what's unproven live is how reliably real conversations trigger it. Worth a closer look
+  at `summarise.ts`'s misconception-flagging instructions (e.g. dropping "repeated" so a single
+  flaggable error always gets logged, leaving the *promotion* threshold to do the repetition
+  counting it already does) before/alongside whichever sprint next touches the summariser prompt.
 </content>
 </invoke>

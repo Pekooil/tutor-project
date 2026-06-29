@@ -6,7 +6,15 @@ import { KNOWN_CONCEPT_KEYS, type ConceptObservation, type SessionSummary } from
 const DEFAULT_STABILITY = 1.0 // matches knowledge_nodes.stability DB default (migration 0004)
 const DEFAULT_DIFFICULTY = 0.3 // matches knowledge_nodes.difficulty DB default (migration 0004)
 const MS_PER_DAY = 1000 * 60 * 60 * 24
-const TRIGRAM_THRESHOLD = 0.6
+// Revised down from ADR-017's original 0.6 during Sprint 09 Task 8 manual
+// acceptance: real same-error descriptions, independently narrated by the
+// summariser across sessions (different specific numbers/framing each
+// time), measured ~0.41 similarity at best against this hosted project's
+// pg_trgm -- genuinely different errors measured ~0.18-0.27. 0.35 sits
+// between those two observed clusters. The RPC's own SQL-side default
+// (migration 0006) is untouched -- apply.ts always passes this value
+// explicitly, so that default is dead code, not a second place to update.
+const TRIGRAM_THRESHOLD = 0.35
 const RESOLUTION_STREAK = 3
 
 type KnowledgeNodeRow = {

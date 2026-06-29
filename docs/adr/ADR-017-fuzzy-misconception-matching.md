@@ -46,3 +46,24 @@ built this sprint — there is no embedding provider wired, and an
   `SessionSummary`.
 - Forecloses: nothing it does not already defer — cosine/embedding
   matching and the `ivfflat` index remain the embedding sprint's work.
+
+**Amendment (Sprint 09 Task 8, manual acceptance):** The 0.6 threshold was
+chosen without real same-error data and turned out too strict in practice.
+A live student account repeatedly made the same conceptual mistake
+(guessing a factor pair without checking it) across four separate
+sessions; the real summariser — narrating each instance independently,
+with different specific numbers and framing every time — produced
+descriptions that measured only ~0.41 similarity at best against each
+other via this project's `pg_trgm`, never clearing 0.6. Genuinely
+different errors in the same data measured ~0.18–0.27. `TRIGRAM_THRESHOLD`
+in `apply.ts` is revised down to **0.35**, sitting between the two
+observed clusters, so organically-narrated same-error recurrences actually
+collapse instead of silently accumulating as separate `pending` rows that
+never promote. The RPC's own SQL-side default (migration 0006) is left at
+0.6 — `apply.ts` always passes the threshold explicitly, so that default
+is unreachable, not a second place requiring a migration. This is a
+tuning revision, not a reversal: trigram-only matching (vs. the deferred
+embedding/cosine path) is unchanged; the risk this trades against is a
+higher chance of merging two genuinely different errors, which the
+embedding sprint's semantic matching is the real fix for, not a lower
+trigram number.
