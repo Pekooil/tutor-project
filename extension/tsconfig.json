@@ -1,3 +1,20 @@
 {
-  "extends": ["../tsconfig.base.json", "./.wxt/tsconfig.json"]
+  "extends": ["../tsconfig.base.json", "./.wxt/tsconfig.json"],
+  "compilerOptions": {
+    // TS does not merge "paths" across "extends" layers — re-declaring any
+    // key here would silently replace, not add to, .wxt/tsconfig.json's own
+    // aliases (@, @/*, ~, ~/*, @@, @@/*, ~~, ~~/*), so they're repeated here
+    // alongside the new @calyxa/ui entry rather than risk losing them.
+    "paths": {
+      "@": [".."],
+      "@/*": ["../*"],
+      "~": [".."],
+      "~/*": ["../*"],
+      "@@": [".."],
+      "@@/*": ["../*"],
+      "~~": [".."],
+      "~~/*": ["../*"],
+      "@calyxa/ui": ["../packages/ui/src/index.ts"]
+    }
+  }
 }

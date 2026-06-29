@@ -1,0 +1,107 @@
+/* Calyxa design tokens — Tailwind v4 @theme (Sprint 10, ADR-018).
+ *
+ * Single source of truth for color/type/spacing/radius/shadow/motion, shared
+ * by /web (imported into globals.css, then mapped onto shadcn's CSS
+ * variables) and the extension overlay (imported directly into the
+ * shadow-root stylesheet). Every value here is cited in /docs/brand.md —
+ * change a value there first, then here; never the other way around.
+ *
+ * Colors are plain sRGB hex, not oklch, so they match the contrast ratios
+ * calculated (and recorded) in /docs/brand.md §4 exactly — no oklch round-trip
+ * to re-verify.
+ */
+
+@theme {
+  /* ---- Color: accent (green) — brand.md §4.1 ---- */
+  --color-accent: #15803d; /* fills (buttons, focus-ring core, active state) */
+  --color-accent-foreground: #ffffff; /* text/icon ON --color-accent — 5.01:1 AA */
+  --color-accent-emphasis: #166534; /* accent-colored TEXT on light backgrounds — 7.13:1 AAA */
+  --color-accent-subtle: #f0fdf4; /* light tint surface for badges/banners; pair with accent-emphasis text — 6.81:1 AA */
+  /* Stable aliases for the pair above. shadcn's own vocabulary needs
+   * --color-accent to mean a hover/highlight tint, not our brand accent
+   * (ADR-018) — /web's globals.css locally re-targets that NAME via
+   * @theme inline. CSS custom properties resolve var() against the final
+   * cascaded value of the referenced NAME, not "whatever it was when this
+   * line was written" — so anything needing the original green after such
+   * a local override (e.g. shadcn's --primary/--primary-foreground) must
+   * read these, never --color-accent/--color-accent-foreground directly. */
+  --color-accent-fill: #15803d;
+  --color-accent-fill-foreground: #ffffff;
+
+  /* ---- Color: neutrals (warm, calm) — brand.md §4.2 ---- */
+  --color-background: #ffffff;
+  --color-surface: #f7f7f5;
+  --color-border: #e5e3de; /* decorative hairlines only — 1.28:1, NOT a standalone boundary cue */
+  --color-border-strong: #79766e; /* interactive-component boundaries — 4.54:1, clears the 3:1 non-text minimum */
+  --color-foreground: #1c1c1a; /* 17.06:1 AAA on background */
+  --color-muted-foreground: #6b6b65; /* 5.36:1 AA on background */
+  --color-danger: #b91c1c; /* 6.47:1 AA on background */
+  --color-danger-foreground: #ffffff;
+  --color-focus-ring: #15803d; /* = --color-accent */
+
+  /* ---- Type — brand.md §5 ----
+   * --font-sans is the overlay's SYSTEM-STACK token (ADR-018): the overlay
+   * can never load a web font (host-DOM-mutation risk), so this is also its
+   * permanent font. /web layers Geist Sans on top via next/font, scoped to
+   * its own <html>/<body> in layout.tsx — this token is web's pre-hydration
+   * fallback, never its shipped brand font. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+
+  /* Type scale — brand.md §5 (font-weight tokens 400/500/600/700 are
+   * Tailwind's own defaults already and match brand.md; not redeclared). */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: 2.5rem;
+
+  /* ---- Spacing — brand.md §6: explicit 4px base, pinned rather than left
+   * to Tailwind's (currently identical) default, so a future Tailwind
+   * default change can't silently drift the brand's spacing rhythm. ---- */
+  --spacing: 0.25rem;
+
+  /* ---- Radius — brand.md §6: rounded, not pill-shaped. ---- */
+  --radius-sm: 0.375rem; /* 6px — inputs, buttons */
+  --radius-md: 0.625rem; /* 10px — cards */
+  --radius-lg: 1rem; /* 16px — the overlay panel */
+
+  /* ---- Shadow — brand.md §6: one soft elevation token. ---- */
+  --shadow-panel: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+
+/* ---- Motion — brand.md §6: reduced-motion-safe by construction.
+ * Plain custom properties (not a Tailwind @theme namespace) so primitives
+ * reference them directly (e.g. transition-duration: var(--motion-duration-base)).
+ * Centralising the reduced-motion override HERE means every consumer is safe
+ * automatically — no per-component media query required. */
+:root {
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 200ms;
+  --motion-ease-out: cubic-bezier(0, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-fast: 0ms;
+    --motion-duration-base: 0ms;
+  }
+}
+
+/* ---- Dark — declared, not enabled (brand.md §4.3, ADR-018) ----
+ * Selector shell only. No values yet: the dark-theme sprint designs and
+ * fills these in, then a toggle applies the class. Until then this rule
+ * matches nothing in any shipped surface. */
+.dark {
+}

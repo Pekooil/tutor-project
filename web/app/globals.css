@@ -1,0 +1,95 @@
+@import 'tailwindcss';
+@import '@calyxa/ui/theme.css';
+
+/* Declares what the (currently unused) `dark:` variant targets — inert until
+ * a toggle applies `.dark` to <html>, which no code does yet (ADR-018,
+ * light-now/dark-ready). Standard shadcn boilerplate. */
+@custom-variant dark (&:is(.dark *));
+
+/* shadcn's raw semantic variables, mapped to @calyxa/ui tokens (ADR-018:
+ * "shadcn for web mapped to the same tokens"). Two groups:
+ *
+ * - Most of these are shadcn names with NO equivalent in @calyxa/ui
+ *   (card/popover/primary/secondary/muted/destructive/input/ring) — they
+ *   read an existing token under a different name, no collision possible.
+ * - --accent/--accent-foreground/--border are the one real semantic clash:
+ *   shadcn's "accent" means a hover/highlight surface, not our brand accent
+ *   (the green CTA, already `--color-accent` from @calyxa/ui); shadcn's
+ *   "border" means a real interactive-component edge, not our decorative
+ *   `--color-border` hairline. All three intentionally read a
+ *   DIFFERENT-named @calyxa/ui token (accent-subtle/accent-emphasis/
+ *   border-strong) below — and because @theme inline re-targets the NAMES
+ *   --color-accent/--color-accent-foreground further down, --primary/
+ *   --primary-foreground (which need the ORIGINAL green) read the
+ *   collision-proof --color-accent-fill/-foreground aliases instead: a
+ *   var() reference resolves against a name's FINAL cascaded value, not
+ *   its value at the point this line is written, so reading
+ *   --color-accent here would silently pick up the hover-tint override.
+ *
+ * --background/--foreground/--muted-foreground are deliberately NOT
+ * re-promoted in @theme inline below: @calyxa/ui/theme.css already defines
+ * --color-background/--color-foreground/--color-muted-foreground directly
+ * under Tailwind's `--color-` namespace, so shadcn's `bg-background`,
+ * `text-foreground`, `text-muted-foreground` utilities already resolve
+ * correctly with zero extra mapping. Re-declaring them here would risk a
+ * circular var() reference for no benefit. */
+:root {
+  --background: var(--color-background);
+  --foreground: var(--color-foreground);
+  --card: var(--color-surface);
+  --card-foreground: var(--color-foreground);
+  --popover: var(--color-surface);
+  --popover-foreground: var(--color-foreground);
+  --primary: var(--color-accent-fill);
+  --primary-foreground: var(--color-accent-fill-foreground);
+  --secondary: var(--color-surface);
+  --secondary-foreground: var(--color-foreground);
+  --muted: var(--color-surface);
+  --muted-foreground: var(--color-muted-foreground);
+  --accent: var(--color-accent-subtle);
+  --accent-foreground: var(--color-accent-emphasis);
+  --destructive: var(--color-danger);
+  --destructive-foreground: var(--color-danger-foreground);
+  --border: var(--color-border-strong);
+  --input: var(--color-border-strong);
+  --ring: var(--color-focus-ring);
+}
+
+/* Dark values: not finalized (brand.md §4.3) — shell only, matching
+ * @calyxa/ui/theme.css's own empty .dark {} block. */
+.dark {
+}
+
+/* Promotes the shadcn-only names above into Tailwind's --color-* namespace
+ * so `bg-card`, `bg-primary`, `text-primary-foreground`, `bg-accent`,
+ * `border-border`, `ring-ring`, etc. generate. Radius is intentionally
+ * absent here: @calyxa/ui/theme.css already defines --radius-sm/-md/-lg
+ * directly, so `rounded-sm/-md/-lg` already resolve to the brand scale
+ * without a calc()-derived override that could drift from it. */
+@theme inline {
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

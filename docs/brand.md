@@ -73,6 +73,8 @@ below are chosen specifically to pass, not just to look on-brand).
 | `--color-accent-foreground` | `#FFFFFF` | Text/icon color on `--color-accent` fill |
 | `--color-accent-emphasis` | `#166534` | Accent-colored **text** directly on light backgrounds (links, active nav, emphasis) — darker than `--color-accent` because text needs more contrast than a fill does |
 | `--color-accent-subtle` | `#F0FDF4` | Light green tint for badges/banners/selected-row backgrounds; pairs with `--color-accent-emphasis` text, never with `--color-accent-foreground` |
+| `--color-accent-fill` | `#15803D` | Stable alias for `--color-accent`'s value. shadcn's vocabulary needs `--color-accent` to mean a hover/highlight tint within `/web` (ADR-018), so anything still needing the original CTA green after that local re-mapping — e.g. shadcn's `--primary` — reads this name, not `--color-accent` |
+| `--color-accent-fill-foreground` | `#FFFFFF` | Stable alias for `--color-accent-foreground`'s value, same reason — feeds shadcn's `--primary-foreground` |
 
 **Contrast (calculated, WCAG 2.1 relative-luminance method):**
 

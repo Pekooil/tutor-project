@@ -1,14 +1,23 @@
 import { defineConfig } from 'wxt';
+import tailwindcss from '@tailwindcss/vite';
 
 // Calyxa extension — WXT configuration.
 // Sprint 01:
 //   - Task 2 created the bare scaffold (entry-points dir, output dir).
 //   - Task 3 (this) declares the Manifest V3 permissions below.
 //   - Entry points (background, content) are added in Tasks 4–5 under src/.
+// Sprint 10 Task 3: registers Tailwind v4 so any entry point that imports
+// "tailwindcss" + "@calyxa/ui/theme.css" gets compiled by WXT's Vite build —
+// for the overlay (Task 6), that sheet is injected INTO the shadow root via
+// the content script's existing cssInjectionMode: 'ui', never the host
+// page's <head> (ADR-002, ADR-018).
 // See: https://wxt.dev/api/config.html
 export default defineConfig({
   // React + TypeScript support.
   modules: ['@wxt-dev/module-react'],
+  vite: () => ({
+    plugins: [tailwindcss()],
+  }),
   // Entry points live in /extension/src (src/background, src/content, ...).
   entrypointsDir: 'src',
   // Emit the build into /extension/dist (WXT nests per target: dist/chrome-mv3/).
