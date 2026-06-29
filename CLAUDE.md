@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 09 — Learning-model package
+Sprint 10 — Brand identity + design system + UI/UX redesign
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions
