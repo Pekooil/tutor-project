@@ -5,6 +5,11 @@
 export type ConceptObservation = {
   conceptKey: string
   outcome: 'correct' | 'partial' | 'incorrect' | 'none'
+  // FSRS inputs (ADR-016): graded by the same summariser call, defaulted
+  // defensively by its parser ('none'/'unknown') when the model omits them
+  // or returns something unexpected.
+  reasoningQuality: 'sound' | 'shallow' | 'none'
+  selfConfidence: 'low' | 'med' | 'high' | 'unknown'
   misconception?: { category: string; description?: string }
 }
 

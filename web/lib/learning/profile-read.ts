@@ -1,5 +1,6 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { retrievability } from '@calyxa/learning-model'
 import type {
   ActiveMisconception,
   ConfidenceBand,
@@ -7,6 +8,13 @@ import type {
   MasteryNode,
   MasteryState,
 } from '@/lib/ai/profile'
+
+const MS_PER_DAY = 1000 * 60 * 60 * 24
+
+function daysSince(timestamp: string | null): number {
+  if (!timestamp) return 0
+  return Math.max(0, (Date.now() - new Date(timestamp).getTime()) / MS_PER_DAY)
+}
 
 // PLAN.md §2.3 query 1, simplified for this sprint (ADR-014): the caller's
 // weakest knowledge_nodes plus their active misconceptions, with no
@@ -29,8 +37,10 @@ const CALIBRATING_PROFILE: LearningProfile = {
 type KnowledgeNodeRow = {
   concept_key: string
   mastery: number
+  stability: number
   state: string
   confidence_band: string
+  last_practiced_at: string | null
 }
 
 type MisconceptionRow = {
@@ -55,7 +65,7 @@ export async function loadProfile(supabase: SupabaseClient): Promise<LearningPro
   const [nodesResult, misconceptionsResult] = await Promise.all([
     supabase
       .from('knowledge_nodes')
-      .select('concept_key, mastery, state, confidence_band')
+      .select('concept_key, mastery, stability, state, confidence_band, last_practiced_at')
       .eq('user_id', userId)
       .is('deleted_at', null)
       .order('mastery', { ascending: true })
@@ -76,9 +86,13 @@ export async function loadProfile(supabase: SupabaseClient): Promise<LearningPro
 
   const misconceptionRows = (misconceptionsResult.data ?? []) as MisconceptionRow[]
 
+  // Read-time decay (§2.3 "decay-adjusted on read", ADR-016): mastery is
+  // discounted by retrievability at the time of reading, not just at the
+  // time of the last update -- a node nobody has touched in a while reads
+  // back weaker even though its stored `mastery` hasn't changed.
   const masteryNodes: MasteryNode[] = nodeRows.map((row) => ({
     conceptKey: row.concept_key,
-    mastery: row.mastery,
+    mastery: row.mastery * retrievability(row.stability, daysSince(row.last_practiced_at)),
     state: row.state as MasteryState,
     confidenceBand: row.confidence_band as ConfidenceBand,
   }))

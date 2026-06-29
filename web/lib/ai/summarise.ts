@@ -22,13 +22,19 @@ function createClient(): Anthropic {
 const SUMMARISER_SYSTEM_PROMPT = `You analyse a finished math-tutoring session transcript and summarise what the
 student practiced. Respond with ONLY a JSON object, no prose, no markdown fences, in this exact shape:
 
-{ "observations": [ { "conceptKey": string, "outcome": "correct" | "partial" | "incorrect" | "none", "misconception"?: { "category": string, "description"?: string } } ] }
+{ "observations": [ { "conceptKey": string, "outcome": "correct" | "partial" | "incorrect" | "none", "reasoningQuality": "sound" | "shallow" | "none", "selfConfidence": "low" | "med" | "high" | "unknown", "misconception"?: { "category": string, "description"?: string } } ] }
 
 Rules:
 - "conceptKey" MUST be exactly one of these known keys (skip anything that does not clearly match one):
 ${CONCEPT_KEYS.map((key) => `  - ${key}`).join('\n')}
 - "outcome" reflects the student's final attempt on that concept this session: "correct",
   "partial", "incorrect", or "none" if the concept was only discussed, never attempted.
+- "reasoningQuality" grades how the student explained THIS concept this session: "sound" if they
+  showed correct mathematical reasoning (even if the final answer slipped), "shallow" if they
+  guessed or gave no real justification for a correct answer, "none" if they never explained their
+  thinking at all.
+- "selfConfidence" reflects how confident the student sounded about their answer on this concept:
+  "low", "med", "high", or "unknown" if it can't be told from the transcript.
 - Only include "misconception" when the student showed a clear, repeated error pattern (e.g. a
   sign error). "category" is a short dotted.snake_case label, e.g. "sign_error.distribution".
 - If nothing in the transcript matches a known concept, return { "observations": [] }.`
@@ -47,6 +53,14 @@ function isValidOutcome(value: unknown): value is ConceptObservation['outcome'] 
   return value === 'correct' || value === 'partial' || value === 'incorrect' || value === 'none'
 }
 
+function isValidReasoningQuality(value: unknown): value is ConceptObservation['reasoningQuality'] {
+  return value === 'sound' || value === 'shallow' || value === 'none'
+}
+
+function isValidSelfConfidence(value: unknown): value is ConceptObservation['selfConfidence'] {
+  return value === 'low' || value === 'med' || value === 'high' || value === 'unknown'
+}
+
 // Defensive parse: anything that isn't the exact expected shape is dropped
 // rather than thrown -- a malformed/partial model response degrades to
 // fewer observations, never an exception (ADR-015).
@@ -63,12 +77,20 @@ function parseSummary(raw: string): SessionSummary {
     for (const candidate of parsed.observations) {
       if (typeof candidate !== 'object' || candidate === null) continue
 
-      const { conceptKey, outcome, misconception } = candidate as Record<string, unknown>
+      const { conceptKey, outcome, reasoningQuality, selfConfidence, misconception } = candidate as Record<
+        string,
+        unknown
+      >
 
       if (typeof conceptKey !== 'string' || !CONCEPT_KEYS.includes(conceptKey)) continue
       if (!isValidOutcome(outcome)) continue
 
-      const observation: ConceptObservation = { conceptKey, outcome }
+      const observation: ConceptObservation = {
+        conceptKey,
+        outcome,
+        reasoningQuality: isValidReasoningQuality(reasoningQuality) ? reasoningQuality : 'none',
+        selfConfidence: isValidSelfConfidence(selfConfidence) ? selfConfidence : 'unknown',
+      }
 
       if (typeof misconception === 'object' && misconception !== null) {
         const { category, description } = misconception as Record<string, unknown>
