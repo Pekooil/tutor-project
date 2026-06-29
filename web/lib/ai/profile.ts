@@ -4,9 +4,12 @@
 // (`loadProfile`, ADR-014) — this sprint retired the HARDCODED_PROFILE dummy
 // instance; prompt assembly in system-prompt.ts did not change.
 
-export type ConfidenceBand = 'low' | 'medium' | 'high'
+// ConfidenceBand/MasteryState now come from the FSRS package (ADR-016) --
+// one source of truth shared with knowledge_nodes.confidence_band/state
+// (DB CHECK constraints, migration 0004).
+import type { ConfidenceBand, MasteryState } from '@calyxa/learning-model'
 
-export type MasteryState = 'unseen' | 'learning' | 'weak' | 'mastered' | 'forgotten'
+export type { ConfidenceBand, MasteryState }
 
 export type MasteryNode = {
   conceptKey: string
