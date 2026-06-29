@@ -253,4 +253,45 @@ describe('RLS isolation: knowledge_nodes and misconceptions', () => {
     expect(error).toBeNull()
     expect(data).toHaveLength(0)
   })
+
+  // Sprint 09 Task 7 / ADR-017: the additive `embedding` column (migration
+  // 0005) carries no policy of its own -- it inherits misconceptions' table-
+  // level RLS. This locks that in, the same way the column-agnostic checks
+  // above already do for the rest of the row.
+  it("the additive embedding column on misconceptions stays owner-only", async () => {
+    const probeEmbedding = Array(1024).fill(0.01)
+
+    const { data: inserted, error: insertErr } = await clientA
+      .from('misconceptions')
+      .insert({
+        user_id: userA.id,
+        concept_key: 'algebra.linear-equations.one-variable',
+        category: 'embedding_rls_probe',
+        embedding: probeEmbedding,
+      })
+      .select('id, embedding')
+      .single()
+
+    expect(insertErr).toBeNull()
+    expect(inserted!.embedding).not.toBeNull()
+
+    const { data: ownRead, error: ownReadErr } = await clientA
+      .from('misconceptions')
+      .select('id, embedding')
+      .eq('id', inserted!.id)
+    expect(ownReadErr).toBeNull()
+    expect(ownRead).toHaveLength(1)
+
+    const { data: bSees, error: bErr } = await clientB
+      .from('misconceptions')
+      .select('id, embedding')
+      .eq('id', inserted!.id)
+
+    // RLS denial via USING is silent: zero rows, not a thrown error --
+    // same as every other row check in this describe block.
+    expect(bErr).toBeNull()
+    expect(bSees).toHaveLength(0)
+
+    await admin.from('misconceptions').delete().eq('id', inserted!.id)
+  })
 })

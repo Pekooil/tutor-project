@@ -52,6 +52,19 @@ let userWithProfile: { id: string }
 let tokenWithProfile: string
 const SEEDED_CONCEPT_KEY = 'algebra.quadratics.factoring'
 
+// Sprint 09 Task 7: a third fixture user, seeded with an old, low-stability
+// knowledge_nodes row, isolating the "decay-on-read" assertion from
+// `userWithProfile` above (which intentionally stays undecayed -- raw
+// mastery === rendered mastery -- as its own back-compat check).
+let userDecayed: { id: string }
+let tokenDecayed: string
+const DECAY_CONCEPT_KEY = 'algebra.quadratics.formula'
+const DECAY_RAW_MASTERY = 0.65
+const DECAY_DAYS_AGO = 30
+// retrievability(stability=1, days=30) = (1 + 30/9)^-1 = 3/13; 0.65 * 3/13 =
+// 0.15 exactly, so the decayed value below isn't a rounding coincidence.
+const DECAY_EXPECTED_MASTERY = '0.15'
+
 // --- Fake Anthropic backend ---
 // We spawn a REAL `next dev` below (not a direct route-function call) for the
 // same reason session.test.ts does: it exercises proxy.ts for real, which
@@ -193,9 +206,51 @@ beforeAll(async () => {
     throw new Error(`sign-in failed (profile user): ${signInProfileErr?.message}`)
   }
   tokenWithProfile = signInProfile.session.access_token
+
+  // Sprint 09 Task 7 fixture: a node practiced DECAY_DAYS_AGO days ago at
+  // MIN_STABILITY (1.0) -- low stability so the power-decay curve has
+  // visibly bitten by day 30. Inserted directly via the service role since
+  // last_practiced_at has no "now" default to override (0004_knowledge_graph.sql).
+  const decayedEmail = `darcy20080911+calyxaaiturndecayed${Date.now()}@gmail.com`
+  const { data: createdDecayed, error: decayedErr } = await admin.auth.admin.createUser({
+    email: decayedEmail,
+    password: PASSWORD,
+    email_confirm: true,
+  })
+  if (decayedErr || !createdDecayed.user) {
+    throw new Error(`fixture setup failed (decayed user): ${decayedErr?.message}`)
+  }
+  userDecayed = { id: createdDecayed.user.id }
+
+  const { error: decaySeedErr } = await admin.from('knowledge_nodes').insert({
+    user_id: userDecayed.id,
+    concept_key: DECAY_CONCEPT_KEY,
+    mastery: DECAY_RAW_MASTERY,
+    stability: 1.0,
+    state: 'learning',
+    confidence_band: 'medium',
+    observation_count: 4,
+    last_practiced_at: new Date(Date.now() - DECAY_DAYS_AGO * 24 * 60 * 60 * 1000).toISOString(),
+  })
+  if (decaySeedErr) throw new Error(`fixture setup failed (decayed knowledge_nodes seed): ${decaySeedErr.message}`)
+
+  const decayedClient = createClient(url, anonKey)
+  const { data: signInDecayed, error: signInDecayedErr } = await decayedClient.auth.signInWithPassword({
+    email: decayedEmail,
+    password: PASSWORD,
+  })
+  if (signInDecayedErr || !signInDecayed.session) {
+    throw new Error(`sign-in failed (decayed user): ${signInDecayedErr?.message}`)
+  }
+  tokenDecayed = signInDecayed.session.access_token
 }, 45000)
 
 afterAll(async () => {
+  if (userDecayed) {
+    await admin.from('knowledge_nodes').delete().eq('user_id', userDecayed.id)
+    await admin.auth.admin.deleteUser(userDecayed.id)
+  }
+
   if (userWithProfile) {
     // knowledge_nodes.user_id -> public.users.id has no ON DELETE CASCADE
     // (0004_knowledge_graph.sql) -- clear the seeded row first so deleting
@@ -283,6 +338,21 @@ describe('/api/ai/turn', () => {
     expect(system).toContain(`${SEEDED_CONCEPT_KEY}: mastery 0.42, state learning, confidence medium`)
     expect(system).not.toContain('(no mastery data yet)')
     expect(system).toContain('Confidence: Based on recorded session history.')
+  })
+
+  // --- Sprint 09 Task 7: read-time decay (ADR-016, profile-read.ts) ---
+
+  it('decay-on-read: an old, low-stability node reads back with reduced mastery, not the raw stored value', async () => {
+    const { status } = await turn(tokenDecayed, {
+      messages: [{ role: 'user', content: 'How do I use the quadratic formula here?' }],
+    })
+
+    expect(status).toBe(200)
+    expect(receivedRequests).toHaveLength(1)
+
+    const system = receivedRequests[0].system as string
+    expect(system).toContain(`${DECAY_CONCEPT_KEY}: mastery ${DECAY_EXPECTED_MASTERY}`)
+    expect(system).not.toContain(`mastery ${DECAY_RAW_MASTERY.toFixed(2)}`)
   })
 
   it('writes nothing to knowledge_nodes on a turn (ADR-013 holds for the live profile read)', async () => {

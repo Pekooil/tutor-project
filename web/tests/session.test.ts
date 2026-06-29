@@ -374,11 +374,17 @@ describe('session end -> live learning profile write', () => {
     expect(probe.status).toBe(200)
 
     const system = receivedRequests[receivedRequests.length - 1].system as string
-    // K=0.2 nudge from mastery 0, grade 1 (correct): 0 + 0.2*(1-0) = 0.20;
-    // observationCount 1 -> confidence 'low'; mastery<0.5 -> state 'weak'
-    // (update.ts). Not asserting an exact future-proof number -- just that
-    // the seeded write is the one rendered into the prompt.
-    expect(system).toContain('algebra.quadratics.factoring: mastery 0.20, state weak, confidence low')
+    // Sprint 09: apply.ts now calls the full FSRS updateKnowledgeNode
+    // (ADR-016), not the old Elo nudge -- this fake summary omits
+    // reasoningQuality/selfConfidence, which the parser defaults to
+    // 'none'/'unknown', which trips the lucky-guess discount on this
+    // "correct" outcome: grade 0.6, K = BASE_K(0.3) * LUCKY_GUESS_K_SCALE(0.5)
+    // * confidenceWeight(observationCount=0, =1) = 0.15; mastery
+    // 0 + 0.15*(0.6-0) = 0.09. observationCount 1 -> confidence 'low';
+    // mastery<0.5 -> state 'weak'. Not asserting an exact future-proof
+    // number beyond that -- just that the seeded write is the one rendered
+    // into the prompt.
+    expect(system).toContain('algebra.quadratics.factoring: mastery 0.09, state weak, confidence low')
     expect(system).not.toContain('(no mastery data yet)')
   })
 
@@ -394,7 +400,7 @@ describe('session end -> live learning profile write', () => {
     // Unchanged from the previous test -- end_session's open->ended
     // transition 404s before the summariser ever runs a second time, so
     // there is no second mastery nudge to observe here.
-    expect(system).toContain('algebra.quadratics.factoring: mastery 0.20, state weak, confidence low')
+    expect(system).toContain('algebra.quadratics.factoring: mastery 0.09, state weak, confidence low')
   })
 
   it('ending with no transcript still ends the session and writes no learning state (back-compat)', async () => {
@@ -472,5 +478,142 @@ describe('session end -> live learning profile write', () => {
     expect(systemAfterSecond).toContain(
       'algebra.polynomials.expanding — sign_error.distribution: drops the negative sign when distributing'
     )
+  })
+
+  // --- Sprint 09 Task 7: full FSRS write path (ADR-016/ADR-017) ---
+
+  it('FSRS persists stability and difficulty, not just mastery (Sprint 08 dropped them)', async () => {
+    setFakeSummary([
+      { conceptKey: 'algebra.exponents.power-rule', outcome: 'correct', reasoningQuality: 'sound', selfConfidence: 'high' },
+    ])
+
+    const started = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
+    sessionIds.push(started.json.sessionId)
+    const ended = await end(tokenA, started.json.sessionId, [{ role: 'user', content: '(x^2)^3 = x^6' }])
+    expect(ended.status).toBe(200)
+
+    const { data, error } = await clientA
+      .from('knowledge_nodes')
+      .select('stability, difficulty')
+      .eq('user_id', userA.id)
+      .eq('concept_key', 'algebra.exponents.power-rule')
+      .single()
+
+    expect(error).toBeNull()
+    // MIN_STABILITY floor (constants.ts) and the DIFF_MIN/DIFF_MAX drift
+    // bounds -- the exact values are an implementation detail of the
+    // (explicitly uncalibrated) package; what this test gates is that these
+    // two columns are written at all, where update.ts never wrote them.
+    expect(data!.stability).toBeGreaterThanOrEqual(1.0)
+    expect(data!.difficulty).toBeGreaterThan(0.05)
+    expect(data!.difficulty).toBeLessThan(0.95)
+  })
+
+  it('two sessions flagging the same error under DIFFERENT categories but similar wording collapse via pg_trgm, not exact-category', async () => {
+    const conceptKey = 'algebra.inequalities.linear'
+
+    setFakeSummary([
+      {
+        conceptKey,
+        outcome: 'incorrect',
+        misconception: {
+          category: 'sign_error.flip_on_negative_multiply',
+          description: 'forgets to flip the inequality sign when multiplying both sides by a negative number',
+        },
+      },
+    ])
+    const first = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
+    sessionIds.push(first.json.sessionId)
+    const firstEnd = await end(tokenA, first.json.sessionId, [{ role: 'user', content: '-2x < 6 so x < -3' }])
+    expect(firstEnd.status).toBe(200)
+
+    // A different category label (simulating summariser drift) but a
+    // near-identical description -- exact-category match must fail here,
+    // so only the pg_trgm fallback can collapse this onto the same row.
+    setFakeSummary([
+      {
+        conceptKey,
+        outcome: 'incorrect',
+        misconception: {
+          category: 'inequality_sign_flip_error',
+          description: 'forgets to flip the inequality sign when multiplying both sides by a negative value',
+        },
+      },
+    ])
+    const second = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
+    sessionIds.push(second.json.sessionId)
+    const secondEnd = await end(tokenA, second.json.sessionId, [{ role: 'user', content: '-5x < 10 so x < -2' }])
+    expect(secondEnd.status).toBe(200)
+
+    const { data, error } = await clientA
+      .from('misconceptions')
+      .select('id, category, status, occurrence_count')
+      .eq('user_id', userA.id)
+      .eq('concept_key', conceptKey)
+
+    expect(error).toBeNull()
+    expect(data).toHaveLength(1) // one row, not two -- the fuzzy match found the first row
+    expect(data![0].category).toBe('sign_error.flip_on_negative_multiply') // the original, first-seen category
+    expect(data![0].occurrence_count).toBe(2)
+    expect(data![0].status).toBe('active') // promoted at 2 instances, same as exact-category
+
+    setFakeTurnReply('ok, next one')
+    const probe = await turn(tokenA, { messages: [{ role: 'user', content: 'next problem please' }] })
+    expect(probe.status).toBe(200)
+    const system = receivedRequests[receivedRequests.length - 1].system as string
+    expect(system).toContain(`${conceptKey} — sign_error.flip_on_negative_multiply`)
+  })
+
+  it('three sound-correct sessions resolve an active misconception, and it leaves the live profile', async () => {
+    const conceptKey = 'algebra.linear-equations.two-variable'
+    const misconception = {
+      category: 'forgot_substitution_step',
+      description: 'skips substituting back into the other equation after solving for one variable',
+    }
+
+    // Two incorrect, misconception-flagging sessions -- promotes pending -> active (Sprint 08 path).
+    for (const transcriptLine of ['substituted nothing back in', 'forgot to substitute again']) {
+      setFakeSummary([{ conceptKey, outcome: 'incorrect', misconception }])
+      const started = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
+      sessionIds.push(started.json.sessionId)
+      const ended = await end(tokenA, started.json.sessionId, [{ role: 'user', content: transcriptLine }])
+      expect(ended.status).toBe(200)
+    }
+
+    const { data: afterPromotion, error: promotionErr } = await clientA
+      .from('misconceptions')
+      .select('id, status, consecutive_correct')
+      .eq('user_id', userA.id)
+      .eq('concept_key', conceptKey)
+      .eq('category', misconception.category)
+      .single()
+    expect(promotionErr).toBeNull()
+    expect(afterPromotion!.status).toBe('active')
+
+    // Three sound-correct sessions on the SAME concept, with no misconception
+    // flagged -- each one advances consecutive_correct (apply.ts
+    // applyMisconceptionResolution); the third flips active -> resolved.
+    for (let i = 0; i < 3; i++) {
+      setFakeSummary([{ conceptKey, outcome: 'correct', reasoningQuality: 'sound', selfConfidence: 'high' }])
+      const started = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
+      sessionIds.push(started.json.sessionId)
+      const ended = await end(tokenA, started.json.sessionId, [{ role: 'user', content: `clean attempt ${i}` }])
+      expect(ended.status).toBe(200)
+    }
+
+    const { data: afterResolution, error: resolutionErr } = await clientA
+      .from('misconceptions')
+      .select('status, consecutive_correct')
+      .eq('id', afterPromotion!.id)
+      .single()
+    expect(resolutionErr).toBeNull()
+    expect(afterResolution!.consecutive_correct).toBe(3)
+    expect(afterResolution!.status).toBe('resolved')
+
+    setFakeTurnReply('great work')
+    const probe = await turn(tokenA, { messages: [{ role: 'user', content: 'how am I doing?' }] })
+    expect(probe.status).toBe(200)
+    const system = receivedRequests[receivedRequests.length - 1].system as string
+    expect(system).not.toContain(misconception.category) // resolved -- loadProfile only selects status='active'
   })
 })
