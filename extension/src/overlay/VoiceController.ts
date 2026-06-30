@@ -17,6 +17,13 @@ export type RecordingHandle = {
   stop: () => Promise<Utterance>;
   /** Aborts capture without resolving an utterance (e.g. on unmount). */
   cancel: () => void;
+  /**
+   * Current mic input level, 0 (silence) to 1 (loud), read live off the
+   * captured stream via an AnalyserNode. Polled by the overlay (rAF) to
+   * drive the listening waveform so it sits at rest until the user actually
+   * makes sound, rather than animating on a fixed loop regardless of input.
+   */
+  getLevel: () => number;
 };
 
 // Chrome's MediaRecorder records webm/opus (its audio default); requesting it
@@ -129,8 +136,38 @@ export async function startRecording(): Promise<RecordingHandle> {
     if (event.data.size > 0) chunks.push(event.data);
   });
 
+  // Live level metering, separate from the MediaRecorder pipeline above: an
+  // AnalyserNode tapped off the same stream, read on demand (no persistence,
+  // ADR-011 — this never touches the recorded bytes). RMS of the time-domain
+  // samples is a cheap, good-enough loudness proxy for a waveform; the 4x
+  // gain compensates for speech RMS normally sitting well under 1.
+  const AudioCtx =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  const meterCtx = AudioCtx ? new AudioCtx() : null;
+  let getLevel: () => number = () => 0;
+  if (meterCtx) {
+    const source = meterCtx.createMediaStreamSource(stream);
+    const analyser = meterCtx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.6;
+    source.connect(analyser);
+    const samples = new Uint8Array(analyser.frequencyBinCount);
+    getLevel = () => {
+      analyser.getByteTimeDomainData(samples);
+      let sumSquares = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const normalized = (samples[i] - 128) / 128;
+        sumSquares += normalized * normalized;
+      }
+      const rms = Math.sqrt(sumSquares / samples.length);
+      return Math.min(1, rms * 4);
+    };
+  }
+
   function release(): void {
     stream.getTracks().forEach((track) => track.stop());
+    void meterCtx?.close();
   }
 
   recorder.start();
@@ -162,5 +199,6 @@ export async function startRecording(): Promise<RecordingHandle> {
       if (recorder.state !== 'inactive') recorder.stop();
       release();
     },
+    getLevel,
   };
 }

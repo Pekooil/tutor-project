@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Button, CalyxaMark, Card } from '@calyxa/ui';
 import './Overlay.css';
 import type { TurnMessage } from '../types/messages';
@@ -67,6 +67,18 @@ export type PageContextSummary = {
   equationCount: number;
 };
 
+// Google's Material Icons "mic" glyph (24x24, Apache-2.0), inlined so the
+// mic affordance is a real icon instead of an emoji whose rendering varies
+// by OS/font. `currentColor` fill means it inherits the button's text color
+// for free (incl. focus/hover states), no separate color prop needed.
+function MicIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z" />
+    </svg>
+  );
+}
+
 export function Overlay({
   onSend,
   onTranscribe,
@@ -85,9 +97,36 @@ export function Overlay({
   const [recording, setRecording] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Live mic input level (0 silence – 1 loud) while recording, polled off
+  // VoiceController's AnalyserNode so the listening waveform sits at rest
+  // until the user actually makes sound instead of animating unconditionally.
+  const [level, setLevel] = useState(0);
 
   const recordingRef = useRef<RecordingHandle | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const levelFrameRef = useRef<number | null>(null);
+  // Tracks whether the text input has focus, so the Option/Alt push-to-talk
+  // listener below can stay out of the way of Option+key combos used to type
+  // math symbols (e.g. Option+p for π) while the input is focused.
+  const inputFocusedRef = useRef(false);
+
+  function stopLevelMeter() {
+    if (levelFrameRef.current !== null) {
+      cancelAnimationFrame(levelFrameRef.current);
+      levelFrameRef.current = null;
+    }
+    setLevel(0);
+  }
+
+  function startLevelMeter() {
+    const tick = () => {
+      const handle = recordingRef.current;
+      if (!handle) return;
+      setLevel(handle.getLevel());
+      levelFrameRef.current = requestAnimationFrame(tick);
+    };
+    levelFrameRef.current = requestAnimationFrame(tick);
+  }
 
   // Stop and release the mic if the overlay is dismissed mid-press (ADR-011
   // — no lingering capture).
@@ -95,6 +134,7 @@ export function Overlay({
     return () => {
       recordingRef.current?.cancel();
       recordingRef.current = null;
+      stopLevelMeter();
     };
   }, []);
 
@@ -129,6 +169,7 @@ export function Overlay({
     try {
       recordingRef.current = await startRecording();
       setRecording(true);
+      startLevelMeter();
     } catch (error) {
       setBusy(false);
       const message = error instanceof Error ? error.message : 'Microphone is unavailable.';
@@ -141,6 +182,7 @@ export function Overlay({
     recordingRef.current = null;
     if (!handle) return; // mic press never started a recording (e.g. permission denied)
     setRecording(false);
+    stopLevelMeter();
 
     let replyDelivered = false;
 
@@ -182,6 +224,44 @@ export function Overlay({
   function handleInterrupt() {
     audioRef.current?.pause();
   }
+
+  // Refs to the latest handlers, read by the Option/Alt key listener below
+  // (subscribed once per `expanded` toggle, not every render) so it never
+  // closes over a stale `messages`/`busy` snapshot.
+  const handleMicDownRef = useRef(handleMicDown);
+  const handleMicUpRef = useRef(handleMicUp);
+  handleMicDownRef.current = handleMicDown;
+  handleMicUpRef.current = handleMicUp;
+
+  // Push-to-talk via the Option key (reported as "Alt" by KeyboardEvent.key
+  // on both Mac and Windows) — an alternative to press-and-hold on the mic
+  // button. Only live while the panel is open and the text input isn't
+  // focused, so Option+key combos used to type math symbols (e.g. Option+p
+  // for π) keep working normally. preventDefault on both edges suppresses
+  // the browser/OS's own bare-Alt behavior (Windows menu-bar focus).
+  useEffect(() => {
+    if (!expanded) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Alt' || event.repeat) return;
+      if (inputFocusedRef.current || recordingRef.current) return;
+      event.preventDefault();
+      void handleMicDownRef.current();
+    }
+
+    function onKeyUp(event: KeyboardEvent) {
+      if (event.key !== 'Alt' || !recordingRef.current) return;
+      event.preventDefault();
+      void handleMicUpRef.current();
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [expanded]);
 
   if (!expanded) {
     return (
@@ -260,7 +340,7 @@ export function Overlay({
           {recording ? (
             <div className="flex flex-col items-center gap-4">
               <div className="flex h-12 w-full items-center justify-center">
-                <WaveformBars count={22} barWidth={4} gap={4} gradientFrom="#4ade80" gradientTo="#86efac" durationBase={0.9} />
+                <WaveformBars count={22} barWidth={4} gap={4} gradientFrom="#4ade80" gradientTo="#86efac" durationBase={0.9} level={level} />
               </div>
               <p className="m-0 text-center text-[14.5px] leading-relaxed text-muted-foreground">Listening…</p>
               <div className="pt-0.5 text-xs tracking-wide text-muted-foreground/70">release to send</div>
@@ -299,6 +379,12 @@ export function Overlay({
                   type="text"
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
+                  onFocus={() => {
+                    inputFocusedRef.current = true;
+                  }}
+                  onBlur={() => {
+                    inputFocusedRef.current = false;
+                  }}
                   placeholder="Ask a math question…"
                 />
                 <Button
@@ -317,31 +403,32 @@ export function Overlay({
                     event.preventDefault();
                     void handleMicUp();
                   }}
-                  aria-label="Press and hold to speak"
+                  aria-label="Press and hold to speak, or hold Option"
+                  title="Hold to talk, release to send"
                   className="h-[34px] w-[34px] flex-none rounded-full border border-border"
                 >
-                  🎤
+                  <MicIcon className="h-[18px] w-[18px]" />
                 </Button>
                 <Button type="submit" variant="primary" disabled={!input.trim()} className="h-[34px] flex-none rounded-full px-4 text-[13px]">
                   Send
                 </Button>
               </form>
 
-              <div className="flex items-center justify-center gap-2.5 text-xs text-muted-foreground">
-                {notice ? null : pageContextSummary ? (
-                  <span>
-                    {pageContextSummary.equationCount > 0
-                      ? `👁 ${pageContextSummary.equationCount} equation${pageContextSummary.equationCount === 1 ? '' : 's'} detected`
-                      : 'No equations detected — type or paste your problem'}
-                  </span>
-                ) : (
-                  <>
-                    <span>↵ to send</span>
-                    <span>·</span>
-                    <span>hold the mic to speak instead</span>
-                  </>
-                )}
-              </div>
+              {!notice && (
+                <div className="flex items-center justify-center gap-2.5 text-xs text-muted-foreground">
+                  {pageContextSummary && (
+                    <>
+                      <span>
+                        {pageContextSummary.equationCount > 0
+                          ? `👁 ${pageContextSummary.equationCount} equation${pageContextSummary.equationCount === 1 ? '' : 's'} detected`
+                          : 'No equations detected — type or paste your problem'}
+                      </span>
+                      <span>·</span>
+                    </>
+                  )}
+                  <span>hold ⌥ Option (Alt) while speaking, release when done</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -352,14 +439,21 @@ export function Overlay({
 
 // One reactive waveform, two contexts: the listening view (large, 22 bars)
 // and the TTS-playback header indicator (small, 7 bars) — same bar/gradient
-// shape, different count/size/speed (Calyxa Overlay.dc.html's mkBars). Each
-// bar needs a per-instance animation-duration/delay, which Tailwind's
-// arbitrary-value `animate-[...]` syntax can't express (it's resolved at
-// build time, not per-render) — so this is the one animation in the file
-// driven by a plain CSS class + inline style instead of motion-safe:animate.
-// The `.cx-bar` rule itself only exists inside a
-// `prefers-reduced-motion: no-preference` block (Overlay.css), so it's
-// reduced-motion-safe by the same construction as everywhere else.
+// shape, different count/size/speed (Calyxa Overlay.dc.html's mkBars).
+//
+// The two contexts drive the bars differently, because only one of them has
+// a real signal to follow:
+//   - TTS playback (no `level` passed) has no live amplitude available, so
+//     it keeps the original always-on loop: a per-bar animation-duration/
+//     delay via the `.cx-bar` CSS class + inline style (Tailwind's
+//     arbitrary-value `animate-[...]` can't express per-element timing,
+//     resolved once at build time).
+//   - Mic listening (`level` passed, 0 silence – 1 loud, from
+//     VoiceController's AnalyserNode) is level-driven instead: each bar's
+//     height is `level` times a fixed per-bar multiplier, floored so the row
+//     sits visibly at rest during silence rather than animating regardless
+//     of input (the bug this was added to fix). No CSS animation/keyframe
+//     involved, so there's nothing for prefers-reduced-motion to gate.
 function WaveformBars({
   count,
   barWidth,
@@ -367,6 +461,7 @@ function WaveformBars({
   gradientFrom,
   gradientTo,
   durationBase,
+  level,
 }: {
   count: number;
   barWidth: number;
@@ -374,22 +469,29 @@ function WaveformBars({
   gradientFrom: string;
   gradientTo: string;
   durationBase: number;
+  level?: number;
 }) {
+  const levelDriven = level !== undefined;
   return (
     <div aria-hidden="true" className="flex h-full items-center" style={{ gap }}>
-      {Array.from({ length: count }, (_, index) => (
-        <span
-          key={index}
-          className="cx-bar block h-full rounded-full"
-          style={{
-            width: barWidth,
-            background: `linear-gradient(180deg, ${gradientFrom}, ${gradientTo})`,
-            transformOrigin: 'center',
-            animationDuration: `${(durationBase + (index % 5) * 0.12).toFixed(2)}s`,
-            animationDelay: `${((index * 0.13) % 1).toFixed(2)}s`,
-          }}
-        />
-      ))}
+      {Array.from({ length: count }, (_, index) => {
+        const style: CSSProperties = {
+          width: barWidth,
+          background: `linear-gradient(180deg, ${gradientFrom}, ${gradientTo})`,
+          transformOrigin: 'center',
+        };
+        if (levelDriven) {
+          const restFloor = 0.12;
+          const perBarGain = 0.55 + ((index * 37) % 100) / 100;
+          const scale = Math.max(restFloor, Math.min(1, level * perBarGain));
+          style.transform = `scaleY(${scale})`;
+          style.transition = 'transform 80ms ease-out';
+        } else {
+          style.animationDuration = `${(durationBase + (index % 5) * 0.12).toFixed(2)}s`;
+          style.animationDelay = `${((index * 0.13) % 1).toFixed(2)}s`;
+        }
+        return <span key={index} className={levelDriven ? 'block h-full rounded-full' : 'cx-bar block h-full rounded-full'} style={style} />;
+      })}
     </div>
   );
 }
