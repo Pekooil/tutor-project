@@ -21,19 +21,25 @@ understanding opens on its own. "Growth through learning," not "answers on deman
 
 ## 2. Logomark
 
-**Concept:** an abstracted calyx — three to four overlapping leaf/petal shapes arranged radially
-around a small central bud, suggesting both a botanical calyx and an opening bloom. Drawn as flat
-filled geometric shapes (no stroke outlines, no gradients, no photorealistic leaf detail) so it
-survives reduction to 16px favicon size without losing legibility.
+**Revised Sprint 10 Task 6 round 3** (Calyxa Overlay.dc.html, the locked design handoff) — replaces
+the original three-petal sepal mark below entirely, including its color treatment. The historical
+construction record for the retired mark is no longer reproduced here; only its viewBox convention
+(64×64, reused so the lockup math in this section didn't need to change) survives.
+
+**Concept:** a single leaf-curl stroke — an open, rounded "C" cradling a small leaf tip and a bud
+dot — reading as both a calyx and the brand's own initial. Flat geometric construction (round caps,
+no photorealistic leaf detail) so it still survives reduction to 16px favicon size without losing
+legibility, but unlike the retired mark it is **not** flat-fill: see the gradient rule below.
 
 **Construction rules:**
-- Built on a square aspect ratio (1:1) so it works as a standalone mark (`logomark.svg`, favicon,
-  extension icon) independent of the wordmark.
-- Single accent color (`--color-accent`) on a transparent or `--color-background` ground for the
-  primary mark; an all-neutral-foreground variant for single-color contexts (e.g. embossed/mono
-  use) is allowed but not designed this sprint — flag if a surface needs it.
-- No drop shadows, no bevels, no outline stroke — flat fill only, consistent with the calm/Linear
-  reference.
+- Built on a square aspect ratio (1:1, viewBox `0 0 64 64`) so it works as a standalone mark
+  (`logomark.svg`, favicon, extension icon) independent of the wordmark.
+- Painted with one locked gradient — see "Mark gradient" in §4.1 — never a flat fill and never any
+  other gradient. This is the brand's **one** sanctioned gradient use; every other accent surface
+  (buttons, badges, the overlay's breathing glow) stays flat-fill on the `--color-accent*` tokens
+  exactly as before. An all-neutral-foreground flat variant for single-color contexts (e.g.
+  embossed/mono use) is allowed but not designed this sprint — flag if a surface needs it.
+- No drop shadows, no bevels — otherwise consistent with the calm/Linear reference.
 
 **Clear space:** maintain a minimum clear space around the mark equal to **25% of the mark's
 height** on all sides before any other element (text, edge of container, other UI) — keeps the
@@ -63,30 +69,66 @@ web (real brand font) — the asset carries the exact shape either way.
 
 ### 4.1 Accent — green
 
-A single green accent, no secondary brand color. Calibrated for **AA text contrast at the role it's
-actually used in** (a saturated mid-green that looks vivid usually fails 4.5:1 for text — the values
-below are chosen specifically to pass, not just to look on-brand).
+A single green accent, no secondary brand color. **Revised post-Sprint-10-Task-6** (overlay/popup
+redesign round 2): the original palette below paired a dark fill with white text/icon — a
+deliberately calmer "Khan Academy warmth" attempt at a lighter, airier identity (Wispr Flow / Gemini
+voice-UI inspired) called for a genuinely lighter green, which a dark fill can't deliver. The fix is
+a **light fill + dark text/icon** pattern instead of dark-fill-white-text — light backgrounds are far
+more forgiving for AA contrast than dark ones, so this is *more* robust, not less. Calibrated for
+**AA text contrast at the role it's actually used in** — the values below are chosen specifically to
+pass, not just to look on-brand.
 
 | Token | Hex | Role |
 |---|---|---|
-| `--color-accent` | `#15803D` | Primary actionable green — button/link fill, focus-ring core, active/selected state |
-| `--color-accent-foreground` | `#FFFFFF` | Text/icon color on `--color-accent` fill |
-| `--color-accent-emphasis` | `#166534` | Accent-colored **text** directly on light backgrounds (links, active nav, emphasis) — darker than `--color-accent` because text needs more contrast than a fill does |
-| `--color-accent-subtle` | `#F0FDF4` | Light green tint for badges/banners/selected-row backgrounds; pairs with `--color-accent-emphasis` text, never with `--color-accent-foreground` |
-| `--color-accent-fill` | `#15803D` | Stable alias for `--color-accent`'s value. shadcn's vocabulary needs `--color-accent` to mean a hover/highlight tint within `/web` (ADR-018), so anything still needing the original CTA green after that local re-mapping — e.g. shadcn's `--primary` — reads this name, not `--color-accent` |
-| `--color-accent-fill-foreground` | `#FFFFFF` | Stable alias for `--color-accent-foreground`'s value, same reason — feeds shadcn's `--primary-foreground` |
+| `--color-accent` | `#86EFAC` | Primary actionable green — button/active-state **fill** (light; pair with `--color-accent-foreground`, never white, for text/icons on top) |
+| `--color-accent-foreground` | `#14532D` | Text/icon color on `--color-accent` (or any accent-family) fill — dark, not white, per the light-fill pattern above |
+| `--color-accent-emphasis` | `#166534` | Accent-colored **text** directly on light/white backgrounds (links, active nav, emphasis) |
+| `--color-accent-subtle` | `#F0FDF4` | Light green tint for badges/banners/selected-row backgrounds; pairs with `--color-accent-emphasis` text |
+| `--color-accent-glow` | `#BBF7D0` | **Decorative only** — inner stop of the ambient/breathing glow gradient (capsule, Gemini-style input bar). Never used for text/icons; exempt from contrast rules as non-text decoration |
+| `--color-accent-glow-strong` | `#4ADE80` | **Decorative only** — outer/mid stop of the same glow gradient, and the "active" fill for a pressed toggle (e.g. the overlay mic while recording) — pair with `--color-accent-foreground` text/icon on top, same dark-on-light rule |
+| `--color-accent-fill` | `#86EFAC` | Stable alias for `--color-accent`'s value. shadcn's vocabulary needs `--color-accent` to mean a hover/highlight tint within `/web` (ADR-018), so anything still needing the real brand green after that local re-mapping — e.g. shadcn's `--primary` — reads this name, not `--color-accent` |
+| `--color-accent-fill-foreground` | `#14532D` | Stable alias for `--color-accent-foreground`'s value, same reason — feeds shadcn's `--primary-foreground` |
 
 **Contrast (calculated, WCAG 2.1 relative-luminance method):**
 
 | Pair | Ratio | Passes |
 |---|---|---|
-| `--color-accent-foreground` (#FFF) on `--color-accent` (#15803D) | 5.01:1 | AA normal text ✅ |
+| `--color-accent-foreground` (#14532D) on `--color-accent` (#86EFAC) | 6.49:1 | AA ✅ (near AAA) |
 | `--color-accent-emphasis` (#166534) on `--color-background` (#FFF) | 7.13:1 | AAA ✅ |
 | `--color-accent-emphasis` (#166534) on `--color-accent-subtle` (#F0FDF4) | 6.81:1 | AA ✅ (near AAA) |
 
-**Rule:** never put `--color-accent-foreground` text on anything lighter than `--color-accent`
-itself — it was validated only against that one fill. Never put raw `--color-accent` as a text
-color on white — use `--color-accent-emphasis` for text, `--color-accent` for fills.
+**Rule:** never put light text/icon (white or near-white) on any accent-family fill — every fill in
+this family (`accent`, `accent-glow-strong`, `accent-subtle`) is light enough that only
+`--color-accent-foreground`/`--color-accent-emphasis` (dark) read correctly on it. `--color-accent-glow`/
+`--color-accent-glow-strong` are decorative-gradient-only — never apply them as a text or icon color.
+
+**Focus ring is intentionally decoupled from `--color-accent` now:** `--color-focus-ring` stays at the
+*original* darker green (`#15803D`, see §4.2) because a focus indicator must clear the WCAG 1.4.11
+3:1 non-text minimum against the page background, and the new lighter `--color-accent` does not (a
+light green ring on a white/light page is barely visible). One token, one job: `--color-accent` is
+now the brand's light decorative/fill green; `--color-focus-ring` is whatever green is dark enough to
+always be seen.
+
+#### Mark gradient — logomark only
+
+The logomark (§2) is the one surface in the brand that uses a gradient instead of a flat fill — a
+locked three-stop linear gradient (`x1=0 y1=0 x2=0.85 y2=1`, i.e. roughly top-left to bottom-right),
+drawn from the same green family as the flat accent tokens above but not itself tokenized as a
+Tailwind `@theme` value (it's SVG-only — used directly in the `CalyxaMark` primitive and the static
+`logo.svg`/`logomark.svg`/`icon.svg` files, never as a CSS utility, so a `--color-*` entry here would
+have no consumer):
+
+| Stop | Hex | Position |
+|---|---|---|
+| Start | `#7BEDAA` | 0% |
+| Mid | `#3FD07A` | 50% |
+| End | `#1F9D5B` | 100% |
+
+**Rule:** every shipped copy of the mark (`@calyxa/ui`'s `CalyxaMark`, `/web/public/logo.svg`,
+`logomark.svg`, `/web/app/icon.svg`, the rasterized extension icons) uses this exact gradient,
+generated with a per-instance gradient `id` where the mark can render multiple times in one SVG
+namespace (`CalyxaMark` does this via React's `useId`) — never recolored to a flat fill or any other
+hex/gradient outside the accent/neutral tokens, per §8's usage rule.
 
 ### 4.2 Neutrals — calm, warm-tinted grey (not cold slate)
 
@@ -100,7 +142,7 @@ color on white — use `--color-accent-emphasis` for text, `--color-accent` for 
 | `--color-muted-foreground` | `#6B6B65` | Secondary text, hints, placeholders |
 | `--color-danger` | `#B91C1C` | Error state (text + icon) |
 | `--color-danger-foreground` | `#FFFFFF` | Text on a `--color-danger` fill |
-| `--color-focus-ring` | `#15803D` (= `--color-accent`) | Focus-visible ring on every interactive primitive |
+| `--color-focus-ring` | `#15803D` (independent of `--color-accent` — see §4.1) | Focus-visible ring on every interactive primitive |
 
 **Contrast (calculated):**
 
@@ -196,11 +238,13 @@ Calm, encouraging, precise — a patient tutor, not a hype product. Concretely:
 | Extension icons | `/extension/public/icon/{16,32,48,128}.png` | rasterized from `logomark.svg`; WXT auto-discovers the `icon/<size>.png` convention and populates `manifest.icons` — no `wxt.config.ts` edit needed (verified via `wxt build`) |
 
 **Construction record:**
-- **Logomark** (`logomark.svg`, `viewBox="0 0 64 64"`): three sepal shapes (one straight, two at
-  ±42° rotation from a shared base anchor) plus an 8px-radius bud circle offset above and clear of
-  the sepals — the negative-space gap between bud and sepals is what reads as "cradled," since the
-  whole mark is one flat `--color-accent` fill with no internal stroke or second color. Verified
-  legible down to 16px (rendered and visually inspected at 16/32/48/512px before finalizing).
+- **Logomark** (`logomark.svg`, `viewBox="0 0 64 64"`, redesigned Sprint 10 Task 6 round 3): one
+  open, rounded-cap stroke curling from (52,37) up and around to (45,51) — the "calyx" — plus a
+  small leaf-tip shape (rotated 32° off an anchor at (44,13)) and a 4px-radius bud dot at (40,35)
+  sitting in the curl's negative space. All three shapes share the one locked linear gradient (§4.1
+  "Mark gradient"), not a flat fill — the only place in the brand a gradient is used. Verified
+  legible down to 16px (rasterized via `sharp` at 16/32/48/128px for the extension icons; visually
+  inspected at each size before finalizing).
 - **Wordmark**: not a separate shipped file — it is real Geist Sans **outlined to vector paths** at
   weight 600 (the brand's locked semibold), not live `<text>`. Outlines were extracted by
   instancing the actual variable Geist Sans binary `next/font/google` resolves to in this repo
@@ -211,12 +255,16 @@ Calm, encouraging, precise — a patient tutor, not a hype product. Concretely:
   cap-height scaled to 0.6× mark height and vertically centered on the mark's bounding-box midline;
   total viewBox `0 0 268.04 64`.
 - **OG image**: lockup composed on a `--color-surface` (`#f7f7f5`) ground, centered, scaled to 60% of
-  the 1200×630 canvas width.
+  the 1200×630 canvas width. Regenerated from the new `logo.svg` this round (same composition rule,
+  unchanged from the original).
 
-Usage rule for all of the above: **never recolor the logomark** outside the accent/neutral tokens
-defined in §4, and never apply a drop shadow, outline, or gradient to it — flat fill only, per §2.
+Usage rule for all of the above: **never recolor the logomark** outside the gradient defined in
+§4.1, and never substitute a flat fill or any other gradient — the locked "Mark gradient" is the
+one and only treatment, per §2.
 
-**First-pass caveat:** this is a from-scratch mark designed and reviewed programmatically (rendered
-and visually inspected at multiple sizes), not by a human designer. Per the sprint's own risk note,
-a revision is a single-asset swap (`logomark.svg` + regenerate the lockup/icons/OG from it), not a
-re-theme — flag here if the direction doesn't land after seeing it in place.
+**Provenance:** this mark shipped via a Claude Design handoff (`Calyxa Overlay.dc.html`), not a
+from-scratch programmatic generation like the retired mark — Darcy mocked it up in Claude Design and
+this sprint implemented it pixel-for-pixel from that source (gradient stops, path geometry, and
+viewBox all read directly off the handoff file, not approximated). A revision is still a
+single-asset swap (`logomark.svg` + regenerate the lockup/icons/OG from it), not a re-theme — flag
+here if the direction doesn't land after seeing it in place.

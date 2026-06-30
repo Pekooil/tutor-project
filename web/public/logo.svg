@@ -1,10 +1,14 @@
 <svg viewBox="0 0 268.04 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Calyxa">
-  <g fill="#15803d">
-    <path transform="translate(32,56) rotate(-42)" d="M0,0 C-9,-10 -9,-28 0,-40 C9,-28 9,-10 0,0 Z"/>
-    <path transform="translate(32,56) rotate(0)" d="M0,0 C-8,-9 -8,-21 0,-30 C8,-21 8,-9 0,0 Z"/>
-    <path transform="translate(32,56) rotate(42)" d="M0,0 C-9,-10 -9,-28 0,-40 C9,-28 9,-10 0,0 Z"/>
-    <circle cx="32" cy="19" r="8"/>
-  </g>
+  <defs>
+    <linearGradient id="cxLeaf" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#7bedaa"/>
+      <stop offset="0.5" stop-color="#3fd07a"/>
+      <stop offset="1" stop-color="#1f9d5b"/>
+    </linearGradient>
+  </defs>
+  <path d="M52,37 C54,28 44,15 35,15 C24,15 15,25 15,35 C15,46 28,55 45,51" fill="none" stroke="url(#cxLeaf)" stroke-width="6.5" stroke-linecap="round"/>
+  <path d="M0,-7 C4.5,-4 4.5,4 0,7.5 C-4.5,4 -4.5,-4 0,-7 Z" transform="translate(44,13) rotate(32)" fill="url(#cxLeaf)"/>
+  <circle cx="40" cy="35" r="4" fill="url(#cxLeaf)"/>
   <g transform="translate(96.000,8.744) scale(0.054085)">
     <g transform="translate(-39,710) scale(1,-1)" fill="#1c1c1a">
     <path transform="translate(0,0)" d="M302 -12Q222 -12 163.0 22.5Q104 57 71.5 120.0Q39 183 39 267Q39 351 71.5 413.5Q104 476 163.0 511.0Q222 546 302 546Q370 546 423.0 522.0Q476 498 509.5 453.5Q543 409 551 345L419 338Q411 389 379.5 415.5Q348 442 302 442Q240 442 206.0 395.5Q172 349 172 267Q172 184 206.0 138.0Q240 92 302 92Q349 92 380.5 119.0Q412 146 419 203L551 197Q543 133 510.0 86.0Q477 39 424.0 13.5Q371 -12 302 -12Z"/>

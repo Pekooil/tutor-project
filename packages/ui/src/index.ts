@@ -15,3 +15,6 @@ export type { SpinnerProps, SpinnerSize } from './primitives/Spinner';
 
 export { VisuallyHidden } from './primitives/VisuallyHidden';
 export type { VisuallyHiddenProps } from './primitives/VisuallyHidden';
+
+export { CalyxaMark } from './primitives/CalyxaMark';
+export type { CalyxaMarkProps } from './primitives/CalyxaMark';

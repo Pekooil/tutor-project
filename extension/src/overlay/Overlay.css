@@ -1,219 +1,137 @@
-/* Calyxa overlay styles — Sprint 02.
+/* Calyxa overlay styles — Sprint 10 (was hand-written CSS through Sprint 09).
  *
- * These rules are injected INTO the shadow root (the content script sets
- * cssInjectionMode: 'ui'), never the host page <head>, so they cannot leak onto
- * the host page. The job here is the other direction: keep the host page's CSS
- * from leaking IN. See /docs/adr/ADR-002-overlay-shadow-dom.md. */
+ * Tailwind v4 + the @calyxa/ui tokens, compiled by @tailwindcss/vite (Task 3)
+ * into the stylesheet the content script injects INTO the shadow root
+ * (cssInjectionMode: 'ui'), never the host page <head> — so this can never
+ * leak onto, or be bled into from, the host page. See ADR-002 + ADR-018.
+ * Overlay.tsx now carries all layout/visual classes directly; this file is
+ * bootstrap only. */
+@import 'tailwindcss';
+@import '@calyxa/ui/theme.css';
+/* @calyxa/ui resolves through the npm workspace symlink (node_modules/@calyxa/ui
+ * -> ../../packages/ui), and Tailwind's automatic content detection misses some
+ * utilities used only inside that package (confirmed empirically: inline-flex,
+ * sr-only, and motion-safe:animate-spin were silently absent from the compiled
+ * sheet even though other classes from the same files compiled fine). @source
+ * forces those files into the scan explicitly. */
+@source '../../../packages/ui/src';
 
-/* (1) Hard reset. Stop ALL host-page inheritance from crossing into the shadow
- * tree through the host element. Inherited properties (color, font-family,
- * font-size, line-height, letter-spacing, ...) pierce the shadow boundary even
- * though selectors do not — the single most common cause of bleed.
- *
- * Note: WXT's createShadowRootUi already prepends `:host { all: initial
- * !important }` at runtime. This line is the same reset, kept explicit per
- * ADR-002. Because WXT's copy is !important, the overlay's base typography must
- * NOT live on :host — it would be overridden — so it is set on .mm-overlay. */
+/* WXT's createShadowRootUi already prepends `:host { all: initial !important }`
+ * at runtime; kept explicit here too, per ADR-002. Typography/color live on
+ * the overlay's own root element (font-sans/text-base/text-foreground in
+ * Overlay.tsx), never on :host, since the !important reset would win over
+ * anything declared here. */
 :host {
   all: initial;
 }
 
-/* (2) The fixed bottom-right panel, carrying its own explicit typographic
- * base. Typography is declared here, directly on .mm-overlay (not on :host),
- * so WXT's `:host { all: initial !important }` cannot override it. Never rely
- * on inherited or browser-initial values — both vary by host page and
- * platform. Sprint 05 grows this from a static label into a flex column
- * (transcript above, input form pinned below) — still the same fixed panel. */
-.mm-overlay {
-  box-sizing: border-box;
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  z-index: 2147483647; /* max 32-bit signed int — above host page layers */
-
-  display: flex;
-  flex-direction: column;
-  width: 320px;
-  max-height: 420px;
-  gap: 8px;
-  padding: 12px;
-
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
-
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
-    Arial, sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
-  font-weight: 400;
-  color: #0f172a;
-  text-align: left;
+/* Capsule + Gemini-style input-bar ambient glow (round 2 redesign). A
+ * radial-gradient + blur has no Tailwind utility equivalent, so it lives
+ * here; the breathing animation itself is applied as a Tailwind arbitrary
+ * value in Overlay.tsx (motion-safe: gated, so prefers-reduced-motion just
+ * leaves the glow static — never load-bearing for comprehension). */
+.calyxa-glow {
+  background: radial-gradient(
+    circle,
+    var(--color-accent-glow) 0%,
+    var(--color-accent-glow-strong) 45%,
+    transparent 75%
+  );
 }
 
-/* (2.5) Page-context indicator chip — Sprint 07. Lets the student know the
- * tutor read math off their current screen (or, when extraction found
- * nothing, shows the same "type or paste it" steer the prompt itself
- * falls back to). Scoped to .mm-overlay's children, never :host (ADR-002). */
-.mm-page-context {
-  margin: 0;
-  padding: 4px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  flex: 0 0 auto;
-}
-
-.mm-page-context--detected {
-  background: #ecfdf5;
-  color: #047857;
-  font-weight: 600;
-}
-
-.mm-page-context--empty {
-  background: #f8fafc;
-  color: #64748b;
-  font-style: italic;
-}
-
-/* (3) Transcript — the scrollable message list, oldest first. All box-model
- * rules here are scoped to .mm-overlay's children, never :host. */
-.mm-transcript {
-  overflow-y: auto;
-  flex: 1 1 auto;
-  min-height: 80px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.mm-empty {
-  margin: 0;
-  color: #64748b;
-  font-style: italic;
-}
-
-.mm-message {
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: 10px;
-  max-width: 85%;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.mm-message--user {
-  align-self: flex-end;
-  background: #0f172a;
-  color: #ffffff;
-}
-
-.mm-message--assistant {
-  align-self: flex-start;
-  background: #f1f5f9;
-  color: #0f172a;
-}
-
-.mm-notice {
-  margin: 0;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: #fef2f2;
-  color: #b91c1c;
-  font-size: 13px;
-}
-
-/* (4) Voice-turn indicators — Sprint 06. Audio-playing state and the
- * per-turn latency readout, both rendered inline in the transcript list. */
-.mm-playing {
-  margin: 0;
-  color: #0f172a;
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.mm-latency {
-  margin: 0;
-  color: #64748b;
-  font-size: 12px;
-}
-
-/* (5) Input row, pinned below the transcript. */
-.mm-form {
-  display: flex;
-  gap: 6px;
-  flex: 0 0 auto;
-}
-
-/* (6) Mic button — push-to-talk (Sprint 06). Idle state matches .mm-send's
- * dark-panel look; the recording state pulses red so press-and-hold has an
- * unmistakable, glance-able indicator while the button is held. */
-.mm-mic {
-  box-sizing: border-box;
-  flex: 0 0 auto;
-  width: 36px;
-  padding: 8px 0;
-  border: none;
-  border-radius: 8px;
-  background: #0f172a;
-  color: #ffffff;
-  font: inherit;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.mm-mic:disabled {
-  background: #cbd5e1;
-  cursor: default;
-}
-
-.mm-mic--recording {
-  background: #dc2626;
-  animation: mm-mic-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes mm-mic-pulse {
+@keyframes calyxa-breathe {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45);
+    opacity: 0.55;
+    transform: scale(0.92);
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.15);
+    opacity: 1;
+    transform: scale(1.08);
   }
 }
 
-.mm-input {
-  box-sizing: border-box;
-  flex: 1 1 auto;
-  padding: 8px 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font: inherit;
-  color: inherit;
+/* Four-state redesign (Sprint 10 Task 6 round 3, Calyxa Overlay.dc.html).
+ * One keyframe per state's signature motion: cx-dot is the idle-pill/
+ * listening-badge readiness pulse, cx-bar drives both waveform variants
+ * (listening + TTS playback, different amplitude/timing via inline style,
+ * same keyframe), cx-orb/cx-ring are the thinking state's breathing core +
+ * expanding ring, cx-rise is the idle-pill's mount transition. All applied
+ * as Tailwind arbitrary-value classes gated by motion-safe: in Overlay.tsx —
+ * per brand.md S6, none of this motion is load-bearing for comprehension. */
+@keyframes cx-dot {
+  0%,
+  100% {
+    transform: scale(0.65);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
-.mm-input:disabled {
-  background: #f8fafc;
-  color: #94a3b8;
+@keyframes cx-bar {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
 }
 
-.mm-send {
-  flex: 0 0 auto;
-  padding: 8px 14px;
-  border: none;
-  border-radius: 8px;
-  background: #0f172a;
-  color: #ffffff;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
+@keyframes cx-orb {
+  0%,
+  100% {
+    transform: scale(0.86);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
 }
 
-.mm-send:disabled {
-  background: #cbd5e1;
-  cursor: default;
+@keyframes cx-ring {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+/* Vertical-only (and opacity) — the horizontal centering on the idle pill's
+ * wrapper is Tailwind's own -translate-x-1/2 utility (a separate `translate`
+ * property in Tailwind v4, not `transform`), so this keyframe must not also
+ * touch X or the two would compose into a doubled offset. */
+@keyframes cx-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* The waveform bars (Overlay.tsx's WaveformBars) need a per-bar
+ * animation-duration/delay, which Tailwind's arbitrary-value `animate-[...]`
+ * syntax can't express (resolved once at build time, not per element) — so
+ * this is the one animation set via a plain class + inline style instead of
+ * motion-safe:animate-[...]. Scoping the animation-name declaration itself
+ * inside this media query (rather than gating with a `motion-safe:` utility)
+ * gets the same prefers-reduced-motion-safe result: under reduced motion the
+ * bars simply have no animation-name and sit static at full height, same
+ * never-load-bearing guarantee as everywhere else in this file. */
+@media (prefers-reduced-motion: no-preference) {
+  .cx-bar {
+    animation-name: cx-bar;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
 }

@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Button, CalyxaMark, Card, Field, Spinner } from '@calyxa/ui';
 import './main.css';
 import type { CalyxaMessage, SessionStatePayload, SignInPayload, StartSessionPayload } from '../types/messages';
 
@@ -15,6 +16,10 @@ import type { CalyxaMessage, SessionStatePayload, SignInPayload, StartSessionPay
 // no memory of prior state on every open. GET_STATE (a Task-7 addition, see
 // types/messages.ts) asks the worker for the current state on mount instead
 // of defaulting to "signed out".
+//
+// Sprint 10: restyled on @calyxa/ui tokens/primitives + Tailwind — message
+// contract, handlers, and the single shared `busy` gate are unchanged from
+// Sprint 09, only markup/styling moved.
 
 function sendMessage(message: CalyxaMessage): Promise<SessionStatePayload> {
   return chrome.runtime.sendMessage(message).then((response: CalyxaMessage) => response.payload as SessionStatePayload);
@@ -44,6 +49,23 @@ function deriveActiveTabDomain(url: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function Header() {
+  return (
+    <header className="flex items-center gap-2 border-b border-border px-4 py-3">
+      <CalyxaMark className="h-5 w-5" />
+      <span className="text-sm font-semibold text-foreground">Calyxa</span>
+    </header>
+  );
+}
+
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <Card role="alert" className="border-danger bg-background px-3 py-2 text-sm text-danger !shadow-none">
+      {message}
+    </Card>
+  );
 }
 
 function App() {
@@ -85,55 +107,72 @@ function App() {
   }
 
   if (!state) {
-    return <p className="calyxa-status">Loading…</p>;
+    return (
+      <div className="flex flex-col">
+        <Header />
+        <div aria-live="polite" className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+          <Spinner size="sm" label="Loading…" />
+          <span>Loading…</span>
+        </div>
+      </div>
+    );
   }
 
   if (!state.signedIn) {
     return (
-      <form className="calyxa-form" onSubmit={handleSignIn}>
-        <h1>Calyxa</h1>
-        <label>
-          Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </label>
-        <label>
-          Password
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </label>
-        {state.error && <p className="calyxa-error">{state.error}</p>}
-        <button type="submit" disabled={busy}>
-          Sign in
-        </button>
-      </form>
+      <div className="flex flex-col">
+        <Header />
+        <form className="flex flex-col gap-3 p-4" onSubmit={handleSignIn}>
+          <Field label="Email">
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </Field>
+          <Field label="Password">
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </Field>
+          {state.error && <ErrorBanner message={state.error} />}
+          <Button type="submit" variant="primary" loading={busy}>
+            Sign in
+          </Button>
+        </form>
+      </div>
     );
   }
 
   const { activeSession } = state;
 
   return (
-    <div className="calyxa-panel">
-      <h1>Calyxa</h1>
-      <p className="calyxa-status">Signed in as {state.user?.email}</p>
-      {activeSession && (
-        <p className="calyxa-hint">
-          {activeSession.degraded
-            ? 'Free limit reached for this month — this session is on the house.'
-            : `${activeSession.remaining ?? '—'} session${activeSession.remaining === 1 ? '' : 's'} left this month.`}
-        </p>
-      )}
-      {state.error && <p className="calyxa-error">{state.error}</p>}
-      {activeSession ? (
-        <button onClick={handleEnd} disabled={busy}>
-          End session
-        </button>
-      ) : (
-        <button onClick={handleStart} disabled={busy}>
-          Start tutor on this page
-        </button>
-      )}
-      <button onClick={handleSignOut} disabled={busy}>
-        Sign out
-      </button>
+    <div className="flex flex-col">
+      <Header />
+      <div className="flex flex-col gap-3 p-4">
+        <p className="text-sm text-foreground">Signed in as {state.user?.email}</p>
+        {activeSession && (
+          <Card
+            aria-live="polite"
+            className={
+              activeSession.degraded
+                ? 'border-accent-subtle bg-accent-subtle px-3 py-2 text-xs text-accent-emphasis !shadow-none'
+                : 'border-border bg-surface px-3 py-2 text-xs text-muted-foreground !shadow-none'
+            }
+          >
+            {activeSession.degraded
+              ? 'Free limit reached for this month — this session is on the house.'
+              : `${activeSession.remaining ?? '—'} session${activeSession.remaining === 1 ? '' : 's'} left this month.`}
+          </Card>
+        )}
+        {state.error && <ErrorBanner message={state.error} />}
+        {activeSession ? (
+          <Button variant="primary" onClick={handleEnd} loading={busy}>
+            End session
+          </Button>
+        ) : (
+          <Button variant="primary" onClick={handleStart} loading={busy}>
+            Start tutor on this page
+          </Button>
+        )}
+        <Button variant="secondary" onClick={handleSignOut} loading={busy}>
+          Sign out
+        </Button>
+      </div>
     </div>
   );
 }

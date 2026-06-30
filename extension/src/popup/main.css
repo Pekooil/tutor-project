@@ -1,41 +1,12 @@
-body {
-  margin: 0;
-  width: 260px;
-  font-family: system-ui, sans-serif;
-  font-size: 14px;
-}
-
-.calyxa-form,
-.calyxa-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px;
-}
-
-.calyxa-form h1,
-.calyxa-panel h1 {
-  font-size: 16px;
-  margin: 0 0 4px;
-}
-
-.calyxa-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.calyxa-status {
-  padding: 16px;
-  margin: 0;
-}
-
-.calyxa-error {
-  color: #b3261e;
-  margin: 0;
-}
-
-.calyxa-hint {
-  margin: 0;
-  color: #555;
-}
+/* Calyxa popup styles — Sprint 10 (was hand-written CSS through Sprint 09).
+ * Tailwind v4 + the @calyxa/ui tokens (Task 3); base sizing/color now live on
+ * <body> in index.html, everything else as utility classes in main.tsx. */
+@import 'tailwindcss';
+@import '@calyxa/ui/theme.css';
+/* @calyxa/ui resolves through the npm workspace symlink (node_modules/@calyxa/ui
+ * -> ../../packages/ui), and Tailwind's automatic content detection misses some
+ * utilities used only inside that package (confirmed empirically: inline-flex,
+ * sr-only, and motion-safe:animate-spin were silently absent from the compiled
+ * sheet even though other classes from the same files compiled fine). @source
+ * forces those files into the scan explicitly. */
+@source '../../../packages/ui/src';

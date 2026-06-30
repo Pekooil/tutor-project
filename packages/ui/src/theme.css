@@ -12,11 +12,18 @@
  */
 
 @theme {
-  /* ---- Color: accent (green) — brand.md §4.1 ---- */
-  --color-accent: #15803d; /* fills (buttons, focus-ring core, active state) */
-  --color-accent-foreground: #ffffff; /* text/icon ON --color-accent — 5.01:1 AA */
+  /* ---- Color: accent (green) — brand.md §4.1 ----
+   * Light-fill + dark-text pattern (Sprint 10 Task 6 round 2): the brand
+   * moved to a lighter, airier green (Wispr Flow / Gemini voice-UI
+   * inspired). A light fill can't pair with white text and stay AA, so
+   * --color-accent-foreground is dark now, not white — never put light/
+   * white text or icons on any accent-family fill. */
+  --color-accent: #86efac; /* light fill (buttons, active state) — pair with accent-foreground, never white */
+  --color-accent-foreground: #14532d; /* dark text/icon ON --color-accent — 6.49:1 AA */
   --color-accent-emphasis: #166534; /* accent-colored TEXT on light backgrounds — 7.13:1 AAA */
   --color-accent-subtle: #f0fdf4; /* light tint surface for badges/banners; pair with accent-emphasis text — 6.81:1 AA */
+  --color-accent-glow: #bbf7d0; /* decorative only — breathing-glow gradient inner stop (capsule, Gemini-style input bar); never a text/icon color */
+  --color-accent-glow-strong: #4ade80; /* decorative only — glow gradient outer stop, and the active/pressed fill (e.g. mic while recording); pair with accent-foreground, never white */
   /* Stable aliases for the pair above. shadcn's own vocabulary needs
    * --color-accent to mean a hover/highlight tint, not our brand accent
    * (ADR-018) — /web's globals.css locally re-targets that NAME via
@@ -25,8 +32,8 @@
    * line was written" — so anything needing the original green after such
    * a local override (e.g. shadcn's --primary/--primary-foreground) must
    * read these, never --color-accent/--color-accent-foreground directly. */
-  --color-accent-fill: #15803d;
-  --color-accent-fill-foreground: #ffffff;
+  --color-accent-fill: #86efac;
+  --color-accent-fill-foreground: #14532d;
 
   /* ---- Color: neutrals (warm, calm) — brand.md §4.2 ---- */
   --color-background: #ffffff;
@@ -37,7 +44,11 @@
   --color-muted-foreground: #6b6b65; /* 5.36:1 AA on background */
   --color-danger: #b91c1c; /* 6.47:1 AA on background */
   --color-danger-foreground: #ffffff;
-  --color-focus-ring: #15803d; /* = --color-accent */
+  /* Intentionally NOT aliased to --color-accent anymore: a focus ring needs
+   * the WCAG 1.4.11 3:1 non-text minimum against the page background, and
+   * the new lighter --color-accent doesn't clear that. This stays the
+   * original darker green so focus is always visible. */
+  --color-focus-ring: #15803d;
 
   /* ---- Type — brand.md §5 ----
    * --font-sans is the overlay's SYSTEM-STACK token (ADR-018): the overlay
