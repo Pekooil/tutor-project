@@ -34,15 +34,15 @@ import { startRecording, type RecordingHandle, type Utterance } from './VoiceCon
 // throws, a notice is shown and the turn degrades to text-in/text-out,
 // exactly the Sprint 05 path, never a dead end.
 //
-// Sprint 10 Task 6 (Calyxa Overlay.dc.html — the locked design handoff,
-// round 4 revision): three composed moments, all in this one component —
+// Sprint 10 Task 6 (Calyxa Overlay.dc.html — the locked design handoff):
+// three composed moments, all in this one component —
 //   idle   : a 140x48 pill (mark + wordmark + a breathing "ready" dot).
-//   asking : the 420px panel's default body — text input + mic + send.
-//            Clicking the mic swaps the input for an inline green listening
-//            waveform and turns the mic button into the same white/black-
-//            square "stop" affordance the TTS playback control uses;
-//            clicking that again stops recording and submits the turn —
-//            there is no separate voice-mode panel.
+//   asking : the 420px panel — header (mark + "Calyxa" + "Typing" badge),
+//            text input + mic-switch + send, hint row "↵ to send · tap the
+//            mic to speak instead". Clicking the mic-switch starts recording:
+//            the header badge switches to a green "Listening" dot + label,
+//            the input swaps for the live waveform, the mic button shows a
+//            black stop square, and the hint row is hidden.
 //   thinking: the input/reply is swapped for a single breathing orb while
 //            onTranscribe/onSend/onSynthesize is in flight.
 //   reply  : the most recent assistant turn renders inline, above the input
@@ -67,18 +67,6 @@ import { startRecording, type RecordingHandle, type Utterance } from './VoiceCon
 // shadow root (cssInjectionMode: 'ui', Task 3) so nothing bleeds onto — or in
 // from — the host page. See /docs/adr/ADR-002-overlay-shadow-dom.md.
 //
-// Google's Material Icons "mic" glyph (24x24, Apache-2.0), inlined so the
-// mic affordance is a real icon instead of an emoji whose rendering varies
-// by OS/font. `currentColor` fill means it inherits the button's text color
-// for free (incl. focus/hover states), no separate color prop needed.
-function MicIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
-      <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z" />
-    </svg>
-  );
-}
-
 export function Overlay({
   onSend,
   onTranscribe,
@@ -269,12 +257,7 @@ export function Overlay({
   return (
     <div className="fixed bottom-7 left-1/2 z-[2147483647] w-[420px] -translate-x-1/2 font-sans text-base text-foreground">
       <div className="overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
-        {/* Header only exists for the one state that still needs a control
-            here — TTS playback's raise-hand Stop button. The branding/idle
-            and "Typing" badges this used to also carry are gone: the opened
-            panel shows only the textbox/mic/send (asking, including inline
-            recording) or the thinking orb (busy), per Sprint 10 round 4. */}
-        {playing && (
+        {playing ? (
           <header className="flex items-center justify-end gap-2 border-b border-border px-4 py-3">
             <span className="flex items-center gap-2">
               <span className="flex h-4 items-center">
@@ -292,7 +275,22 @@ export function Overlay({
               </Button>
             </span>
           </header>
-        )}
+        ) : !busy ? (
+          <header className="flex items-center gap-[9px] border-b border-border px-4 pb-3 pt-[14px]">
+            <CalyxaMark className="h-[19px] w-[19px] flex-none" />
+            <span className="text-[13.5px] font-semibold text-foreground">Calyxa</span>
+            {recording ? (
+              <span className="ml-auto flex items-center gap-1.5 rounded-full bg-accent-subtle px-[10px] py-1 text-[11.5px] font-semibold text-accent-emphasis">
+                <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full bg-accent-glow-strong motion-safe:animate-[cx-dot_1.4s_ease-in-out_infinite]" />
+                Listening
+              </span>
+            ) : (
+              <span className="ml-auto rounded-full border border-border bg-surface px-[10px] py-1 text-[11.5px] font-semibold text-muted-foreground">
+                Typing
+              </span>
+            )}
+          </header>
+        ) : null}
 
         <div aria-live="polite" className="px-[18px] py-4">
           {busy ? (
@@ -344,38 +342,26 @@ export function Overlay({
                     placeholder="Ask a math question…"
                   />
                 )}
-                <Button
+                <button
                   type="button"
-                  variant="icon"
                   onClick={handleMicClick}
-                  aria-label={recording ? 'Stop recording and send' : 'Start voice recording'}
-                  title={recording ? 'Stop and send' : 'Click to record'}
-                  className={
-                    recording
-                      ? // Same affordance as the "Stop speaking" button
-                        // (header above): white/background fill, a visible
-                        // border, and a black square glyph — so the one
-                        // "tap this to stop" language is shared by both
-                        // record and playback controls instead of the mic
-                        // button using its own green/dot vocabulary.
-                        'h-[34px] w-[34px] flex-none rounded-full border border-border bg-background'
-                      : 'h-[34px] w-[34px] flex-none rounded-full border border-border'
-                  }
+                  aria-label={recording ? 'Stop recording and send' : 'Switch to voice'}
+                  title={recording ? 'Stop and send' : 'Switch to voice'}
+                  className="flex h-[34px] w-[34px] flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                 >
                   {recording ? (
-                    <span aria-hidden="true" className="block h-2.5 w-2.5 rounded-[2px] bg-foreground" />
+                    <span aria-hidden="true" className="block h-2.5 w-2.5 rounded-[2px] bg-muted-foreground" />
                   ) : (
-                    <MicIcon className="h-[18px] w-[18px]" />
+                    <span aria-hidden="true" className="block h-[13px] w-[7px] rounded-full bg-muted-foreground" />
                   )}
-                </Button>
-                <Button
+                </button>
+                <button
                   type="submit"
-                  variant="primary"
                   disabled={!input.trim() || recording}
-                  className="h-[34px] flex-none rounded-full px-4 text-[13px]"
+                  className="h-[34px] flex-none cursor-pointer rounded-full border-0 bg-accent px-[17px] text-[13px] font-semibold text-accent-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Send
-                </Button>
+                </button>
               </form>
             </div>
           )}
