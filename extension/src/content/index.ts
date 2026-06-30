@@ -177,13 +177,14 @@ export default defineContentScript({
         // opens, never persisted. Runs in this content-script context, the
         // only place with host-DOM access; extractPageContext reads the
         // host page only and excludes this very shadow host from what it
-        // reads (ADR-012).
+        // reads (ADR-012). Still captured (and still threaded into the
+        // AI_TURN payload below) even though the overlay no longer renders
+        // an equation-count chip — the tutor still needs the page context.
         capturedPageContext = extractPageContext();
         return mountOverlay(container, {
           onSend: sendAiTurn,
           onTranscribe: sendVoiceStt,
           onSynthesize: sendVoiceTts,
-          pageContextSummary: { equationCount: capturedPageContext.equations.length },
         });
       },
       onRemove: (root) => {

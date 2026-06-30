@@ -38,15 +38,20 @@ export default defineConfig({
       // production origin is added alongside this at launch, not replacing it.
       'http://localhost:3000/*',
     ],
-    // Keyboard command (Sprint 02). A custom command, separate from the popup's
-    // reserved _execute_action. The key is user-rebindable at
-    // chrome://extensions/shortcuts and is verified in Task 5.
+    // Keyboard command (Sprint 02, rebound Sprint 10). A custom command,
+    // separate from the popup's reserved _execute_action. The key is
+    // user-rebindable at chrome://extensions/shortcuts and is verified in
+    // Task 5.
     //
-    // Avoid Ctrl/Cmd+Shift+M — that is reserved by Chrome (profile switcher),
-    // so Chrome refuses to bind it to an extension. Ctrl/Cmd+Shift+Y is free.
+    // Alt+Shift+C ⌥+⇧+C — "C" for Calyxa. Chrome's "Alt" modifier already
+    // maps to the physical Option key on macOS, so one suggested_key covers
+    // both platforms — no separate `mac` override needed (unlike the old
+    // Ctrl/Cmd+Shift+Y). (The in-panel Alt+Shift+V push-to-talk chord this
+    // was originally paired with has since been removed in favor of a
+    // click-to-record mic button — see Overlay.tsx.)
     commands: {
       'toggle-overlay': {
-        suggested_key: { default: 'Ctrl+Shift+Y', mac: 'Command+Shift+Y' },
+        suggested_key: { default: 'Alt+Shift+C' },
         description: 'Toggle the Calyxa overlay',
       },
     },

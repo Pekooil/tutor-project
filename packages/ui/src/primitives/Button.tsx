@@ -1,6 +1,7 @@
 import { forwardRef } from 'react';
 import type { ButtonHTMLAttributes } from 'react';
 import { Spinner } from './Spinner';
+import { cn } from '../lib/cn';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'icon';
 export type ButtonSize = 'sm' | 'md';
@@ -56,9 +57,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       aria-pressed={pressed}
       disabled={disabled || loading}
-      className={[baseClass, variantClass[variant], sizeClass[variant][size], className]
-        .filter(Boolean)
-        .join(' ')}
+      className={cn(baseClass, variantClass[variant], sizeClass[variant][size], className)}
       style={{
         transitionDuration: 'var(--motion-duration-fast)',
         transitionTimingFunction: 'var(--motion-ease-out)',

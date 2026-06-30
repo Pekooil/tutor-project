@@ -1,5 +1,6 @@
 import { cloneElement, useId } from 'react';
 import type { ReactElement, ReactNode } from 'react';
+import { cn } from '../lib/cn';
 
 export interface FieldProps {
   /** Wraps the label in `VisuallyHidden` if a visible label isn't wanted. */
@@ -30,17 +31,15 @@ export function Field({ label, hint, error, required, className, children }: Fie
     'aria-describedby': describedBy,
     'aria-invalid': error ? true : undefined,
     'aria-required': required ? true : undefined,
-    className: [
+    className: cn(
       controlClass,
       error ? 'border-danger' : 'border-border-strong',
       (children.props as { className?: string }).className,
-    ]
-      .filter(Boolean)
-      .join(' '),
+    ),
   } as Record<string, unknown>);
 
   return (
-    <div className={['flex flex-col gap-1.5', className].filter(Boolean).join(' ')}>
+    <div className={cn('flex flex-col gap-1.5', className)}>
       <label htmlFor={controlId} className="text-sm font-medium text-foreground">
         {label}
         {required ? (

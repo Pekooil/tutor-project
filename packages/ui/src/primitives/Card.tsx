@@ -1,5 +1,6 @@
 import { forwardRef } from 'react';
 import type { HTMLAttributes } from 'react';
+import { cn } from '../lib/cn';
 
 export type CardProps = HTMLAttributes<HTMLDivElement>;
 
@@ -12,9 +13,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
   return (
     <div
       ref={ref}
-      className={['rounded-md border border-border bg-surface shadow-panel', className]
-        .filter(Boolean)
-        .join(' ')}
+      className={cn('rounded-md border border-border bg-surface shadow-panel', className)}
       {...props}
     />
   );

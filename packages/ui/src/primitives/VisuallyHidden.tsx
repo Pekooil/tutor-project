@@ -1,4 +1,5 @@
 import type { HTMLAttributes, ReactNode } from 'react';
+import { cn } from '../lib/cn';
 
 export interface VisuallyHiddenProps extends HTMLAttributes<HTMLSpanElement> {
   children: ReactNode;
@@ -8,7 +9,7 @@ export interface VisuallyHiddenProps extends HTMLAttributes<HTMLSpanElement> {
 // no new CSS, just the existing compiled sheet both render targets already load.
 export function VisuallyHidden({ className, children, ...props }: VisuallyHiddenProps) {
   return (
-    <span className={['sr-only', className].filter(Boolean).join(' ')} {...props}>
+    <span className={cn('sr-only', className)} {...props}>
       {children}
     </span>
   );

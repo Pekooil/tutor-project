@@ -1,5 +1,6 @@
 import type { SVGAttributes } from 'react';
 import { VisuallyHidden } from './VisuallyHidden';
+import { cn } from '../lib/cn';
 
 export type SpinnerSize = 'sm' | 'md';
 
@@ -25,7 +26,7 @@ export function Spinner({ size = 'md', label = 'Loading…', className, ...props
         viewBox="0 0 24 24"
         fill="none"
         aria-hidden="true"
-        className={['motion-safe:animate-spin text-accent', className].filter(Boolean).join(' ')}
+        className={cn('motion-safe:animate-spin text-accent', className)}
         {...props}
       >
         <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />

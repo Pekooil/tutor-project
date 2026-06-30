@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, CalyxaMark, Card } from '@calyxa/ui';
+import { Button, CalyxaMark, Card, VisuallyHidden } from '@calyxa/ui';
 import './Overlay.css';
 import type { TurnMessage } from '../types/messages';
 import { startRecording, type RecordingHandle, type Utterance } from './VoiceController';
@@ -18,24 +18,33 @@ import { startRecording, type RecordingHandle, type Utterance } from './VoiceCon
 // model) — so every onSend() call below carries the full transcript so far,
 // voice turn or text turn alike.
 //
-// Voice turn (ADR-010, sequential + measured): mic press -> VoiceController
-// captures one push-to-talk utterance -> onTranscribe -> the transcript is
-// appended as the user turn -> onSend(history) (the SAME AI leg text turns
-// use, unchanged) -> the reply is appended -> onSynthesize(reply) -> the
-// audio plays. Text input is the always-available fallback (ADR-011): if
-// getUserMedia is unavailable/denied or any voice leg throws, a notice is
-// shown and the turn degrades to text-in/text-out, exactly the Sprint 05
-// path, never a dead end.
+// Voice turn (ADR-010): click the mic button to start capture -> it keeps
+// recording until the mic button (now shown white with a black frame and a
+// black square, matching the TTS "Stop speaking" control) is clicked again
+// -> stop resolves one utterance -> onTranscribe -> the
+// transcript is appended as the user turn -> onSend(history) (the SAME AI
+// leg text turns use, unchanged) -> the reply is appended ->
+// onSynthesize(reply) -> the audio plays. Click-to-toggle, not
+// press-and-hold, and no keyboard chord: round 4 (this round) removed both
+// the press-and-hold mic button and the Option+Shift+V shortcut in favor of
+// a single click-to-start/click-to-stop control, and removed the dedicated
+// full-panel "listening" view — recording now happens inline, in the same
+// input row (see "asking" below). Text input is the always-available
+// fallback (ADR-011): if getUserMedia is unavailable/denied or any voice leg
+// throws, a notice is shown and the turn degrades to text-in/text-out,
+// exactly the Sprint 05 path, never a dead end.
 //
-// Sprint 10 Task 6 round 3 (Calyxa Overlay.dc.html — the locked design
-// handoff): the round-2 capsule + persistent Gemini-style input bar is
-// replaced by four composed moments, all in this one component —
+// Sprint 10 Task 6 (Calyxa Overlay.dc.html — the locked design handoff,
+// round 4 revision): three composed moments, all in this one component —
 //   idle   : a 140x48 pill (mark + wordmark + a breathing "ready" dot).
-//   asking : the 420px panel's default body — text input, press-and-hold
-//            mic to switch into the full "listening" waveform view for the
-//            duration of the hold.
+//   asking : the 420px panel's default body — text input + mic + send.
+//            Clicking the mic swaps the input for an inline green listening
+//            waveform and turns the mic button into the same white/black-
+//            square "stop" affordance the TTS playback control uses;
+//            clicking that again stops recording and submits the turn —
+//            there is no separate voice-mode panel.
 //   thinking: the input/reply is swapped for a single breathing orb while
-//            onSend/onTranscribe is in flight.
+//            onTranscribe/onSend/onSynthesize is in flight.
 //   reply  : the most recent assistant turn renders inline, above the input
 //            row — never a scrollback list. Derived from the tail of
 //            `messages`, not separate state, so it updates and clears
@@ -58,15 +67,6 @@ import { startRecording, type RecordingHandle, type Utterance } from './VoiceCon
 // shadow root (cssInjectionMode: 'ui', Task 3) so nothing bleeds onto — or in
 // from — the host page. See /docs/adr/ADR-002-overlay-shadow-dom.md.
 //
-// pageContextSummary (Sprint 07) is purely presentational: a count, not the
-// raw PageContext. This component never imports pageExtractor.ts or
-// chrome.* — the content script captures the page and passes down only
-// this small summary (ADR-012/ADR-013), surfaced as a hint under the input
-// row when there's no error notice to show instead.
-export type PageContextSummary = {
-  equationCount: number;
-};
-
 // Google's Material Icons "mic" glyph (24x24, Apache-2.0), inlined so the
 // mic affordance is a real icon instead of an emoji whose rendering varies
 // by OS/font. `currentColor` fill means it inherits the button's text color
@@ -83,12 +83,10 @@ export function Overlay({
   onSend,
   onTranscribe,
   onSynthesize,
-  pageContextSummary,
 }: {
   onSend: (messages: TurnMessage[]) => Promise<string>;
   onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
   onSynthesize: (text: string) => Promise<{ audio: ArrayBuffer; ttsMs: number }>;
-  pageContextSummary?: PageContextSummary;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [messages, setMessages] = useState<TurnMessage[]>([]);
@@ -98,17 +96,18 @@ export function Overlay({
   const [playing, setPlaying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   // Live mic input level (0 silence – 1 loud) while recording, polled off
-  // VoiceController's AnalyserNode so the listening waveform sits at rest
-  // until the user actually makes sound instead of animating unconditionally.
+  // VoiceController's AnalyserNode so the inline listening waveform sits at
+  // rest until the user actually makes sound instead of animating
+  // unconditionally.
   const [level, setLevel] = useState(0);
 
   const recordingRef = useRef<RecordingHandle | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const levelFrameRef = useRef<number | null>(null);
-  // Tracks whether the text input has focus, so the Option/Alt push-to-talk
-  // listener below can stay out of the way of Option+key combos used to type
-  // math symbols (e.g. Option+p for π) while the input is focused.
-  const inputFocusedRef = useRef(false);
+  // Guards a double-click on the mic from starting two overlapping
+  // recordings: true from the moment it's clicked until startRecording()
+  // (getUserMedia) resolves or fails.
+  const startingRef = useRef(false);
 
   function stopLevelMeter() {
     if (levelFrameRef.current !== null) {
@@ -128,8 +127,8 @@ export function Overlay({
     levelFrameRef.current = requestAnimationFrame(tick);
   }
 
-  // Stop and release the mic if the overlay is dismissed mid-press (ADR-011
-  // — no lingering capture).
+  // Stop and release the mic if the overlay is dismissed mid-recording
+  // (ADR-011 — no lingering capture).
   useEffect(() => {
     return () => {
       recordingRef.current?.cancel();
@@ -162,27 +161,30 @@ export function Overlay({
     }
   }
 
-  async function handleMicDown() {
-    if (busy) return;
+  async function handleMicStart() {
+    if (busy || recording || startingRef.current) return;
     setNotice(null);
-    setBusy(true);
+    startingRef.current = true;
     try {
-      recordingRef.current = await startRecording();
+      const handle = await startRecording();
+      recordingRef.current = handle;
       setRecording(true);
       startLevelMeter();
     } catch (error) {
-      setBusy(false);
       const message = error instanceof Error ? error.message : 'Microphone is unavailable.';
       setNotice(`${message} Use the text input instead.`);
+    } finally {
+      startingRef.current = false;
     }
   }
 
-  async function handleMicUp() {
+  async function handleMicStop() {
     const handle = recordingRef.current;
+    if (!handle) return; // nothing to stop (e.g. start() was still failing/initializing)
     recordingRef.current = null;
-    if (!handle) return; // mic press never started a recording (e.g. permission denied)
     setRecording(false);
     stopLevelMeter();
+    setBusy(true);
 
     let replyDelivered = false;
 
@@ -216,6 +218,14 @@ export function Overlay({
     }
   }
 
+  function handleMicClick() {
+    if (recording) {
+      void handleMicStop();
+    } else {
+      void handleMicStart();
+    }
+  }
+
   // Raise-hand: stop playback early. audio.pause() alone never fires
   // 'ended'/'error', so playAudio's awaited promise also listens for
   // 'pause' — calling pause() here resolves it exactly like natural
@@ -224,44 +234,6 @@ export function Overlay({
   function handleInterrupt() {
     audioRef.current?.pause();
   }
-
-  // Refs to the latest handlers, read by the Option/Alt key listener below
-  // (subscribed once per `expanded` toggle, not every render) so it never
-  // closes over a stale `messages`/`busy` snapshot.
-  const handleMicDownRef = useRef(handleMicDown);
-  const handleMicUpRef = useRef(handleMicUp);
-  handleMicDownRef.current = handleMicDown;
-  handleMicUpRef.current = handleMicUp;
-
-  // Push-to-talk via the Option key (reported as "Alt" by KeyboardEvent.key
-  // on both Mac and Windows) — an alternative to press-and-hold on the mic
-  // button. Only live while the panel is open and the text input isn't
-  // focused, so Option+key combos used to type math symbols (e.g. Option+p
-  // for π) keep working normally. preventDefault on both edges suppresses
-  // the browser/OS's own bare-Alt behavior (Windows menu-bar focus).
-  useEffect(() => {
-    if (!expanded) return;
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== 'Alt' || event.repeat) return;
-      if (inputFocusedRef.current || recordingRef.current) return;
-      event.preventDefault();
-      void handleMicDownRef.current();
-    }
-
-    function onKeyUp(event: KeyboardEvent) {
-      if (event.key !== 'Alt' || !recordingRef.current) return;
-      event.preventDefault();
-      void handleMicUpRef.current();
-    }
-
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-    };
-  }, [expanded]);
 
   if (!expanded) {
     return (
@@ -297,22 +269,14 @@ export function Overlay({
   return (
     <div className="fixed bottom-7 left-1/2 z-[2147483647] w-[420px] -translate-x-1/2 font-sans text-base text-foreground">
       <div className="overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
-        <header className="flex items-center gap-2 border-b border-border px-4 py-3">
-          <CalyxaMark className="h-[19px] w-[19px] flex-none" />
-          <span className="text-[13.5px] font-semibold">Calyxa</span>
-
-          {recording && (
-            <span className="ml-auto flex items-center gap-1.5 rounded-full bg-accent-subtle px-2.5 py-1 text-[11.5px] font-semibold text-accent-emphasis">
-              <span
-                aria-hidden="true"
-                className="h-[7px] w-[7px] flex-none rounded-full bg-accent-glow-strong motion-safe:animate-[cx-dot_1.4s_ease-in-out_infinite]"
-              />
-              Listening
-            </span>
-          )}
-
-          {!recording && playing && (
-            <span className="ml-auto flex items-center gap-2">
+        {/* Header only exists for the one state that still needs a control
+            here — TTS playback's raise-hand Stop button. The branding/idle
+            and "Typing" badges this used to also carry are gone: the opened
+            panel shows only the textbox/mic/send (asking, including inline
+            recording) or the thinking orb (busy), per Sprint 10 round 4. */}
+        {playing && (
+          <header className="flex items-center justify-end gap-2 border-b border-border px-4 py-3">
+            <span className="flex items-center gap-2">
               <span className="flex h-4 items-center">
                 <WaveformBars count={7} barWidth={3} gap={3} gradientFrom="#22a06b" gradientTo="#4ade80" durationBase={0.65} />
               </span>
@@ -327,25 +291,11 @@ export function Overlay({
                 <span aria-hidden="true" className="block h-2.5 w-2.5 rounded-[2px] bg-foreground" />
               </Button>
             </span>
-          )}
-
-          {!recording && !busy && !playing && !lastReply && (
-            <span className="ml-auto rounded-full border border-border bg-surface px-2.5 py-1 text-[11.5px] font-semibold text-muted-foreground">
-              Typing
-            </span>
-          )}
-        </header>
+          </header>
+        )}
 
         <div aria-live="polite" className="px-[18px] py-4">
-          {recording ? (
-            <div className="flex flex-col items-center gap-4">
-              <div className="flex h-12 w-full items-center justify-center">
-                <WaveformBars count={22} barWidth={4} gap={4} gradientFrom="#4ade80" gradientTo="#86efac" durationBase={0.9} level={level} />
-              </div>
-              <p className="m-0 text-center text-[14.5px] leading-relaxed text-muted-foreground">Listening…</p>
-              <div className="pt-0.5 text-xs tracking-wide text-muted-foreground/70">release to send</div>
-            </div>
-          ) : busy ? (
+          {busy ? (
             <div className="flex flex-col items-center gap-5 py-3.5">
               <div className="relative flex h-[76px] w-[76px] items-center justify-center">
                 <div
@@ -374,61 +324,59 @@ export function Overlay({
                 onSubmit={handleSubmit}
                 className="flex items-center gap-2 rounded-full border border-border bg-background py-[7px] pr-[7px] pl-[18px] shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
               >
-                <input
-                  className="h-full flex-1 border-none bg-transparent text-[14.5px] text-foreground outline-none placeholder:text-muted-foreground"
-                  type="text"
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  onFocus={() => {
-                    inputFocusedRef.current = true;
-                  }}
-                  onBlur={() => {
-                    inputFocusedRef.current = false;
-                  }}
-                  placeholder="Ask a math question…"
-                />
+                {recording ? (
+                  // Explicit height, not h-full: the form row's own height is
+                  // auto (only the <input> below has the intrinsic
+                  // line-height that happens to size the row) — h-full on
+                  // this plain div would resolve against that auto-height
+                  // ancestor as 0, collapsing every bar (and this container)
+                  // to nothing.
+                  <div className="flex h-[34px] flex-1 items-center justify-center">
+                    <VisuallyHidden>Recording — click the black square button to stop and send</VisuallyHidden>
+                    <WaveformBars count={24} barWidth={3} gap={3} gradientFrom="#4ade80" gradientTo="#86efac" durationBase={0.9} level={level} />
+                  </div>
+                ) : (
+                  <input
+                    className="h-full flex-1 border-none bg-transparent text-[14.5px] text-foreground outline-none placeholder:text-muted-foreground"
+                    type="text"
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    placeholder="Ask a math question…"
+                  />
+                )}
                 <Button
                   type="button"
                   variant="icon"
-                  onMouseDown={() => void handleMicDown()}
-                  onMouseUp={() => void handleMicUp()}
-                  onMouseLeave={() => {
-                    if (recordingRef.current) void handleMicUp();
-                  }}
-                  onTouchStart={(event) => {
-                    event.preventDefault();
-                    void handleMicDown();
-                  }}
-                  onTouchEnd={(event) => {
-                    event.preventDefault();
-                    void handleMicUp();
-                  }}
-                  aria-label="Press and hold to speak, or hold Option"
-                  title="Hold to talk, release to send"
-                  className="h-[34px] w-[34px] flex-none rounded-full border border-border"
+                  onClick={handleMicClick}
+                  aria-label={recording ? 'Stop recording and send' : 'Start voice recording'}
+                  title={recording ? 'Stop and send' : 'Click to record'}
+                  className={
+                    recording
+                      ? // Same affordance as the "Stop speaking" button
+                        // (header above): white/background fill, a visible
+                        // border, and a black square glyph — so the one
+                        // "tap this to stop" language is shared by both
+                        // record and playback controls instead of the mic
+                        // button using its own green/dot vocabulary.
+                        'h-[34px] w-[34px] flex-none rounded-full border border-border bg-background'
+                      : 'h-[34px] w-[34px] flex-none rounded-full border border-border'
+                  }
                 >
-                  <MicIcon className="h-[18px] w-[18px]" />
+                  {recording ? (
+                    <span aria-hidden="true" className="block h-2.5 w-2.5 rounded-[2px] bg-foreground" />
+                  ) : (
+                    <MicIcon className="h-[18px] w-[18px]" />
+                  )}
                 </Button>
-                <Button type="submit" variant="primary" disabled={!input.trim()} className="h-[34px] flex-none rounded-full px-4 text-[13px]">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={!input.trim() || recording}
+                  className="h-[34px] flex-none rounded-full px-4 text-[13px]"
+                >
                   Send
                 </Button>
               </form>
-
-              {!notice && (
-                <div className="flex items-center justify-center gap-2.5 text-xs text-muted-foreground">
-                  {pageContextSummary && (
-                    <>
-                      <span>
-                        {pageContextSummary.equationCount > 0
-                          ? `👁 ${pageContextSummary.equationCount} equation${pageContextSummary.equationCount === 1 ? '' : 's'} detected`
-                          : 'No equations detected — type or paste your problem'}
-                      </span>
-                      <span>·</span>
-                    </>
-                  )}
-                  <span>hold ⌥ Option (Alt) while speaking, release when done</span>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -437,9 +385,10 @@ export function Overlay({
   );
 }
 
-// One reactive waveform, two contexts: the listening view (large, 22 bars)
-// and the TTS-playback header indicator (small, 7 bars) — same bar/gradient
-// shape, different count/size/speed (Calyxa Overlay.dc.html's mkBars).
+// One reactive waveform, two contexts: the inline listening view (large, 24
+// bars) and the TTS-playback header indicator (small, 7 bars) — same
+// bar/gradient shape, different count/size/speed (Calyxa Overlay.dc.html's
+// mkBars).
 //
 // The two contexts drive the bars differently, because only one of them has
 // a real signal to follow:
@@ -452,8 +401,8 @@ export function Overlay({
 //     VoiceController's AnalyserNode) is level-driven instead: each bar's
 //     height is `level` times a fixed per-bar multiplier, floored so the row
 //     sits visibly at rest during silence rather than animating regardless
-//     of input (the bug this was added to fix). No CSS animation/keyframe
-//     involved, so there's nothing for prefers-reduced-motion to gate.
+//     of input. No CSS animation/keyframe involved, so there's nothing for
+//     prefers-reduced-motion to gate.
 function WaveformBars({
   count,
   barWidth,
