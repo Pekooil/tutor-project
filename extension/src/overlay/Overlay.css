@@ -104,6 +104,44 @@
   }
 }
 
+/* Word-entry animation (step 04, Calyxa Overlay.dc.html): each new streaming
+ * token or voice-reveal word fades in from 4 px below. One-shot (not looping)
+ * so already-visible words never re-animate — React's stable per-token keys
+ * guarantee only newly mounted spans trigger this. fill-mode: both holds the
+ * from-state before the animation starts so words don't flash on screen first.
+ * Gated by the media query here (same discipline as .cx-bar above) rather
+ * than motion-safe: in JSX, because the class is applied via className. */
+@keyframes cx-word-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cx-word-in {
+    animation: cx-word-in 0.28s ease-out both;
+  }
+}
+
+/* Green text-cursor blink (step 04). step-end keeps the transition sharp
+ * (no cross-fade between on/off states). Not gated by prefers-reduced-motion
+ * because a blinking cursor is communicative, not decorative. */
+@keyframes cx-caret {
+  0%,
+  48% {
+    opacity: 1;
+  }
+  49%,
+  100% {
+    opacity: 0;
+  }
+}
+
 /* Vertical-only (and opacity) — the horizontal centering on the idle pill's
  * wrapper is Tailwind's own -translate-x-1/2 utility (a separate `translate`
  * property in Tailwind v4, not `transform`), so this keyframe must not also

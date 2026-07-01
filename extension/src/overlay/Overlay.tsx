@@ -5,7 +5,7 @@ import {
   type CSSProperties,
   type FormEvent,
 } from 'react';
-import { Button, CalyxaMark, Card, VisuallyHidden } from '@calyxa/ui';
+import { CalyxaMark, Card, VisuallyHidden } from '@calyxa/ui';
 import './Overlay.css';
 import type { TurnMessage } from '../types/messages';
 import { startRecording, type RecordingHandle, type Utterance } from './VoiceController';
@@ -41,9 +41,12 @@ export function Overlay({
   const [messages, setMessages] = useState<TurnMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  // Builds up during text streaming (text turns) or word-reveal (voice turns).
-  // Rendered as a pending assistant bubble; committed to messages when done.
-  const [streamingContent, setStreamingContent] = useState('');
+  // Each streaming chunk (text turn) or word-reveal step (voice turn) becomes
+  // a token with a stable id. Rendering as individual <span key={id}> elements
+  // means React only mounts NEW spans for new tokens — already-visible ones
+  // never re-trigger the cx-word-in entry animation.
+  const [streamingTokens, setStreamingTokens] = useState<{ text: string; id: number }[]>([]);
+  const tokenIdRef = useRef(0);
   const [recording, setRecording] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -54,9 +57,33 @@ export function Overlay({
   const levelFrameRef = useRef<number | null>(null);
   const startingRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const inputElRef = useRef<HTMLInputElement | null>(null);
+  const measureElRef = useRef<HTMLSpanElement | null>(null);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [caretLeft, setCaretLeft] = useState(0);
 
   // True whenever the chat area should be rendered (no gap when empty).
   const hasContent = messages.length > 0 || busy || !!notice;
+
+  function appendStreamToken(text: string) {
+    const id = tokenIdRef.current++;
+    setStreamingTokens((prev) => [...prev, { text, id }]);
+  }
+
+  function clearStreamTokens() {
+    setStreamingTokens([]);
+  }
+
+  function refreshCaret() {
+    requestAnimationFrame(() => {
+      const el = inputElRef.current;
+      const measureEl = measureElRef.current;
+      if (!el || !measureEl) return;
+      const pos = el.selectionStart ?? el.value.length;
+      measureEl.textContent = el.value.slice(0, pos);
+      setCaretLeft(Math.max(0, measureEl.getBoundingClientRect().width - el.scrollLeft));
+    });
+  }
 
   function stopLevelMeter() {
     if (levelFrameRef.current !== null) {
@@ -84,10 +111,10 @@ export function Overlay({
     };
   }, []);
 
-  // Scroll to bottom when messages or streaming content changes.
+  // Scroll to bottom when messages or streaming tokens change.
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, streamingContent]);
+  }, [messages, streamingTokens]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -99,17 +126,17 @@ export function Overlay({
     setInput('');
     setNotice(null);
     setBusy(true);
-    setStreamingContent('');
+    clearStreamTokens();
 
     try {
       const reply = await onSend(history, (chunk) => {
-        setStreamingContent((prev) => prev + chunk);
+        appendStreamToken(chunk);
       });
       if (!reply.trim()) throw new Error('The tutor returned an empty reply.');
-      setStreamingContent('');
+      clearStreamTokens();
       setMessages((current) => [...current, { role: 'assistant', content: reply }]);
     } catch (error) {
-      setStreamingContent('');
+      clearStreamTokens();
       setNotice(describeError(error, "Couldn't reach the tutor — try again."));
     } finally {
       setBusy(false);
@@ -140,7 +167,7 @@ export function Overlay({
     setRecording(false);
     stopLevelMeter();
     setBusy(true);
-    setStreamingContent('');
+    clearStreamTokens();
 
     try {
       const utterance = await handle.stop();
@@ -155,15 +182,15 @@ export function Overlay({
 
       const { audio } = await onSynthesize(reply);
 
-      // Play audio and reveal the reply text word-by-word in sync with speech.
-      // The reply is committed to messages only after playback ends so there is
-      // no flash where the text appears twice.
-      await playAudioWithTextReveal(audio, reply, setStreamingContent, setPlaying, audioRef);
+      // Play audio and reveal the reply word-by-word in sync with speech.
+      // Each word is appended as a new token so it gets the cx-word-in
+      // entry animation. The reply commits to messages after playback ends.
+      await playAudioWithTextReveal(audio, reply, appendStreamToken, setPlaying, audioRef);
 
-      setStreamingContent('');
+      clearStreamTokens();
       setMessages((current) => [...current, { role: 'assistant', content: reply }]);
     } catch (error) {
-      setStreamingContent('');
+      clearStreamTokens();
       setNotice(
         describeError(
           error,
@@ -216,21 +243,22 @@ export function Overlay({
 
         {/* ── Header ── */}
         {playing ? (
-          <header className="flex items-center justify-end gap-2 border-b border-border px-4 py-3">
-            <span className="flex items-center gap-2">
+          <header className="flex items-center gap-[9px] border-b border-border px-4 pb-3 pt-[14px]">
+            <CalyxaMark className="h-[19px] w-[19px] flex-none" />
+            <span className="text-[13.5px] font-semibold text-foreground">Calyxa</span>
+            <span className="ml-auto flex items-center gap-2">
               <span className="flex h-4 items-center">
                 <WaveformBars count={7} barWidth={3} gap={3} gradientFrom="#22a06b" gradientTo="#4ade80" durationBase={0.65} />
               </span>
               <span className="text-[11.5px] text-muted-foreground">Speaking</span>
-              <Button
+              <button
                 type="button"
-                variant="icon"
                 onClick={handleInterrupt}
                 aria-label="Stop speaking"
-                className="h-7 w-7 flex-none rounded-full border border-border"
+                className="flex h-7 w-7 flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
               >
                 <span aria-hidden="true" className="block h-2.5 w-2.5 rounded-[2px] bg-foreground" />
-              </Button>
+              </button>
             </span>
           </header>
         ) : (
@@ -272,15 +300,23 @@ export function Overlay({
               ),
             )}
 
-            {/* Streaming text (text turns) or word-reveal (voice turns) */}
+            {/* Streaming text (text turns) or word-reveal (voice turns).
+                Each token is a separate <span key={id}> so only newly
+                appended tokens trigger the cx-word-in entry animation. */}
             {busy && (
               <div className="flex justify-start">
-                {streamingContent ? (
+                {streamingTokens.length > 0 ? (
                   <p className="m-0 max-w-[88%] whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-foreground">
-                    {streamingContent}
+                    {streamingTokens.map((token) => (
+                      <span key={token.id} className="inline-block cx-word-in">
+                        {token.text}
+                      </span>
+                    ))}
+                    {/* Green step-blink cursor matching step 04 of the design. */}
                     <span
                       aria-hidden="true"
-                      className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[1px] rounded-full bg-foreground opacity-70 motion-safe:animate-[cx-dot_0.8s_ease-in-out_infinite]"
+                      className="inline-block w-[2px] bg-accent-glow-strong ml-[2px]"
+                      style={{ height: '1.05em', verticalAlign: '-0.18em', animation: 'cx-caret 1s step-end infinite' }}
                     />
                   </p>
                 ) : (
@@ -311,14 +347,40 @@ export function Overlay({
                 <WaveformBars count={24} barWidth={3} gap={3} gradientFrom="#4ade80" gradientTo="#86efac" durationBase={0.9} level={level} />
               </div>
             ) : (
-              <input
-                className="h-full flex-1 border-none bg-transparent text-[14.5px] text-foreground outline-none placeholder:text-muted-foreground"
-                type="text"
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                placeholder="Ask a math question…"
-                disabled={busy}
-              />
+              <div className="relative flex flex-1 items-center overflow-hidden">
+                {/* Hidden span with the same font as the input. getBoundingClientRect()
+                    on it gives the text-before-cursor width, letting us position the
+                    fake caret without caret-width (not supported in Chrome). */}
+                <span
+                  ref={measureElRef}
+                  aria-hidden="true"
+                  className="pointer-events-none invisible absolute whitespace-pre text-[14.5px]"
+                />
+                <input
+                  ref={inputElRef}
+                  className="w-full border-none bg-transparent text-[14.5px] text-foreground outline-none placeholder:text-muted-foreground caret-transparent"
+                  type="text"
+                  value={input}
+                  onChange={(event) => { setInput(event.target.value); refreshCaret(); }}
+                  onKeyDown={refreshCaret}
+                  onKeyUp={refreshCaret}
+                  onMouseDown={refreshCaret}
+                  onClick={refreshCaret}
+                  onSelect={refreshCaret}
+                  onScroll={refreshCaret}
+                  onFocus={() => { setInputFocused(true); refreshCaret(); }}
+                  onBlur={() => setInputFocused(false)}
+                  placeholder="Ask a math question…"
+                  disabled={busy}
+                />
+                {inputFocused && !busy && (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute top-1/2 w-[2px] -translate-y-1/2 bg-accent-glow-strong"
+                    style={{ left: caretLeft, height: '1.05em', animation: 'cx-caret 1s step-end infinite' }}
+                  />
+                )}
+              </div>
             )}
             <button
               type="button"
@@ -349,18 +411,24 @@ export function Overlay({
   );
 }
 
-// Three animated dots shown while waiting for the first streaming chunk.
+// Small breathing orb shown while waiting for the first streaming chunk.
+// Uses the same cx-orb / cx-ring keyframes as the old full-size thinking
+// state but scaled down to ~20 px so it sits inline in the chat bubble row,
+// matching the ChatGPT-style pulsing dot pattern.
 function TypingIndicator() {
   return (
-    <div aria-label="Calyxa is thinking" className="flex items-center gap-1 py-1">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
+    <div aria-label="Calyxa is thinking" className="flex items-center py-1">
+      <div className="relative flex h-5 w-5 items-center justify-center">
+        <div
           aria-hidden="true"
-          className="block h-[6px] w-[6px] rounded-full bg-muted-foreground motion-safe:animate-[cx-dot_1.2s_ease-in-out_infinite]"
-          style={{ animationDelay: `${i * 0.2}s` }}
+          className="absolute h-5 w-5 rounded-full border border-accent motion-safe:animate-[cx-ring_2.6s_ease-out_infinite]"
         />
-      ))}
+        <div
+          aria-hidden="true"
+          className="h-3.5 w-3.5 rounded-full shadow-[0_0_6px_rgba(74,222,128,0.45)] motion-safe:animate-[cx-orb_2.8s_ease-in-out_infinite]"
+          style={{ background: 'radial-gradient(circle at 38% 32%, #dcfce7 0%, #86efac 45%, #4ade80 100%)' }}
+        />
+      </div>
     </div>
   );
 }
@@ -431,7 +499,7 @@ function describeError(error: unknown, fallback: string): string {
 async function playAudioWithTextReveal(
   buffer: ArrayBuffer,
   text: string,
-  setRevealedText: (updater: (prev: string) => string) => void,
+  appendToken: (text: string) => void,
   setPlaying: (playing: boolean) => void,
   audioRef: { current: HTMLAudioElement | null },
 ): Promise<void> {
@@ -473,12 +541,14 @@ async function playAudioWithTextReveal(
     return;
   }
 
-  // Reveal words at the computed rate.
+  // Append one word token per interval tick so each gets the cx-word-in
+  // entry animation, matching the text-streaming path's visual behaviour.
   let wordIndex = 0;
   const intervalId = setInterval(() => {
     if (wordIndex < words.length) {
-      const slice = words.slice(0, wordIndex + 1).join(' ');
-      setRevealedText(() => slice);
+      // Space prefix on all words after the first so the reconstructed
+      // text matches the original when the tokens are read as plain text.
+      appendToken(wordIndex === 0 ? words[wordIndex] : ' ' + words[wordIndex]);
       wordIndex++;
     } else {
       clearInterval(intervalId);
