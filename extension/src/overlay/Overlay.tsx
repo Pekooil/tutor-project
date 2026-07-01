@@ -60,6 +60,11 @@ export function Overlay({
   const inputElRef = useRef<HTMLInputElement | null>(null);
   const measureElRef = useRef<HTMLSpanElement | null>(null);
   const speechRecRef = useRef<{ stop: () => void } | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  // Drag origin is a ref (not state) so the move handler never stales.
+  const dragOriginRef = useRef<{ mouseX: number; mouseY: number; elemX: number; elemY: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
   const [caretLeft, setCaretLeft] = useState(0);
   // Live interim transcript from SpeechRecognition, shown word-by-word during
@@ -253,6 +258,48 @@ export function Overlay({
     audioRef.current?.pause();
   }
 
+  function handleClose() {
+    setExpanded(false);
+    setDragPos(null);
+    setIsDragging(false);
+    dragOriginRef.current = null;
+  }
+
+  function handleHeaderPointerDown(event: React.PointerEvent<HTMLElement>) {
+    // Let button clicks pass through without starting a drag.
+    if ((event.target as Element).closest('button')) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    dragOriginRef.current = {
+      mouseX: event.clientX,
+      mouseY: event.clientY,
+      elemX: rect.left,
+      elemY: rect.top,
+    };
+    setDragPos({ x: rect.left, y: rect.top });
+    setIsDragging(true);
+    // Pointer capture routes all subsequent pointer events to this element
+    // even when the cursor moves outside it during a fast drag.
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function handleHeaderPointerMove(event: React.PointerEvent<HTMLElement>) {
+    if (!dragOriginRef.current) return;
+    const { mouseX, mouseY, elemX, elemY } = dragOriginRef.current;
+    const newX = Math.max(0, Math.min(window.innerWidth - 420, elemX + (event.clientX - mouseX)));
+    const newY = Math.max(0, Math.min(window.innerHeight - 48, elemY + (event.clientY - mouseY)));
+    setDragPos({ x: newX, y: newY });
+  }
+
+  function handleHeaderPointerUp(event: React.PointerEvent<HTMLElement>) {
+    if (!dragOriginRef.current) return;
+    dragOriginRef.current = null;
+    setIsDragging(false);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
   if (!expanded) {
     return (
       <div className="fixed bottom-7 left-1/2 z-[2147483647] -translate-x-1/2 font-sans motion-safe:animate-[cx-rise_0.42s_cubic-bezier(0.2,0.8,0.2,1)_both]">
@@ -280,12 +327,21 @@ export function Overlay({
   }
 
   return (
-    <div className="fixed bottom-7 left-1/2 z-[2147483647] w-[420px] -translate-x-1/2 font-sans text-base text-foreground">
+    <div
+      ref={panelRef}
+      className={`fixed z-[2147483647] w-[420px] font-sans text-base text-foreground${isDragging ? ' select-none' : ''}${!dragPos ? ' bottom-7 left-1/2 -translate-x-1/2' : ''}`}
+      style={dragPos ? { top: `${dragPos.y}px`, left: `${dragPos.x}px` } : undefined}
+    >
       <div className="overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
 
         {/* ── Header ── */}
         {playing ? (
-          <header className="flex items-center gap-[9px] border-b border-border px-4 pb-3 pt-[14px]">
+          <header
+            className={`flex items-center gap-[9px] border-b border-border px-4 pb-3 pt-[14px] ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+            onPointerDown={handleHeaderPointerDown}
+            onPointerMove={handleHeaderPointerMove}
+            onPointerUp={handleHeaderPointerUp}
+          >
             <CalyxaMark className="h-[19px] w-[19px] flex-none" />
             <span className="text-[13.5px] font-semibold text-foreground">Calyxa</span>
             <span className="ml-auto flex items-center gap-2">
@@ -302,9 +358,24 @@ export function Overlay({
                 <span aria-hidden="true" className="block h-2.5 w-2.5 rounded-[2px] bg-foreground" />
               </button>
             </span>
+            <button
+              type="button"
+              onClick={handleClose}
+              aria-label="Close Calyxa"
+              className="flex h-7 w-7 flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            >
+              <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
           </header>
         ) : (
-          <header className="flex items-center gap-[9px] border-b border-border px-4 pb-3 pt-[14px]">
+          <header
+            className={`flex items-center gap-[9px] border-b border-border px-4 pb-3 pt-[14px] ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+            onPointerDown={handleHeaderPointerDown}
+            onPointerMove={handleHeaderPointerMove}
+            onPointerUp={handleHeaderPointerUp}
+          >
             <CalyxaMark className="h-[19px] w-[19px] flex-none" />
             <span className="text-[13.5px] font-semibold text-foreground">Calyxa</span>
             {recording ? (
@@ -317,6 +388,16 @@ export function Overlay({
                 Typing
               </span>
             )}
+            <button
+              type="button"
+              onClick={handleClose}
+              aria-label="Close Calyxa"
+              className="flex h-7 w-7 flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            >
+              <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
           </header>
         )}
 

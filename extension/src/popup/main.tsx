@@ -21,8 +21,21 @@ import type { CalyxaMessage, SessionStatePayload, SignInPayload, StartSessionPay
 // contract, handlers, and the single shared `busy` gate are unchanged from
 // Sprint 09, only markup/styling moved.
 
+const FALLBACK_ERROR: SessionStatePayload = {
+  signedIn: false,
+  user: null,
+  activeSession: null,
+  error: 'Extension service worker did not respond — reload the extension and try again.',
+};
+
 function sendMessage(message: CalyxaMessage): Promise<SessionStatePayload> {
-  return chrome.runtime.sendMessage(message).then((response: CalyxaMessage) => response.payload as SessionStatePayload);
+  return chrome.runtime
+    .sendMessage(message)
+    .then((response: CalyxaMessage | undefined) => {
+      if (!response) return FALLBACK_ERROR;
+      return response.payload as SessionStatePayload;
+    })
+    .catch(() => FALLBACK_ERROR);
 }
 
 // Two-part public suffixes this heuristic knows about. Not a full Public
@@ -81,29 +94,49 @@ function App() {
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
-    const payload: SignInPayload = { email, password };
-    setState(await sendMessage({ type: 'SIGN_IN', payload }));
-    setBusy(false);
+    try {
+      const payload: SignInPayload = { email, password };
+      setState(await sendMessage({ type: 'SIGN_IN', payload }));
+    } catch {
+      setState(FALLBACK_ERROR);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleSignOut() {
     setBusy(true);
-    setState(await sendMessage({ type: 'SIGN_OUT' }));
-    setBusy(false);
+    try {
+      setState(await sendMessage({ type: 'SIGN_OUT' }));
+    } catch {
+      setState(FALLBACK_ERROR);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleStart() {
     setBusy(true);
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const payload: StartSessionPayload = { pageDomain: deriveActiveTabDomain(tab?.url), mode: 'voice' };
-    setState(await sendMessage({ type: 'START_SESSION', payload }));
-    setBusy(false);
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const payload: StartSessionPayload = { pageDomain: deriveActiveTabDomain(tab?.url), mode: 'voice' };
+      setState(await sendMessage({ type: 'START_SESSION', payload }));
+    } catch {
+      setState(FALLBACK_ERROR);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleEnd() {
     setBusy(true);
-    setState(await sendMessage({ type: 'END_SESSION' }));
-    setBusy(false);
+    try {
+      setState(await sendMessage({ type: 'END_SESSION' }));
+    } catch {
+      setState(FALLBACK_ERROR);
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (!state) {

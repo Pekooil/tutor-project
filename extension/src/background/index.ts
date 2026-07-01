@@ -103,29 +103,30 @@ export default defineBackground(() => {
     }
   });
 
-  // (4c) Streaming AI_TURN via a persistent port (chrome.runtime.connect).
-  // The content script opens a port named 'AI_STREAM', sends one message
-  // with { messages, pageContext }, and receives chunk messages back as they
-  // arrive from the SSE endpoint. This keeps ADR-006 (background as sole
-  // network-egress context) while enabling word-by-word streaming in the
-  // overlay. The existing AI_TURN sendMessage path is kept for voice turns
-  // that need the full reply before synthesizing.
+  // (4c) Word-by-word AI turn via a persistent port (chrome.runtime.connect).
+  // The content script opens 'AI_STREAM', sends { messages, pageContext }, and
+  // receives one chunk message per word token so the overlay can animate them
+  // word-by-word. Uses the non-streaming /api/ai/turn endpoint (same as the
+  // voice path) and splits the reply client-side — this avoids a dependency on
+  // /api/ai/stream, which requires a server restart to pick up after the route
+  // file is first created (Turbopack dev-server limitation). ADR-006 upheld:
+  // the background service worker remains the sole network-egress context.
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== 'AI_STREAM') return;
     port.onMessage.addListener(async (msg: AiTurnPayload) => {
       try {
-        const reply = await api.aiTurnStream(msg.messages, msg.pageContext, (text) => {
-          try {
-            port.postMessage({ type: 'chunk', text });
-          } catch {
-            // Port disconnected (overlay closed during stream).
-          }
-        });
+        const reply = await api.aiTurn(msg.messages, msg.pageContext);
+        // Split on whitespace boundaries, keeping trailing spaces attached to
+        // the preceding token so the overlay reconstructs spacing correctly.
+        const tokens = reply.match(/\S+\s*/g) ?? [];
+        for (const token of tokens) {
+          try { port.postMessage({ type: 'chunk', text: token }); } catch { break; }
+        }
         await setRunningTranscript(msg.messages);
         try {
           port.postMessage({ type: 'done', reply });
         } catch {
-          // Port already disconnected — reply was fully streamed, no action needed.
+          // Port already disconnected — all chunks were sent, no action needed.
         }
       } catch (error) {
         try {
