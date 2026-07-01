@@ -22,14 +22,8 @@ function createClient(): Anthropic {
   return new Anthropic({ apiKey })
 }
 
-// The only call site for the Anthropic SDK (ADR-008) — the route never
-// imports @anthropic-ai/sdk directly. No streaming this sprint; the voice
-// sprint adds streaming alongside the §2.5 JSON output envelope.
-//
-// `profile` is supplied by the caller (the live `loadProfile()` result, or
-// the calibrating empty profile) — this sprint retires HARDCODED_PROFILE,
-// so claude.ts no longer carries a default profile of its own (ADR-009 /
-// ADR-014 data-source swap).
+// Non-streaming turn — used by /api/ai/turn (legacy) and voice synthesis
+// path where the full reply is needed before TTS can start.
 export async function runTutorTurn({
   messages,
   pageContext,
@@ -50,4 +44,30 @@ export async function runTutorTurn({
   const reply = textBlock?.type === 'text' ? textBlock.text : ''
 
   return { reply }
+}
+
+// Streaming turn — used by /api/ai/stream. Yields text deltas as they
+// arrive from the Anthropic streaming API so the client can render
+// word-by-word. The full reply is assembled by the caller.
+export async function* runTutorTurnStream({
+  messages,
+  pageContext,
+  profile,
+}: {
+  messages: TurnMessage[]
+  pageContext?: PageContext
+  profile: LearningProfile
+}): AsyncGenerator<string> {
+  const stream = createClient().messages.stream({
+    model: MODEL,
+    max_tokens: MAX_TOKENS,
+    system: buildSystemPrompt(profile, pageContext),
+    messages,
+  })
+
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      yield event.delta.text
+    }
+  }
 }

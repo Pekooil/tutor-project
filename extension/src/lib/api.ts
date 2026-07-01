@@ -174,17 +174,8 @@ export async function endSession(sessionId: string, transcript?: TurnMessage[]):
 
 /**
  * Sends the running transcript to the Claude proxy (Sprint 05 / ADR-008) and
- * returns the tutor's reply text. `/api/ai/turn` is stateless -- the worker
- * holds no conversation memory, so the overlay must pass the full transcript
- * (including the new user turn) on every call.
- *
- * pageContext (Sprint 07, ADR-012/ADR-013) is optional and rides in the same
- * request body -- no new route. /api/ai/turn treats it as untrusted input
- * and degrades to no-page-context on anything malformed, so it is forwarded
- * as-is here with no validation on this side.
- *
- * Reuses authorizedFetch verbatim, so a dead refresh token surfaces
- * SignedOutError exactly as the session helpers above do.
+ * returns the tutor's reply text. `/api/ai/turn` is stateless -- non-streaming
+ * fallback retained for any callers that don't need streaming.
  */
 export async function aiTurn(messages: TurnMessage[], pageContext?: PageContext): Promise<string> {
   const res = await authorizedFetch('/api/ai/turn', {
@@ -199,6 +190,60 @@ export async function aiTurn(messages: TurnMessage[], pageContext?: PageContext)
   }
 
   return body.reply;
+}
+
+/**
+ * Streaming variant of aiTurn. Calls `/api/ai/stream` (SSE), invokes
+ * `onChunk` for every text delta as it arrives, and resolves with the
+ * concatenated full reply once the stream ends. The background service
+ * worker calls this and relays chunks via a `chrome.runtime` port.
+ */
+export async function aiTurnStream(
+  messages: TurnMessage[],
+  pageContext: PageContext | undefined,
+  onChunk: (text: string) => void,
+): Promise<string> {
+  const res = await authorizedFetch('/api/ai/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, pageContext }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error((errBody as { error?: string }).error ?? `ai_stream failed: ${res.status}`);
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let fullText = '';
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6);
+      if (data === '[DONE]') return fullText;
+      try {
+        const parsed = JSON.parse(data) as { text?: string; error?: string };
+        if (parsed.error) throw new Error(parsed.error);
+        if (parsed.text) {
+          fullText += parsed.text;
+          onChunk(parsed.text);
+        }
+      } catch (err) {
+        if (err instanceof SyntaxError) continue;
+        throw err;
+      }
+    }
+  }
+
+  return fullText;
 }
 
 /**

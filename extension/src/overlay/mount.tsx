@@ -10,7 +10,8 @@ import type { Utterance } from './VoiceController';
 // directly — the overlay package owns its own mounting.
 
 export type OverlayTransports = {
-  onSend: (messages: TurnMessage[]) => Promise<string>;
+  /** onChunk is called for each text delta when streaming. Omit for non-streaming (voice) turns. */
+  onSend: (messages: TurnMessage[], onChunk?: (chunk: string) => void) => Promise<string>;
   onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
   onSynthesize: (text: string) => Promise<{ audio: ArrayBuffer; ttsMs: number }>;
 };

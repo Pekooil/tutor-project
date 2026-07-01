@@ -103,6 +103,40 @@ export default defineBackground(() => {
     }
   });
 
+  // (4c) Streaming AI_TURN via a persistent port (chrome.runtime.connect).
+  // The content script opens a port named 'AI_STREAM', sends one message
+  // with { messages, pageContext }, and receives chunk messages back as they
+  // arrive from the SSE endpoint. This keeps ADR-006 (background as sole
+  // network-egress context) while enabling word-by-word streaming in the
+  // overlay. The existing AI_TURN sendMessage path is kept for voice turns
+  // that need the full reply before synthesizing.
+  chrome.runtime.onConnect.addListener((port) => {
+    if (port.name !== 'AI_STREAM') return;
+    port.onMessage.addListener(async (msg: AiTurnPayload) => {
+      try {
+        const reply = await api.aiTurnStream(msg.messages, msg.pageContext, (text) => {
+          try {
+            port.postMessage({ type: 'chunk', text });
+          } catch {
+            // Port disconnected (overlay closed during stream).
+          }
+        });
+        await setRunningTranscript(msg.messages);
+        try {
+          port.postMessage({ type: 'done', reply });
+        } catch {
+          // Port already disconnected — reply was fully streamed, no action needed.
+        }
+      } catch (error) {
+        try {
+          port.postMessage({ type: 'error', error: toErrorMessage(error) });
+        } catch {
+          // Port already disconnected.
+        }
+      }
+    });
+  });
+
   // (2) Every wake: read → increment → persist → log the wake counter.
   void recordWake();
 

@@ -26,16 +26,50 @@ let overlayUi: ShadowRootContentScriptUi<Root> | undefined;
 // overlay has been opened at least once in this page's lifetime.
 let capturedPageContext: PageContext | undefined;
 
-// The overlay's AI_TURN transport (Sprint 05; Sprint 07 attaches
-// pageContext). This is the ONLY chrome.* surface threaded into the
-// overlay — Overlay.tsx itself never imports chrome.*, so this function is
-// its sole window onto the extension. It only relays messages to the
-// background worker (the sole network-egress context, PLAN §2.2); the
-// host-page READ happens in extractPageContext (this content-script
-// context, the only place with host-DOM access) at overlay-open time —
-// sendAiTurn just attaches whatever was captured at the most recent open,
-// it performs no read of its own.
-async function sendAiTurn(messages: TurnMessage[]): Promise<string> {
+// The overlay's AI_TURN transport. When `onChunk` is provided (text turns),
+// streams via a persistent port (AI_STREAM) so the overlay can render
+// word-by-word. When omitted (voice turns that need the full reply before
+// TTS synthesis), falls back to the non-streaming sendMessage path.
+// This is the ONLY chrome.* surface threaded into the overlay — Overlay.tsx
+// itself never imports chrome.*, so this function is its sole window onto
+// the extension. pageContext is captured at overlay-open time (see below).
+async function sendAiTurn(
+  messages: TurnMessage[],
+  onChunk?: (text: string) => void,
+): Promise<string> {
+  if (onChunk) {
+    return new Promise<string>((resolve, reject) => {
+      const port = chrome.runtime.connect({ name: 'AI_STREAM' });
+      let settled = false;
+
+      port.onMessage.addListener(
+        (msg: { type: string; text?: string; reply?: string; error?: string }) => {
+          if (msg.type === 'chunk' && msg.text) {
+            onChunk(msg.text);
+          } else if (msg.type === 'done' && !settled) {
+            settled = true;
+            port.disconnect();
+            resolve(msg.reply ?? '');
+          } else if (msg.type === 'error' && !settled) {
+            settled = true;
+            port.disconnect();
+            reject(new Error(msg.error ?? 'Unknown streaming error'));
+          }
+        },
+      );
+
+      port.onDisconnect.addListener(() => {
+        if (!settled) {
+          settled = true;
+          reject(new Error('Background disconnected unexpectedly during streaming.'));
+        }
+      });
+
+      port.postMessage({ messages, pageContext: capturedPageContext });
+    });
+  }
+
+  // Non-streaming path (voice turns).
   const message: CalyxaMessage = {
     type: 'AI_TURN',
     payload: { messages, pageContext: capturedPageContext },
