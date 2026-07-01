@@ -67,6 +67,10 @@ export function Overlay({
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
   const [caretLeft, setCaretLeft] = useState(0);
+  // Idle pill starts as bare shape (no logo/text/dot, Wispr-Flow-style) and
+  // only reveals that content on hover/focus; a plain click still opens the
+  // full panel directly, so touch/keyboard users never need the peek step.
+  const [pillHovered, setPillHovered] = useState(false);
   // Live interim transcript from SpeechRecognition, shown word-by-word during
   // recording. Kept non-empty until the accurate Whisper result is committed,
   // so there is no gap between "user stops speaking" and "message appears".
@@ -127,6 +131,25 @@ export function Overlay({
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, streamingTokens, liveTranscript]);
+
+  // The keyboard shortcut no longer mounts/unmounts the overlay (Sprint 10
+  // Task 6 round 4 -- the idle pill's mount now tracks signedIn instead, see
+  // content/index.ts). It opens/closes the panel on an already-mounted pill
+  // via this window CustomEvent instead, dispatched from content/index.ts.
+  useEffect(() => {
+    function onTogglePanel() {
+      setExpanded((prev) => {
+        if (prev) {
+          setDragPos(null);
+          setIsDragging(false);
+          dragOriginRef.current = null;
+        }
+        return !prev;
+      });
+    }
+    window.addEventListener('calyxa:toggle-panel', onTogglePanel);
+    return () => window.removeEventListener('calyxa:toggle-panel', onTogglePanel);
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -302,24 +325,36 @@ export function Overlay({
 
   if (!expanded) {
     return (
-      <div className="fixed bottom-7 left-1/2 z-[2147483647] -translate-x-1/2 font-sans motion-safe:animate-[cx-rise_0.42s_cubic-bezier(0.2,0.8,0.2,1)_both]">
+      <div className="fixed bottom-6 left-1/2 z-[2147483647] -translate-x-1/2 font-sans motion-safe:animate-[cx-rise_0.42s_cubic-bezier(0.2,0.8,0.2,1)_both]">
         <div className="relative">
           <div
             aria-hidden="true"
-            className="calyxa-glow motion-safe:animate-[calyxa-breathe_2.7s_ease-in-out_infinite] pointer-events-none absolute -inset-2 rounded-full blur-md"
+            className={`calyxa-glow motion-safe:animate-[calyxa-breathe_2.7s_ease-in-out_infinite] pointer-events-none absolute rounded-full transition-all duration-300 ease-out ${
+              pillHovered ? '-inset-2 blur-md opacity-100' : '-inset-1.5 blur-[3px] opacity-85'
+            }`}
           />
           <button
             type="button"
             onClick={() => setExpanded(true)}
+            onMouseEnter={() => setPillHovered(true)}
+            onMouseLeave={() => setPillHovered(false)}
+            onFocus={() => setPillHovered(true)}
+            onBlur={() => setPillHovered(false)}
             aria-label="Open Calyxa"
-            className="relative flex h-12 w-[140px] items-center gap-2 rounded-full border border-border bg-background px-4 shadow-panel outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            className={`relative flex items-center rounded-full border border-border bg-background shadow-panel outline-none transition-all duration-300 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
+              pillHovered ? 'h-12 w-[140px] justify-start gap-2 px-4' : 'h-2 w-10 justify-center px-0'
+            }`}
           >
-            <CalyxaMark className="h-[22px] w-[22px] flex-none" />
-            <span className="text-[15px] font-semibold tracking-tight text-foreground">calyxa</span>
-            <span
-              aria-hidden="true"
-              className="ml-auto h-[9px] w-[9px] flex-none rounded-full bg-accent-glow-strong shadow-[0_0_0_4px_rgba(134,239,172,0.4)] motion-safe:animate-[cx-dot_2.2s_ease-in-out_infinite]"
-            />
+            {pillHovered && (
+              <>
+                <CalyxaMark className="h-[22px] w-[22px] flex-none" />
+                <span className="text-[15px] font-semibold tracking-tight text-foreground">calyxa</span>
+                <span
+                  aria-hidden="true"
+                  className="ml-auto h-[9px] w-[9px] flex-none rounded-full bg-accent-glow-strong shadow-[0_0_0_4px_rgba(134,239,172,0.4)] motion-safe:animate-[cx-dot_2.2s_ease-in-out_infinite]"
+                />
+              </>
+            )}
           </button>
         </div>
       </div>

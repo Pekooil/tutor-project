@@ -8,6 +8,7 @@ import type {
   AiReplyPayload,
   CalyxaMessage,
   PageContext,
+  SessionStatePayload,
   TurnMessage,
   VoiceSttReplyPayload,
   VoiceTtsReplyPayload,
@@ -162,15 +163,36 @@ export default defineContentScript({
     // (2) Confirm injection.
     console.log(`Calyxa content: injected on ${window.location.hostname}`);
 
-    // (3) Toggle the overlay when the background relays the keyboard command.
-    // Registered FIRST and synchronously, before any `await` below — the two
-    // awaits that follow (the CONTENT_READY round-trip and createShadowRootUi's
-    // stylesheet fetch) take real time, and a command can arrive in that window.
-    // If `overlayUi` isn't built yet when that happens, queue the toggle instead
-    // of dropping it, so a fast shortcut press right after page load still
-    // shows the overlay once setup finishes.
+    // (3) Two listeners, registered FIRST and synchronously — before any
+    // `await` below — because the awaits that follow (CONTENT_READY,
+    // GET_STATE, createShadowRootUi's stylesheet fetch) take real time and
+    // either event can arrive in that window; both are queued if `overlayUi`
+    // isn't built yet.
+    //
+    // SESSION_STATE (Sprint 10 Task 6 round 4): the background pushes this on
+    // every sign-in/sign-out (not just as a GET_STATE reply — see
+    // broadcastToAllTabs in background/index.ts) so the idle pill mounts or
+    // unmounts live for every open tab, matching "the pill stays up as long
+    // as the user is signed in" rather than requiring a page reload.
+    //
+    // TOGGLE_OVERLAY: the keyboard shortcut no longer mounts/removes the
+    // overlay (that is now purely a function of signedIn) — it opens/closes
+    // the expanded panel on an already-mounted idle pill instead, via a
+    // window CustomEvent Overlay.tsx listens for. A page with no signed-in
+    // user has nothing mounted to toggle, so the shortcut is a no-op there.
     let pendingToggle = false;
+    let pendingSignedIn: boolean | undefined;
     chrome.runtime.onMessage.addListener((message: CalyxaMessage) => {
+      if (message.type === 'SESSION_STATE') {
+        const { signedIn } = message.payload as SessionStatePayload;
+        console.log('Calyxa content: SESSION_STATE pushed; signedIn =', signedIn);
+        if (!overlayUi) {
+          pendingSignedIn = signedIn;
+          return;
+        }
+        applySignedIn(overlayUi, signedIn);
+        return;
+      }
       if (message.type !== 'TOGGLE_OVERLAY') return;
       console.log('Calyxa content: TOGGLE_OVERLAY received; overlay ready =', !!overlayUi);
       if (!overlayUi) {
@@ -178,9 +200,7 @@ export default defineContentScript({
         return;
       }
       if (overlayUi.mounted) {
-        overlayUi.remove();
-      } else {
-        overlayUi.mount();
+        window.dispatchEvent(new CustomEvent('calyxa:toggle-panel'));
       }
     });
 
@@ -196,11 +216,26 @@ export default defineContentScript({
       console.warn('Calyxa content: CONTENT_READY not acknowledged', error);
     }
 
+    // (4b) Read the current signedIn state (Sprint 10 Task 6 round 4). The
+    // idle pill's visibility tracks this directly rather than the keyboard
+    // shortcut, so an already-authenticated user sees it on every page with
+    // no shortcut press required. Defaults to signed-out if the query fails
+    // (e.g. a cold service-worker wake) -- the SESSION_STATE push above
+    // still catches up if the real state was signed-in.
+    let signedInAtLoad = false;
+    try {
+      const stateResponse: CalyxaMessage = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
+      signedInAtLoad = (stateResponse?.payload as SessionStatePayload | undefined)?.signedIn ?? false;
+    } catch (error) {
+      console.warn('Calyxa content: GET_STATE not acknowledged', error);
+    }
+
     // (5) Build the overlay UI once. createShadowRootUi is async because it
     // fetches the bundled stylesheet to inject into the shadow root. The host
     // element is appended to the document root (<html>) so it cannot be trapped
-    // inside a host-page stacking context. We do NOT mount here — the overlay
-    // starts hidden and is toggled on demand by the keyboard shortcut (Task 4).
+    // inside a host-page stacking context. Mounting itself is deferred to step
+    // 6 below, which applies whichever signedIn state is freshest (the initial
+    // read above, or a SESSION_STATE push that arrived while this was in flight).
     overlayUi = await createShadowRootUi<Root>(ctx, {
       name: 'calyxa-overlay',
       position: 'inline',
@@ -226,10 +261,26 @@ export default defineContentScript({
       },
     });
 
-    // (6) Apply a toggle that arrived before setup finished (see step 3).
-    if (pendingToggle) {
+    // (6) Apply whichever signedIn state is freshest: a SESSION_STATE push
+    // that arrived while createShadowRootUi was in flight (step 3) wins over
+    // the step 4b snapshot, since it is strictly newer.
+    applySignedIn(overlayUi, pendingSignedIn ?? signedInAtLoad);
+
+    // Apply a toggle that arrived before setup finished (see step 3). Only
+    // meaningful if the pill ended up mounted above -- signed-out has
+    // nothing to open.
+    if (pendingToggle && overlayUi.mounted) {
       console.log('Calyxa content: applying queued toggle from before overlay was ready');
-      overlayUi.mount();
+      window.dispatchEvent(new CustomEvent('calyxa:toggle-panel'));
     }
   },
 });
+
+/** Mounts or removes the overlay host to match `signedIn`, idempotently. */
+function applySignedIn(ui: ShadowRootContentScriptUi<Root>, signedIn: boolean): void {
+  if (signedIn && !ui.mounted) {
+    ui.mount();
+  } else if (!signedIn && ui.mounted) {
+    ui.remove();
+  }
+}

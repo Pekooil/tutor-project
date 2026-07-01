@@ -235,7 +235,12 @@ function toErrorMessage(error: unknown): string {
 async function handleSignIn(payload: SignInPayload): Promise<CalyxaMessage> {
   try {
     await api.signIn(payload.email, payload.password);
-    return buildSessionState();
+    const state = await buildSessionState();
+    // The idle pill is gated on signedIn (Sprint 10 Task 6 round 4) — any tab
+    // already open when sign-in happens needs to learn about it immediately,
+    // not on next page load, so its content script can mount the overlay.
+    void broadcastToAllTabs(state);
+    return state;
   } catch (error) {
     return buildSessionState(toErrorMessage(error));
   }
@@ -246,7 +251,34 @@ async function handleSignOut(): Promise<CalyxaMessage> {
   // Same lifetime discipline as the auth/active-session clears just above --
   // the running transcript must not outlive the signed-out user (ADR-015).
   await clearRunningTranscript();
-  return buildSessionState();
+  const state = await buildSessionState();
+  // Mirror of the sign-in broadcast above -- every open tab's idle pill must
+  // disappear the moment the user signs out, not on next page load.
+  void broadcastToAllTabs(state);
+  return state;
+}
+
+/**
+ * Relays a SESSION_STATE push to every tab's content script (as opposed to
+ * the request/response SESSION_STATE reply the popup gets). Used only on
+ * actual signedIn transitions (sign-in/sign-out) so open tabs' idle pills
+ * mount/unmount live instead of requiring a page reload. chrome.tabs.sendMessage
+ * rejects for tabs with no live content script (chrome://, Web Store, the New
+ * Tab page, or a tab loaded before this extension build) -- expected and
+ * ignored, same guard as toggleOverlayInActiveTab above.
+ */
+async function broadcastToAllTabs(state: CalyxaMessage): Promise<void> {
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(
+    tabs.map(async (tab) => {
+      if (!tab.id) return;
+      try {
+        await chrome.tabs.sendMessage(tab.id, state);
+      } catch {
+        // No live content script on this tab -- expected, ignore.
+      }
+    }),
+  );
 }
 
 async function handleStartSession(payload: StartSessionPayload): Promise<CalyxaMessage> {
