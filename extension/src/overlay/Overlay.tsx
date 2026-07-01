@@ -59,11 +59,16 @@ export function Overlay({
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const inputElRef = useRef<HTMLInputElement | null>(null);
   const measureElRef = useRef<HTMLSpanElement | null>(null);
+  const speechRecRef = useRef<{ stop: () => void } | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
   const [caretLeft, setCaretLeft] = useState(0);
+  // Live interim transcript from SpeechRecognition, shown word-by-word during
+  // recording. Kept non-empty until the accurate Whisper result is committed,
+  // so there is no gap between "user stops speaking" and "message appears".
+  const [liveTranscript, setLiveTranscript] = useState('');
 
   // True whenever the chat area should be rendered (no gap when empty).
-  const hasContent = messages.length > 0 || busy || !!notice;
+  const hasContent = messages.length > 0 || busy || !!notice || !!liveTranscript;
 
   function appendStreamToken(text: string) {
     const id = tokenIdRef.current++;
@@ -108,13 +113,15 @@ export function Overlay({
       recordingRef.current?.cancel();
       recordingRef.current = null;
       stopLevelMeter();
+      speechRecRef.current?.stop();
+      speechRecRef.current = null;
     };
   }, []);
 
-  // Scroll to bottom when messages or streaming tokens change.
+  // Scroll to bottom when messages, streaming tokens, or live transcript change.
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, streamingTokens]);
+  }, [messages, streamingTokens, liveTranscript]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -152,6 +159,34 @@ export function Overlay({
       recordingRef.current = handle;
       setRecording(true);
       startLevelMeter();
+
+      // Best-effort live transcript: run SpeechRecognition in parallel with
+      // MediaRecorder so words appear in the bubble as the user speaks.
+      // SpeechRecognition's interim results are intentionally low-accuracy;
+      // Whisper's final transcript is the source of truth (see handleMicStop).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+      if (SR) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const sr: any = new SR();
+          sr.continuous = true;
+          sr.interimResults = true;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          sr.onresult = (event: any) => {
+            let text = '';
+            for (let i = 0; i < event.results.length; i++) {
+              text += event.results[i][0].transcript;
+            }
+            setLiveTranscript((text as string).trim());
+          };
+          sr.onerror = () => {};
+          sr.start();
+          speechRecRef.current = sr as { stop: () => void };
+        } catch {
+          // SpeechRecognition unavailable in this context — no live preview.
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Microphone is unavailable.';
       setNotice(`${message} Use the text input instead.`);
@@ -166,6 +201,10 @@ export function Overlay({
     recordingRef.current = null;
     setRecording(false);
     stopLevelMeter();
+    // Stop SR updates but keep liveTranscript visible so there is no gap
+    // between "user stopped speaking" and "Whisper result appears".
+    speechRecRef.current?.stop();
+    speechRecRef.current = null;
     setBusy(true);
     clearStreamTokens();
 
@@ -173,6 +212,8 @@ export function Overlay({
       const utterance = await handle.stop();
       const { transcript } = await onTranscribe(utterance);
 
+      // Swap the live interim bubble for the accurate Whisper result atomically.
+      setLiveTranscript('');
       const history: TurnMessage[] = [...messages, { role: 'user', content: transcript }];
       setMessages(history);
 
@@ -190,6 +231,7 @@ export function Overlay({
       clearStreamTokens();
       setMessages((current) => [...current, { role: 'assistant', content: reply }]);
     } catch (error) {
+      setLiveTranscript('');
       clearStreamTokens();
       setNotice(
         describeError(
@@ -298,6 +340,17 @@ export function Overlay({
                   </p>
                 </div>
               ),
+            )}
+
+            {/* Live interim transcript from SpeechRecognition, updated word-by-word
+                as the user speaks. Kept visible after recording stops until the
+                accurate Whisper result is committed, to avoid a visible gap. */}
+            {liveTranscript && (
+              <div className="flex justify-end">
+                <p className="m-0 max-w-[80%] rounded-2xl rounded-tr-sm bg-surface px-3.5 py-2 text-[13.5px] leading-relaxed text-foreground">
+                  {liveTranscript}
+                </p>
+              </div>
             )}
 
             {/* Streaming text (text turns) or word-reveal (voice turns).
