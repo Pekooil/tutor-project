@@ -379,62 +379,114 @@ Acceptance gate before Task 7:
 
 ---
 
+## State reconciliation — Tasks 1–6 shipped; 7–10 adapted (read before Task 7)
+
+Tasks 1–6 are **complete and committed** (`a5640c0` … `28c4eb3`). Tasks 7–10 below are revised to
+match what actually shipped. Two deviations from the original plan drive the changes:
+
+**(a) The overlay grew beyond the Task 2 spec.** Task 6 shipped the redesigned overlay **plus** new
+interactions the spec did not describe: **word-by-word AI streaming**, **word-by-word user-voice
+transcript** display, an **Option-key voice toggle**, an **idle pill**, and **move/close** controls.
+These are real, shipped surface states — Tasks 8/10 must review/accept them, and the Task 2 spec
+(`/docs/design/ux-redesign-sprint10.md`) is extended, not treated as the last word.
+
+**(b) A behavior change landed on the AI path (intentional, out of the original "presentation-only"
+scope).** Task 6 added a **streaming** tutor path: `runTutorTurnStream` in `web/lib/ai/claude.ts` and
+a new **`web/app/api/ai/stream/route.ts`**, with matching `extension/src/{content,background,lib/api}`
+wiring. The change is **additive** — `runTutorTurn` and `/api/ai/turn` are untouched, so
+`web/tests/ai-turn.test.ts` still holds. Consequence for the gates below: the sprint's global
+"no API route / no `/web/lib/*` / no behavior change" claim is **no longer wholly true** and the
+acceptance checklist is annotated accordingly; the new streaming path needs **its own coverage**
+(Task 9), not just an unchanged suite.
+
+**Unaffected:** the **auth surfaces** (login/signup/account) had **no** behavioral change — they still
+post to the same `/api/auth/*` routes. So Task 7's "no logic change" constraint holds **cleanly** for
+the web surfaces; the behavior deviation is isolated to the overlay/AI-streaming path from (b).
+
+**Confirmed starting state for Task 7:** `web/app/{login,signup,(dashboard)/account}/page.tsx` are
+still the **unstyled Sprint-09 stubs** (no `className`, no shadcn/`@calyxa/ui` imports);
+`web/components/ui/` and `web/app/(dashboard)/layout.tsx` **do not exist yet**. `@calyxa/ui` exports a
+ready **`CalyxaMark`** component and `/web/public/{logo,logomark}.svg` exist for the shell logomark.
+
+---
+
 ## Task 7 — Implement web surfaces redesign (web)
 
 Scope: `/web/components/ui/*` (shadcn), `/web/app/login`, `/web/app/signup`,
-`/web/app/(dashboard)/account/*`, `/web/app/(dashboard)/layout.tsx`. **No logic change.**
+`/web/app/(dashboard)/account/*`, `/web/app/(dashboard)/layout.tsx`. **No logic change** (holds
+cleanly here — auth behavior was not touched in Task 6).
 
   - Add shadcn components as needed (themed by the mapped tokens). Implement **Task 2's redesign** for
     login, signup (incl. the age-gate/consent UI — redesigned + restyled, not rewired), and account;
     add a **minimal authed app shell** (`(dashboard)/layout.tsx`: logomark + nav slot + container) the
-    dashboard sprint extends. AA throughout (labels, error association, focus order, contrast).
+    dashboard sprint extends. Use the shipped **`CalyxaMark`** from `@calyxa/ui` (or `logomark.svg`) for
+    the shell mark — do not hand-roll a new one. AA throughout (labels, error association, focus order,
+    contrast).
+  - Preserve each form's existing submit behavior verbatim (same `/api/auth/*` fetch, same age-gate/
+    consent state) — this is a restyle + IA/flow redesign, not a rewire.
   - `web/app/page.tsx` (marketing) is **not** rebuilt — inherits the global shell only.
 
 Acceptance gate before Task 8:
   - `next build` exits 0; login/signup/account render the redesign on shadcn + mapped tokens, are
     keyboard-navigable, AA-contrast; signup's age-gate/consent still functions; the existing web test
-    suite still passes.
+    suite (`ai-turn`, `session`, `voice`, `rls`) still passes unchanged.
 
 ---
 
 ## Task 8 — Visual + UX + responsive + no-leak + AA QA (both targets)
 
-Scope: cross-surface review; token/utility-level fixes only (no new surfaces).
+Scope: cross-surface review; token/utility-level fixes only (no new surfaces). The overlay + popup
+already shipped (Task 6); this pass reviews them alongside the new web surfaces.
 
   - **One language:** overlay, popup, login, signup, account consistent in spacing, type scale, accent
     use, focus styling, logomark treatment.
-  - **UX redesign realised:** each surface matches the Task 2 spec (IA, flow, all states).
+  - **UX redesign realised:** each web surface matches the Task 2 spec (IA, flow, all states). The
+    **overlay's shipped-beyond-spec states** — word-by-word AI streaming, word-by-word user-voice
+    transcript, Option-key voice toggle, idle pill, move/close controls — are reviewed for the same
+    consistency and AA bar, and the Task 2 spec is **updated to record them** (so it stays the accurate
+    account of *why* the overlay is laid out as it is).
   - **Responsive:** web surfaces lay out mobile → desktop; the overlay behaves at its injected sizes.
   - **No-leak sweep:** open the overlay on several aggressive real pages (heavy CSS, resets, dark
     sites); confirm bidirectional isolation and no host DOM/font mutation.
   - **AA:** run an automated check (e.g. axe) on the web surfaces; verify contrast on the green accent
-    pairs, keyboard reachability, focus visibility, and `prefers-reduced-motion` on both targets.
+    pairs, keyboard reachability, focus visibility, and `prefers-reduced-motion` on both targets
+    (including the new streaming/idle animations and the Option-key affordance).
 
 Acceptance gate before Task 9:
-  - all checks pass; fixes are token/utility-level only.
+  - all checks pass; fixes are token/utility-level only; the Task 2 spec reflects the overlay's shipped
+    states.
 
 ---
 
 ## Task 9 — Tests (gate)
 
 Scope: new `/packages/ui/**/*.test.tsx` (pure, fast) + an axe check on `/web` surfaces + the existing
-`/web` suite (must stay green). No live network.
+`/web` suite (must stay green) + **one new test for the streaming path added in Task 6**. No live
+network (mock the Anthropic stream, as `ai-turn.test.ts` already mocks the SDK).
 
   1. **Theme tokens stable:** the exported `@theme` exposes the expected named token set + the overlay
      system-font token; a snapshot guards renames/removals.
   2. **Primitive render + a11y:** Button (variants + disabled/loading) and Field (with error/hint)
      render and apply token classes; Field associates label↔control + error via `aria-describedby`.
+     Include **`CalyxaMark`** (shipped in Task 6, beyond the original Task 5 list) — renders as inline
+     SVG with an accessible name / `aria-hidden` as appropriate.
   3. **Reduced-motion + sr-only:** Spinner respects `prefers-reduced-motion`; VisuallyHidden hides
      visually but stays readable.
   4. **Web AA smoke:** an axe-core check on the redesigned login/signup/account surfaces reports no
      critical violations.
-  5. **Web back-compat:** the full existing `/web` suite passes unchanged (the redesign changed no
-     logic).
-  6. **Build graph:** `turbo run typecheck lint build test` green across all workspaces.
+  5. **Web back-compat:** the full existing `/web` suite (`ai-turn`, `session`, `voice`, `rls`) passes
+     **unchanged** — the auth-surface redesign changed no logic, and the Task-6 `claude.ts` change was
+     additive (`runTutorTurn` / `/api/ai/turn` untouched), so these suites remain a valid baseline.
+  6. **New: streaming path coverage.** The Task-6 behavior addition — `runTutorTurnStream` +
+     `/api/ai/stream/route.ts` — has **no test today**. Add one (mocked SDK stream): auth is enforced,
+     text deltas stream through in order, and the assembled reply matches. This is the one place the
+     sprint's "presentation-only" claim broke, so it is covered rather than assumed.
+  7. **Build graph:** `turbo run typecheck lint build test` green across all workspaces.
 
 Acceptance gate before Task 10:
-  - `@calyxa/ui` suite passes in isolation; the axe check is clean; the `/web` suite passes unchanged;
-    the full turbo pipeline is green; `next build` + `wxt build` exit 0.
+  - `@calyxa/ui` suite passes in isolation; the axe check is clean; the existing `/web` suite passes
+    unchanged; the new streaming-path test passes; the full turbo pipeline is green; `next build` +
+    `wxt build` exit 0.
 
 ---
 
@@ -444,23 +496,32 @@ With `cd web && next dev` and the unpacked extension loaded in Chrome:
   1. **Overlay on real pages:** open on 3 real math pages (Khan-style page, a PDF viewer, a heavily-
      styled site). It renders the redesign + logomark, is legible, styles do **not** leak to the host,
      host styles do **not** bleed in, and **no font/DOM is injected into the host**.
-  2. **Popup:** matches the overlay's language.
-  3. **Auth flow:** signup (incl. age-gate/consent), login, logout render the redesign, are keyboard-
+  2. **Overlay shipped interactions (Task 6, beyond the original spec):** **AI response streams
+     word-by-word**; the **user voice transcript** renders word-by-word; the **Option-key** toggles
+     voice; the **idle pill** appears when idle; **move/close** controls work. Each behaves correctly
+     and stays on-brand/AA.
+  3. **Popup:** matches the overlay's language.
+  4. **Auth flow:** signup (incl. age-gate/consent), login, logout render the redesign, are keyboard-
      navigable, show accessible field errors — **with no behavior change** (accounts create, sessions
      work).
-  4. **Account page:** renders the redesign; logout works.
-  5. **Responsive:** web surfaces hold mobile → desktop.
-  6. **Reduced motion:** with OS reduce-motion on, animations are suppressed on both targets.
-  7. **Brand check:** logomark/wordmark/favicon/extension icons render crisply; the green accent + type
+  5. **Account page:** renders the redesign; logout works.
+  6. **Responsive:** web surfaces hold mobile → desktop.
+  7. **Reduced motion:** with OS reduce-motion on, animations are suppressed on both targets —
+     including the streaming/idle-pill animations added in Task 6.
+  8. **Brand check:** logomark/wordmark/favicon/extension icons render crisply; the green accent + type
      read as the intended calm, education-forward identity.
-  8. **No regressions:** a full tutoring session (open overlay → voice/text turn → end session) works
-     exactly as before — presentation/layout only changed.
+  9. **No regressions:** a full tutoring session (open overlay → voice/text turn via the **streaming**
+     path → end session) works end to end; the legacy `/api/ai/turn` path and voice synthesis still
+     function. Presentation/layout changed; the only behavior change is the added streaming path.
 
 ---
 
 ## Acceptance criteria (full checklist)
 
-**Sprint status: PLANNED — not started.**
+**Sprint status: IN PROGRESS — Tasks 1–6 complete + committed (`a5640c0` … `28c4eb3`); Tasks 7–10
+remaining (adapted; see "State reconciliation" above).** Two scope notes carry into the checklist:
+the overlay shipped states beyond the Task 2 spec, and an additive **streaming AI path** was added
+in Task 6 (so "presentation-only" no longer holds wholesale — see the annotated bullets below).
 
 - [ ] `npm install` + `turbo run typecheck lint build test` pass from root with the new `/packages/ui`
       workspace present
@@ -474,18 +535,22 @@ With `cd web && next dev` and the unpacked extension loaded in Chrome:
       third-party pages styles do **not** leak out, host styles do **not** bleed in, and **no host DOM
       or font is mutated/injected** (ADR-002 + read-only DOM policy upheld)
 - [ ] the existing surfaces are **redesigned** (per the Task 2 spec) and rebuilt — overlay, popup,
-      login, signup, account — with **no behavior change** (transports, form posts, age-gate/consent
-      unchanged)
+      login, signup, account — with **no behavior change** on the **auth surfaces** (form posts,
+      age-gate/consent unchanged). NOTE: the overlay's tutor path gained an **additive streaming**
+      behavior in Task 6 (word-by-word render via `/api/ai/stream`); the legacy `/api/ai/turn` path is
+      unchanged. This is the one accepted deviation from "presentation-only"
 - [ ] **WCAG 2.1 AA** targeted: token contrast pairs pass, primitives + surfaces are keyboard-
       reachable with visible focus and correct ARIA, `prefers-reduced-motion` honoured; an axe check on
       the web surfaces is clean
 - [ ] light theme ships; tokens are structured so **dark** is a later flip (not enabled)
 - [ ] marketing page, dashboard, study-materials generator, annotations, onboarding, and billing UI
       are **not** built — each remains its own roadmap sprint that consumes this system
-- [ ] no API route, no `/web/lib/*` (except the new `lib/utils.ts`), no content/background logic, no
-      Supabase migration/policy, and no auth logic changed — presentation/layout only
-- [ ] the `@calyxa/ui` suite + axe check pass and the existing `/web` suite passes unchanged; the full
-      turbo pipeline is green
+- [ ] no Supabase migration/policy and no **auth** logic changed; `/web/lib/*` untouched **except**
+      the new `lib/utils.ts` **and** the additive `lib/ai/claude.ts` streaming generator; the only new
+      API route is the additive `/api/ai/stream` (the content/background changes wire it up). Everything
+      else remains presentation/layout only
+- [ ] the `@calyxa/ui` suite + axe check pass, the existing `/web` suite passes unchanged, **and the
+      new streaming-path test passes**; the full turbo pipeline is green
 - [ ] manual acceptance (Task 10) observed: overlay no-leak/no-mutation on real pages, redesigned auth
       flow with no behavior change, responsive, reduced-motion, brand renders, full tutoring session
       still works

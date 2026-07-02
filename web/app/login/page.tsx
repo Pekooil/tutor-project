@@ -3,6 +3,11 @@
 import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -34,34 +39,52 @@ export default function LoginPage() {
   }
 
   return (
-    <main>
-      <h1>Log in</h1>
-      <form onSubmit={handleSubmit}>
-        <label>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </label>
-        <label>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </label>
-        {error && <p role="alert">{error}</p>}
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Logging in…' : 'Log in'}
-        </button>
-      </form>
-      <p>
-        Need an account? <Link href="/signup">Sign up</Link>
+    <main className="flex min-h-svh flex-col items-center justify-center gap-8 bg-background px-4 py-12">
+      <img src="/logo.svg" alt="Calyxa" className="h-8 w-auto" />
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <h1 className="text-xl leading-none font-semibold">Log in</h1>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="login-email">Email</Label>
+              <Input
+                id="login-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="login-password">Password</Label>
+              <Input
+                id="login-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </div>
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            <Button type="submit" disabled={submitting} className="mt-2">
+              {submitting ? 'Logging in…' : 'Log in'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+      <p className="text-sm text-muted-foreground">
+        Need an account?{' '}
+        <Link href="/signup" className="font-medium text-accent-emphasis underline-offset-4 hover:underline">
+          Sign up
+        </Link>
       </p>
     </main>
   )
