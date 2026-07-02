@@ -386,18 +386,28 @@ match what actually shipped. Two deviations from the original plan drive the cha
 
 **(a) The overlay grew beyond the Task 2 spec.** Task 6 shipped the redesigned overlay **plus** new
 interactions the spec did not describe: **word-by-word AI streaming**, **word-by-word user-voice
-transcript** display, an **Option-key voice toggle**, an **idle pill**, and **move/close** controls.
+transcript** display, an **idle pill**, and **move/close** controls. (An earlier round also added an
+Option/Alt-key push-to-talk shortcut; a later round removed it in favor of a single click-to-toggle mic
+— corrected in Task 8 after this section was first drafted from commit-message titles, not the code.)
 These are real, shipped surface states — Tasks 8/10 must review/accept them, and the Task 2 spec
-(`/docs/design/ux-redesign-sprint10.md`) is extended, not treated as the last word.
+(`/docs/design/ux-redesign-sprint10.md`) is extended, not treated as the last word — see its "Shipped
+implementation" addendum under §1 Overlay for the authoritative, code-sourced account.
 
 **(b) A behavior change landed on the AI path (intentional, out of the original "presentation-only"
-scope).** Task 6 added a **streaming** tutor path: `runTutorTurnStream` in `web/lib/ai/claude.ts` and
-a new **`web/app/api/ai/stream/route.ts`**, with matching `extension/src/{content,background,lib/api}`
-wiring. The change is **additive** — `runTutorTurn` and `/api/ai/turn` are untouched, so
-`web/tests/ai-turn.test.ts` still holds. Consequence for the gates below: the sprint's global
-"no API route / no `/web/lib/*` / no behavior change" claim is **no longer wholly true** and the
-acceptance checklist is annotated accordingly; the new streaming path needs **its own coverage**
-(Task 9), not just an unchanged suite.
+scope) — corrected Task 9: this route is real but currently unused.** Task 6 added `runTutorTurnStream`
+in `web/lib/ai/claude.ts` and a new **`web/app/api/ai/stream/route.ts`** (SSE), and
+`extension/src/lib/api.ts` has a matching, correctly-implemented `aiTurnStream()` client for it. But
+**the overlay does not call it.** `background/index.ts`'s `AI_STREAM` port handler calls the plain
+`api.aiTurn()` (non-streaming `/api/ai/turn`) and fakes word-by-word delivery by splitting the full
+reply into tokens client-side — its own comment explains why: `/api/ai/stream` "requires a server
+restart to pick up after the route file is first created (Turbopack dev-server limitation)," so it was
+built, then bypassed. The route is real, deployed, and reachable — just not on the path a signed-in
+user's overlay actually exercises today. The change is still **additive** — `runTutorTurn` and
+`/api/ai/turn` are untouched, so `web/tests/ai-turn.test.ts` still holds. Consequence for the gates
+below: the sprint's global "no API route / no `/web/lib/*` / no behavior change" claim is **no longer
+wholly true** (the route + `aiTurnStream` client exist), and the acceptance checklist is annotated
+accordingly; the route needs **its own coverage** (Task 9) as a live, auth-gated surface, independent
+of whether anything calls it yet.
 
 **Unaffected:** the **auth surfaces** (login/signup/account) had **no** behavioral change — they still
 post to the same `/api/auth/*` routes. So Task 7's "no logic change" constraint holds **cleanly** for
@@ -533,12 +543,21 @@ in Task 6 (so "presentation-only" no longer holds wholesale — see the annotate
       tokens** — one palette/type from one source
 - [ ] the overlay's Tailwind compiles **into the shadow root** with preflight contained; on real
       third-party pages styles do **not** leak out, host styles do **not** bleed in, and **no host DOM
-      or font is mutated/injected** (ADR-002 + read-only DOM policy upheld)
+      or font is mutated/injected** (ADR-002 + read-only DOM policy upheld). NOTE (Task 8 no-leak
+      sweep, verified with a real hostile-page harness): WXT's `createShadowRootUi` itself hoists one
+      `<style wxt-shadow-root-document-styles>` tag into the host `<head>`, containing only Tailwind's
+      `@property` custom-property *type* registrations (no visual values, `--tw-*` namespace) — a
+      framework-level workaround for `@property` not scoping into shadow trees in current browser
+      engines. Self-identifying, cleanly removed on unmount, no visual effect on any real host page.
+      The one known, narrow exception to "no host DOM mutation."
 - [ ] the existing surfaces are **redesigned** (per the Task 2 spec) and rebuilt — overlay, popup,
       login, signup, account — with **no behavior change** on the **auth surfaces** (form posts,
-      age-gate/consent unchanged). NOTE: the overlay's tutor path gained an **additive streaming**
-      behavior in Task 6 (word-by-word render via `/api/ai/stream`); the legacy `/api/ai/turn` path is
-      unchanged. This is the one accepted deviation from "presentation-only"
+      age-gate/consent unchanged). NOTE: `/api/ai/stream` + `runTutorTurnStream` (Task 6) are real,
+      deployed, and additive, but **not currently called by the overlay** — `background/index.ts`'s
+      `AI_STREAM` handler uses the plain `/api/ai/turn` and fakes word-by-word delivery by splitting
+      the reply client-side (a Turbopack dev-server limitation made the real route unreliable during
+      Task 6; see `background/index.ts`'s own comment). `/api/ai/stream` is the one accepted deviation
+      from "presentation-only" as a live API surface, independent of whether it's wired up yet
 - [ ] **WCAG 2.1 AA** targeted: token contrast pairs pass, primitives + surfaces are keyboard-
       reachable with visible focus and correct ARIA, `prefers-reduced-motion` honoured; an axe check on
       the web surfaces is clean
