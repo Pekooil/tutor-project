@@ -25,6 +25,8 @@ proposed element doesn't map to Task 3/5's component set, it isn't in this spec.
   shortcut, handled in `extension/src/content/index.ts` (outside Task 6's scope: `Overlay.tsx`,
   `Overlay.css`, `mount.tsx`, popup). Adding an in-panel close affordance would require new
   content-script wiring — out of scope. Confirmed not part of this redesign.
+  **(Task 8 correction: this constraint did not hold — see "Shipped implementation" under §1 Overlay.
+  A header × button shipped; it turned out not to need content-script wiring after all.)**
 - **No new routes, no new fields, no new messages.** Every state below is reachable today from the
   existing component state/props; this spec only changes how each state is laid out and styled.
 
@@ -106,6 +108,64 @@ the existing `placeholder`); recording pulse / "Thinking…" → `Spinner` (redu
 replacing the current CSS `@keyframes mm-mic-pulse` with the shared token-driven animation, or
 keeping the pulse but gating it on `prefers-reduced-motion` — Task 6's call, either satisfies Task
 8/9's reduced-motion gate).
+
+### Shipped implementation (Task 6, rounds 2–4) — supersedes the layout above (added Task 8)
+
+Task 6 shipped a substantially different, more developed design than the "status slot" single-panel
+layout sketched above. This section documents what actually exists in `Overlay.tsx`/`Overlay.css` as
+of Sprint 10 Task 6, so this spec stays the accurate record of *why* the overlay looks the way it does
+— the Task 8 gate for this doc. The layout above is left in place as the planning record; this is the
+reconciliation.
+
+**Two-shape model, not one panel.** The overlay is either a small floating **idle pill** (collapsed) or
+a **draggable chat panel** (expanded), not a single fixed panel with an internal status slot. The pill
+starts as a bare rounded shape (no logo/text/dot) and only reveals the logomark, "calyxa" label, and a
+readiness dot on hover/focus ("peek"); a plain click opens the full panel directly, so keyboard/touch
+users are never blocked on the peek step. Mount lifecycle now tracks `signedIn` (pushed live via
+`SESSION_STATE`), not the open/close keyboard shortcut — the shortcut now only expands/collapses an
+already-mounted pill via a `calyxa:toggle-panel` window event.
+
+**In-panel close button — a deliberate deviation from this spec's cross-surface rule.** The
+cross-surface rules above state the overlay gets no new dismiss/close button because one would need
+new content-script wiring. The shipped panel has one (the header's × button, `handleClose`) — it
+turned out not to need content-script wiring after all, because closing only collapses the panel
+(`setExpanded(false)`, local React state); it does not unmount the overlay or touch `chrome.*`. Noted
+explicitly since the original constraint no longer holds.
+
+**Header is stateful, not a static label.** Three header variants: the default typing/idle header
+("Calyxa" + a "Typing" pill), a "Listening" variant (pulsing dot) while recording, and a "Speaking"
+variant with a live waveform + an interrupt button while TTS audio plays. The header doubles as the
+drag handle — pointer-capture dragging repositions the panel (`dragPos`).
+
+**Streaming and live-voice states beyond the original state table:**
+- **Word-by-word AI streaming** (text turns): each arriving token renders as its own `<span>` with a
+  one-shot fade-up entry animation, plus a blinking caret while streaming is in progress.
+- **Word-by-word voice-turn reveal**: once TTS audio is ready, the reply text reveals word-by-word at a
+  pace derived from the audio's actual duration, synced to playback (`playAudioWithTextReveal`) —
+  distinct from the text-turn streaming path (voice needs the full reply before synthesis, so this is a
+  post-hoc reveal, not a true stream).
+- **Live interim voice transcript**: while recording, the browser's `SpeechRecognition` API (when
+  available) renders the user's own words live, word-by-word, in a provisional bubble — swapped for the
+  accurate Whisper transcript the instant it resolves, so there's no visible gap between "stopped
+  talking" and "message appears."
+- **Combined click-to-toggle mic — no press-and-hold, no keyboard chord.** An earlier round added an
+  Option/Alt-key push-to-talk shortcut; round 4 removed it (along with a separate full-panel
+  "listening" view) in favor of one click-to-start/click-to-stop mic control, with recording happening
+  inline in the input row. That shortcut is not in the shipped code — this corrects an earlier,
+  commit-message-sourced claim that it was still present.
+- **Live mic-level waveform** while recording (an `AnalyserNode`-driven amplitude meter), and a
+  separate, animation-driven waveform while TTS audio plays — visually related but functionally
+  distinct.
+
+**Primitive-adoption gap (flagged, not fixed in Task 8).** The popup imports and uses `Button`,
+`Field`, and `Spinner` from `@calyxa/ui`, matching this spec's popup section below. The overlay does
+not: its mic/send/close buttons and text input are hand-rolled `<button>`/`<input>` elements styled
+with inline Tailwind classes, not the shared primitives Task 5 built. Both are token-driven (same
+colors, radii, focus-ring treatment), so there's no visible inconsistency, but the two `@calyxa/ui`
+consumers have diverged on primitive *adoption*. Left as-is here — swapping the overlay's tightly
+custom controls (circular icon buttons, the pill-shaped send button, drag-aware header) onto the
+generic primitives is a component-level change, not a token/utility-level fix within Task 8's scope —
+worth a follow-up task if strict `@calyxa/ui` consumption is wanted.
 
 ---
 

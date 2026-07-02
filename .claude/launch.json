@@ -8,6 +8,14 @@
       "cwd": "web",
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "extension-dist-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8935"],
+      "cwd": "extension/dist/chrome-mv3",
+      "port": 8935,
+      "autoPort": true
     }
   ]
 }
