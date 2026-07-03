@@ -25,13 +25,16 @@ export const LUCKY_GUESS_K_SCALE = 0.5
 // "one slip doesn't tank a known concept".
 export const SLIP_GRADE = 0.25
 
-// Placeholder for the response_latency_ms sub-guard
-// (`FAST_GUESS_MS(node.difficulty)`, §2.4 step 3). NOT consumed by
-// updateKnowledgeNode this sprint: `response_latency_ms` has no source at
-// session-end granularity, with no per-turn capture yet (ADR-016). This
-// sub-guard returns with the per-turn-persistence sprint; named + kept here
-// so that sprint adds no new constant.
+// The response_latency_ms sub-guard (`FAST_GUESS_MS(node.difficulty)`,
+// §2.4 step 3) -- consumed by updateKnowledgeNode as of Sprint 11 (ADR-019),
+// now that per-turn response_latency_ms exists (session_interactions).
+// Harder concepts get a HIGHER threshold: a genuinely-reasoned answer takes
+// longer on a harder problem, so the same latency is more suspect the
+// harder the concept is. Linear scale chosen for simplicity -- no
+// literature/spec formula is given beyond "FAST_GUESS_MS(node.difficulty)";
+// like every other constant here, this is uncalibrated and re-tunable.
 export const FAST_GUESS_MS = 1500
+export const FAST_GUESS_DIFFICULTY_SCALE = 1.0 // threshold *= (1 + difficulty * this)
 
 // --- Stability — §2.4 step 5 ------------------------------------------------
 

@@ -250,6 +250,7 @@ async function persistInteraction(
         reasoning_quality: assessment.reasoningQuality,
         response_latency_ms: responseLatencyMs ?? null,
         misconception_category: assessment.misconceptionCategory,
+        misconception_description: assessment.misconceptionDescription,
         applied_to_profile: false,
       })
       .select('id')
@@ -262,10 +263,10 @@ async function persistInteraction(
     const insertedId = (inserted as InsertedInteraction).id
 
     // Off the critical path (ADR-019): this runs after the response has
-    // already been sent. applyInteraction is a bookkeeping-only stub as of
-    // this task (Task 5 replaces its body with the real per-observation
-    // FSRS + misconception + scheduler write) -- the hook is real and
-    // wired starting now, only the learning-model math inside it is not.
+    // already been sent. applyInteraction runs the full per-interaction
+    // FSRS update + fuzzy misconception match/resolution + reinforcement
+    // scheduling (Task 5) -- the response_latency_ms passed here is what
+    // restores the third lucky-guess sub-guard ADR-016 had to omit.
     after(() =>
       applyInteraction(supabase, userId, sessionId, {
         id: insertedId,
@@ -274,6 +275,8 @@ async function persistInteraction(
         reasoningQuality: assessment.reasoningQuality,
         selfConfidence: assessment.selfConfidence,
         misconceptionCategory: assessment.misconceptionCategory,
+        misconceptionDescription: assessment.misconceptionDescription,
+        responseLatencyMs: responseLatencyMs ?? null,
       })
     )
   } catch {

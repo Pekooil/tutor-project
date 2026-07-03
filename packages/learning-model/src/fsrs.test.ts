@@ -18,7 +18,7 @@
 // "uncalibrated") tuning constants are retuned later.
 
 import { describe, it, expect } from 'vitest'
-import { updateKnowledgeNode, retrievability, type KnowledgeNode, type FsrsObservation } from './fsrs'
+import { updateKnowledgeNode, retrievability, fastGuessThresholdMs, type KnowledgeNode, type FsrsObservation } from './fsrs'
 import {
   MIN_STABILITY,
   DIFF_MIN,
@@ -161,6 +161,63 @@ describe('lucky-guess discount and slip softening', () => {
     const plainWrong = updateKnowledgeNode(start, observation({ outcome: 'incorrect', reasoningQuality: 'none' }))
 
     expect(slip.mastery).toBeGreaterThan(plainWrong.mastery)
+  })
+
+  // Sprint 11 (ADR-019): response_latency_ms now has a per-turn source
+  // (session_interactions), so this third sub-guard -- omitted at Sprint
+  // 09's session-end granularity -- is wired in.
+  it('a fast correct with otherwise-sound signals is still discounted below the threshold (the guard is an OR, third arm)', () => {
+    const start = node({ mastery: 0, observationCount: 0, difficulty: 0.3 })
+    const threshold = fastGuessThresholdMs(start.difficulty)
+
+    const fast = updateKnowledgeNode(
+      start,
+      observation({
+        outcome: 'correct',
+        reasoningQuality: 'sound',
+        selfConfidence: 'high',
+        responseLatencyMs: threshold - 1,
+      })
+    )
+    const slow = updateKnowledgeNode(
+      start,
+      observation({
+        outcome: 'correct',
+        reasoningQuality: 'sound',
+        selfConfidence: 'high',
+        responseLatencyMs: threshold + 1,
+      })
+    )
+
+    expect(fast.mastery).toBeLessThan(slow.mastery)
+  })
+
+  it('an undefined latency never trips the guard (back-compat with callers that have no per-turn timing)', () => {
+    const start = node({ mastery: 0, observationCount: 0 })
+
+    const noLatency = updateKnowledgeNode(
+      start,
+      observation({ outcome: 'correct', reasoningQuality: 'sound', selfConfidence: 'high' })
+    )
+    const slow = updateKnowledgeNode(
+      start,
+      observation({
+        outcome: 'correct',
+        reasoningQuality: 'sound',
+        selfConfidence: 'high',
+        responseLatencyMs: fastGuessThresholdMs(start.difficulty) + 1000,
+      })
+    )
+
+    expect(noLatency.mastery).toBe(slow.mastery)
+  })
+
+  it('fastGuessThresholdMs is strictly increasing in difficulty', () => {
+    const difficulties = [0.05, 0.3, 0.6, 0.95]
+    const thresholds = difficulties.map(fastGuessThresholdMs)
+    for (let i = 1; i < thresholds.length; i++) {
+      expect(thresholds[i]).toBeGreaterThan(thresholds[i - 1])
+    }
   })
 })
 

@@ -91,6 +91,7 @@ Return a single JSON object and NOTHING else:
      "reasoning_quality": "sound" | "shallow" | "none",
      "self_confidence": "low" | "med" | "high" | "unknown",  // the STUDENT's apparent certainty
      "misconception_category": "<short dotted.snake_case category, or null>",
+     "misconception_description": "<one plain sentence describing the specific error, or null>",
      "confidence": "low" | "med" | "high"   // YOUR OWN confidence in this assessment (not the student's)
   }
 }

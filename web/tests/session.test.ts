@@ -53,15 +53,16 @@ let tokenA: string
 let tokenB: string
 const sessionIds: string[] = []
 
-// --- Fake Anthropic backend (Sprint 08 Task 7) ---
-// /api/session/end's summariser call (summariseSession, ADR-015) is the only
-// new path in this file that reaches the Anthropic SDK. Same technique as
-// ai-turn.test.ts: @anthropic-ai/sdk reads ANTHROPIC_BASE_URL from the
-// environment, so pointing it at this local stand-in keeps the whole suite
-// local, deterministic, and free -- no live model call, no real
-// ANTHROPIC_API_KEY. The existing Sprint 04 tests above never send a
-// transcript, so the route never reaches this server for them -- this is
-// purely additive.
+// --- Fake Anthropic backend (Sprint 08 Task 7; ADR-019 changes what calls it) ---
+// Sprint 09/10: /api/session/end's summariser call (summariseSession,
+// ADR-015) was the only path in this file reaching the Anthropic SDK.
+// Sprint 11 (ADR-019) retires that call entirely -- learning state now
+// writes per turn, via /api/ai/turn's envelope + off-critical-path apply,
+// so /api/ai/turn is the only path this file's fake backend serves now.
+// Same technique as ai-turn.test.ts: @anthropic-ai/sdk reads
+// ANTHROPIC_BASE_URL from the environment, so pointing it at this local
+// stand-in keeps the whole suite local, deterministic, and free -- no live
+// model call, no real ANTHROPIC_API_KEY.
 type FakeResponse = { status: number; body: unknown; headers?: Record<string, string> }
 
 function fakeTextMessage(text: string) {
@@ -78,7 +79,7 @@ function fakeTextMessage(text: string) {
 }
 
 let fakeAnthropic: Server
-let nextFakeResponse: FakeResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ observations: [] })) }
+let nextFakeResponse: FakeResponse = { status: 200, body: fakeTextMessage('default fake reply') }
 const receivedRequests: Array<{ system?: unknown; messages?: unknown }> = []
 
 function startFakeAnthropic(): Promise<Server> {
@@ -97,21 +98,53 @@ function startFakeAnthropic(): Promise<Server> {
   })
 }
 
-// Sets what the NEXT call into the fake backend returns. The summariser call
-// inside /api/session/end and a follow-up /api/ai/turn probe in the same
-// test always run sequentially (awaited, never concurrently), so mutating
-// this one shared variable right before each fetch is enough -- no per-call
-// routing needed.
-function setFakeSummary(observations: unknown[]) {
-  nextFakeResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ observations })) }
+type FakeAssessment = {
+  conceptKey: string
+  outcome: 'correct' | 'partial' | 'incorrect' | 'none'
+  reasoningQuality?: 'sound' | 'shallow' | 'none'
+  selfConfidence?: 'low' | 'med' | 'high' | 'unknown'
+  misconceptionCategory?: string | null
+  misconceptionDescription?: string | null
+}
+
+// Sets the NEXT /api/ai/turn call's reply to a §2.5 envelope (ADR-019) --
+// the mechanism that now drives every learning-state write in this file,
+// replacing setFakeSummary. Calls in one test always run sequentially
+// (awaited), so mutating this one shared variable right before each fetch
+// is enough -- no per-call routing needed. Omitted assessment fields
+// default exactly as envelope.ts's parseAssessment defaults them
+// ('none'/'unknown'), matching what the old summariser's parser defaulted
+// to for an unspecified reasoningQuality/selfConfidence.
+function setFakeEnvelope(say: string, assessment?: FakeAssessment) {
+  nextFakeResponse = {
+    status: 200,
+    body: fakeTextMessage(
+      JSON.stringify({
+        say,
+        ...(assessment
+          ? {
+              assessment: {
+                concept_key: assessment.conceptKey,
+                outcome: assessment.outcome,
+                reasoning_quality: assessment.reasoningQuality ?? 'none',
+                self_confidence: assessment.selfConfidence ?? 'unknown',
+                misconception_category: assessment.misconceptionCategory ?? null,
+                misconception_description: assessment.misconceptionDescription ?? null,
+                confidence: 'high',
+              },
+            }
+          : {}),
+      })
+    ),
+  }
 }
 
 // `x-should-retry: false` stops the SDK's default retry-on-5xx, matching
 // ai-turn.test.ts's "sanitises a provider failure" test.
-function setFakeSummaryFailure() {
+function setFakeTurnFailure() {
   nextFakeResponse = {
     status: 500,
-    body: { type: 'error', error: { type: 'api_error', message: 'forced summariser failure' } },
+    body: { type: 'error', error: { type: 'api_error', message: 'forced turn failure' } },
     headers: { 'x-should-retry': 'false' },
   }
 }
@@ -133,6 +166,30 @@ async function waitForServer(timeoutMs: number) {
   throw new Error(`dev server did not become ready on ${API_BASE} within ${timeoutMs}ms`)
 }
 
+// ADR-019: the turn route's learning-state write runs off the critical
+// path (after()), and ending a session only reconciles rows that were
+// never claimed or whose claim looks abandoned (apply.ts's claimed_at
+// staleness check) -- it does NOT wait for an in-flight after() that's
+// already working. So there is no request in this file's vocabulary that
+// synchronously guarantees "the write has landed." This polls a check
+// function until it stops throwing (or times out), the standard pattern
+// for asserting against an eventually-consistent, asynchronously-applied
+// write instead of assuming any particular request is a hard sync point.
+async function waitFor(check: () => Promise<void>, timeoutMs = 5000, intervalMs = 200): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let lastError: unknown
+  while (Date.now() < deadline) {
+    try {
+      await check()
+      return
+    } catch (err) {
+      lastError = err
+      await new Promise((r) => setTimeout(r, intervalMs))
+    }
+  }
+  throw lastError
+}
+
 async function start(token: string | null, body: Record<string, unknown> = {}) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers.Authorization = `Bearer ${token}`
@@ -140,17 +197,19 @@ async function start(token: string | null, body: Record<string, unknown> = {}) {
   return { status: res.status, json: await res.json() }
 }
 
-async function end(
-  token: string | null,
-  sessionId: string,
-  transcript?: Array<{ role: 'user' | 'assistant'; content: string }>
-) {
+// ADR-019: no transcript parameter -- the route no longer accepts or needs
+// one (learning state is already persisted per turn). Ending a session now
+// also RECONCILEs any session_interactions row a turn's own after() hook
+// hadn't applied yet, so calling this after one or more turn() calls is a
+// deterministic sync point for asserting on knowledge_nodes/misconceptions,
+// regardless of after()'s exact timing relative to turn()'s fetch resolving.
+async function end(token: string | null, sessionId: string) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers.Authorization = `Bearer ${token}`
   const res = await fetch(`${API_BASE}/api/session/end`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ sessionId, ...(transcript ? { transcript } : {}) }),
+    body: JSON.stringify({ sessionId }),
   })
   return { status: res.status, json: await res.json() }
 }
@@ -343,53 +402,73 @@ describe('session start/end + tier enforcement', () => {
   })
 })
 
-// --- Sprint 08 Task 7: session-end summary write (ADR-014/ADR-015) ---
-// All assertions read through clientA (RLS-scoped), never `admin` -- the
-// service-role client stays fixture-setup/teardown only, per this file's
-// existing discipline.
-describe('session end -> live learning profile write', () => {
+// --- Sprint 11: per-turn learning-state write (ADR-019/ADR-020) ---
+// Sprint 08-10 drove every write in this block via a transcript passed to
+// /api/session/end (summariseSession, ADR-015). ADR-019 retires that call
+// entirely: the write now happens per turn, off /api/ai/turn's
+// off-critical-path after() hook. Each test below drives the write with a
+// real /api/ai/turn call carrying `sessionId` + an envelope-shaped fake
+// reply (setFakeEnvelope). Ending the session (end()) reconciles rows the
+// after() hook never got to, but it does NOT wait for one already in
+// flight (apply.ts's claimed_at staleness check deliberately skips a
+// recently-claimed row, on the assumption its own claimant is about to
+// finish) -- so no request here is a hard synchronization point. Every
+// assertion that depends on the write having landed goes through waitFor
+// (above), which retries a short-lived poll instead of assuming any one
+// call is a deterministic sync barrier. All assertions read through
+// clientA (RLS-scoped), never `admin` -- the service-role client stays
+// fixture-setup/teardown only, per this file's existing discipline.
+describe('per-turn learning-state write -> live profile', () => {
   let writtenSessionId: string
 
-  it('ending with a transcript writes knowledge_nodes, and a subsequent turn reflects the live profile', async () => {
-    setFakeSummary([{ conceptKey: 'algebra.quadratics.factoring', outcome: 'correct' }])
-
+  it('a turn with sessionId writes knowledge_nodes, and a subsequent turn reflects the live profile', async () => {
     const started = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
     expect(started.status).toBe(200)
     writtenSessionId = started.json.sessionId
     sessionIds.push(writtenSessionId)
 
-    const transcript: Array<{ role: 'user' | 'assistant'; content: string }> = [
-      { role: 'user', content: 'How do I factor x^2+5x+6?' },
-      { role: 'assistant', content: 'What two numbers multiply to 6 and add to 5?' },
-      { role: 'user', content: '2 and 3, so (x+2)(x+3)' },
-    ]
-    const ended = await end(tokenA, writtenSessionId, transcript)
+    setFakeEnvelope('What two numbers multiply to 6 and add to 5?', {
+      conceptKey: 'algebra.quadratics.factoring',
+      outcome: 'correct',
+    })
+    const turnRes = await turn(tokenA, {
+      sessionId: writtenSessionId,
+      messages: [{ role: 'user', content: '2 and 3, so (x+2)(x+3)' }],
+    })
+    expect(turnRes.status).toBe(200)
+
+    const ended = await end(tokenA, writtenSessionId)
     expect(ended.status).toBe(200)
 
     // "a subsequent loadProfile reflects it" -- observed via a real turn
     // against the live server (see the `turn` helper's comment above for why
-    // loadProfile can't be imported directly into this test process).
-    setFakeTurnReply('looks good, want to try another one?')
-    const probe = await turn(tokenA, { messages: [{ role: 'user', content: 'what should I work on next?' }] })
-    expect(probe.status).toBe(200)
+    // loadProfile can't be imported directly into this test process). The
+    // write may still be in flight via after() at this point (end() does
+    // not wait for it -- see the describe-block comment above), so this
+    // polls a fresh probe turn until the profile reflects it.
+    await waitFor(async () => {
+      setFakeTurnReply('looks good, want to try another one?')
+      const probe = await turn(tokenA, { messages: [{ role: 'user', content: 'what should I work on next?' }] })
+      expect(probe.status).toBe(200)
 
-    const system = receivedRequests[receivedRequests.length - 1].system as string
-    // Sprint 09: apply.ts now calls the full FSRS updateKnowledgeNode
-    // (ADR-016), not the old Elo nudge -- this fake summary omits
-    // reasoningQuality/selfConfidence, which the parser defaults to
-    // 'none'/'unknown', which trips the lucky-guess discount on this
-    // "correct" outcome: grade 0.6, K = BASE_K(0.3) * LUCKY_GUESS_K_SCALE(0.5)
-    // * confidenceWeight(observationCount=0, =1) = 0.15; mastery
-    // 0 + 0.15*(0.6-0) = 0.09. observationCount 1 -> confidence 'low';
-    // mastery<0.5 -> state 'weak'. Not asserting an exact future-proof
-    // number beyond that -- just that the seeded write is the one rendered
-    // into the prompt.
-    expect(system).toContain('algebra.quadratics.factoring: mastery 0.09, state weak, confidence low')
-    expect(system).not.toContain('(no mastery data yet)')
+      const system = receivedRequests[receivedRequests.length - 1].system as string
+      // apply.ts's applyInteraction calls the full FSRS updateKnowledgeNode
+      // (ADR-016/ADR-019). This envelope omits reasoning_quality/
+      // self_confidence, which envelope.ts's parseAssessment defaults to
+      // 'none'/'unknown', which trips the lucky-guess discount on this
+      // "correct" outcome: grade 0.6, K = BASE_K(0.3) * LUCKY_GUESS_K_SCALE(0.5)
+      // * confidenceWeight(observationCount=0, =1) = 0.15; mastery
+      // 0 + 0.15*(0.6-0) = 0.09. observationCount 1 -> confidence 'low';
+      // mastery<0.5 -> state 'weak'. Not asserting an exact future-proof
+      // number beyond that -- just that the seeded write is the one rendered
+      // into the prompt.
+      expect(system).toContain('algebra.quadratics.factoring: mastery 0.09, state weak, confidence low')
+      expect(system).not.toContain('(no mastery data yet)')
+    })
   })
 
   it('idempotent: ending the same session again 404s and writes nothing more', async () => {
-    const reEnded = await end(tokenA, writtenSessionId, [{ role: 'user', content: 'one more try' }])
+    const reEnded = await end(tokenA, writtenSessionId)
     expect(reEnded.status).toBe(404)
 
     setFakeTurnReply('still the same profile')
@@ -398,12 +477,12 @@ describe('session end -> live learning profile write', () => {
 
     const system = receivedRequests[receivedRequests.length - 1].system as string
     // Unchanged from the previous test -- end_session's open->ended
-    // transition 404s before the summariser ever runs a second time, so
-    // there is no second mastery nudge to observe here.
+    // transition 404s before the reconcile sweep ever runs a second time for
+    // this session, so there is no second mastery nudge to observe here.
     expect(system).toContain('algebra.quadratics.factoring: mastery 0.09, state weak, confidence low')
   })
 
-  it('ending with no transcript still ends the session and writes no learning state (back-compat)', async () => {
+  it('ending a session with no turns still ends it and writes no learning state (back-compat)', async () => {
     const started = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
     expect(started.status).toBe(200)
     sessionIds.push(started.json.sessionId)
@@ -424,27 +503,39 @@ describe('session end -> live learning profile write', () => {
     expect(after.count).toBe(before.count)
   })
 
-  it('a forced summariser failure still ends the session (no 500) and writes no learning state for that session', async () => {
-    setFakeSummaryFailure()
-
+  it('a forced turn failure writes no interaction and no learning state, and the session still ends cleanly', async () => {
     const started = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
     expect(started.status).toBe(200)
-    sessionIds.push(started.json.sessionId)
+    const failedSessionId = started.json.sessionId
+    sessionIds.push(failedSessionId)
 
     const before = await clientA
       .from('knowledge_nodes')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userA.id)
 
-    const ended = await end(tokenA, started.json.sessionId, [{ role: 'user', content: 'How do I solve 2x + 3 = 11?' }])
-    expect(ended.status).toBe(200) // best-effort -- the session still ends (ADR-015)
+    setFakeTurnFailure()
+    const turnRes = await turn(tokenA, {
+      sessionId: failedSessionId,
+      messages: [{ role: 'user', content: 'How do I solve 2x + 3 = 11?' }],
+    })
+    expect(turnRes.status).toBe(502) // sanitised failure -- matches ai-turn.test.ts's own assertion
+
+    const interactions = await clientA
+      .from('session_interactions')
+      .select('*', { count: 'exact', head: true })
+      .eq('session_id', failedSessionId)
+    expect(interactions.count).toBe(0) // runTutorTurn threw before persistInteraction ever ran
+
+    const ended = await end(tokenA, failedSessionId)
+    expect(ended.status).toBe(200) // best-effort -- the session still ends
 
     const after = await clientA
       .from('knowledge_nodes')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userA.id)
 
-    expect(after.count).toBe(before.count) // summariser failed -> empty summary -> nothing written
+    expect(after.count).toBe(before.count) // no interaction was ever written -> nothing to reconcile
   })
 
   it('two sessions flagging the same exact-category misconception promote it pending -> active, and it appears in the live profile', async () => {
@@ -453,11 +544,38 @@ describe('session end -> live learning profile write', () => {
       description: 'drops the negative sign when distributing',
     }
 
-    setFakeSummary([{ conceptKey: 'algebra.polynomials.expanding', outcome: 'incorrect', misconception }])
     const first = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
     sessionIds.push(first.json.sessionId)
-    const firstEnd = await end(tokenA, first.json.sessionId, [{ role: 'user', content: '-(x+2) = -x+2' }])
+    setFakeEnvelope('Watch the sign there.', {
+      conceptKey: 'algebra.polynomials.expanding',
+      outcome: 'incorrect',
+      misconceptionCategory: misconception.category,
+      misconceptionDescription: misconception.description,
+    })
+    const firstTurn = await turn(tokenA, {
+      sessionId: first.json.sessionId,
+      messages: [{ role: 'user', content: '-(x+2) = -x+2' }],
+    })
+    expect(firstTurn.status).toBe(200)
+    const firstEnd = await end(tokenA, first.json.sessionId)
     expect(firstEnd.status).toBe(200)
+
+    // Confirm the FIRST occurrence actually landed (pending, count 1)
+    // before checking it's correctly absent from the profile -- otherwise
+    // "not yet written at all" would pass this check just as trivially as
+    // "written but still pending" would.
+    await waitFor(async () => {
+      const { data, error } = await clientA
+        .from('misconceptions')
+        .select('status, occurrence_count')
+        .eq('user_id', userA.id)
+        .eq('concept_key', 'algebra.polynomials.expanding')
+        .eq('category', misconception.category)
+        .single()
+      expect(error).toBeNull()
+      expect(data!.status).toBe('pending')
+      expect(data!.occurrence_count).toBe(1)
+    })
 
     setFakeTurnReply('ok, next one')
     const probeAfterFirst = await turn(tokenA, { messages: [{ role: 'user', content: 'next problem please' }] })
@@ -465,103 +583,169 @@ describe('session end -> live learning profile write', () => {
     const systemAfterFirst = receivedRequests[receivedRequests.length - 1].system as string
     expect(systemAfterFirst).not.toContain('sign_error.distribution') // 1 instance -- still pending, not active
 
-    setFakeSummary([{ conceptKey: 'algebra.polynomials.expanding', outcome: 'incorrect', misconception }])
     const second = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
     sessionIds.push(second.json.sessionId)
-    const secondEnd = await end(tokenA, second.json.sessionId, [{ role: 'user', content: '-(x+3) = -x+3' }])
+    setFakeEnvelope('Watch the sign there.', {
+      conceptKey: 'algebra.polynomials.expanding',
+      outcome: 'incorrect',
+      misconceptionCategory: misconception.category,
+      misconceptionDescription: misconception.description,
+    })
+    const secondTurn = await turn(tokenA, {
+      sessionId: second.json.sessionId,
+      messages: [{ role: 'user', content: '-(x+3) = -x+3' }],
+    })
+    expect(secondTurn.status).toBe(200)
+    const secondEnd = await end(tokenA, second.json.sessionId)
     expect(secondEnd.status).toBe(200)
 
-    setFakeTurnReply('ok, next one again')
-    const probeAfterSecond = await turn(tokenA, { messages: [{ role: 'user', content: 'next problem please' }] })
-    expect(probeAfterSecond.status).toBe(200)
-    const systemAfterSecond = receivedRequests[receivedRequests.length - 1].system as string
-    expect(systemAfterSecond).toContain(
-      'algebra.polynomials.expanding — sign_error.distribution: drops the negative sign when distributing'
-    )
+    await waitFor(async () => {
+      setFakeTurnReply('ok, next one again')
+      const probeAfterSecond = await turn(tokenA, { messages: [{ role: 'user', content: 'next problem please' }] })
+      expect(probeAfterSecond.status).toBe(200)
+      const systemAfterSecond = receivedRequests[receivedRequests.length - 1].system as string
+      expect(systemAfterSecond).toContain(
+        'algebra.polynomials.expanding — sign_error.distribution: drops the negative sign when distributing'
+      )
+    })
   })
 
-  // --- Sprint 09 Task 7: full FSRS write path (ADR-016/ADR-017) ---
+  // --- Sprint 09 Task 7 / Sprint 11: full FSRS + scheduler write path
+  // (ADR-016/ADR-017/ADR-019/ADR-020) ---
 
-  it('FSRS persists stability and difficulty, not just mastery (Sprint 08 dropped them)', async () => {
-    setFakeSummary([
-      { conceptKey: 'algebra.exponents.power-rule', outcome: 'correct', reasoningQuality: 'sound', selfConfidence: 'high' },
-    ])
+  it('FSRS persists stability and difficulty, not just mastery (Sprint 08 dropped them), and schedules reinforcement', async () => {
+    const conceptKey = 'algebra.exponents.power-rule'
 
+    setFakeEnvelope('Nice, that exponent rule is right.', {
+      conceptKey,
+      outcome: 'correct',
+      reasoningQuality: 'sound',
+      selfConfidence: 'high',
+    })
     const started = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
     sessionIds.push(started.json.sessionId)
-    const ended = await end(tokenA, started.json.sessionId, [{ role: 'user', content: '(x^2)^3 = x^6' }])
+    const turnRes = await turn(tokenA, {
+      sessionId: started.json.sessionId,
+      messages: [{ role: 'user', content: '(x^2)^3 = x^6' }],
+    })
+    expect(turnRes.status).toBe(200)
+    const ended = await end(tokenA, started.json.sessionId)
     expect(ended.status).toBe(200)
 
-    const { data, error } = await clientA
-      .from('knowledge_nodes')
-      .select('stability, difficulty')
-      .eq('user_id', userA.id)
-      .eq('concept_key', 'algebra.exponents.power-rule')
-      .single()
+    await waitFor(async () => {
+      const { data, error } = await clientA
+        .from('knowledge_nodes')
+        .select('stability, difficulty')
+        .eq('user_id', userA.id)
+        .eq('concept_key', conceptKey)
+        .single()
 
-    expect(error).toBeNull()
-    // MIN_STABILITY floor (constants.ts) and the DIFF_MIN/DIFF_MAX drift
-    // bounds -- the exact values are an implementation detail of the
-    // (explicitly uncalibrated) package; what this test gates is that these
-    // two columns are written at all, where update.ts never wrote them.
-    expect(data!.stability).toBeGreaterThanOrEqual(1.0)
-    expect(data!.difficulty).toBeGreaterThan(0.05)
-    expect(data!.difficulty).toBeLessThan(0.95)
+      expect(error).toBeNull()
+      // MIN_STABILITY floor (constants.ts) and the DIFF_MIN/DIFF_MAX drift
+      // bounds -- the exact values are an implementation detail of the
+      // (explicitly uncalibrated) package; what this test gates is that
+      // these two columns are written at all, where update.ts never wrote
+      // them.
+      expect(data!.stability).toBeGreaterThanOrEqual(1.0)
+      expect(data!.difficulty).toBeGreaterThan(0.05)
+      expect(data!.difficulty).toBeLessThan(0.95)
+    })
+
+    // ADR-020: the same interaction that updated knowledge_nodes also
+    // upserts one reinforcement_schedule row for this concept.
+    await waitFor(async () => {
+      const { data: scheduled, error: scheduleErr } = await clientA
+        .from('reinforcement_schedule')
+        .select('due_at, interval_days, priority, lapses')
+        .eq('user_id', userA.id)
+        .eq('concept_key', conceptKey)
+        .single()
+
+      expect(scheduleErr).toBeNull()
+      expect(new Date(scheduled!.due_at).getTime()).toBeGreaterThan(Date.now()) // due in the future
+      expect(scheduled!.interval_days).toBeGreaterThan(0)
+      expect(scheduled!.priority).toBeGreaterThanOrEqual(0.5) // BASE_PRIORITY, no misconception/urgency boost here
+      expect(scheduled!.lapses).toBe(0) // a correct outcome never increments lapses
+    })
   })
 
   it('two sessions flagging the same error under DIFFERENT categories but similar wording collapse via pg_trgm, not exact-category', async () => {
     const conceptKey = 'algebra.inequalities.linear'
 
-    setFakeSummary([
-      {
-        conceptKey,
-        outcome: 'incorrect',
-        misconception: {
-          category: 'sign_error.flip_on_negative_multiply',
-          description: 'forgets to flip the inequality sign when multiplying both sides by a negative number',
-        },
-      },
-    ])
+    setFakeEnvelope('Careful with that sign.', {
+      conceptKey,
+      outcome: 'incorrect',
+      misconceptionCategory: 'sign_error.flip_on_negative_multiply',
+      misconceptionDescription: 'forgets to flip the inequality sign when multiplying both sides by a negative number',
+    })
     const first = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
     sessionIds.push(first.json.sessionId)
-    const firstEnd = await end(tokenA, first.json.sessionId, [{ role: 'user', content: '-2x < 6 so x < -3' }])
+    const firstTurn = await turn(tokenA, {
+      sessionId: first.json.sessionId,
+      messages: [{ role: 'user', content: '-2x < 6 so x < -3' }],
+    })
+    expect(firstTurn.status).toBe(200)
+    const firstEnd = await end(tokenA, first.json.sessionId)
     expect(firstEnd.status).toBe(200)
 
-    // A different category label (simulating summariser drift) but a
-    // near-identical description -- exact-category match must fail here,
-    // so only the pg_trgm fallback can collapse this onto the same row.
-    setFakeSummary([
-      {
-        conceptKey,
-        outcome: 'incorrect',
-        misconception: {
-          category: 'inequality_sign_flip_error',
-          description: 'forgets to flip the inequality sign when multiplying both sides by a negative value',
-        },
-      },
-    ])
+    // The SECOND turn's fuzzy match needs the FIRST misconception row to
+    // already exist, or findMisconceptionMatch finds nothing and creates a
+    // second row regardless of pg_trgm working correctly -- this would be a
+    // false test failure indistinguishable from a real matching bug, not
+    // just an assertion-timing flake, so this checkpoint is a correctness
+    // precondition for the rest of the test, not just tidiness.
+    await waitFor(async () => {
+      const { data, error } = await clientA
+        .from('misconceptions')
+        .select('id')
+        .eq('user_id', userA.id)
+        .eq('concept_key', conceptKey)
+        .eq('category', 'sign_error.flip_on_negative_multiply')
+        .single()
+      expect(error).toBeNull()
+      expect(data).not.toBeNull()
+    })
+
+    // A different category label (simulating assessment drift across turns)
+    // but a near-identical description -- exact-category match must fail
+    // here, so only the pg_trgm fallback can collapse this onto the same row.
+    setFakeEnvelope('Careful with that sign.', {
+      conceptKey,
+      outcome: 'incorrect',
+      misconceptionCategory: 'inequality_sign_flip_error',
+      misconceptionDescription: 'forgets to flip the inequality sign when multiplying both sides by a negative value',
+    })
     const second = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
     sessionIds.push(second.json.sessionId)
-    const secondEnd = await end(tokenA, second.json.sessionId, [{ role: 'user', content: '-5x < 10 so x < -2' }])
+    const secondTurn = await turn(tokenA, {
+      sessionId: second.json.sessionId,
+      messages: [{ role: 'user', content: '-5x < 10 so x < -2' }],
+    })
+    expect(secondTurn.status).toBe(200)
+    const secondEnd = await end(tokenA, second.json.sessionId)
     expect(secondEnd.status).toBe(200)
 
-    const { data, error } = await clientA
-      .from('misconceptions')
-      .select('id, category, status, occurrence_count')
-      .eq('user_id', userA.id)
-      .eq('concept_key', conceptKey)
+    await waitFor(async () => {
+      const { data, error } = await clientA
+        .from('misconceptions')
+        .select('id, category, status, occurrence_count')
+        .eq('user_id', userA.id)
+        .eq('concept_key', conceptKey)
 
-    expect(error).toBeNull()
-    expect(data).toHaveLength(1) // one row, not two -- the fuzzy match found the first row
-    expect(data![0].category).toBe('sign_error.flip_on_negative_multiply') // the original, first-seen category
-    expect(data![0].occurrence_count).toBe(2)
-    expect(data![0].status).toBe('active') // promoted at 2 instances, same as exact-category
+      expect(error).toBeNull()
+      expect(data).toHaveLength(1) // one row, not two -- the fuzzy match found the first row
+      expect(data![0].category).toBe('sign_error.flip_on_negative_multiply') // the original, first-seen category
+      expect(data![0].occurrence_count).toBe(2)
+      expect(data![0].status).toBe('active') // promoted at 2 instances, same as exact-category
+    })
 
-    setFakeTurnReply('ok, next one')
-    const probe = await turn(tokenA, { messages: [{ role: 'user', content: 'next problem please' }] })
-    expect(probe.status).toBe(200)
-    const system = receivedRequests[receivedRequests.length - 1].system as string
-    expect(system).toContain(`${conceptKey} — sign_error.flip_on_negative_multiply`)
+    await waitFor(async () => {
+      setFakeTurnReply('ok, next one')
+      const probe = await turn(tokenA, { messages: [{ role: 'user', content: 'next problem please' }] })
+      expect(probe.status).toBe(200)
+      const system = receivedRequests[receivedRequests.length - 1].system as string
+      expect(system).toContain(`${conceptKey} — sign_error.flip_on_negative_multiply`)
+    })
   })
 
   it('three sound-correct sessions resolve an active misconception, and it leaves the live profile', async () => {
@@ -571,13 +755,42 @@ describe('session end -> live learning profile write', () => {
       description: 'skips substituting back into the other equation after solving for one variable',
     }
 
-    // Two incorrect, misconception-flagging sessions -- promotes pending -> active (Sprint 08 path).
-    for (const transcriptLine of ['substituted nothing back in', 'forgot to substitute again']) {
-      setFakeSummary([{ conceptKey, outcome: 'incorrect', misconception }])
+    // Two incorrect, misconception-flagging turns -- promotes pending ->
+    // active. Each iteration's write must have actually landed before the
+    // NEXT iteration's turn is processed (occurrence_count/
+    // consecutive_correct are cumulative) -- this is a correctness
+    // precondition for the loop, not just an end-of-test assertion, so each
+    // iteration confirms its own expected count via waitFor before moving on.
+    const misconceptionLines = ['substituted nothing back in', 'forgot to substitute again']
+    for (let i = 0; i < misconceptionLines.length; i++) {
+      setFakeEnvelope('Did you substitute back in?', {
+        conceptKey,
+        outcome: 'incorrect',
+        misconceptionCategory: misconception.category,
+        misconceptionDescription: misconception.description,
+      })
       const started = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
       sessionIds.push(started.json.sessionId)
-      const ended = await end(tokenA, started.json.sessionId, [{ role: 'user', content: transcriptLine }])
+      const turnRes = await turn(tokenA, {
+        sessionId: started.json.sessionId,
+        messages: [{ role: 'user', content: misconceptionLines[i] }],
+      })
+      expect(turnRes.status).toBe(200)
+      const ended = await end(tokenA, started.json.sessionId)
       expect(ended.status).toBe(200)
+
+      const expectedCount = i + 1
+      await waitFor(async () => {
+        const { data, error } = await clientA
+          .from('misconceptions')
+          .select('occurrence_count')
+          .eq('user_id', userA.id)
+          .eq('concept_key', conceptKey)
+          .eq('category', misconception.category)
+          .single()
+        expect(error).toBeNull()
+        expect(data!.occurrence_count).toBe(expectedCount)
+      })
     }
 
     const { data: afterPromotion, error: promotionErr } = await clientA
@@ -590,15 +803,37 @@ describe('session end -> live learning profile write', () => {
     expect(promotionErr).toBeNull()
     expect(afterPromotion!.status).toBe('active')
 
-    // Three sound-correct sessions on the SAME concept, with no misconception
+    // Three sound-correct turns on the SAME concept, with no misconception
     // flagged -- each one advances consecutive_correct (apply.ts
     // applyMisconceptionResolution); the third flips active -> resolved.
+    // Same per-iteration landing requirement as the loop above.
     for (let i = 0; i < 3; i++) {
-      setFakeSummary([{ conceptKey, outcome: 'correct', reasoningQuality: 'sound', selfConfidence: 'high' }])
+      setFakeEnvelope('Nice, clean solve.', {
+        conceptKey,
+        outcome: 'correct',
+        reasoningQuality: 'sound',
+        selfConfidence: 'high',
+      })
       const started = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
       sessionIds.push(started.json.sessionId)
-      const ended = await end(tokenA, started.json.sessionId, [{ role: 'user', content: `clean attempt ${i}` }])
+      const turnRes = await turn(tokenA, {
+        sessionId: started.json.sessionId,
+        messages: [{ role: 'user', content: `clean attempt ${i}` }],
+      })
+      expect(turnRes.status).toBe(200)
+      const ended = await end(tokenA, started.json.sessionId)
       expect(ended.status).toBe(200)
+
+      const expectedStreak = i + 1
+      await waitFor(async () => {
+        const { data, error } = await clientA
+          .from('misconceptions')
+          .select('consecutive_correct, status')
+          .eq('id', afterPromotion!.id)
+          .single()
+        expect(error).toBeNull()
+        expect(data!.consecutive_correct).toBe(expectedStreak)
+      })
     }
 
     const { data: afterResolution, error: resolutionErr } = await clientA

@@ -30,6 +30,13 @@ export type Assessment = {
   // after the fact.
   selfConfidence: AssessmentSelfConfidence
   misconceptionCategory: string | null
+  // Free-text description of the error, when a misconception is flagged --
+  // another sprint-11 addition (ADR-019). §2.5's original schema carried
+  // only the category; Sprint 09's pg_trgm fuzzy matching (ADR-017) needs a
+  // description to match against (the category alone only ever exact-
+  // matches), so without this field the per-turn write path would silently
+  // never fuzzy-match anything.
+  misconceptionDescription: string | null
   confidence: AssessmentConfidence
 }
 
@@ -129,8 +136,15 @@ function parseAssessment(candidate: unknown): Assessment | undefined {
     return undefined
   }
 
-  const { concept_key, outcome, reasoning_quality, self_confidence, misconception_category, confidence } =
-    candidate as Record<string, unknown>
+  const {
+    concept_key,
+    outcome,
+    reasoning_quality,
+    self_confidence,
+    misconception_category,
+    misconception_description,
+    confidence,
+  } = candidate as Record<string, unknown>
 
   const conceptKey =
     typeof concept_key === 'string' && CONCEPT_KEYS.includes(concept_key) ? concept_key : null
@@ -144,6 +158,7 @@ function parseAssessment(candidate: unknown): Assessment | undefined {
       typeof misconception_category === 'string' && misconception_category.length > 0
         ? misconception_category
         : null,
+    misconceptionDescription: typeof misconception_description === 'string' ? misconception_description : null,
     confidence: isValidConfidence(confidence) ? confidence : 'low',
   }
 }

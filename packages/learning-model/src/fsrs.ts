@@ -16,6 +16,8 @@ import {
   DIFF_LR,
   DIFF_MAX,
   DIFF_MIN,
+  FAST_GUESS_DIFFICULTY_SCALE,
+  FAST_GUESS_MS,
   FORGOTTEN_PROJECTION_DAYS,
   FORGOTTEN_RETRIEVABILITY_THRESHOLD,
   LUCKY_GUESS_GRADE,
@@ -47,6 +49,13 @@ export type FsrsObservation = {
   reasoningQuality: ReasoningQuality
   selfConfidence: SelfConfidence
   timeSinceLastDays: number
+  // Think-time signal (§2.4 step 3's third lucky-guess sub-guard).
+  // Optional: undefined at any call site that has no per-turn timing
+  // (there is none as of ADR-019, but kept optional rather than required
+  // so a future degraded caller doesn't have to fabricate a value) --
+  // undefined simply never trips this sub-guard, same as the other two
+  // firing independently already do.
+  responseLatencyMs?: number
 }
 
 export type KnowledgeNodeUpdate = {
@@ -85,6 +94,12 @@ function confidenceWeight(observationCount: number): number {
   return 1 / (1 + observationCount)
 }
 
+// §2.4's `FAST_GUESS_MS(node.difficulty)` -- the threshold below which a
+// "correct" answer's latency is suspect. Exported for testability (Task 8).
+export function fastGuessThresholdMs(difficulty: number): number {
+  return FAST_GUESS_MS * (1 + difficulty * FAST_GUESS_DIFFICULTY_SCALE)
+}
+
 function deriveConfidenceBand(observationCount: number): ConfidenceBand {
   if (observationCount < CONFIDENCE_BAND_LOW_MAX) return 'low'
   if (observationCount < CONFIDENCE_BAND_MEDIUM_MAX) return 'medium'
@@ -110,15 +125,17 @@ export function updateKnowledgeNode(node: KnowledgeNode, observation: FsrsObserv
   let learningRateScale = 1
 
   // 3. Lucky-guess / false-mastery guard: a "correct" with no/shallow
-  // reasoning or low self-confidence is discounted toward a partial -- we
-  // don't reward guessing. The response_latency_ms sub-guard is
-  // intentionally omitted here (see FAST_GUESS_MS in constants.ts) -- the
-  // other two sub-guards still fire.
+  // reasoning, low self-confidence, or implausibly fast latency is
+  // discounted toward a partial -- we don't reward guessing. The latency
+  // sub-guard only fires when a latency was actually supplied (ADR-019);
+  // its absence never trips it.
   const isLuckyGuess =
     grade === 1 &&
     (observation.reasoningQuality === 'none' ||
       observation.reasoningQuality === 'shallow' ||
-      observation.selfConfidence === 'low')
+      observation.selfConfidence === 'low' ||
+      (observation.responseLatencyMs !== undefined &&
+        observation.responseLatencyMs < fastGuessThresholdMs(node.difficulty)))
 
   if (isLuckyGuess) {
     grade = LUCKY_GUESS_GRADE

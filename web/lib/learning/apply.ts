@@ -1,7 +1,14 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { updateKnowledgeNode, type FsrsObservation, type Outcome } from '@calyxa/learning-model'
-import { KNOWN_CONCEPT_KEYS, type ConceptObservation, type SessionSummary } from './types'
+import {
+  updateKnowledgeNode,
+  type FsrsObservation,
+  type Outcome,
+  type ReasoningQuality,
+  type SelfConfidence,
+} from '@calyxa/learning-model'
+import { scheduleReinforcement } from './scheduler'
+import { KNOWN_CONCEPT_KEYS } from './types'
 
 const DEFAULT_STABILITY = 1.0 // matches knowledge_nodes.stability DB default (migration 0004)
 const DEFAULT_DIFFICULTY = 0.3 // matches knowledge_nodes.difficulty DB default (migration 0004)
@@ -16,6 +23,19 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24
 // explicitly, so that default is dead code, not a second place to update.
 const TRIGRAM_THRESHOLD = 0.35
 const RESOLUTION_STREAK = 3
+// A claim older than this is treated as abandoned (the claiming process
+// likely crashed mid-work) and eligible for reconcileSession to retry.
+// Comfortably longer than the handful of sequential Supabase round trips
+// applyInteraction's own work takes in practice.
+const STALE_CLAIM_SECONDS = 30
+
+// The outcome union session_interactions.outcome actually allows (adds
+// 'none' -- "discussed but not attempted" -- to the package's narrower,
+// FSRS-gradable Outcome). Replaces the old ConceptObservation['outcome']
+// this file used to import from ./types (retired with the summariser,
+// ADR-019) -- reasoningQuality/selfConfidence now come straight from the
+// package, the one source of truth for those two unions.
+export type InteractionOutcome = Outcome | 'none'
 
 type KnowledgeNodeRow = {
   mastery: number
@@ -41,15 +61,17 @@ function daysSince(timestamp: string | null): number {
   return Math.max(0, (Date.now() - new Date(timestamp).getTime()) / MS_PER_DAY)
 }
 
-// The full §2.4 FSRS update (ADR-016), run once per concept at session end.
-// Replaces the Sprint 08 minimal Elo nudge (`./update.ts`, now removed) --
-// stability/difficulty are now persisted, where Sprint 08 dropped them.
+// The full §2.4 FSRS update, now run once per INTERACTION (ADR-019 revises
+// ADR-016's session-end granularity). Returns the post-update node so the
+// caller can feed it straight into scheduleReinforcement (PLAN §2.4 calls
+// scheduleReinforcement(node) with the just-updated node, not the prior
+// one).
 async function applyMasteryUpdate(
   supabase: SupabaseClient,
   userId: string,
   conceptKey: string,
   observation: Omit<FsrsObservation, 'timeSinceLastDays'>
-): Promise<void> {
+): Promise<{ stability: number; state: string }> {
   const { data: existing } = await supabase
     .from('knowledge_nodes')
     .select('mastery, stability, difficulty, observation_count, last_practiced_at')
@@ -86,6 +108,8 @@ async function applyMasteryUpdate(
     },
     { onConflict: 'user_id,concept_key' }
   )
+
+  return { stability: next.stability, state: next.state }
 }
 
 // Exact-category match first; else `pg_trgm` trigram similarity > 0.6 on
@@ -196,40 +220,151 @@ async function applyMisconceptionResolution(supabase: SupabaseClient, userId: st
   }
 }
 
-function isFsrsOutcome(outcome: ConceptObservation['outcome']): outcome is Outcome {
+// Whether this concept currently has any 'active' misconception -- feeds
+// scheduleReinforcement's priority boost (ADR-020). Queried AFTER the
+// misconception occurrence/resolution calls below so it reflects this
+// interaction's own effect (e.g. a resolution that just fired no longer
+// counts).
+async function hasActiveMisconception(supabase: SupabaseClient, userId: string, conceptKey: string): Promise<boolean> {
+  const { count } = await supabase
+    .from('misconceptions')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('concept_key', conceptKey)
+    .eq('status', 'active')
+    .is('deleted_at', null)
+
+  return (count ?? 0) > 0
+}
+
+function isFsrsOutcome(outcome: InteractionOutcome): outcome is Outcome {
   return outcome !== 'none'
 }
 
-// The shape route.ts (ADR-019) inserts into session_interactions and later
-// passes back in here -- mirrors ConceptObservation's field types (same
-// FSRS-input unions) plus the columns unique to a persisted interaction
-// row.
+// The shape route.ts (ADR-019) inserts into session_interactions and both
+// the per-turn after() hook and reconcileSession (below) pass back in here.
 export type InteractionRecord = {
   id: string
   conceptKey: string | null
-  outcome: ConceptObservation['outcome']
-  reasoningQuality: ConceptObservation['reasoningQuality']
-  selfConfidence: ConceptObservation['selfConfidence']
+  outcome: InteractionOutcome
+  reasoningQuality: ReasoningQuality
+  selfConfidence: SelfConfidence
   misconceptionCategory: string | null
+  // Free-text description of the flagged error, when present -- feeds
+  // findMisconceptionMatch's pg_trgm fallback (ADR-017); without it, a
+  // flagged misconception can only ever exact-category match.
+  misconceptionDescription: string | null
+  responseLatencyMs: number | null
 }
 
-// Sprint 11 Task 4 (ADR-019): a minimal, working stub. It exists so
-// route.ts's off-critical-path hook (`after()`, called once per gradable
-// turn) is a real, testable code path from this task onward, without yet
-// running the learning-model math -- Task 5 replaces this body with the
-// full per-observation FSRS update + fuzzy misconception match/resolution
-// (reusing applyMasteryUpdate / applyMisconceptionOccurrence /
-// applyMisconceptionResolution above, exactly as applySessionSummary
-// already does per-observation) plus a new scheduleReinforcement call,
-// still finishing by marking applied_to_profile=true. The signature
-// already matches what Task 5 needs so route.ts's call site needs no
-// change -- only this function's body does.
+// Write path for a SINGLE interaction (ADR-019 -- supersedes the Sprint 09
+// per-summary applySessionSummary, retired below): the full FSRS update
+// (now with a real response_latency_ms, restoring the third lucky-guess
+// sub-guard ADR-016 had to omit) + scheduleReinforcement (ADR-020) + the
+// same exact-category/trigram misconception matching and 3-correct
+// resolution Sprint 09 already proved, applied per interaction instead of
+// per session-end summary. Tolerates partial failure exactly as the old
+// per-observation loop did -- one failed step never blocks the others.
+//
+// CLAIMS the row first via `claimed_at` (a separate marker from
+// `applied_to_profile`), before doing any FSRS/misconception work. This is
+// a genuine correctness requirement, not defensive padding: the turn
+// route's off-critical-path after() hook and a session-end reconcile sweep
+// can both reach the SAME unclaimed row. Marking `applied_to_profile` true
+// at claim time (a single boolean, the first version of this function)
+// stops the double-apply, but then that column no longer reliably means
+// "the write landed" -- only "someone started it" -- so a reconcile sweep
+// racing an in-flight after() would see "already applied" and skip a row
+// whose FSRS/misconception writes hadn't actually landed yet (confirmed
+// during Task 5 verification: a real double-counted occurrence_count with
+// the single-flag version, and a real "missing write" with the naive
+// two-caller read). `claimed_at` set now + `applied_to_profile` set only
+// once genuinely done keeps both properties: no double-apply, and
+// reconcileSession (below) can tell "someone else has this, still
+// working" apart from "abandoned, needs a retry."
 export async function applyInteraction(
   supabase: SupabaseClient,
   userId: string,
   sessionId: string,
   interaction: InteractionRecord
 ): Promise<void> {
+  const staleThreshold = new Date(Date.now() - STALE_CLAIM_SECONDS * 1000).toISOString()
+
+  const { data: claimed } = await supabase
+    .from('session_interactions')
+    .update({ claimed_at: new Date().toISOString() })
+    .eq('id', interaction.id)
+    .eq('user_id', userId)
+    .eq('session_id', sessionId)
+    .eq('applied_to_profile', false)
+    .or(`claimed_at.is.null,claimed_at.lt.${staleThreshold}`)
+    .select('id')
+
+  if (!claimed || claimed.length === 0) {
+    // Already applied, or already claimed recently enough that whoever
+    // holds it is presumably still working -- nothing left to do here.
+    return
+  }
+
+  const {
+    conceptKey,
+    outcome,
+    reasoningQuality,
+    selfConfidence,
+    misconceptionCategory,
+    misconceptionDescription,
+    responseLatencyMs,
+  } = interaction
+
+  if (conceptKey && KNOWN_CONCEPT_KEYS.includes(conceptKey)) {
+    if (isFsrsOutcome(outcome)) {
+      try {
+        const node = await applyMasteryUpdate(supabase, userId, conceptKey, {
+          outcome,
+          reasoningQuality,
+          selfConfidence,
+          ...(responseLatencyMs !== null ? { responseLatencyMs } : {}),
+        })
+
+        if (misconceptionCategory) {
+          await applyMisconceptionOccurrence(supabase, userId, conceptKey, {
+            category: misconceptionCategory,
+            ...(misconceptionDescription ? { description: misconceptionDescription } : {}),
+          })
+        } else if (outcome === 'correct' && reasoningQuality === 'sound') {
+          await applyMisconceptionResolution(supabase, userId, conceptKey)
+        }
+
+        const misconceptionActive = await hasActiveMisconception(supabase, userId, conceptKey)
+        await scheduleReinforcement(supabase, userId, conceptKey, node, {
+          hasActiveMisconception: misconceptionActive,
+          lastOutcomeFailed: outcome === 'incorrect',
+        })
+      } catch {
+        // One failed step never blocks the rest of applyInteraction, and
+        // never blocks marking the row applied below -- a mechanically-
+        // failing concept is marked done rather than retried forever by
+        // the reconcile sweep. Same best-effort posture the old
+        // summary-based write held.
+      }
+    } else if (misconceptionCategory) {
+      // outcome 'none' still lets a flagged misconception register --
+      // matches the old per-observation loop's independence between the
+      // FSRS branch and the misconception branch.
+      try {
+        await applyMisconceptionOccurrence(supabase, userId, conceptKey, {
+          category: misconceptionCategory,
+          ...(misconceptionDescription ? { description: misconceptionDescription } : {}),
+        })
+      } catch {
+        // Same tolerance as above.
+      }
+    }
+  }
+
+  // Set only once the work above has actually run (successfully or not) --
+  // this is what lets reconcileSession's staleness check (below) tell an
+  // in-flight claim apart from one that's truly finished.
   await supabase
     .from('session_interactions')
     .update({ applied_to_profile: true })
@@ -238,46 +373,56 @@ export async function applyInteraction(
     .eq('session_id', sessionId)
 }
 
-// Write path for the live knowledge graph (ADR-014/ADR-015/ADR-016/ADR-017):
-// the full FSRS update per observed concept, plus exact-category/trigram
-// misconception matching with 2-instance promotion and 3-correct
-// resolution. Every write goes through the caller's RLS-scoped client (rows
-// land owner-scoped, as the signed-in user). One bad observation never
-// aborts the rest -- the session-end caller treats this whole call as
-// best-effort.
-export async function applySessionSummary(supabase: SupabaseClient, summary: SessionSummary): Promise<void> {
-  const { data: userData } = await supabase.auth.getUser()
-  const userId = userData?.user?.id
-  if (!userId) return
+type UnappliedInteractionRow = {
+  id: string
+  user_id: string
+  concept_key: string | null
+  outcome: InteractionOutcome
+  reasoning_quality: ReasoningQuality
+  self_confidence: SelfConfidence
+  misconception_category: string | null
+  misconception_description: string | null
+  response_latency_ms: number | null
+}
 
-  for (const observation of summary.observations) {
-    if (!KNOWN_CONCEPT_KEYS.includes(observation.conceptKey)) continue
+// Reconciliation sweep (ADR-019): attempts every session_interactions row
+// still marked applied_to_profile=false -- a safety net, NOT the primary
+// write path (that's the per-turn after() hook, which in the common case
+// has already applied every row by the time a session ends). applyInteraction's
+// own claimed_at check (above) decides whether each row is actually still
+// unclaimed/stale (do the work) or recently claimed by an in-flight after()
+// (skip -- it's presumably about to finish on its own), so this sweep never
+// needs to reason about that itself. Ordered by turn_index so a concept's
+// updates apply in the order they actually happened, matching how the old
+// summary's observation list applied in order.
+export async function reconcileSession(supabase: SupabaseClient, sessionId: string): Promise<void> {
+  const { data } = await supabase
+    .from('session_interactions')
+    .select(
+      'id, user_id, concept_key, outcome, reasoning_quality, self_confidence, misconception_category, misconception_description, response_latency_ms'
+    )
+    .eq('session_id', sessionId)
+    .eq('applied_to_profile', false)
+    .is('deleted_at', null)
+    .order('turn_index', { ascending: true })
 
-    const { outcome } = observation
-    if (isFsrsOutcome(outcome)) {
-      try {
-        await applyMasteryUpdate(supabase, userId, observation.conceptKey, {
-          outcome,
-          reasoningQuality: observation.reasoningQuality,
-          selfConfidence: observation.selfConfidence,
-        })
-      } catch {
-        // One bad observation never aborts the rest.
-      }
-    }
+  const rows = (data ?? []) as UnappliedInteractionRow[]
 
-    if (observation.misconception) {
-      try {
-        await applyMisconceptionOccurrence(supabase, userId, observation.conceptKey, observation.misconception)
-      } catch {
-        // Same tolerance as above.
-      }
-    } else if (outcome === 'correct' && observation.reasoningQuality === 'sound') {
-      try {
-        await applyMisconceptionResolution(supabase, userId, observation.conceptKey)
-      } catch {
-        // Same tolerance as above.
-      }
+  for (const row of rows) {
+    try {
+      await applyInteraction(supabase, row.user_id, sessionId, {
+        id: row.id,
+        conceptKey: row.concept_key,
+        outcome: row.outcome,
+        reasoningQuality: row.reasoning_quality,
+        selfConfidence: row.self_confidence,
+        misconceptionCategory: row.misconception_category,
+        misconceptionDescription: row.misconception_description,
+        responseLatencyMs: row.response_latency_ms,
+      })
+    } catch {
+      // One bad row never blocks the rest -- same tolerance
+      // applyInteraction already applies internally, one layer up.
     }
   }
 }

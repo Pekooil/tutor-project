@@ -76,3 +76,14 @@ create policy <table>_modify_own on public.<table>
   ADR-019) — a `not null default 'none'` text column added to fill a gap in
   the original `0007` table (PLAN §2.3's schema predates ADR-016's FSRS
   lucky-guess guards). Additive; inherits the table's existing policies.
+- `session_interactions.misconception_description` (`0010_session_interactions_misconception_description.sql`,
+  ADR-019) — a nullable text column added to fill a second gap in `0007`
+  (PLAN §2.3's/§2.5's schemas predate ADR-017's pg_trgm fuzzy matching,
+  which needs a description to match against). Additive; inherits the
+  table's existing policies.
+- `session_interactions.claimed_at` (`0011_session_interactions_claimed_at.sql`,
+  ADR-019) — a nullable timestamptz marking when the off-critical-path
+  apply started, kept separate from `applied_to_profile` (which now means
+  "actually finished") so the reconcile sweep can tell "in progress" apart
+  from "never started / crashed mid-work." Additive; inherits the table's
+  existing policies.
