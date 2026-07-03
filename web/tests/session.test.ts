@@ -296,16 +296,20 @@ beforeAll(async () => {
 }, 45000)
 
 afterAll(async () => {
-  // Teardown via the service role only, mirroring rls.test.ts.
+  // Teardown via the service role only, mirroring rls.test.ts. Child-first
+  // in the PLAN §2.7 erasure order -- NO FK in this schema cascades (0007's
+  // comment), so session_interactions rows (written per turn as of ADR-019)
+  // must go before their sessions, and reinforcement_schedule rows (ADR-020)
+  // before the users row, or every delete below them fails silently with an
+  // FK violation and the fixture users leak.
+  if (userA) {
+    await admin.from('session_interactions').delete().eq('user_id', userA.id)
+  }
   for (const id of sessionIds) {
     await admin.from('sessions').delete().eq('id', id)
   }
   if (userA) {
-    // The Sprint 08 tables are cleared before deleting userA --
-    // knowledge_nodes.user_id / misconceptions.user_id reference
-    // public.users with no ON DELETE CASCADE (0004_knowledge_graph.sql), so
-    // leftover rows here would otherwise block the users delete with a
-    // foreign-key violation.
+    await admin.from('reinforcement_schedule').delete().eq('user_id', userA.id)
     await admin.from('misconceptions').delete().eq('user_id', userA.id)
     await admin.from('knowledge_nodes').delete().eq('user_id', userA.id)
     await admin.from('users').delete().eq('id', userA.id)
@@ -850,5 +854,190 @@ describe('per-turn learning-state write -> live profile', () => {
     expect(probe.status).toBe(200)
     const system = receivedRequests[receivedRequests.length - 1].system as string
     expect(system).not.toContain(misconception.category) // resolved -- loadProfile only selects status='active'
+  })
+
+  // --- Sprint 11 Task 8: the restored third lucky-guess sub-guard
+  // (real response_latency_ms, ADR-016/ADR-019) + reconcile guarantees ---
+
+  it('a fast unreasoned-looking correct moves mastery LESS than a reasoned one; session end reconciles nothing twice and makes NO Anthropic call', async () => {
+    // Two fresh concepts, identical envelopes (correct/sound/high) -- the
+    // ONLY difference is the client-measured latency, so any mastery gap is
+    // the latency sub-guard and nothing else. For a fresh node (difficulty
+    // 0.3) the threshold is fastGuessThresholdMs = 1500 * (1 + 0.3) =
+    // 1950ms: 800ms trips it (grade 0.6, K scaled 0.5 -> mastery 0.09),
+    // 20000ms doesn't (grade 1.0 -> mastery 0.30).
+    const fastConcept = 'algebra.linear-equations.one-variable'
+    const reasonedConcept = 'algebra.exponents.product-rule'
+
+    const started = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
+    expect(started.status).toBe(200)
+    const sessionId = started.json.sessionId
+    sessionIds.push(sessionId)
+
+    setFakeEnvelope('Correct!', {
+      conceptKey: fastConcept,
+      outcome: 'correct',
+      reasoningQuality: 'sound',
+      selfConfidence: 'high',
+    })
+    const fastTurn = await turn(tokenA, {
+      sessionId,
+      messages: [{ role: 'user', content: 'x = 4' }],
+      responseLatencyMs: 800,
+    })
+    expect(fastTurn.status).toBe(200)
+
+    setFakeEnvelope('Correct!', {
+      conceptKey: reasonedConcept,
+      outcome: 'correct',
+      reasoningQuality: 'sound',
+      selfConfidence: 'high',
+    })
+    const reasonedTurn = await turn(tokenA, {
+      sessionId,
+      messages: [
+        { role: 'user', content: 'x = 4' },
+        { role: 'assistant', content: 'Correct!' },
+        { role: 'user', content: 'x^3 * x^4 = x^7 because the exponents add' },
+      ],
+      responseLatencyMs: 20000,
+    })
+    expect(reasonedTurn.status).toBe(200)
+
+    // Wait for both after() applies to land, then pin the guard's effect.
+    let fastMastery = 0
+    let reasonedMastery = 0
+    await waitFor(async () => {
+      const { data, error } = await clientA
+        .from('knowledge_nodes')
+        .select('concept_key, mastery')
+        .eq('user_id', userA.id)
+        .in('concept_key', [fastConcept, reasonedConcept])
+
+      expect(error).toBeNull()
+      expect(data).toHaveLength(2)
+      fastMastery = data!.find((row) => row.concept_key === fastConcept)!.mastery
+      reasonedMastery = data!.find((row) => row.concept_key === reasonedConcept)!.mastery
+    })
+
+    expect(fastMastery).toBeCloseTo(0.09, 3)
+    expect(reasonedMastery).toBeCloseTo(0.3, 3)
+    expect(fastMastery).toBeLessThan(reasonedMastery)
+
+    // Both interactions fully applied (applied_to_profile is set only after
+    // the FSRS/misconception/scheduler work actually ran -- apply.ts).
+    await waitFor(async () => {
+      const { data, error } = await clientA
+        .from('session_interactions')
+        .select('applied_to_profile, response_latency_ms')
+        .eq('session_id', sessionId)
+
+      expect(error).toBeNull()
+      expect(data).toHaveLength(2)
+      expect(data!.every((row) => row.applied_to_profile)).toBe(true)
+    })
+
+    // Ending the session now (1) makes no Anthropic call -- the summariser
+    // is retired, reconcile is DB-only -- and (2) re-applies nothing:
+    // every row is already applied_to_profile=true, so the sweep is a no-op.
+    const requestsBefore = receivedRequests.length
+    const ended = await end(tokenA, sessionId)
+    expect(ended.status).toBe(200)
+    expect(receivedRequests.length).toBe(requestsBefore)
+
+    const { data: after, error: afterErr } = await clientA
+      .from('knowledge_nodes')
+      .select('concept_key, mastery, observation_count')
+      .eq('user_id', userA.id)
+      .in('concept_key', [fastConcept, reasonedConcept])
+
+    expect(afterErr).toBeNull()
+    for (const row of after!) {
+      // One observation each -- a double apply would read 2 here and the
+      // mastery values would have moved again.
+      expect(row.observation_count).toBe(1)
+      expect(row.mastery).toBeCloseTo(row.concept_key === fastConcept ? 0.09 : 0.3, 3)
+    }
+  })
+
+  it('a weak concept with an active misconception is scheduled sooner and ranked higher than a healthy one (ADR-020)', async () => {
+    // The weak side already exists: the pg_trgm test above left
+    // algebra.inequalities.linear weak (two incorrects) with an ACTIVE
+    // misconception, so its last scheduleReinforcement call took every
+    // boost: priority 0.5 + 0.3 (misconception) + 0.2 (weak) = 1.0, the
+    // x0.5 urgency interval scale, and lapses incremented per incorrect.
+    //
+    // The healthy side has to be MADE healthy first: every turn-driven node
+    // in this file is young (low mastery -> weak -> urgency-boosted), so a
+    // genuinely stable node is seeded via the service role (fixture data,
+    // not an assertion) and then updated through a real reasoned turn so
+    // ITS schedule row is written by the same production path.
+    const weakConcept = 'algebra.inequalities.linear'
+    const healthyConcept = 'algebra.quadratics.formula'
+
+    const { error: seedErr } = await admin.from('knowledge_nodes').insert({
+      user_id: userA.id,
+      concept_key: healthyConcept,
+      mastery: 0.7,
+      stability: 20,
+      state: 'learning',
+      confidence_band: 'medium',
+      observation_count: 5,
+      last_practiced_at: new Date().toISOString(),
+    })
+    expect(seedErr).toBeNull()
+
+    setFakeEnvelope('Clean use of the formula.', {
+      conceptKey: healthyConcept,
+      outcome: 'correct',
+      reasoningQuality: 'sound',
+      selfConfidence: 'high',
+    })
+    const started = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
+    sessionIds.push(started.json.sessionId)
+    const turnRes = await turn(tokenA, {
+      sessionId: started.json.sessionId,
+      messages: [{ role: 'user', content: 'x = (-b ± sqrt(b^2-4ac)) / 2a, so x = 2 or x = 3' }],
+      responseLatencyMs: 25000,
+    })
+    expect(turnRes.status).toBe(200)
+    const ended = await end(tokenA, started.json.sessionId)
+    expect(ended.status).toBe(200)
+
+    await waitFor(async () => {
+      const { data: weak, error: weakErr } = await clientA
+        .from('reinforcement_schedule')
+        .select('due_at, interval_days, priority, lapses')
+        .eq('user_id', userA.id)
+        .eq('concept_key', weakConcept)
+        .single()
+
+      const { data: healthy, error: healthyErr } = await clientA
+        .from('reinforcement_schedule')
+        .select('due_at, interval_days, priority, lapses')
+        .eq('user_id', userA.id)
+        .eq('concept_key', healthyConcept)
+        .single()
+
+      expect(weakErr).toBeNull()
+      expect(healthyErr).toBeNull()
+
+      // Ranked higher: full boost stack vs bare BASE_PRIORITY.
+      expect(weak!.priority).toBeCloseTo(1.0, 5)
+      expect(healthy!.priority).toBeCloseTo(0.5, 5)
+
+      // Pulled forward: the weak concept's interval collapsed to the
+      // urgency-scaled floor region (9*S*(1/0.9-1) = 1 day at the stability
+      // floor, x0.5 urgent = 0.5), while the stable node's interval grew
+      // with its stability (= ~S days = ~20). due_at orders the same way.
+      expect(weak!.interval_days).toBeLessThan(1)
+      expect(healthy!.interval_days).toBeGreaterThan(5)
+      expect(new Date(weak!.due_at).getTime()).toBeLessThan(new Date(healthy!.due_at).getTime())
+
+      // Lapses counted per incorrect outcome (two incorrects), never for
+      // the healthy concept's correct.
+      expect(weak!.lapses).toBe(2)
+      expect(healthy!.lapses).toBe(0)
+    })
   })
 })

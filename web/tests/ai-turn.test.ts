@@ -65,6 +65,20 @@ const DECAY_DAYS_AGO = 30
 // 0.15 exactly, so the decayed value below isn't a rounding coincidence.
 const DECAY_EXPECTED_MASTERY = '0.15'
 
+// Sprint 11 Task 8: a fourth fixture user for the due-resurfacing + topic-
+// bias read (ADR-020/ADR-021). Two seeded nodes -- a weak one (ordered
+// first by the default weakest-first read) and a strong PAGE-RELEVANT one
+// (ordered first only when topic bias kicks in) -- plus one already-overdue
+// reinforcement_schedule row on the weak concept, so the same user
+// exercises both the "Fading / due for review" rendering and the query-1
+// reorder. Kept separate from the three users above, whose tests all
+// assert the exact PRE-topic-bias prompt rendering (the back-compat side).
+let userDue: { id: string }
+let tokenDue: string
+const DUE_WEAK_CONCEPT = 'algebra.linear-equations.one-variable'
+const DUE_TOPIC_CONCEPT = 'algebra.quadratics.factoring'
+const DUE_OVERDUE_DAYS = 2
+
 // --- Fake Anthropic backend ---
 // We spawn a REAL `next dev` below (not a direct route-function call) for the
 // same reason session.test.ts does: it exercises proxy.ts for real, which
@@ -243,24 +257,88 @@ beforeAll(async () => {
     throw new Error(`sign-in failed (decayed user): ${signInDecayedErr?.message}`)
   }
   tokenDecayed = signInDecayed.session.access_token
+
+  // Sprint 11 Task 8 fixture (ADR-020/ADR-021): the due/topic user. Both
+  // nodes are practiced "now" so read-time decay is negligible and the
+  // rendered mastery values below are stable for the test run's duration;
+  // the strong node's high stability (50) makes that doubly true. The
+  // schedule row is ALREADY overdue (due_at 2 days in the past) -- seeded
+  // directly rather than driven through the scheduler because this file
+  // tests the READ side; the scheduler's own write behaviour is
+  // session.test.ts's job.
+  const dueEmail = `darcy20080911+calyxaaiturndue${Date.now()}@gmail.com`
+  const { data: createdDue, error: dueErr } = await admin.auth.admin.createUser({
+    email: dueEmail,
+    password: PASSWORD,
+    email_confirm: true,
+  })
+  if (dueErr || !createdDue.user) {
+    throw new Error(`fixture setup failed (due user): ${dueErr?.message}`)
+  }
+  userDue = { id: createdDue.user.id }
+
+  const { error: dueSeedErr } = await admin.from('knowledge_nodes').insert([
+    {
+      user_id: userDue.id,
+      concept_key: DUE_WEAK_CONCEPT,
+      mastery: 0.2,
+      stability: 1.0,
+      state: 'weak',
+      confidence_band: 'low',
+      observation_count: 2,
+      last_practiced_at: new Date().toISOString(),
+    },
+    {
+      user_id: userDue.id,
+      concept_key: DUE_TOPIC_CONCEPT,
+      mastery: 0.8,
+      stability: 50,
+      state: 'learning',
+      confidence_band: 'medium',
+      observation_count: 6,
+      last_practiced_at: new Date().toISOString(),
+    },
+  ])
+  if (dueSeedErr) throw new Error(`fixture setup failed (due knowledge_nodes seed): ${dueSeedErr.message}`)
+
+  const { error: dueScheduleErr } = await admin.from('reinforcement_schedule').insert({
+    user_id: userDue.id,
+    concept_key: DUE_WEAK_CONCEPT,
+    due_at: new Date(Date.now() - DUE_OVERDUE_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+    interval_days: 1.0,
+    priority: 0.9,
+    lapses: 1,
+  })
+  if (dueScheduleErr) throw new Error(`fixture setup failed (reinforcement_schedule seed): ${dueScheduleErr.message}`)
+
+  const dueClient = createClient(url, anonKey)
+  const { data: signInDue, error: signInDueErr } = await dueClient.auth.signInWithPassword({
+    email: dueEmail,
+    password: PASSWORD,
+  })
+  if (signInDueErr || !signInDue.session) {
+    throw new Error(`sign-in failed (due user): ${signInDueErr?.message}`)
+  }
+  tokenDue = signInDue.session.access_token
 }, 45000)
 
 afterAll(async () => {
-  if (userDecayed) {
-    await admin.from('knowledge_nodes').delete().eq('user_id', userDecayed.id)
-    await admin.auth.admin.deleteUser(userDecayed.id)
-  }
-
-  if (userWithProfile) {
-    // knowledge_nodes.user_id -> public.users.id has no ON DELETE CASCADE
-    // (0004_knowledge_graph.sql) -- clear the seeded row first so deleting
-    // the auth user below doesn't hit a foreign-key violation.
-    await admin.from('knowledge_nodes').delete().eq('user_id', userWithProfile.id)
-    await admin.auth.admin.deleteUser(userWithProfile.id)
-  }
-
-  if (user) {
-    await admin.auth.admin.deleteUser(user.id)
+  // No FK in this schema cascades (0007's comment: erasure is an explicit,
+  // ordered service-role sweep, not a DB-level cascade), so each user's rows
+  // are cleared child-first in the PLAN §2.7 order: session_interactions ->
+  // sessions -> reinforcement_schedule -> misconceptions -> knowledge_nodes
+  // -> users -> auth user. `user` needs this too as of Sprint 11: the
+  // ADR-019 positive-path test drives a real session + interaction + apply
+  // for it (before Sprint 11 that user owned no rows at all).
+  for (const fixture of [userDue, userDecayed, userWithProfile, user]) {
+    if (!fixture) continue
+    await admin.from('session_interactions').delete().eq('user_id', fixture.id)
+    await admin.from('sessions').delete().eq('user_id', fixture.id)
+    await admin.from('reinforcement_schedule').delete().eq('user_id', fixture.id)
+    await admin.from('misconceptions').delete().eq('user_id', fixture.id)
+    await admin.from('knowledge_nodes').delete().eq('user_id', fixture.id)
+    await admin.from('users').delete().eq('id', fixture.id)
+    await admin.auth.admin.deleteUser(fixture.id)
   }
 
   if (server?.pid) {
@@ -600,5 +678,185 @@ describe('/api/ai/turn', () => {
     // (Task 4's stub; Task 5 gives it real work to do) -- its exact timing
     // relative to this follow-up query is not guaranteed, so it is
     // deliberately not asserted here.
+  })
+
+  // --- Sprint 11 Task 8: the ADR-019 reversal is bounded ---
+
+  it('a turn with a sessionId but no assessment (opening turn / plain-text degrade) writes nothing and still replies', async () => {
+    const started = await fetch(`${API_BASE}/api/session/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ mode: 'text' }),
+    })
+    const { sessionId } = await started.json()
+    expect(sessionId).toBeTruthy()
+
+    // Case 1: a valid envelope that simply has no assessment -- the §2.5
+    // opening turn ("OMIT this whole key on your opening turn").
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(JSON.stringify({ say: 'Welcome! What are we working on today?', mode: 'socratic' })),
+    }
+    const opening = await turn(token, {
+      sessionId,
+      messages: [{ role: 'user', content: 'hi, I have algebra homework' }],
+      responseLatencyMs: 2500,
+    })
+    expect(opening.status).toBe(200)
+    expect(opening.json.reply).toBe('Welcome! What are we working on today?')
+
+    // Case 2: the model ignored the envelope instruction entirely --
+    // parseEnvelope degrades to { say: <raw> } with no assessment, so the
+    // student still gets the reply verbatim and nothing is persisted.
+    nextResponse = { status: 200, body: fakeTextMessage('Just plain prose, no JSON at all.') }
+    const degraded = await turn(token, {
+      sessionId,
+      messages: [{ role: 'user', content: 'ok what first?' }],
+      responseLatencyMs: 2500,
+    })
+    expect(degraded.status).toBe(200)
+    expect(degraded.json.reply).toBe('Just plain prose, no JSON at all.')
+
+    const { count } = await admin
+      .from('session_interactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('session_id', sessionId)
+    expect(count).toBe(0)
+  })
+
+  it('an unknown or foreign sessionId degrades to no-persistence -- the turn still replies (a persistence failure never fails the turn)', async () => {
+    // The fake reply carries a full gradable assessment both times, so the
+    // ownership check is the ONLY thing standing between these turns and a
+    // write -- exactly the boundary this test pins.
+    const gradableEnvelope = () => ({
+      status: 200 as const,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Good, that solve is right.',
+          assessment: {
+            concept_key: 'algebra.linear-equations.one-variable',
+            outcome: 'correct',
+            reasoning_quality: 'sound',
+            self_confidence: 'high',
+            confidence: 'high',
+          },
+        })
+      ),
+    })
+
+    // Unknown: a well-formed uuid that matches no sessions row.
+    nextResponse = gradableEnvelope()
+    const ghostSessionId = crypto.randomUUID()
+    const ghost = await turn(token, {
+      sessionId: ghostSessionId,
+      messages: [{ role: 'user', content: 'x = 4' }],
+      responseLatencyMs: 5000,
+    })
+    expect(ghost.status).toBe(200)
+    expect(ghost.json.reply).toBe('Good, that solve is right.')
+
+    const ghostRows = await admin
+      .from('session_interactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('session_id', ghostSessionId)
+    expect(ghostRows.count).toBe(0)
+
+    // Foreign: a real session owned by a DIFFERENT user (userWithProfile).
+    // The route's explicit ownership check -- not just RLS -- must refuse to
+    // attach `user`'s turn to it.
+    const started = await fetch(`${API_BASE}/api/session/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenWithProfile}` },
+      body: JSON.stringify({ mode: 'text' }),
+    })
+    const { sessionId: foreignSessionId } = await started.json()
+    expect(foreignSessionId).toBeTruthy()
+
+    nextResponse = gradableEnvelope()
+    const foreign = await turn(token, {
+      sessionId: foreignSessionId,
+      messages: [{ role: 'user', content: 'x = 4' }],
+      responseLatencyMs: 5000,
+    })
+    expect(foreign.status).toBe(200)
+    expect(foreign.json.reply).toBe('Good, that solve is right.')
+
+    const foreignRows = await admin
+      .from('session_interactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('session_id', foreignSessionId)
+    expect(foreignRows.count).toBe(0)
+  })
+
+  // --- Sprint 11 Task 8: due resurfacing + topic bias in the read
+  // (ADR-020/ADR-021, Task 6) ---
+
+  it('an overdue reinforcement item renders as "Fading / due for review" with the let\'s-revisit opening; the default read stays weakest-first', async () => {
+    const { status } = await turn(tokenDue, {
+      messages: [{ role: 'user', content: 'hi, ready to practice' }],
+    })
+
+    expect(status).toBe(200)
+    expect(receivedRequests).toHaveLength(1)
+
+    const system = receivedRequests[0].system as string
+    // Query 2 (ADR-020) surfaced into the STUDENT PROFILE block, with the
+    // reason built from the schedule row + the joined node state.
+    expect(system).toContain('Fading / due for review')
+    expect(system).toContain("let's revisit…")
+    expect(system).toContain(`- ${DUE_WEAK_CONCEPT} (weak, overdue by ${DUE_OVERDUE_DAYS}d)`)
+
+    // No pageContext -> no topic bias -> the pre-Sprint-11 weakest-first
+    // ordering holds: the weak node's mastery line renders before the
+    // strong one's.
+    const weakLine = system.indexOf(`${DUE_WEAK_CONCEPT}: mastery 0.20`)
+    const strongLine = system.indexOf(`${DUE_TOPIC_CONCEPT}: mastery 0.80`)
+    expect(weakLine).toBeGreaterThan(-1)
+    expect(strongLine).toBeGreaterThan(-1)
+    expect(weakLine).toBeLessThan(strongLine)
+  })
+
+  it('a page whose math maps to a concept orders that concept FIRST in the profile (ADR-021 topic bias)', async () => {
+    const { status } = await turn(tokenDue, {
+      // Deliberately topic-neutral transcript: the detection signal here is
+      // the pageContext alone (detectTopicKeys also reads the transcript,
+      // but that path shouldn't be what makes this test pass).
+      messages: [{ role: 'user', content: 'can you help me with what is on my screen?' }],
+      pageContext: {
+        title: 'Factoring Quadratic Equations — Practice Set',
+        text: 'Factor each quadratic expression completely.',
+        equations: [{ latex: 'x^2 + 5x + 6 = 0' }],
+      },
+    })
+
+    expect(status).toBe(200)
+    expect(receivedRequests).toHaveLength(1)
+
+    const system = receivedRequests[0].system as string
+    // The strong-but-page-relevant node now outranks the weaker one -- the
+    // reorder is the ONLY change (both lines still render, nothing dropped).
+    const strongLine = system.indexOf(`${DUE_TOPIC_CONCEPT}: mastery 0.80`)
+    const weakLine = system.indexOf(`${DUE_WEAK_CONCEPT}: mastery 0.20`)
+    expect(strongLine).toBeGreaterThan(-1)
+    expect(weakLine).toBeGreaterThan(-1)
+    expect(strongLine).toBeLessThan(weakLine)
+
+    // The due signal rides along unchanged, and the page context itself is
+    // still injected as before.
+    expect(system).toContain('Fading / due for review')
+    expect(system).toContain('x^2 + 5x + 6 = 0')
+  })
+
+  it('a profile with no due items and no topic match reads exactly as before (back-compat)', async () => {
+    const { status } = await turn(tokenWithProfile, {
+      messages: [{ role: 'user', content: 'hello again' }],
+    })
+
+    expect(status).toBe(200)
+    const system = receivedRequests[0].system as string
+    // userWithProfile has no reinforcement_schedule rows and this turn has
+    // no pageContext -- the Sprint 11 read additions must be invisible.
+    expect(system).not.toContain('Fading / due for review')
+    expect(system).toContain(`${SEEDED_CONCEPT_KEY}: mastery 0.42, state learning, confidence medium`)
   })
 })

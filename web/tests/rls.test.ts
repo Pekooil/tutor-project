@@ -43,6 +43,9 @@ let clientB: SupabaseClient
 let sessionAId: string
 let knowledgeNodeAId: string
 let misconceptionAId: string
+// Sprint 11 (ADR-019/ADR-020): the two new tables, same owner-only shape.
+let interactionAId: string
+let scheduleAId: string
 
 beforeAll(async () => {
   const emailA = testEmail('a')
@@ -82,10 +85,16 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // Teardown via the service role only, mirroring the setup above.
-  // knowledge_nodes/misconceptions are cleared before the sessions/users
-  // deletes below -- both reference public.users with no ON DELETE CASCADE
-  // (0004_knowledge_graph.sql), so a leftover row here would otherwise block
-  // the users delete with a foreign-key violation.
+  // Child-first -- NO FK in this schema cascades (0007's comment):
+  // session_interactions before its session, and every user_id-keyed table
+  // (knowledge_nodes/misconceptions/reinforcement_schedule) before the
+  // users delete, or the deletes below them fail with FK violations.
+  if (interactionAId) {
+    await admin.from('session_interactions').delete().eq('id', interactionAId)
+  }
+  if (scheduleAId) {
+    await admin.from('reinforcement_schedule').delete().eq('id', scheduleAId)
+  }
   if (misconceptionAId) {
     await admin.from('misconceptions').delete().eq('id', misconceptionAId)
   }
@@ -293,5 +302,127 @@ describe('RLS isolation: knowledge_nodes and misconceptions', () => {
     expect(bSees).toHaveLength(0)
 
     await admin.from('misconceptions').delete().eq('id', inserted!.id)
+  })
+})
+
+// Sprint 11 Task 8 / ADR-019/ADR-020: the two new tables must be owner-only
+// BEFORE they carry real data (the RLS-before-data rule) -- both were
+// created with the canonical user_id-keyed policy in their own migrations
+// (0007/0008); this locks that in with the same probe shape as every block
+// above. session_interactions rows hang off A's session from the first
+// describe block (declaration order guarantees sessionAId exists here).
+describe('RLS isolation: session_interactions and reinforcement_schedule', () => {
+  it("A can insert and read A's own session_interactions row", async () => {
+    const { data: inserted, error: insertErr } = await clientA
+      .from('session_interactions')
+      .insert({
+        session_id: sessionAId,
+        user_id: userA.id,
+        turn_index: 1,
+        concept_key: 'algebra.linear-equations.one-variable',
+        student_transcript: 'x = 4',
+        tutor_response: 'Right — walk me through how you got there.',
+        outcome: 'correct',
+        self_confidence: 'high',
+        response_latency_ms: 4200,
+      })
+      .select()
+      .single()
+
+    expect(insertErr).toBeNull()
+    expect(inserted).toBeTruthy()
+    interactionAId = inserted!.id
+
+    const { data: ownRead, error: ownReadErr } = await clientA
+      .from('session_interactions')
+      .select()
+      .eq('id', interactionAId)
+
+    expect(ownReadErr).toBeNull()
+    expect(ownRead).toHaveLength(1)
+    expect(ownRead![0].student_transcript).toBe('x = 4')
+  })
+
+  it("B cannot SELECT A's session_interactions row", async () => {
+    const { data, error } = await clientB.from('session_interactions').select().eq('id', interactionAId)
+
+    // RLS denial via USING is silent: zero rows, not a thrown error.
+    expect(error).toBeNull()
+    expect(data).toHaveLength(0)
+  })
+
+  it("B cannot UPDATE A's session_interactions row", async () => {
+    const { data, error } = await clientB
+      .from('session_interactions')
+      .update({ outcome: 'incorrect' })
+      .eq('id', interactionAId)
+      .select()
+
+    expect(error).toBeNull()
+    expect(data).toHaveLength(0)
+  })
+
+  it("B cannot forge an interaction INTO A's session (WITH CHECK denies a cross-user insert)", async () => {
+    // user_id must match auth.uid() (the WITH CHECK half of the policy) --
+    // so B can neither write a row AS A nor attach one to A's session under
+    // B's own id (the route's ownership check is the second, independent
+    // guard for that).
+    const { data, error } = await clientB
+      .from('session_interactions')
+      .insert({
+        session_id: sessionAId,
+        user_id: userA.id,
+        turn_index: 99,
+        outcome: 'incorrect',
+      })
+      .select()
+
+    // WITH CHECK denial is a real error (42501), not a silent zero-row.
+    expect(error).not.toBeNull()
+    expect(data).toBeNull()
+  })
+
+  it("A can insert and read A's own reinforcement_schedule row", async () => {
+    const { data: inserted, error: insertErr } = await clientA
+      .from('reinforcement_schedule')
+      .insert({
+        user_id: userA.id,
+        concept_key: 'algebra.linear-equations.one-variable',
+        due_at: new Date().toISOString(),
+        interval_days: 1.0,
+        priority: 0.7,
+      })
+      .select()
+      .single()
+
+    expect(insertErr).toBeNull()
+    expect(inserted).toBeTruthy()
+    scheduleAId = inserted!.id
+
+    const { data: ownRead, error: ownReadErr } = await clientA
+      .from('reinforcement_schedule')
+      .select()
+      .eq('id', scheduleAId)
+
+    expect(ownReadErr).toBeNull()
+    expect(ownRead).toHaveLength(1)
+  })
+
+  it("B cannot SELECT A's reinforcement_schedule row", async () => {
+    const { data, error } = await clientB.from('reinforcement_schedule').select().eq('id', scheduleAId)
+
+    expect(error).toBeNull()
+    expect(data).toHaveLength(0)
+  })
+
+  it("B cannot UPDATE A's reinforcement_schedule row", async () => {
+    const { data, error } = await clientB
+      .from('reinforcement_schedule')
+      .update({ priority: 0.01, due_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() })
+      .eq('id', scheduleAId)
+      .select()
+
+    expect(error).toBeNull()
+    expect(data).toHaveLength(0)
   })
 })
