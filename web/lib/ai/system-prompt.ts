@@ -1,5 +1,14 @@
+import { CONCEPT_KEYS } from '@calyxa/curriculum'
 import type { LearningProfile } from './profile'
 import { renderPageContext, type PageContext } from './page-context'
+
+// ADR-019: the turn can be prompted for either the restored §2.5 JSON
+// envelope (the live, non-streaming /api/ai/turn path) or the plain-text
+// format ADR-008 introduced (the still-unwired streaming path). Defaulting
+// buildSystemPrompt's opts to 'text' means any caller that doesn't pass
+// opts -- i.e. runTutorTurnStream, unchanged this sprint -- keeps its
+// exact prior prompt/output, byte-for-byte.
+export type PromptFormat = 'envelope' | 'text'
 
 // PLAN.md §2.5 truncation intent: top-K weakest/relevant nodes (K≈12) and
 // active misconceptions only (cap ≈8). The hardcoded profile is already
@@ -55,13 +64,64 @@ function renderPageContextBlock(pageContext?: PageContext): string {
 Anchor the session to THIS content. Refer to "the equation on your screen," not abstractions.`
 }
 
+// The plain-text OUTPUT FORMAT block, reproduced verbatim from before this
+// sprint (ADR-008) -- the still-unwired streaming path's exact prompt.
+const TEXT_OUTPUT_FORMAT = `═══════════════════ OUTPUT FORMAT ═══════════════════
+Respond with plain conversational text only — no JSON, no markdown, no LaTeX read-aloud
+gibberish. Verbalize math naturally (e.g. "x squared plus three x"). Ask one question at a
+time. Keep your reply under ~60 words unless you are giving a direct explanation.`
+
+// The restored §2.5 JSON envelope (ADR-019) -- the live, non-streaming
+// /api/ai/turn path. `assessment.concept_key` is constrained to the same
+// curriculum keys the summariser already enforces (summarise.ts), so a
+// tagged turn is always bindable to a real knowledge_nodes row; envelope.ts
+// nulls anything else defensively even if the model doesn't comply.
+function buildEnvelopeOutputFormat(): string {
+  return `═══════════════════ OUTPUT FORMAT ═══════════════════
+Return a single JSON object and NOTHING else:
+{
+  "say": "<the spoken/written response — plain, natural sentences, no markdown, no LaTeX
+           read-aloud gibberish; verbalize math naturally e.g. 'x squared plus three x'>",
+  "annotations": [ <zero or more annotation objects — optional, leave [] if none apply> ],
+  "mode": "socratic" | "direct",   // which mode THIS turn used
+  "assessment": {                  // your read of the student's LAST answer; OMIT this whole
+                                    // key on your opening turn (nothing to assess yet)
+     "concept_key": "<one of the known keys below, or null if no single concept fits>",
+     "outcome": "correct" | "incorrect" | "partial" | "none",
+     "reasoning_quality": "sound" | "shallow" | "none",
+     "misconception_category": "<short dotted.snake_case category, or null>",
+     "confidence": "low" | "med" | "high"   // YOUR confidence in this assessment
+  }
+}
+Each annotation (when present) has this shape:
+{ "id": "a1", "type": "highlight" | "circle" | "arrow" | "label" | "step-indicator",
+  "target": { "kind": "selector" | "bbox" | "textMatch", "selector"?: string,
+              "bbox"?: { "x": number, "y": number, "w": number, "h": number }, "text"?: string },
+  "style"?: { "color"?: string, "weight"?: string }, "label"?: string, "step"?: number,
+  "ttl_ms"?: number }
+
+"assessment.concept_key" MUST be exactly one of these known keys (use null if nothing matches
+clearly — never invent a key):
+${CONCEPT_KEYS.map((key) => `  - ${key}`).join('\n')}
+
+Keep "say" under ~60 spoken words unless giving a direct explanation. One question at a time.`
+}
+
 // Assembles the §2.5 system prompt. The PEDAGOGY and HARD RULES blocks are
 // static and reproduced verbatim from PLAN.md §2.5; STUDENT PROFILE renders
 // the injected profile; PAGE CONTEXT renders the extracted page when present
 // (ADR-012/013) and falls back to the empty-slot wording otherwise; OUTPUT
-// FORMAT is overridden to plain text per ADR-008 (the §2.5 JSON envelope is
-// deferred to the voice sprint).
-export function buildSystemPrompt(profile: LearningProfile, pageContext?: PageContext): string {
+// FORMAT switches on `opts.format` (ADR-019) -- 'envelope' restores the
+// §2.5 JSON contract for the live turn path, 'text' (the default) keeps the
+// ADR-008 plain-text block the streaming path still uses unchanged.
+export function buildSystemPrompt(
+  profile: LearningProfile,
+  pageContext?: PageContext,
+  opts?: { format?: PromptFormat }
+): string {
+  const format = opts?.format ?? 'text'
+  const outputFormat = format === 'envelope' ? buildEnvelopeOutputFormat() : TEXT_OUTPUT_FORMAT
+
   return `You are Calyxa, a patient, encouraging math tutor for an independent high-school or
 college student. You teach MATH ONLY. This turn happens over text chat, so write the way a
 great tutor talks: warm, concise, one idea at a time.
@@ -81,8 +141,9 @@ question that applies what you just showed.
 
 ═══════════════════ STUDENT PROFILE (injected) ═══════════════════
 ${renderProfileSummary(profile)}
-Use this to calibrate difficulty and to watch for the listed misconceptions WITHOUT naming them
-clinically. If a profile estimate is low-confidence, verify with a quick question before assuming.
+Actively use this: calibrate difficulty to the listed mastery, build on strengths, and watch for
+the listed misconceptions WITHOUT naming them clinically. If a profile estimate is
+low-confidence, verify with a quick question before assuming.
 
 ═══════════════════ PAGE CONTEXT (injected) ═══════════════════
 ${renderPageContextBlock(pageContext)}
@@ -96,8 +157,5 @@ ${renderPageContextBlock(pageContext)}
 - NEVER invent page or context content you cannot see.
 - NEVER shame mistakes. Treat every error as information.
 
-═══════════════════ OUTPUT FORMAT ═══════════════════
-Respond with plain conversational text only — no JSON, no markdown, no LaTeX read-aloud
-gibberish. Verbalize math naturally (e.g. "x squared plus three x"). Ask one question at a
-time. Keep your reply under ~60 words unless you are giving a direct explanation.`
+${outputFormat}`
 }

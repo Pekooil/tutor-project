@@ -1,8 +1,12 @@
 import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
 import { buildSystemPrompt } from './system-prompt'
+import { parseEnvelope } from './envelope'
+import type { TurnEnvelope } from './envelope'
 import type { LearningProfile } from './profile'
 import type { PageContext } from './page-context'
+
+export type { TurnEnvelope } from './envelope'
 
 export type TurnMessage = {
   role: 'user' | 'assistant'
@@ -22,8 +26,12 @@ function createClient(): Anthropic {
   return new Anthropic({ apiKey })
 }
 
-// Non-streaming turn — used by /api/ai/turn (legacy) and voice synthesis
-// path where the full reply is needed before TTS can start.
+// Non-streaming turn — used by /api/ai/turn (the live overlay path) and
+// voice synthesis where the full reply is needed before TTS can start.
+// Requests the §2.5 JSON envelope (ADR-019) and returns it parsed;
+// envelope.ts's parseEnvelope degrades any malformed/non-JSON model output
+// to `{ say: <raw text> }` rather than throwing, so this never blanks the
+// turn on a bad response.
 export async function runTutorTurn({
   messages,
   pageContext,
@@ -32,18 +40,18 @@ export async function runTutorTurn({
   messages: TurnMessage[]
   pageContext?: PageContext
   profile: LearningProfile
-}): Promise<{ reply: string }> {
+}): Promise<TurnEnvelope> {
   const response = await createClient().messages.create({
     model: MODEL,
     max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(profile, pageContext),
+    system: buildSystemPrompt(profile, pageContext, { format: 'envelope' }),
     messages,
   })
 
   const textBlock = response.content.find((block) => block.type === 'text')
-  const reply = textBlock?.type === 'text' ? textBlock.text : ''
+  const raw = textBlock?.type === 'text' ? textBlock.text : ''
 
-  return { reply }
+  return parseEnvelope(raw)
 }
 
 // Streaming turn — used by /api/ai/stream. Yields text deltas as they

@@ -170,8 +170,14 @@ export async function POST(request: Request) {
   const profile = await loadProfile(auth.supabase)
 
   try {
-    const { reply } = await runTutorTurn({ messages, pageContext, profile })
-    return NextResponse.json({ reply })
+    // runTutorTurn now returns the parsed §2.5 envelope (ADR-019); only
+    // `say` is relayed here to keep this route's wire contract (`{ reply }`)
+    // unchanged for now. Reading sessionId, persisting the interaction, and
+    // using the rest of the envelope (assessment/annotations/mode) is
+    // Task 4's job (ADR-019) — this is a minimal compat touch so the build
+    // stays green now that runTutorTurn's return shape changed.
+    const envelope = await runTutorTurn({ messages, pageContext, profile })
+    return NextResponse.json({ reply: envelope.say })
   } catch {
     // Never relay the provider's error text or any key material to the client.
     return NextResponse.json({ error: 'Tutor is unavailable right now.' }, { status: 502 })
