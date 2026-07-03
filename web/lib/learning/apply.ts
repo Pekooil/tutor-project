@@ -200,6 +200,44 @@ function isFsrsOutcome(outcome: ConceptObservation['outcome']): outcome is Outco
   return outcome !== 'none'
 }
 
+// The shape route.ts (ADR-019) inserts into session_interactions and later
+// passes back in here -- mirrors ConceptObservation's field types (same
+// FSRS-input unions) plus the columns unique to a persisted interaction
+// row.
+export type InteractionRecord = {
+  id: string
+  conceptKey: string | null
+  outcome: ConceptObservation['outcome']
+  reasoningQuality: ConceptObservation['reasoningQuality']
+  selfConfidence: ConceptObservation['selfConfidence']
+  misconceptionCategory: string | null
+}
+
+// Sprint 11 Task 4 (ADR-019): a minimal, working stub. It exists so
+// route.ts's off-critical-path hook (`after()`, called once per gradable
+// turn) is a real, testable code path from this task onward, without yet
+// running the learning-model math -- Task 5 replaces this body with the
+// full per-observation FSRS update + fuzzy misconception match/resolution
+// (reusing applyMasteryUpdate / applyMisconceptionOccurrence /
+// applyMisconceptionResolution above, exactly as applySessionSummary
+// already does per-observation) plus a new scheduleReinforcement call,
+// still finishing by marking applied_to_profile=true. The signature
+// already matches what Task 5 needs so route.ts's call site needs no
+// change -- only this function's body does.
+export async function applyInteraction(
+  supabase: SupabaseClient,
+  userId: string,
+  sessionId: string,
+  interaction: InteractionRecord
+): Promise<void> {
+  await supabase
+    .from('session_interactions')
+    .update({ applied_to_profile: true })
+    .eq('id', interaction.id)
+    .eq('user_id', userId)
+    .eq('session_id', sessionId)
+}
+
 // Write path for the live knowledge graph (ADR-014/ADR-015/ADR-016/ADR-017):
 // the full FSRS update per observed concept, plus exact-category/trigram
 // misconception matching with 2-instance promotion and 3-correct

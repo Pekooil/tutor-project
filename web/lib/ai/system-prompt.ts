@@ -89,8 +89,9 @@ Return a single JSON object and NOTHING else:
      "concept_key": "<one of the known keys below, or null if no single concept fits>",
      "outcome": "correct" | "incorrect" | "partial" | "none",
      "reasoning_quality": "sound" | "shallow" | "none",
+     "self_confidence": "low" | "med" | "high" | "unknown",  // the STUDENT's apparent certainty
      "misconception_category": "<short dotted.snake_case category, or null>",
-     "confidence": "low" | "med" | "high"   // YOUR confidence in this assessment
+     "confidence": "low" | "med" | "high"   // YOUR OWN confidence in this assessment (not the student's)
   }
 }
 Each annotation (when present) has this shape:

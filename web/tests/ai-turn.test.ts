@@ -485,9 +485,25 @@ describe('/api/ai/turn', () => {
     expect(receivedRequests).toHaveLength(0)
   })
 
-  it('writes nothing to the database on a page-context turn (ADR-013 guard)', async () => {
-    const before = await admin
+  // ADR-013 ("the turn writes nothing") was explicitly and deliberately
+  // reversed by ADR-019 (Sprint 11): the route now writes one
+  // session_interactions row per gradable turn, but ONLY when the caller
+  // supplies a sessionId AND the model returned an assessment. Neither is
+  // true for this turn (no sessionId in the body; the fake Anthropic
+  // backend's default canned reply is plain text, which parseEnvelope
+  // degrades to `{ say }` with no assessment) -- so this asserts the
+  // no-sessionId degrade path still writes nothing, and that whatever the
+  // route DOES write (ADR-019) only ever goes through the caller's
+  // RLS-scoped bearer client, never the service-role client, and never
+  // touches the unrelated `sessions` table directly.
+  it('writes nothing when no sessionId is supplied, and never via the service-role client (ADR-019 scope guard)', async () => {
+    const sessionsBefore = await admin
       .from('sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+
+    const interactionsBefore = await admin
+      .from('session_interactions')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', user.id)
 
@@ -497,22 +513,92 @@ describe('/api/ai/turn', () => {
     })
     expect(status).toBe(200)
 
-    const after = await admin
+    const sessionsAfter = await admin
       .from('sessions')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', user.id)
 
-    // No row appeared in the one user-data table that exists today
-    // (sessions) — the AI turn route is entirely separate from
-    // /api/session/start and never touches it.
-    expect(after.count).toBe(before.count)
+    const interactionsAfter = await admin
+      .from('session_interactions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+
+    // The AI turn route is entirely separate from /api/session/start and
+    // never touches the sessions table.
+    expect(sessionsAfter.count).toBe(sessionsBefore.count)
+
+    // No sessionId was sent, so ADR-019's persistence path has nothing to
+    // attach a row to and writes nothing.
+    expect(interactionsAfter.count).toBe(interactionsBefore.count)
 
     // Structural guard, mirroring the ADR-011 no-storage-import assertion
     // in voice.test.ts: the route's own source never imports the
-    // service-role/write-capable client or calls an insert/upsert.
+    // service-role/write-capable client -- every write ADR-019 added goes
+    // through the caller's RLS-scoped bearer client, never an elevated one.
     const source = readFileSync(resolve(process.cwd(), 'app/api/ai/turn/route.ts'), 'utf-8')
     expect(source).not.toMatch(/from\s+['"]@\/lib\/supabase\/admin['"]/)
-    expect(source).not.toMatch(/\.insert\(/)
-    expect(source).not.toMatch(/\.upsert\(/)
+  })
+
+  // The positive-path counterpart to the guard above, and Task 4's own
+  // acceptance gate verified live: a turn WITH a real, owned sessionId AND
+  // a model response the envelope parses an assessment out of writes
+  // exactly one session_interactions row carrying that assessment plus the
+  // client-supplied latency (ADR-019).
+  it('writes exactly one session_interactions row with the envelope assessment + latency when sessionId is supplied (ADR-019 positive path)', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Nice, that factoring is correct.',
+          mode: 'socratic',
+          assessment: {
+            concept_key: SEEDED_CONCEPT_KEY,
+            outcome: 'correct',
+            reasoning_quality: 'sound',
+            self_confidence: 'high',
+            misconception_category: null,
+            confidence: 'high',
+          },
+        })
+      ),
+    }
+
+    const started = await fetch(`${API_BASE}/api/session/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ mode: 'text' }),
+    })
+    const { sessionId } = await started.json()
+    expect(sessionId).toBeTruthy()
+
+    const { status, json } = await turn(token, {
+      sessionId,
+      messages: [{ role: 'user', content: 'x^2 - 4 factors to (x-2)(x+2)' }],
+      responseLatencyMs: 4200,
+    })
+
+    expect(status).toBe(200)
+    expect(json.reply).toBe('Nice, that factoring is correct.')
+
+    const { data, count } = await admin
+      .from('session_interactions')
+      .select('*', { count: 'exact' })
+      .eq('session_id', sessionId)
+
+    expect(count).toBe(1)
+    const row = data![0]
+    expect(row.turn_index).toBe(1)
+    expect(row.concept_key).toBe(SEEDED_CONCEPT_KEY)
+    expect(row.outcome).toBe('correct')
+    expect(row.reasoning_quality).toBe('sound')
+    expect(row.self_confidence).toBe('high')
+    expect(row.misconception_category).toBeNull()
+    expect(row.response_latency_ms).toBe(4200)
+    expect(row.student_transcript).toBe('x^2 - 4 factors to (x-2)(x+2)')
+    expect(row.tutor_response).toBe('Nice, that factoring is correct.')
+    // applied_to_profile is flipped by the off-critical-path after() hook
+    // (Task 4's stub; Task 5 gives it real work to do) -- its exact timing
+    // relative to this follow-up query is not guaranteed, so it is
+    // deliberately not asserted here.
   })
 })

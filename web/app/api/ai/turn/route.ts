@@ -1,7 +1,9 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { clientFromBearer } from '@/lib/auth/bearer'
-import { runTutorTurn, type TurnMessage } from '@/lib/ai/claude'
+import { runTutorTurn, type TurnEnvelope, type TurnMessage } from '@/lib/ai/claude'
 import { loadProfile } from '@/lib/learning/profile-read'
+import { applyInteraction } from '@/lib/learning/apply'
 import {
   MAX_EQUATIONS,
   MAX_EQUATION_CHARS,
@@ -10,10 +12,13 @@ import {
   type PageEquation,
 } from '@/lib/ai/page-context'
 
-// This route reads the live learning profile (ADR-014) and writes nothing
-// to the database. messages, pageContext, and the loaded profile are all
-// rendered into the prompt for this turn only and then discarded — no
-// migration exists for any of them (ADR-009, ADR-013, ADR-014).
+// This route reads the live learning profile (ADR-014) and, as of ADR-019,
+// WRITES one session_interactions row per gradable turn (text only, no
+// audio -- ADR-011 unaffected) -- the explicit, ADR-recorded reversal of
+// ADR-013's original "the turn writes nothing." pageContext and the loaded
+// profile are still rendered into the prompt for this turn only and
+// discarded (no migration for either); messages are persisted only as the
+// last user turn's text, inside the new interaction row.
 
 // Defends the token budget against abusive payloads, not an exact token
 // count — PLAN.md §2.5 targets the last 6–8 turns (well under MAX_MESSAGES).
@@ -135,6 +140,147 @@ function parsePageContext(body: unknown): PageContext | undefined {
   }
 }
 
+// sessionId ties this turn to a session_interactions row (ADR-019). It is
+// untrusted client input like pageContext above -- a missing or malformed
+// value degrades to "no persistence this turn," never a 400 (persisting is
+// best-effort, the turn itself never depends on it).
+const MAX_SESSION_ID_LENGTH = 100
+
+function parseSessionId(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null) {
+    return undefined
+  }
+
+  const { sessionId } = body as { sessionId?: unknown }
+
+  if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > MAX_SESSION_ID_LENGTH) {
+    return undefined
+  }
+
+  return sessionId
+}
+
+// response_latency_ms is the think-time signal PLAN.md §2.3 describes --
+// client-measured (Task 7 wires the extension to send it), not derived
+// here. Not yet sent by any caller this task, so this is presently always
+// undefined in practice; the parser exists so the column round-trips
+// correctly the moment a caller does send it.
+const MAX_RESPONSE_LATENCY_MS = 10 * 60 * 1000 // 10 minutes -- generous upper bound, anything larger is dropped
+
+function parseResponseLatencyMs(body: unknown): number | undefined {
+  if (typeof body !== 'object' || body === null) {
+    return undefined
+  }
+
+  const { responseLatencyMs } = body as { responseLatencyMs?: unknown }
+
+  if (
+    typeof responseLatencyMs !== 'number' ||
+    !Number.isFinite(responseLatencyMs) ||
+    responseLatencyMs < 0 ||
+    responseLatencyMs > MAX_RESPONSE_LATENCY_MS
+  ) {
+    return undefined
+  }
+
+  return Math.round(responseLatencyMs)
+}
+
+type InsertedInteraction = { id: string }
+
+// Persists one session_interactions row for a gradable turn and kicks the
+// per-interaction learning-model apply off the critical path via `after()`
+// (ADR-019 -- the ADR-013 reversal). Best-effort and silent throughout: a
+// missing/foreign sessionId, a missing assessment (the opening turn, or
+// any turn the model didn't grade), or any query failure all degrade to
+// "no persistence this turn" -- the exact discipline parsePageContext
+// already applies to a read, now applied to this write. Never throws, and
+// is called after the reply is already computed, never before.
+async function persistInteraction(
+  supabase: SupabaseClient,
+  userId: string,
+  sessionId: string | undefined,
+  lastUserMessage: string,
+  envelope: TurnEnvelope,
+  responseLatencyMs: number | undefined
+): Promise<void> {
+  if (!sessionId || !envelope.assessment) {
+    return
+  }
+
+  try {
+    // Explicit ownership check, not just the FK's existence check: RLS on
+    // session_interactions is keyed on user_id (which we set to the
+    // caller), not session_id -- without this, a sessionId belonging to a
+    // DIFFERENT user would still accept an insert, corrupting that user's
+    // session with a row RLS would then hide from everyone (including
+    // them). This confirms the caller actually owns the session.
+    const { data: sessionRow } = await supabase
+      .from('sessions')
+      .select('id')
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .is('deleted_at', null)
+      .maybeSingle()
+
+    if (!sessionRow) {
+      return
+    }
+
+    const { count } = await supabase
+      .from('session_interactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('session_id', sessionId)
+      .is('deleted_at', null)
+
+    const turnIndex = (count ?? 0) + 1
+    const { assessment } = envelope
+
+    const { data: inserted, error } = await supabase
+      .from('session_interactions')
+      .insert({
+        session_id: sessionId,
+        user_id: userId,
+        turn_index: turnIndex,
+        concept_key: assessment.conceptKey,
+        student_transcript: lastUserMessage,
+        tutor_response: envelope.say,
+        outcome: assessment.outcome,
+        self_confidence: assessment.selfConfidence,
+        reasoning_quality: assessment.reasoningQuality,
+        response_latency_ms: responseLatencyMs ?? null,
+        misconception_category: assessment.misconceptionCategory,
+        applied_to_profile: false,
+      })
+      .select('id')
+      .single()
+
+    if (error || !inserted) {
+      return
+    }
+
+    const insertedId = (inserted as InsertedInteraction).id
+
+    // Off the critical path (ADR-019): this runs after the response has
+    // already been sent. applyInteraction is a bookkeeping-only stub as of
+    // this task (Task 5 replaces its body with the real per-observation
+    // FSRS + misconception + scheduler write) -- the hook is real and
+    // wired starting now, only the learning-model math inside it is not.
+    after(() =>
+      applyInteraction(supabase, userId, sessionId, {
+        id: insertedId,
+        conceptKey: assessment.conceptKey,
+        outcome: assessment.outcome,
+        reasoningQuality: assessment.reasoningQuality,
+        selfConfidence: assessment.selfConfidence,
+        misconceptionCategory: assessment.misconceptionCategory,
+      })
+    )
+  } catch {
+    // Never let a persistence failure affect the turn.
+  }
+}
+
 export async function POST(request: Request) {
   const auth = await clientFromBearer(request)
 
@@ -142,8 +288,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Not signed in.' }, { status: 401 })
   }
 
-  // sessionId is accepted for forward-compat (a later sprint ties a turn to
-  // a session) but ignored here — there is no DB write this sprint (ADR-009).
   const body = await request.json().catch(() => null)
   const messages = parseMessages(body)
 
@@ -163,6 +307,13 @@ export async function POST(request: Request) {
   // than failing the turn (ADR-013).
   const pageContext = parsePageContext(body)
 
+  // Both untrusted, both optional, both degrade silently (ADR-019): a turn
+  // with no sessionId (older callers, or the extension before Task 7)
+  // simply persists nothing; a turn with no responseLatencyMs persists a
+  // null latency rather than a guessed one.
+  const sessionId = parseSessionId(body)
+  const responseLatencyMs = parseResponseLatencyMs(body)
+
   // The live profile (ADR-014) replaces HARDCODED_PROFILE (ADR-009). A read,
   // not a write — loadProfile never throws (it degrades to the calibrating
   // empty profile on any query failure), so it sits outside the try/catch
@@ -170,13 +321,24 @@ export async function POST(request: Request) {
   const profile = await loadProfile(auth.supabase)
 
   try {
-    // runTutorTurn now returns the parsed §2.5 envelope (ADR-019); only
-    // `say` is relayed here to keep this route's wire contract (`{ reply }`)
-    // unchanged for now. Reading sessionId, persisting the interaction, and
-    // using the rest of the envelope (assessment/annotations/mode) is
-    // Task 4's job (ADR-019) — this is a minimal compat touch so the build
-    // stays green now that runTutorTurn's return shape changed.
+    // runTutorTurn returns the parsed §2.5 envelope (ADR-019). The client's
+    // wire contract stays `{ reply }` for back-compat; the envelope's
+    // assessment (when present) is what gets persisted below.
     const envelope = await runTutorTurn({ messages, pageContext, profile })
+
+    // The ADR-013 reversal site: persistence is best-effort and always
+    // happens after the reply is already computed, so a slow or failing
+    // write can never delay or break the turn (persistInteraction never
+    // throws).
+    await persistInteraction(
+      auth.supabase,
+      auth.user.id,
+      sessionId,
+      messages[messages.length - 1].content,
+      envelope,
+      responseLatencyMs
+    )
+
     return NextResponse.json({ reply: envelope.say })
   } catch {
     // Never relay the provider's error text or any key material to the client.

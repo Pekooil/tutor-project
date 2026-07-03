@@ -15,11 +15,20 @@ export type Mode = 'socratic' | 'direct'
 export type AssessmentOutcome = 'correct' | 'incorrect' | 'partial' | 'none'
 export type AssessmentReasoningQuality = 'sound' | 'shallow' | 'none'
 export type AssessmentConfidence = 'low' | 'med' | 'high'
+export type AssessmentSelfConfidence = 'low' | 'med' | 'high' | 'unknown'
 
 export type Assessment = {
   conceptKey: string | null
   outcome: AssessmentOutcome
   reasoningQuality: AssessmentReasoningQuality
+  // The STUDENT's apparent certainty (PLAN §2.3 session_interactions.self_
+  // confidence / ADR-016's lucky-guess sub-guard) -- distinct from
+  // `confidence` below, which is the TUTOR's confidence in its own grading.
+  // §2.5's original envelope schema only specified the latter; this field
+  // is this sprint's addition (ADR-019) so the per-interaction FSRS write
+  // path (Task 5) has the same signal the retired summariser used to infer
+  // after the fact.
+  selfConfidence: AssessmentSelfConfidence
   misconceptionCategory: string | null
   confidence: AssessmentConfidence
 }
@@ -81,6 +90,10 @@ function isValidConfidence(value: unknown): value is AssessmentConfidence {
   return value === 'low' || value === 'med' || value === 'high'
 }
 
+function isValidSelfConfidence(value: unknown): value is AssessmentSelfConfidence {
+  return value === 'low' || value === 'med' || value === 'high' || value === 'unknown'
+}
+
 function isValidAnnotationType(value: unknown): value is AnnotationType {
   return (
     value === 'highlight' ||
@@ -116,7 +129,7 @@ function parseAssessment(candidate: unknown): Assessment | undefined {
     return undefined
   }
 
-  const { concept_key, outcome, reasoning_quality, misconception_category, confidence } =
+  const { concept_key, outcome, reasoning_quality, self_confidence, misconception_category, confidence } =
     candidate as Record<string, unknown>
 
   const conceptKey =
@@ -126,6 +139,7 @@ function parseAssessment(candidate: unknown): Assessment | undefined {
     conceptKey,
     outcome: isValidOutcome(outcome) ? outcome : 'none',
     reasoningQuality: isValidReasoningQuality(reasoning_quality) ? reasoning_quality : 'none',
+    selfConfidence: isValidSelfConfidence(self_confidence) ? self_confidence : 'unknown',
     misconceptionCategory:
       typeof misconception_category === 'string' && misconception_category.length > 0
         ? misconception_category

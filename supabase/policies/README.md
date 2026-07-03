@@ -72,3 +72,7 @@ create policy <table>_modify_own on public.<table>
   — a nullable `vector(1024)` column added to an existing Shape 2 table.
   Additive columns inherit the table's existing policies above; no new
   policy is needed.
+- `session_interactions.reasoning_quality` (`0009_session_interactions_reasoning_quality.sql`,
+  ADR-019) — a `not null default 'none'` text column added to fill a gap in
+  the original `0007` table (PLAN §2.3's schema predates ADR-016's FSRS
+  lucky-guess guards). Additive; inherits the table's existing policies.
