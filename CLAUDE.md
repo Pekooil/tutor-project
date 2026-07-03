@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 10 — Brand identity + design system + UI/UX redesign
+Sprint 11 — Adaptive-engine deepening + structured AI output envelope
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions
