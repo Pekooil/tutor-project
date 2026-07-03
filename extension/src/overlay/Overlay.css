@@ -25,6 +25,50 @@
   all: initial;
 }
 
+/* Real-world bug, found on Khan Academy during Sprint 10 Task 10 manual
+ * acceptance. CSS rem units are always relative to the document root's
+ * font-size, by spec -- no shadow boundary can contain or redirect that,
+ * "all: initial" on the host included. Khan Academy sets a non-16px root
+ * font-size for its own layout math, so every rem-based Tailwind utility the
+ * overlay uses -- the whole spacing scale that h-*, w-*, p-*, and gap-*
+ * derive from, the radius scale, and the text scale -- silently inherited
+ * that instead of the intended fixed size. The idle pill (h-2 w-10) rendered
+ * at roughly 5 by 25px instead of 8 by 40px, and the expanded panel came out
+ * visibly warped, since some of its sizing is arbitrary px values (immune)
+ * and the rest is these scale-derived utilities (not immune) -- a mix that
+ * reads as distortion.
+ *
+ * Fix: pin these custom properties to fixed px equivalents, scoped to :host
+ * so only the shadow root is affected -- /web keeps the original rem-based
+ * tokens from the shared theme untouched, which is correct there: a
+ * first-party page should respect the document's font-size for the user's
+ * own zoom and accessibility preferences. The overlay has no such document
+ * to respect; it has to render identically no matter what a host page's
+ * author does to the root font-size, which is what shadow isolation was
+ * supposed to guarantee before this bug. */
+:host {
+  --spacing: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+  --text-base: 16px;
+  --text-base--line-height: 24px;
+  --text-lg: 18px;
+  --text-lg--line-height: 28px;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 32px;
+  --text-3xl: 30px;
+  --text-3xl--line-height: 36px;
+  --text-4xl: 36px;
+  --text-4xl--line-height: 40px;
+}
+
 /* Capsule + Gemini-style input-bar ambient glow (round 2 redesign). A
  * radial-gradient + blur has no Tailwind utility equivalent, so it lives
  * here; the breathing animation itself is applied as a Tailwind arbitrary

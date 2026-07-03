@@ -12,7 +12,7 @@
     {
       "name": "extension-dist-static",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8935"],
+      "runtimeArgs": ["../../../.claude/cors-static-server.py", "8935"],
       "cwd": "extension/dist/chrome-mv3",
       "port": 8935,
       "autoPort": true
