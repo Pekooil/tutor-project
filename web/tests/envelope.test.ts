@@ -55,6 +55,30 @@ describe('parseEnvelope: well-formed model output', () => {
     expect(envelope.assessment?.conceptKey).toBe(VALID_KEY)
   })
 
+  it('recovers an envelope the model wrapped in leading prose + a fence (observed live in Task 9 acceptance)', () => {
+    // The exact failure shape the live model produced: conversational prose,
+    // then the fenced envelope. Before the Task 9 fix this degraded to
+    // { say: <raw> } and leaked the JSON block into the student-visible reply.
+    const prose = 'Excellent reasoning! Expand (x+3)(x+4) and tell me what you get.\n\n'
+    const envelope = parseEnvelope(prose + '```json\n' + validEnvelopeJson() + '\n```')
+
+    expect(envelope.say).toBe('What two numbers multiply to 6 and add to 5?')
+    expect(envelope.say).not.toContain('```')
+    expect(envelope.assessment?.conceptKey).toBe(VALID_KEY)
+  })
+
+  it('recovers an unfenced envelope wrapped in prose via the outermost brace span', () => {
+    const envelope = parseEnvelope('Here is my structured response:\n' + validEnvelopeJson() + '\nHope that helps!')
+
+    expect(envelope.say).toBe('What two numbers multiply to 6 and add to 5?')
+    expect(envelope.assessment?.outcome).toBe('correct')
+  })
+
+  it('prose containing LaTeX braces still degrades to { say: <raw> }, not a bogus parse', () => {
+    const raw = 'Rewrite x^{2} + 5x + 6 in factored form — what two numbers work here?'
+    expect(parseEnvelope(raw)).toEqual({ say: raw })
+  })
+
   it('an opening turn (no assessment key) parses with assessment absent', () => {
     const envelope = parseEnvelope(JSON.stringify({ say: 'Welcome! What are we working on?', mode: 'socratic' }))
 

@@ -81,6 +81,35 @@ function stripCodeFence(raw: string): string {
   return fenced ? fenced[1] : trimmed
 }
 
+// The candidate JSON slices tried, in order, before degrading to plain
+// text. Found during Task 9's live acceptance (Sprint 11): the real model
+// sometimes prefixes conversational prose BEFORE the fenced envelope
+// ("Excellent reasoning! ...\n```json\n{...}\n```"), which the
+// start-anchored stripCodeFence can't see -- without this, that turn's
+// entire raw output (JSON block included) leaked into the student-visible
+// reply via the degrade path, and its assessment was silently dropped.
+// Order matters: the whole (fence-stripped) text first -- the §2.5 happy
+// path -- then a fenced block ANYWHERE in the text, then the outermost
+// brace span as a last resort (harmless when it isn't JSON: the parse
+// fails and the next candidate / final degrade takes over; a candidate
+// only WINS if it parses to an object carrying a string "say").
+function envelopeCandidates(raw: string): string[] {
+  const candidates = [stripCodeFence(raw)]
+
+  const fencedAnywhere = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+  if (fencedAnywhere) {
+    candidates.push(fencedAnywhere[1])
+  }
+
+  const firstBrace = raw.indexOf('{')
+  const lastBrace = raw.lastIndexOf('}')
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    candidates.push(raw.slice(firstBrace, lastBrace + 1))
+  }
+
+  return candidates
+}
+
 function isValidMode(value: unknown): value is Mode {
   return value === 'socratic' || value === 'direct'
 }
@@ -207,32 +236,41 @@ function parseAnnotation(candidate: unknown): Annotation | undefined {
 
 // Defensive parse of the model's raw turn output into a TurnEnvelope. The
 // one hard requirement is a string "say" -- everything else (mode,
-// assessment, annotations) degrades field-by-field. If "say" itself is
-// missing, or the raw text isn't JSON at all (e.g. the model ignored the
-// envelope instruction and replied in plain prose), the whole raw string
-// becomes `say` verbatim: the student always hears/reads a reply, it just
-// loses structure on a bad turn (ADR-019).
+// assessment, annotations) degrades field-by-field. Each candidate slice
+// (whole text, fenced block anywhere, outermost brace span -- see
+// envelopeCandidates) is tried in order; the first that parses to an
+// object with a string "say" wins, so prose-wrapped envelopes recover
+// instead of leaking raw JSON to the student. If no candidate qualifies
+// (e.g. the model ignored the envelope instruction and replied in plain
+// prose), the whole raw string becomes `say` verbatim: the student always
+// hears/reads a reply, it just loses structure on a bad turn (ADR-019).
 export function parseEnvelope(raw: string): TurnEnvelope {
-  try {
-    const parsed = JSON.parse(stripCodeFence(raw))
-
-    if (typeof parsed !== 'object' || parsed === null || typeof parsed.say !== 'string') {
-      return { say: raw }
+  for (const candidate of envelopeCandidates(raw)) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(candidate)
+    } catch {
+      continue
     }
 
-    const envelope: TurnEnvelope = { say: parsed.say }
-
-    if (isValidMode(parsed.mode)) {
-      envelope.mode = parsed.mode
+    if (typeof parsed !== 'object' || parsed === null || typeof (parsed as { say?: unknown }).say !== 'string') {
+      continue
     }
 
-    const assessment = parseAssessment(parsed.assessment)
+    const envelopeSource = parsed as { say: string; mode?: unknown; assessment?: unknown; annotations?: unknown }
+    const envelope: TurnEnvelope = { say: envelopeSource.say }
+
+    if (isValidMode(envelopeSource.mode)) {
+      envelope.mode = envelopeSource.mode
+    }
+
+    const assessment = parseAssessment(envelopeSource.assessment)
     if (assessment) {
       envelope.assessment = assessment
     }
 
-    if (Array.isArray(parsed.annotations)) {
-      const annotations = (parsed.annotations as unknown[])
+    if (Array.isArray(envelopeSource.annotations)) {
+      const annotations = (envelopeSource.annotations as unknown[])
         .map(parseAnnotation)
         .filter((a): a is Annotation => a !== undefined)
 
@@ -242,7 +280,7 @@ export function parseEnvelope(raw: string): TurnEnvelope {
     }
 
     return envelope
-  } catch {
-    return { say: raw }
   }
+
+  return { say: raw }
 }

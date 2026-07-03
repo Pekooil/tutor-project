@@ -565,8 +565,11 @@ With `cd web && next dev` (`ANTHROPIC_API_KEY` set) and the unpacked extension l
 
 ## Acceptance criteria (full checklist)
 
-**Sprint status: IN PROGRESS — Tasks 1–8 landed; next: Task 9 (manual adaptive-loop
-acceptance).** (Tasks 1–9 below; update this line as tasks land, per the Sprint 09/10 convention.)
+**Sprint status: Tasks 1–9 landed. Task 9's live API-side acceptance passed (all 8 items observed
+server-side, incl. two acceptance-found fixes: envelope recovery from prose-wrapped model output +
+follow-up-turn prompt hardening); the extension-in-browser residue (overlay UX, voice loop,
+extension-threaded sessionId/latency on a real overlay turn) awaits the human pass.** (Tasks 1–9
+below; update this line as tasks land, per the Sprint 09/10 convention.)
 
 - [ ] `turbo run typecheck lint build test` passes from root; `cd web && next build` and
       `cd extension && wxt build` both exit 0

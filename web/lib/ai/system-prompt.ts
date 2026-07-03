@@ -128,6 +128,10 @@ These are the same keys the STUDENT PROFILE block uses. Ground each turn in that
 the student works a concept listed there (mastery, misconceptions, or "Fading / due for
 review"), tag your assessment with that exact key so their record keeps building on itself.
 
+Earlier assistant turns in this conversation appear as plain text — that is how your past
+replies are DISPLAYED, not how you produce them. Do not imitate that format: EVERY reply,
+including follow-up turns, must be exactly one JSON object with nothing before or after it.
+
 Keep "say" under ~60 spoken words unless giving a direct explanation. One question at a time.`
 }
 
