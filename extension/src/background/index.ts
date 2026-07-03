@@ -111,11 +111,18 @@ export default defineBackground(() => {
   // /api/ai/stream, which requires a server restart to pick up after the route
   // file is first created (Turbopack dev-server limitation). ADR-006 upheld:
   // the background service worker remains the sole network-egress context.
+  //
+  // Sprint 11 (ADR-019): the worker attaches the stored active sessionId +
+  // the measured think-time to the relay (getTurnContext) and stamps the
+  // reply-delivered anchor afterwards (stampTurnAnchor) so the NEXT turn can
+  // measure. Transport only — the payload the overlay sends and the
+  // chunk/done messages it receives are unchanged.
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== 'AI_STREAM') return;
     port.onMessage.addListener(async (msg: AiTurnPayload) => {
       try {
-        const reply = await api.aiTurn(msg.messages, msg.pageContext);
+        const turnContext = await getTurnContext();
+        const reply = await api.aiTurn(msg.messages, msg.pageContext, turnContext);
         // Split on whitespace boundaries, keeping trailing spaces attached to
         // the preceding token so the overlay reconstructs spacing correctly.
         const tokens = reply.match(/\S+\s*/g) ?? [];
@@ -123,6 +130,7 @@ export default defineBackground(() => {
           try { port.postMessage({ type: 'chunk', text: token }); } catch { break; }
         }
         await setRunningTranscript(msg.messages);
+        await stampTurnAnchor(turnContext.sessionId);
         try {
           port.postMessage({ type: 'done', reply });
         } catch {
@@ -232,6 +240,52 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'unknown error';
 }
 
+// Turn timing (Sprint 11 / ADR-019): response_latency_ms is the think-time
+// signal PLAN §2.3's third lucky-guess sub-guard needs — measured here as
+// "previous reply delivered → this turn request". The anchor lives in
+// chrome.storage.session (never an in-memory variable — the worker dies
+// between turns; same direct-chrome.storage discipline as recordWake above)
+// and is keyed to the sessionId it was stamped under, so a stale anchor
+// from an earlier session can never masquerade as think-time in a new one.
+// It is a client-measured approximation: for a voice turn it includes TTS
+// playback of the previous reply, which this worker cannot observe; the
+// server's own 10-minute cap drops walked-away-from-the-desk values.
+const TURN_ANCHOR_KEY = 'turnAnchor';
+
+type TurnAnchor = { sessionId: string; at: number };
+
+/**
+ * Builds the sessionId + responseLatencyMs context api.aiTurn threads to
+ * /api/ai/turn (ADR-019). No active session -> {} (the route then persists
+ * nothing this turn, exactly the pre-Sprint-11 behaviour); an anchor from a
+ * different session, or a negative delta (clock adjustment), yields a
+ * sessionId with no latency rather than a fabricated one.
+ */
+async function getTurnContext(): Promise<{ sessionId?: string; responseLatencyMs?: number }> {
+  const active = await getActiveSession();
+  if (!active) return {};
+
+  const stored = await chrome.storage.session.get(TURN_ANCHOR_KEY);
+  const anchor = stored[TURN_ANCHOR_KEY] as TurnAnchor | undefined;
+  const elapsed = anchor && anchor.sessionId === active.sessionId ? Date.now() - anchor.at : -1;
+
+  return {
+    sessionId: active.sessionId,
+    ...(elapsed >= 0 ? { responseLatencyMs: elapsed } : {}),
+  };
+}
+
+/**
+ * Stamps "the reply was just delivered" for the session, so the next
+ * getTurnContext can measure the student's think-time from it. No-op when
+ * the turn ran without a session (nothing was persisted, nothing to time).
+ */
+async function stampTurnAnchor(sessionId: string | undefined): Promise<void> {
+  if (!sessionId) return;
+  const anchor: TurnAnchor = { sessionId, at: Date.now() };
+  await chrome.storage.session.set({ [TURN_ANCHOR_KEY]: anchor });
+}
+
 async function handleSignIn(payload: SignInPayload): Promise<CalyxaMessage> {
   try {
     await api.signIn(payload.email, payload.password);
@@ -333,11 +387,18 @@ async function handleEndSession(): Promise<CalyxaMessage> {
  * keeps the latest copy in chrome.storage.session so handleEndSession can
  * forward it for the session-summary write. Never cached on a failed
  * relay -- a failed turn was never actually part of the conversation.
+ *
+ * Sprint 11 (ADR-019): threads the active sessionId + measured think-time
+ * (getTurnContext) and stamps the reply-delivered anchor on success, same
+ * as the AI_STREAM port path above -- the voice pipeline's turns persist
+ * session_interactions rows too.
  */
 async function handleAiTurn(messages: TurnMessage[], pageContext?: PageContext): Promise<CalyxaMessage> {
   try {
-    const reply = await api.aiTurn(messages, pageContext);
+    const turnContext = await getTurnContext();
+    const reply = await api.aiTurn(messages, pageContext, turnContext);
     await setRunningTranscript(messages);
+    await stampTurnAnchor(turnContext.sessionId);
     return { type: 'AI_REPLY', payload: { reply } };
   } catch (error) {
     return { type: 'AI_REPLY', payload: { error: toErrorMessage(error) } };

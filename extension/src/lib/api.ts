@@ -176,12 +176,31 @@ export async function endSession(sessionId: string, transcript?: TurnMessage[]):
  * Sends the running transcript to the Claude proxy (Sprint 05 / ADR-008) and
  * returns the tutor's reply text. `/api/ai/turn` is stateless -- non-streaming
  * fallback retained for any callers that don't need streaming.
+ *
+ * `turnContext` (Sprint 11 / ADR-019) threads the active sessionId and the
+ * client-measured think-time so the route can persist the turn's
+ * session_interactions row with a real response_latency_ms. Both are
+ * OPTIONAL and ride the same request body -- no new endpoint, no auth
+ * change; the route degrades to "no persistence this turn" when they are
+ * absent (older callers keep working unchanged), so nothing is validated
+ * on this side -- same discipline as pageContext above.
  */
-export async function aiTurn(messages: TurnMessage[], pageContext?: PageContext): Promise<string> {
+export async function aiTurn(
+  messages: TurnMessage[],
+  pageContext?: PageContext,
+  turnContext?: { sessionId?: string; responseLatencyMs?: number },
+): Promise<string> {
   const res = await authorizedFetch('/api/ai/turn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, pageContext }),
+    body: JSON.stringify({
+      messages,
+      pageContext,
+      ...(turnContext?.sessionId ? { sessionId: turnContext.sessionId } : {}),
+      ...(turnContext?.responseLatencyMs !== undefined
+        ? { responseLatencyMs: turnContext.responseLatencyMs }
+        : {}),
+    }),
   });
 
   const body = await res.json();
