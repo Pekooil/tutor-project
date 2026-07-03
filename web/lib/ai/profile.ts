@@ -24,8 +24,19 @@ export type ActiveMisconception = {
   description: string
 }
 
+// A reinforcement_schedule item that is due (PLAN §2.3 query 2, ADR-020/021):
+// `reason` is the human-readable "why now" the prompt renders under
+// "Fading / due for review" (e.g. "weak, overdue by 2d").
+export type DueForReviewItem = {
+  conceptKey: string
+  reason: string
+}
+
 export type LearningProfile = {
   masteryNodes: MasteryNode[]
   activeMisconceptions: ActiveMisconception[]
   confidenceNote: string
+  // Present only when the scheduler queue has due items (ADR-021) — a
+  // profile with none reads exactly as it did before Sprint 11.
+  dueForReview?: DueForReviewItem[]
 }

@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { clientFromBearer } from '@/lib/auth/bearer'
 import { runTutorTurn, type TurnEnvelope, type TurnMessage } from '@/lib/ai/claude'
 import { loadProfile } from '@/lib/learning/profile-read'
+import { detectTopicKeys } from '@/lib/learning/topic'
 import { applyInteraction } from '@/lib/learning/apply'
 import {
   MAX_EQUATIONS,
@@ -317,11 +318,19 @@ export async function POST(request: Request) {
   const sessionId = parseSessionId(body)
   const responseLatencyMs = parseResponseLatencyMs(body)
 
-  // The live profile (ADR-014) replaces HARDCODED_PROFILE (ADR-009). A read,
-  // not a write — loadProfile never throws (it degrades to the calibrating
-  // empty profile on any query failure), so it sits outside the try/catch
-  // below, which is reserved for the Anthropic call.
-  const profile = await loadProfile(auth.supabase)
+  // Turn-time topic detection (ADR-021): a deterministic keyword match over
+  // the already-parsed pageContext + transcript — no model call, nothing
+  // persisted, and [] on any miss, so the profile read below degrades to
+  // exactly its pre-Sprint-11 behaviour.
+  const topicKeys = detectTopicKeys(pageContext, messages)
+
+  // The live profile (ADR-014) replaces HARDCODED_PROFILE (ADR-009), now
+  // biased to the page-relevant topicKeys and carrying the scheduler's due
+  // items (ADR-020/021). A read, not a write — loadProfile never throws (it
+  // degrades to the calibrating empty profile on any query failure), so it
+  // sits outside the try/catch below, which is reserved for the Anthropic
+  // call.
+  const profile = await loadProfile(auth.supabase, { topicKeys })
 
   try {
     // runTutorTurn returns the parsed §2.5 envelope (ADR-019). The client's

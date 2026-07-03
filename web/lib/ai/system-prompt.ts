@@ -16,6 +16,7 @@ export type PromptFormat = 'envelope' | 'text'
 // sprint) inherits the same budget discipline with no change to this file.
 const MAX_MASTERY_NODES = 12
 const MAX_ACTIVE_MISCONCEPTIONS = 8
+const MAX_DUE_FOR_REVIEW = 6
 
 function renderProfileSummary(profile: LearningProfile): string {
   const nodes = profile.masteryNodes
@@ -31,12 +32,29 @@ function renderProfileSummary(profile: LearningProfile): string {
     .map((m) => `- ${m.conceptKey} — ${m.category}: ${m.description}`)
     .join('\n')
 
+  // The scheduler's due queue (ADR-020/021), rendered only when something
+  // is actually due — a profile without it reads byte-for-byte as before
+  // Sprint 11. Additive lines only; the block structure (and the ADR-009
+  // seam contract) holds.
+  const dueForReview = (profile.dueForReview ?? [])
+    .slice(0, MAX_DUE_FOR_REVIEW)
+    .map((d) => `- ${d.conceptKey} (${d.reason})`)
+    .join('\n')
+
   return [
     'Mastery (weakest/most relevant first):',
     nodes || '(no mastery data yet)',
     '',
     'Active misconceptions to watch for (do not name clinically):',
     misconceptions || '(none active)',
+    ...(dueForReview
+      ? [
+          '',
+          'Fading / due for review — these are slipping; look for a natural moment (ideally early)',
+          'to weave one in, e.g. "let\'s revisit…", especially where it connects to the page:',
+          dueForReview,
+        ]
+      : []),
     '',
     `Confidence: ${profile.confidenceNote}`,
   ].join('\n')
@@ -105,6 +123,10 @@ Each annotation (when present) has this shape:
 "assessment.concept_key" MUST be exactly one of these known keys (use null if nothing matches
 clearly — never invent a key):
 ${CONCEPT_KEYS.map((key) => `  - ${key}`).join('\n')}
+
+These are the same keys the STUDENT PROFILE block uses. Ground each turn in that profile: when
+the student works a concept listed there (mastery, misconceptions, or "Fading / due for
+review"), tag your assessment with that exact key so their record keeps building on itself.
 
 Keep "say" under ~60 spoken words unless giving a direct explanation. One question at a time.`
 }
