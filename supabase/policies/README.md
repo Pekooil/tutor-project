@@ -63,6 +63,8 @@ create policy <table>_modify_own on public.<table>
 | `sessions` | 2 (`user_id`) | `0002_sessions.sql` |
 | `knowledge_nodes` | 2 (`user_id`) | `0004_knowledge_graph.sql` |
 | `misconceptions` | 2 (`user_id`) | `0004_knowledge_graph.sql` |
+| `session_interactions` | 2 (`user_id`) | `0007_session_interactions.sql` |
+| `reinforcement_schedule` | 2 (`user_id`) | `0008_reinforcement_schedule.sql` |
 
 ## Additive columns (no policy change)
 
