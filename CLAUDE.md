@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 11 — Adaptive-engine deepening + structured AI output envelope
+Sprint 12 — On-screen annotation layer
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions
