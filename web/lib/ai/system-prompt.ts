@@ -96,14 +96,30 @@ time. Keep your reply under ~60 words unless you are giving a direct explanation
 // nulls anything else defensively even if the model doesn't comply.
 function buildEnvelopeOutputFormat(): string {
   return `═══════════════════ OUTPUT FORMAT ═══════════════════
-Return a single JSON object and NOTHING else:
+Return a single JSON object and NOTHING else -- on EVERY turn, with NO exception. This
+requirement does not depend on the topic, on whether the topic matches one of the concept
+keys below, or on whether the assessment has a concept_key to tag: even a turn about a
+concept you have no key for (geometry, calculus, statistics, anything outside the algebra
+list below) still gets the full JSON object, never plain prose, never markdown, never a
+reply that starts talking before the JSON begins.
 {
   "say": "<the spoken/written response — plain, natural sentences, no markdown, no LaTeX
            read-aloud gibberish; verbalize math naturally e.g. 'x squared plus three x'>",
   "annotations": [ <zero or more annotation objects — optional, leave [] if none apply> ],
   "mode": "socratic" | "direct",   // which mode THIS turn used
-  "assessment": {                  // your read of the student's LAST answer; OMIT this whole
-                                    // key on your opening turn (nothing to assess yet)
+  "assessment": {                  // your read of the student's LAST message. Include this
+                                    // object on EVERY turn EXCEPT your very first (opening)
+                                    // turn of the conversation, when there is nothing yet to
+                                    // assess -- that is the ONLY turn that omits it. None of
+                                    // these are reasons to omit it instead: a topic outside
+                                    // the concept-key list below (set "concept_key" to null
+                                    // and still grade normally); the student's last message
+                                    // being a question, a hint request, or an attempt with no
+                                    // clear final answer yet (set "outcome" to "none", still
+                                    // include the object); or your reply itself both praising
+                                    // an earlier correct step AND asking a new question (grade
+                                    // the step you just praised -- do not drop the assessment
+                                    // just because the turn also moves the conversation on).
      "concept_key": "<one of the known keys below, or null if no single concept fits>",
      "outcome": "correct" | "incorrect" | "partial" | "none",
      "reasoning_quality": "sound" | "shallow" | "none",

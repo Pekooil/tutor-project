@@ -9,13 +9,34 @@ import type { PageContext, PageEquation } from '../types/messages';
 //
 // Reads, per-renderer adapter, in priority order: KaTeX (LaTeX annotation),
 // MathJax v3 (mjx-container + the preserved math/tex source script when
-// present), known data-*/aria-label LaTeX carriers, then any remaining
-// plain MathML <math> node, and finally the page's visible text. MathJax/
-// KaTeX expose LaTeX inconsistently across versions/configs (named risk,
-// PLAN §2.10) -- when an adapter can't find a LaTeX source it falls back to
-// the node's MathML or text rather than guessing; Task 7 verifies against
-// real sites and an empty PageContext ({ equations: [] }) is the correct
-// result for an image/canvas-only page.
+// present), known data-*/aria-label LaTeX carriers, any remaining plain
+// MathML <math> node, a KaTeX html-only-output fallback (see below), and
+// finally the page's visible text. MathJax/KaTeX expose LaTeX inconsistently
+// across versions/configs (named risk, PLAN §2.10) -- when an adapter can't
+// find a LaTeX source it falls back to the node's MathML or text rather than
+// guessing; Task 7 verifies against real sites and an empty PageContext
+// ({ equations: [] }) is the correct result for an image/canvas-only page.
+//
+// Real-world bug, found on Khan Academy: KaTeX's DEFAULT output mode
+// ('htmlAndMathml') renders both a visible '.katex-html' span tree AND a
+// '<math>'/'<annotation>' MathML pair the KaTeX adapter above reads -- but a
+// site can configure KaTeX for 'html'-only output (common perf optimisation:
+// MathML roughly doubles the rendered DOM), which drops BOTH the
+// '<annotation>' and the '<math>' node entirely, leaving nothing for either
+// the KaTeX or plain-MathML adapter to find. Khan Academy does exactly this:
+// it generates its own accessible description text from the KaTeX parse
+// tree "instead of relying on MathML" (rather than emitting MathML for
+// screen readers) -- and that generated text is commonly placed off-screen
+// (a visually-hidden/"sr-only" pattern), which `extractVisibleText`'s
+// innerText read -- CSS-visibility-aware by definition -- never picks up
+// either. The result was a page with real, on-screen math reading back as a
+// fully empty PageContext: not "nothing to read" (the correct ADR-012
+// result for an image/canvas-only page) but "couldn't read it." The
+// extractKatexTextFallback adapter below closes this gap generically (not
+// a Khan-Academy-specific hack): read the '.katex' wrapper's OWN
+// `textContent` -- not innerText -- so it recovers real DOM text regardless
+// of any visibility trick, only for wrappers the stronger adapters above
+// found nothing inside.
 //
 // Every query below excludes the <calyxa-overlay> shadow host and its
 // subtree (ADR-002) so the overlay's own UI is never read back as page
@@ -203,6 +224,39 @@ function extractRemainingMathml(claimed: Set<Element>, roots: (Document | Shadow
   return equations;
 }
 
+// --- KaTeX html-only-output fallback (see the file-header note above) ------
+// Every KaTeX render wraps its output in one outermost '.katex' element.
+// When MathML output is enabled (KaTeX's default) that wrapper also contains
+// an '<annotation>'/'<math>' pair -- already claimed by extractKatexEquations
+// or picked up by extractRemainingMathml above, so this adapter SKIPS any
+// '.katex' wrapper that still contains either (avoiding a double-counted
+// equation). What's left is exactly the 'html'-only-output case: read the
+// wrapper's own `textContent`. This deliberately ignores visibility (unlike
+// innerText) so an accessible description a site renders off-screen -- the
+// Khan Academy pattern this was found against -- still comes through. It is
+// inherently a WEAKER signal than a real LaTeX/MathML source (KaTeX's HTML
+// rendering can omit whitespace between terms, and purely CSS/SVG-drawn
+// glyphs such as some radicals contribute no text at all) -- named risk,
+// same category as the file-header's "MathJax/KaTeX expose LaTeX
+// inconsistently" note -- but a garbled transcription the tutor can still
+// reason about beats an empty PageContext on a page with real on-screen math.
+function extractKatexTextFallback(roots: (Document | ShadowRoot)[]): PageEquation[] {
+  const equations: PageEquation[] = [];
+
+  for (const katexEl of queryExcludingOverlay<HTMLElement>('.katex', roots)) {
+    // KaTeX does not nest '.katex' wrappers for sub-expressions (fractions,
+    // radicals, etc. get their own internal classes) -- but guard anyway so
+    // a '.katex' found inside another one is never double-read.
+    if (katexEl.parentElement?.closest('.katex')) continue;
+    if (katexEl.querySelector('annotation[encoding="application/x-tex"], math')) continue;
+
+    const text = katexEl.textContent?.trim();
+    if (text) equations.push({ text });
+  }
+
+  return equations;
+}
+
 // --- visible text ------------------------------------------------------------
 // innerText (not textContent) so script/style/hidden content is excluded --
 // it follows rendered layout. innerText computed on an ancestor does NOT
@@ -260,6 +314,7 @@ export function extractPageContext(): PageContext {
     ...extractMathJaxEquations(claimed, roots),
     ...extractDataCarrierEquations(roots),
     ...extractRemainingMathml(claimed, roots),
+    ...extractKatexTextFallback(roots),
   ]
     .slice(0, MAX_EQUATIONS)
     .map((equation) => ({

@@ -206,6 +206,19 @@ async function persistInteraction(
   responseLatencyMs: number | undefined
 ): Promise<void> {
   if (!sessionId || !envelope.assessment) {
+    // Diagnostic only (never thrown, never changes the reply): every
+    // degrade path here was previously silent, which made a real bug
+    // ("nothing is ever persisted") indistinguishable from the DESIGNED
+    // degrade ("this turn had nothing gradable to write") from outside a
+    // debugger. Found the hard way debugging a real Khan Academy session
+    // that wrote zero session_interactions rows across two full voice
+    // sessions with no server-side trace to explain why.
+    console.warn(
+      '[ai/turn] persistInteraction skipped:',
+      !sessionId
+        ? 'no sessionId on the request'
+        : `envelope carried no assessment (say: "${envelope.say.slice(0, 120)}")`
+    )
     return
   }
 
@@ -225,6 +238,9 @@ async function persistInteraction(
       .maybeSingle()
 
     if (!sessionRow) {
+      console.warn('[ai/turn] persistInteraction skipped: sessionId does not resolve to a session this caller owns', {
+        sessionId,
+      })
       return
     }
 
@@ -258,6 +274,10 @@ async function persistInteraction(
       .single()
 
     if (error || !inserted) {
+      console.warn('[ai/turn] persistInteraction skipped: session_interactions insert failed', {
+        sessionId,
+        error: error?.message,
+      })
       return
     }
 
@@ -280,8 +300,11 @@ async function persistInteraction(
         responseLatencyMs: responseLatencyMs ?? null,
       })
     )
-  } catch {
-    // Never let a persistence failure affect the turn.
+  } catch (err) {
+    // Never let a persistence failure affect the turn -- but do surface it,
+    // unlike before, so a real bug here doesn't read identically to a
+    // designed degrade in the server's own logs.
+    console.error('[ai/turn] persistInteraction threw', { sessionId }, err)
   }
 }
 
