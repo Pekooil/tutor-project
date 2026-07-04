@@ -385,6 +385,12 @@ type UnappliedInteractionRow = {
   response_latency_ms: number | null
 }
 
+type UnappliedUserRow = UnappliedInteractionRow & { session_id: string }
+
+// Caps a single sweep -- a pathological backlog is worked off across
+// successive session starts rather than stalling any one of them.
+const USER_SWEEP_LIMIT = 50
+
 // Reconciliation sweep (ADR-019): attempts every session_interactions row
 // still marked applied_to_profile=false -- a safety net, NOT the primary
 // write path (that's the per-turn after() hook, which in the common case
@@ -423,6 +429,50 @@ export async function reconcileSession(supabase: SupabaseClient, sessionId: stri
     } catch {
       // One bad row never blocks the rest -- same tolerance
       // applyInteraction already applies internally, one layer up.
+    }
+  }
+}
+
+// Cross-session safety net (Sprint 11 audit follow-up to ADR-019):
+// reconcileSession above only runs when /api/session/end is actually
+// reached, so a session the client abandoned -- browser crash, closed
+// laptop, network loss -- strands its unapplied rows forever: in the DB,
+// but never folded into knowledge_nodes or the reinforcement queue, and
+// invisible to the tutor and (later) the dashboard alike. Swept here at
+// the next session START instead (idx_si_user_applied is exactly this
+// query's index): the new session's own rows don't exist yet, so the sweep
+// can only ever touch leftovers, and applyInteraction's claimed_at lease
+// already arbitrates against any in-flight after() hook from a session
+// still open elsewhere. Ordered by created_at -- turn_index only orders
+// within one session, and this sweep crosses sessions.
+export async function reconcileUnappliedForUser(supabase: SupabaseClient, userId: string): Promise<void> {
+  const { data } = await supabase
+    .from('session_interactions')
+    .select(
+      'id, session_id, user_id, concept_key, outcome, reasoning_quality, self_confidence, misconception_category, misconception_description, response_latency_ms'
+    )
+    .eq('user_id', userId)
+    .eq('applied_to_profile', false)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(USER_SWEEP_LIMIT)
+
+  const rows = (data ?? []) as UnappliedUserRow[]
+
+  for (const row of rows) {
+    try {
+      await applyInteraction(supabase, userId, row.session_id, {
+        id: row.id,
+        conceptKey: row.concept_key,
+        outcome: row.outcome,
+        reasoningQuality: row.reasoning_quality,
+        selfConfidence: row.self_confidence,
+        misconceptionCategory: row.misconception_category,
+        misconceptionDescription: row.misconception_description,
+        responseLatencyMs: row.response_latency_ms,
+      })
+    } catch {
+      // Same one-bad-row tolerance as reconcileSession above.
     }
   }
 }

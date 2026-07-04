@@ -1040,4 +1040,70 @@ describe('per-turn learning-state write -> live profile', () => {
       expect(healthy!.lapses).toBe(0)
     })
   })
+
+  it("an abandoned session's stranded rows are swept at the next session START (cross-session reconcile)", async () => {
+    // /api/session/end reconciles a session that ENDS -- but a session the
+    // client abandoned (crash, closed tab) never reaches that route, and
+    // before the session-start sweep its unapplied rows stayed stranded
+    // forever (Sprint 11 audit finding). Simulate the strand directly: a
+    // row whose turn-time after() hook "died" before applying (fixture via
+    // the service role, per this file's discipline), in a session that is
+    // never ended.
+    const conceptKey = 'algebra.exponents.power-rule'
+
+    const abandoned = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
+    expect(abandoned.status).toBe(200)
+    sessionIds.push(abandoned.json.sessionId)
+
+    const { data: nodeBefore } = await clientA
+      .from('knowledge_nodes')
+      .select('observation_count')
+      .eq('user_id', userA.id)
+      .eq('concept_key', conceptKey)
+      .single()
+    const observationsBefore = nodeBefore!.observation_count
+
+    const { data: strandedRow, error: strandErr } = await admin
+      .from('session_interactions')
+      .insert({
+        session_id: abandoned.json.sessionId,
+        user_id: userA.id,
+        turn_index: 1,
+        concept_key: conceptKey,
+        student_transcript: 'so (x^2)^3 is x to the sixth',
+        tutor_response: 'Exactly -- multiply the exponents.',
+        outcome: 'correct',
+        reasoning_quality: 'sound',
+        self_confidence: 'high',
+        applied_to_profile: false,
+      })
+      .select('id')
+      .single()
+    expect(strandErr).toBeNull()
+
+    // The abandoned session is never ended. Starting the NEXT session is
+    // what must recover the row.
+    const next = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
+    expect(next.status).toBe(200)
+    sessionIds.push(next.json.sessionId)
+
+    await waitFor(async () => {
+      // The stranded row itself is marked applied...
+      const { data: swept } = await clientA
+        .from('session_interactions')
+        .select('applied_to_profile')
+        .eq('id', strandedRow!.id)
+        .single()
+      expect(swept!.applied_to_profile).toBe(true)
+
+      // ...and its FSRS update genuinely landed, not just the flag flip.
+      const { data: nodeAfter } = await clientA
+        .from('knowledge_nodes')
+        .select('observation_count')
+        .eq('user_id', userA.id)
+        .eq('concept_key', conceptKey)
+        .single()
+      expect(nodeAfter!.observation_count).toBe(observationsBefore + 1)
+    })
+  })
 })

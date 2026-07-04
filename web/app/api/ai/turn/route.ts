@@ -223,19 +223,34 @@ async function persistInteraction(
   }
 
   try {
-    // Explicit ownership check, not just the FK's existence check: RLS on
-    // session_interactions is keyed on user_id (which we set to the
+    // Two independent reads, run in parallel: this await sits on the turn's
+    // critical path (the reply is not returned until persistInteraction
+    // resolves), so the sequential ownership-check -> count -> insert chain
+    // was three DB round-trips of added voice latency where the plan's own
+    // bar (ADR-019 "off the critical path") budgets for one insert. The
+    // count is harmless to run before ownership resolves -- RLS scopes it,
+    // and a foreign sessionId returns before the count is ever used.
+    //
+    // The ownership check is explicit, not just the FK's existence check:
+    // RLS on session_interactions is keyed on user_id (which we set to the
     // caller), not session_id -- without this, a sessionId belonging to a
     // DIFFERENT user would still accept an insert, corrupting that user's
     // session with a row RLS would then hide from everyone (including
     // them). This confirms the caller actually owns the session.
-    const { data: sessionRow } = await supabase
-      .from('sessions')
-      .select('id')
-      .eq('id', sessionId)
-      .eq('user_id', userId)
-      .is('deleted_at', null)
-      .maybeSingle()
+    const [{ data: sessionRow }, { count }] = await Promise.all([
+      supabase
+        .from('sessions')
+        .select('id')
+        .eq('id', sessionId)
+        .eq('user_id', userId)
+        .is('deleted_at', null)
+        .maybeSingle(),
+      supabase
+        .from('session_interactions')
+        .select('id', { count: 'exact', head: true })
+        .eq('session_id', sessionId)
+        .is('deleted_at', null),
+    ])
 
     if (!sessionRow) {
       console.warn('[ai/turn] persistInteraction skipped: sessionId does not resolve to a session this caller owns', {
@@ -243,12 +258,6 @@ async function persistInteraction(
       })
       return
     }
-
-    const { count } = await supabase
-      .from('session_interactions')
-      .select('id', { count: 'exact', head: true })
-      .eq('session_id', sessionId)
-      .is('deleted_at', null)
 
     const turnIndex = (count ?? 0) + 1
     const { assessment } = envelope
