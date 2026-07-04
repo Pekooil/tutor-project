@@ -598,7 +598,8 @@ extension loaded:
 
 ## Acceptance criteria (full checklist)
 
-**Sprint status: not started.** (Update this line as tasks land, per the Sprint 09/10/11
+**Sprint status: IN PROGRESS — Tasks 1–6 landed; next: Task 7 (extension end-to-end
+wiring).** (Tasks 1–9 below; update this line as tasks land, per the Sprint 09/10/11
 convention.)
 
 - [ ] `turbo run typecheck lint build test` passes from root (now including the

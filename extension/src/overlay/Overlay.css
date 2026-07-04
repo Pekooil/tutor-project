@@ -217,3 +217,103 @@
     animation-iteration-count: infinite;
   }
 }
+
+/* Annotation layer (Sprint 12 Task 6, ADR-022). The SVG itself: full-
+ * viewport, fixed, pointer-events: none (the host page underneath stays
+ * fully clickable/selectable — verified by hand in Task 9), aria-hidden via
+ * the JSX prop. Sized with plain vw/vh rather than a viewBox so 1 SVG user
+ * unit == 1 css px, matching the getBoundingClientRect() space every rect
+ * arrives in (no scaling/offset math). z-index sits one below the panel/pill
+ * (both z-[2147483647]) so the panel always draws on top of any annotation
+ * that happens to land underneath it. */
+.cx-annotation-layer {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 2147483646;
+}
+
+/* The style.color allow-list (system-prompt.ts's ANNOTATION GUIDANCE, Task
+ * 2): "amber" | "blue" | "green" | "red", amber default. @calyxa/ui's
+ * theme.css (ADR-018) only has color AXES for the brand accent (green) and
+ * danger (red) — it has no amber or blue token at all, and Task 6 is
+ * explicit that this file adds no new token to /packages/ui. So green/red
+ * below reuse the existing shared tokens; amber/blue are literal values
+ * scoped to this file only (extension-local, not a design-system addition)
+ * — chosen to read clearly as warm/cool without touching the shared palette.
+ * An unresolved style.color already falls back to "amber" before these
+ * classes are ever applied (AnnotationLayer.tsx's resolveColor). */
+.cx-annot-amber {
+  --cx-annot-color: #d97706;
+  --cx-annot-fill: rgb(217 119 6 / 0.22);
+}
+.cx-annot-blue {
+  --cx-annot-color: #2563eb;
+  --cx-annot-fill: rgb(37 99 235 / 0.18);
+}
+.cx-annot-green {
+  --cx-annot-color: var(--color-accent-emphasis);
+  --cx-annot-fill: rgb(22 101 52 / 0.18);
+}
+.cx-annot-red {
+  --cx-annot-color: var(--color-danger);
+  --cx-annot-fill: rgb(185 28 28 / 0.16);
+}
+
+.cx-annot-fill {
+  fill: var(--cx-annot-fill);
+  stroke: var(--cx-annot-color);
+  stroke-width: 1.5;
+}
+.cx-annot-fill-solid {
+  fill: var(--cx-annot-color);
+}
+.cx-annot-outline {
+  fill: none;
+  stroke: var(--cx-annot-color);
+  stroke-width: 2.5;
+}
+.cx-annot-stroke {
+  stroke: var(--cx-annot-color);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.cx-annot-marker {
+  fill: var(--cx-annot-color);
+}
+.cx-annot-badge-text {
+  fill: #ffffff;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Light draw-in transition (Task 6): each newly dispatched shape scales up
+ * from 92% while fading in. One-shot per mount — the layer's whole
+ * annotation set replaces on every dispatch, so React's key={id} only
+ * (re)mounts groups that are actually new/changed, the same discipline as
+ * the cx-word-in streaming-token animation above. Never load-bearing for
+ * comprehension (brand.md S6), so it is fully absent, not just instant,
+ * under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .cx-annot-in {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: cx-annot-in 0.18s var(--motion-ease-out, ease-out) both;
+  }
+}
+
+@keyframes cx-annot-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

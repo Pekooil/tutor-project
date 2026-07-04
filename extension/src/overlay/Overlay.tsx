@@ -8,7 +8,15 @@ import {
 import { CalyxaMark, Card, VisuallyHidden } from '@calyxa/ui';
 import './Overlay.css';
 import type { TurnMessage } from '../types/messages';
+import { AnnotationLayer } from './AnnotationLayer';
 import { startRecording, type RecordingHandle, type Utterance } from './VoiceController';
+
+// The panel-close signal (Sprint 12 Task 6): dispatched from handleClose
+// below so the annotation controller (content/annotations.ts, Task 7) can
+// clearAnnotations() -- a dismissed tutor leaves a clean page, the same
+// instinct as ephemeral page context. Mirrors the 'calyxa:toggle-panel'
+// bridge pattern; this event only ever flows Overlay -> content, never back.
+export const PANEL_CLOSED_EVENT = 'calyxa:panel-closed';
 
 // Calyxa overlay — Sprint 10 Task 6 (chat UI + real streaming + voice text sync).
 //
@@ -286,6 +294,7 @@ export function Overlay({
     setDragPos(null);
     setIsDragging(false);
     dragOriginRef.current = null;
+    window.dispatchEvent(new CustomEvent(PANEL_CLOSED_EVENT));
   }
 
   function handleHeaderPointerDown(event: React.PointerEvent<HTMLElement>) {
@@ -325,48 +334,53 @@ export function Overlay({
 
   if (!expanded) {
     return (
-      <div className="fixed bottom-6 left-1/2 z-[2147483647] -translate-x-1/2 font-sans motion-safe:animate-[cx-rise_0.42s_cubic-bezier(0.2,0.8,0.2,1)_both]">
-        <div className="relative">
-          <div
-            aria-hidden="true"
-            className={`calyxa-glow motion-safe:animate-[calyxa-breathe_2.7s_ease-in-out_infinite] pointer-events-none absolute rounded-full transition-all duration-300 ease-out ${
-              pillHovered ? '-inset-2 blur-md opacity-100' : '-inset-1.5 blur-[3px] opacity-85'
-            }`}
-          />
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            onMouseEnter={() => setPillHovered(true)}
-            onMouseLeave={() => setPillHovered(false)}
-            onFocus={() => setPillHovered(true)}
-            onBlur={() => setPillHovered(false)}
-            aria-label="Open Calyxa"
-            className={`relative flex items-center rounded-full border border-border bg-background shadow-panel outline-none transition-all duration-300 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
-              pillHovered ? 'h-12 w-[140px] justify-start gap-2 px-4' : 'h-2 w-10 justify-center px-0'
-            }`}
-          >
-            {pillHovered && (
-              <>
-                <CalyxaMark className="h-[22px] w-[22px] flex-none" />
-                <span className="text-[15px] font-semibold tracking-tight text-foreground">calyxa</span>
-                <span
-                  aria-hidden="true"
-                  className="ml-auto h-[9px] w-[9px] flex-none rounded-full bg-accent-glow-strong shadow-[0_0_0_4px_rgba(134,239,172,0.4)] motion-safe:animate-[cx-dot_2.2s_ease-in-out_infinite]"
-                />
-              </>
-            )}
-          </button>
+      <>
+        <AnnotationLayer />
+        <div className="fixed bottom-6 left-1/2 z-[2147483647] -translate-x-1/2 font-sans motion-safe:animate-[cx-rise_0.42s_cubic-bezier(0.2,0.8,0.2,1)_both]">
+          <div className="relative">
+            <div
+              aria-hidden="true"
+              className={`calyxa-glow motion-safe:animate-[calyxa-breathe_2.7s_ease-in-out_infinite] pointer-events-none absolute rounded-full transition-all duration-300 ease-out ${
+                pillHovered ? '-inset-2 blur-md opacity-100' : '-inset-1.5 blur-[3px] opacity-85'
+              }`}
+            />
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              onMouseEnter={() => setPillHovered(true)}
+              onMouseLeave={() => setPillHovered(false)}
+              onFocus={() => setPillHovered(true)}
+              onBlur={() => setPillHovered(false)}
+              aria-label="Open Calyxa"
+              className={`relative flex items-center rounded-full border border-border bg-background shadow-panel outline-none transition-all duration-300 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
+                pillHovered ? 'h-12 w-[140px] justify-start gap-2 px-4' : 'h-2 w-10 justify-center px-0'
+              }`}
+            >
+              {pillHovered && (
+                <>
+                  <CalyxaMark className="h-[22px] w-[22px] flex-none" />
+                  <span className="text-[15px] font-semibold tracking-tight text-foreground">calyxa</span>
+                  <span
+                    aria-hidden="true"
+                    className="ml-auto h-[9px] w-[9px] flex-none rounded-full bg-accent-glow-strong shadow-[0_0_0_4px_rgba(134,239,172,0.4)] motion-safe:animate-[cx-dot_2.2s_ease-in-out_infinite]"
+                  />
+                </>
+              )}
+            </button>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div
-      ref={panelRef}
-      className={`fixed z-[2147483647] w-[420px] font-sans text-base text-foreground${isDragging ? ' select-none' : ''}${!dragPos ? ' bottom-7 left-1/2 -translate-x-1/2' : ''}`}
-      style={dragPos ? { top: `${dragPos.y}px`, left: `${dragPos.x}px` } : undefined}
-    >
+    <>
+      <AnnotationLayer />
+      <div
+        ref={panelRef}
+        className={`fixed z-[2147483647] w-[420px] font-sans text-base text-foreground${isDragging ? ' select-none' : ''}${!dragPos ? ' bottom-7 left-1/2 -translate-x-1/2' : ''}`}
+        style={dragPos ? { top: `${dragPos.y}px`, left: `${dragPos.x}px` } : undefined}
+      >
       <div className="overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
 
         {/* ── Header ── */}
@@ -576,7 +590,8 @@ export function Overlay({
         </div>
 
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
