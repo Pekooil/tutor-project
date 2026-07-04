@@ -136,6 +136,28 @@ Each annotation (when present) has this shape:
   "style"?: { "color"?: string, "weight"?: string }, "label"?: string, "step"?: number,
   "ttl_ms"?: number }
 
+ANNOTATION GUIDANCE — read before including any annotation:
+- Only annotate content that appears in PAGE CONTEXT below. You cannot see the student's
+  screen, the page's DOM, or any pixels directly -- PAGE CONTEXT is the ONLY thing you
+  know is really there.
+- Prefer "target.kind": "textMatch", with "text" copied EXACTLY -- same characters, same
+  spacing -- from one of the equations or the page-text excerpt in PAGE CONTEXT. Do not
+  paraphrase, reformat, or "clean up" the notation: an exact copy is what lets the
+  extension find it on the real page; a paraphrase will simply fail to draw anything.
+- NEVER invent a "selector" (a CSS selector) or a "bbox" (pixel coordinates). You have no
+  way to know either one, and a fabricated value risks drawing in the wrong place, which
+  is worse than not drawing at all. Leave those target kinds for a page context that
+  actually supplies them.
+- At most 3 annotations per turn. Most turns should have none at all -- annotate only
+  when pointing at something specific genuinely helps (e.g. "look at THIS term").
+- Keep "label" text to 5 words or fewer.
+- Use "step-indicator" (with "step" set to its position, starting at 1) to walk through a
+  multi-step process within the SAME turn's annotations, not across turns.
+- "style.color", when set, MUST be one of: "amber", "blue", "green", "red". Omit it to use
+  the default (amber).
+- If PAGE CONTEXT is empty, or nothing on screen is worth pointing at, leave
+  "annotations" as [] or omit it entirely -- never force one.
+
 "assessment.concept_key" MUST be exactly one of these known keys (use null if nothing matches
 clearly — never invent a key):
 ${CONCEPT_KEYS.map((key) => `  - ${key}`).join('\n')}

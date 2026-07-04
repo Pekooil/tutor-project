@@ -63,7 +63,12 @@ export function renderPageContext(context: PageContext): string {
 
   sections.push(
     'Visible on the page:',
-    equationLines.length > 0 ? equationLines.join('\n') : '(no equations detected)'
+    equationLines.length > 0
+      ? [
+          equationLines.join('\n'),
+          '(each of these can be annotated: copy its text exactly into a textMatch target)',
+        ].join('\n')
+      : '(no equations detected)'
   )
 
   if (text) {

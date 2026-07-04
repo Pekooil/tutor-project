@@ -20,6 +20,11 @@ import {
 // profile are still rendered into the prompt for this turn only and
 // discarded (no migration for either); messages are persisted only as the
 // last user turn's text, inside the new interaction row.
+//
+// As of ADR-023 the response also carries the envelope's validated
+// `annotations` ADDITIVELY (`{ reply, annotations? }`, field omitted when
+// empty) -- annotations are never persisted; session_interactions keeps its
+// Sprint 11 shape regardless of what a turn drew.
 
 // Defends the token budget against abusive payloads, not an exact token
 // count — PLAN.md §2.5 targets the last 6–8 turns (well under MAX_MESSAGES).
@@ -383,7 +388,18 @@ export async function POST(request: Request) {
       responseLatencyMs
     )
 
-    return NextResponse.json({ reply: envelope.say })
+    // ADR-023: annotations ride the wire ADDITIVELY -- the field is OMITTED
+    // (not null, not []) when the envelope carried none, so a no-annotation
+    // turn's response is byte-identical to Sprint 11's `{ reply }`. This is
+    // also the fix for a Sprint 11 gap: envelope.annotations has been parsed
+    // and validated since ADR-019, but was silently dropped here instead of
+    // ever reaching the client. Never persisted -- session_interactions
+    // keeps its Sprint 11 shape regardless of what this turn drew.
+    const annotations = envelope.annotations
+    return NextResponse.json({
+      reply: envelope.say,
+      ...(annotations && annotations.length > 0 ? { annotations } : {}),
+    })
   } catch {
     // Never relay the provider's error text or any key material to the client.
     return NextResponse.json({ error: 'Tutor is unavailable right now.' }, { status: 502 })
