@@ -859,4 +859,168 @@ describe('/api/ai/turn', () => {
     expect(system).not.toContain('Fading / due for review')
     expect(system).toContain(`${SEEDED_CONCEPT_KEY}: mastery 0.42, state learning, confidence medium`)
   })
+
+  // --- Sprint 12 Task 8: annotations ride the wire additively (ADR-022/023) ---
+  // envelope.test.ts already covers parseAnnotation's own structural
+  // validation (valid/invalid shapes, mixed-array filtering, empty-array
+  // omission) at the unit level; these assert the SAME behaviour survives
+  // at the route boundary -- the actual `{ reply, annotations? }` JSON a
+  // caller receives.
+
+  const EXPECTED_SESSION_INTERACTIONS_COLUMNS = [
+    'id',
+    'session_id',
+    'user_id',
+    'turn_index',
+    'concept_key',
+    'student_transcript',
+    'tutor_response',
+    'outcome',
+    'self_confidence',
+    'response_latency_ms',
+    'misconception_category',
+    'applied_to_profile',
+    'created_at',
+    'deleted_at',
+    'reasoning_quality',
+    'misconception_description',
+    'claimed_at',
+  ].sort()
+
+  it('returns the envelope\'s validated annotations additively as { reply, annotations }', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Look at the highlighted term.',
+          mode: 'socratic',
+          annotations: [
+            {
+              id: 'a1',
+              type: 'highlight',
+              target: { kind: 'textMatch', text: 'x^2 + 5x + 6 = 0' },
+              style: { color: 'amber' },
+              label: 'start here',
+            },
+          ],
+        })
+      ),
+    }
+
+    const { status, json } = await turn(token, {
+      messages: [{ role: 'user', content: 'which term do I factor first?' }],
+    })
+
+    expect(status).toBe(200)
+    expect(json.reply).toBe('Look at the highlighted term.')
+    expect(json.annotations).toEqual([
+      {
+        id: 'a1',
+        type: 'highlight',
+        target: { kind: 'textMatch', text: 'x^2 + 5x + 6 = 0' },
+        style: { color: 'amber' },
+        label: 'start here',
+      },
+    ])
+  })
+
+  it('omits the annotations field entirely (not null, not []) when the envelope carries none -- byte-identical to Sprint 11', async () => {
+    // Case 1: a well-formed envelope with an explicit empty array.
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(JSON.stringify({ say: 'No annotations this turn.', mode: 'socratic', annotations: [] })),
+    }
+    const empty = await turn(token, { messages: [{ role: 'user', content: 'hi' }] })
+    expect(empty.status).toBe(200)
+    expect(empty.json.reply).toBe('No annotations this turn.')
+    expect(Object.keys(empty.json)).toEqual(['reply'])
+
+    // Case 2: the plain-text degrade path (parseEnvelope's fallback) --
+    // exactly the existing "relays the model reply verbatim" fixture shape.
+    nextResponse = { status: 200, body: fakeTextMessage('Just plain prose, no envelope at all.') }
+    const plain = await turn(token, { messages: [{ role: 'user', content: 'hi' }] })
+    expect(plain.status).toBe(200)
+    expect(Object.keys(plain.json)).toEqual(['reply'])
+  })
+
+  it('drops structurally invalid annotation entries before they reach the client, keeping only the valid ones', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Mixed batch.',
+          mode: 'socratic',
+          annotations: [
+            { id: 'good', type: 'circle', target: { kind: 'textMatch', text: 'x = 4' } },
+            { id: '', type: 'circle', target: { kind: 'textMatch', text: 'invalid: empty id' } },
+            { id: 'bad-type', type: 'not-a-real-type', target: { kind: 'textMatch', text: 'invalid: bad type' } },
+            { id: 'bad-target', type: 'circle', target: { kind: 'nope' } },
+          ],
+        })
+      ),
+    }
+
+    const { status, json } = await turn(token, { messages: [{ role: 'user', content: 'check my answer' }] })
+
+    expect(status).toBe(200)
+    expect(json.annotations).toEqual([{ id: 'good', type: 'circle', target: { kind: 'textMatch', text: 'x = 4' } }])
+  })
+
+  it('a turn with annotations writes the SAME session_interactions row shape as Sprint 11 -- annotations are never persisted (ADR-023)', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Nice, that factoring is correct.',
+          mode: 'socratic',
+          assessment: {
+            concept_key: SEEDED_CONCEPT_KEY,
+            outcome: 'correct',
+            reasoning_quality: 'sound',
+            self_confidence: 'high',
+            misconception_category: null,
+            confidence: 'high',
+          },
+          annotations: [{ id: 'a1', type: 'highlight', target: { kind: 'textMatch', text: 'x^2 - 4' } }],
+        })
+      ),
+    }
+
+    const started = await fetch(`${API_BASE}/api/session/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ mode: 'text' }),
+    })
+    const { sessionId } = await started.json()
+    expect(sessionId).toBeTruthy()
+
+    const { status, json } = await turn(token, {
+      sessionId,
+      messages: [{ role: 'user', content: 'x^2 - 4 factors to (x-2)(x+2)' }],
+      responseLatencyMs: 4200,
+    })
+
+    expect(status).toBe(200)
+    expect(json.annotations).toHaveLength(1)
+
+    const { data, count } = await admin
+      .from('session_interactions')
+      .select('*', { count: 'exact' })
+      .eq('session_id', sessionId)
+
+    expect(count).toBe(1)
+    const row = data![0]
+
+    // The exact column set is unchanged from Sprint 11 -- no annotation data
+    // anywhere in the row, in any column.
+    expect(Object.keys(row).sort()).toEqual(EXPECTED_SESSION_INTERACTIONS_COLUMNS)
+    expect(JSON.stringify(row)).not.toContain('annotation')
+
+    // Same shape as the Sprint 11 ADR-019 positive-path test above --
+    // annotations changed nothing about what gets written.
+    expect(row.turn_index).toBe(1)
+    expect(row.concept_key).toBe(SEEDED_CONCEPT_KEY)
+    expect(row.outcome).toBe('correct')
+    expect(row.tutor_response).toBe('Nice, that factoring is correct.')
+  })
 })

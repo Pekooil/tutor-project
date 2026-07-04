@@ -7,6 +7,7 @@
     "dev": "wxt",
     "build": "wxt build",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
@@ -20,7 +21,9 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@wxt-dev/module-react": "1.2.2",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.2",
+    "vitest": "^4.1.9",
     "wxt": "0.20.27"
   }
 }

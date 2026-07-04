@@ -598,8 +598,9 @@ extension loaded:
 
 ## Acceptance criteria (full checklist)
 
-**Sprint status: IN PROGRESS — Tasks 1–7 landed; next: Task 8 (tests).** (Tasks 1–9
-below; update this line as tasks land, per the Sprint 09/10/11 convention.)
+**Sprint status: IN PROGRESS — Tasks 1–8 landed; next: Task 9 (manual annotation
+acceptance).** (Tasks 1–9 below; update this line as tasks land, per the Sprint 09/10/11
+convention.)
 
 - [ ] `turbo run typecheck lint build test` passes from root (now including the
       extension's new test task); `cd web && next build` and `cd extension && wxt build`
