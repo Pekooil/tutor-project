@@ -2,10 +2,13 @@ import { createShadowRootUi, defineContentScript } from '#imports';
 import type { ShadowRootContentScriptUi } from '#imports';
 import type { Root } from 'react-dom/client';
 import { mountOverlay, unmountOverlay } from '../overlay/mount';
+import { PANEL_CLOSED_EVENT } from '../overlay/Overlay';
 import type { Utterance } from '../overlay/VoiceController';
+import { clearAnnotations, showTurnAnnotations, teardown as teardownAnnotations, type EquationRegistry } from './annotations';
 import { extractPageContext } from './pageExtractor';
 import type {
   AiReplyPayload,
+  Annotation,
   CalyxaMessage,
   PageContext,
   SessionStatePayload,
@@ -32,13 +35,26 @@ let capturedPageContext: PageContext | undefined;
 // element of capturedPageContext.equations[i]. Same lifetime discipline —
 // refreshed on every overlay open, never cached across opens — and it never
 // leaves this content script: elements can't serialize, and by design the
-// registry never rides a chrome.runtime message or persists (ADR-023). Not
-// consumed yet this task: the annotation resolver (Task 5) matches textMatch
-// targets against it and the end-to-end wiring (Task 7) threads it through.
-// Entries can go stale (an SPA re-render disconnects them); the resolver
-// checks isConnected at draw/re-anchor time rather than this file policing
+// registry never rides a chrome.runtime message or persists (ADR-023).
+// currentEquationRegistry() below zips this with capturedPageContext.equations
+// into what the annotation resolver (annotations.ts, Task 5) matches
+// textMatch targets against; sendAiTurn (Task 7) reads it per turn. Entries
+// can go stale (an SPA re-render disconnects them); the resolver checks
+// isConnected at draw/re-anchor time rather than this file policing
 // staleness here.
 let capturedEquationElements: (Element | null)[] = [];
+
+// Zips the two module-scope arrays above into the shape the annotation
+// resolver expects (Sprint 12 Task 7). Read fresh on every turn rather than
+// cached alongside them, since it's a trivial O(n) map over data that's
+// already held -- no reason to keep a second copy in sync.
+function currentEquationRegistry(): EquationRegistry {
+  const equations = capturedPageContext?.equations ?? [];
+  return equations.map((equation, index) => ({
+    equation,
+    element: capturedEquationElements[index] ?? null,
+  }));
+}
 
 // The overlay's AI_TURN transport. When `onChunk` is provided (text turns),
 // streams via a persistent port (AI_STREAM) so the overlay can render
@@ -51,18 +67,27 @@ async function sendAiTurn(
   messages: TurnMessage[],
   onChunk?: (text: string) => void,
 ): Promise<string> {
+  // Snapshotted once per turn, not re-read at reply time: a turn's whole
+  // round trip should resolve against the page as it was when the turn was
+  // sent, not whatever the overlay happens to hold by the time the reply
+  // lands (Sprint 12 Task 7 -- "the current registry").
+  const registry = currentEquationRegistry();
+
   if (onChunk) {
     return new Promise<string>((resolve, reject) => {
       const port = chrome.runtime.connect({ name: 'AI_STREAM' });
       let settled = false;
 
       port.onMessage.addListener(
-        (msg: { type: string; text?: string; reply?: string; error?: string }) => {
+        (msg: { type: string; text?: string; reply?: string; annotations?: Annotation[]; error?: string }) => {
           if (msg.type === 'chunk' && msg.text) {
             onChunk(msg.text);
           } else if (msg.type === 'done' && !settled) {
             settled = true;
             port.disconnect();
+            // New turn's annotations replace the previous turn's drawings
+            // (controller behaviour); a turn with none is a no-op there.
+            showTurnAnnotations(msg.annotations ?? [], registry);
             resolve(msg.reply ?? '');
           } else if (msg.type === 'error' && !settled) {
             settled = true;
@@ -83,7 +108,9 @@ async function sendAiTurn(
     });
   }
 
-  // Non-streaming path (voice turns).
+  // Non-streaming path (voice turns): annotations resolve and draw before
+  // the reply is handed back, so the drawing is in place as TTS playback
+  // starts (VoiceController synthesizes/plays after this promise settles).
   const message: CalyxaMessage = {
     type: 'AI_TURN',
     payload: { messages, pageContext: capturedPageContext },
@@ -93,6 +120,7 @@ async function sendAiTurn(
   if ('error' in payload) {
     throw new Error(payload.error);
   }
+  showTurnAnnotations(payload.annotations ?? [], registry);
   return payload.reply;
 }
 
@@ -193,6 +221,15 @@ export default defineContentScript({
     // the expanded panel on an already-mounted idle pill instead, via a
     // window CustomEvent Overlay.tsx listens for. A page with no signed-in
     // user has nothing mounted to toggle, so the shortcut is a no-op there.
+    // The panel-close signal (Overlay.tsx's handleClose, Sprint 12 Task 6):
+    // a dismissed tutor leaves a clean page, so the annotation controller
+    // clears whatever it's holding. Registered once for the content
+    // script's whole lifetime, same as the listener below -- annotations
+    // are controller-owned state independent of any one overlay mount.
+    window.addEventListener(PANEL_CLOSED_EVENT, () => {
+      clearAnnotations();
+    });
+
     let pendingToggle = false;
     let pendingSignedIn: boolean | undefined;
     chrome.runtime.onMessage.addListener((message: CalyxaMessage) => {
@@ -274,6 +311,13 @@ export default defineContentScript({
         });
       },
       onRemove: (root) => {
+        // Full annotation teardown (listeners, timers, the layer's dispatch
+        // to an empty set) on overlay unmount / sign-out (Sprint 12 Task 7)
+        // -- the shadow root's own removal already guarantees no pixel
+        // survives, but the controller's window-level scroll/resize
+        // listeners and ttl timers are outside that shadow root and need
+        // their own cleanup.
+        teardownAnnotations();
         if (root) unmountOverlay(root);
       },
     });
