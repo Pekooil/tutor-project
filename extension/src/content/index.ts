@@ -27,6 +27,19 @@ let overlayUi: ShadowRootContentScriptUi<Root> | undefined;
 // overlay has been opened at least once in this page's lifetime.
 let capturedPageContext: PageContext | undefined;
 
+// The equation-element registry captured ALONGSIDE the PageContext above
+// (Sprint 12, ADR-022): capturedEquationElements[i] is the live source
+// element of capturedPageContext.equations[i]. Same lifetime discipline —
+// refreshed on every overlay open, never cached across opens — and it never
+// leaves this content script: elements can't serialize, and by design the
+// registry never rides a chrome.runtime message or persists (ADR-023). Not
+// consumed yet this task: the annotation resolver (Task 5) matches textMatch
+// targets against it and the end-to-end wiring (Task 7) threads it through.
+// Entries can go stale (an SPA re-render disconnects them); the resolver
+// checks isConnected at draw/re-anchor time rather than this file policing
+// staleness here.
+let capturedEquationElements: (Element | null)[] = [];
+
 // The overlay's AI_TURN transport. When `onChunk` is provided (text turns),
 // streams via a persistent port (AI_STREAM) so the overlay can render
 // word-by-word. When omitted (voice turns that need the full reply before
@@ -249,7 +262,11 @@ export default defineContentScript({
         // reads (ADR-012). Still captured (and still threaded into the
         // AI_TURN payload below) even though the overlay no longer renders
         // an equation-count chip — the tutor still needs the page context.
-        capturedPageContext = extractPageContext();
+        // Sprint 12 (ADR-022): the same read now also yields the equation-
+        // element registry, held here and never sent anywhere.
+        const { context, equationElements } = extractPageContext();
+        capturedPageContext = context;
+        capturedEquationElements = equationElements;
         return mountOverlay(container, {
           onSend: sendAiTurn,
           onTranscribe: sendVoiceStt,

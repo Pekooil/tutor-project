@@ -41,8 +41,27 @@ import type { PageContext, PageEquation } from '../types/messages';
 // Every query below excludes the <calyxa-overlay> shadow host and its
 // subtree (ADR-002) so the overlay's own UI is never read back as page
 // content.
+//
+// Sprint 12 (ADR-022): each extracted equation now also records the source
+// Element it was read from, returned PARALLEL to context.equations (same
+// index = same equation) as the annotation resolver's registry: a textMatch
+// target whose text equals a captured equation resolves to this element's
+// live rect instead of a page-wide search. The elements are in-memory
+// content-script state ONLY -- they never serialize, never ride a
+// chrome.runtime message, and never persist (ADR-023); the wire PageContext
+// shape is untouched. Each adapter records its VISIBLE rendered element
+// (e.g. the '.katex' wrapper, not the visually-hidden <annotation> the
+// LaTeX was read from) so a draw-time getBoundingClientRect lands on what
+// the student actually sees. Still read-only: recording a reference reads
+// nothing further and writes nothing.
 
 const OVERLAY_HOST_TAG = 'calyxa-overlay';
+
+// One extracted equation paired with the element it was read from -- the
+// pairing is internal to this file; extractPageContext splits it into the
+// wire-shape equations array and the parallel element registry at the end,
+// AFTER the shared cap, so the two can never fall out of lockstep.
+type ExtractedEquation = { equation: PageEquation; element: Element | null };
 
 // Mirrors /web/lib/ai/page-context.ts's authoritative budget constants
 // (Task 2). These are a courtesy client-side cap only -- renderPageContext
@@ -125,8 +144,16 @@ function collapseWhitespace(value: string): string {
 // equation twice. We read the annotation (cleaner and more useful to the
 // tutor than raw MathML) and mark the enclosing <math> as claimed so the
 // plain-MathML pass below skips it.
-function extractKatexEquations(claimed: Set<Element>, roots: (Document | ShadowRoot)[]): PageEquation[] {
-  const equations: PageEquation[] = [];
+//
+// Registry element (ADR-022): the outermost '.katex' wrapper, NOT the
+// annotation or its <math> ancestor -- in KaTeX's default htmlAndMathml
+// output the MathML half (annotation included) is rendered visually hidden
+// and the '.katex-html' half is what the student sees, so only the shared
+// wrapper's rect is drawable. A bare <annotation> with no '.katex' ancestor
+// (a page hand-authoring MathML+annotation with no KaTeX at all) anchors to
+// its <math> node instead, which IS the visible render in that case.
+function extractKatexEquations(claimed: Set<Element>, roots: (Document | ShadowRoot)[]): ExtractedEquation[] {
+  const equations: ExtractedEquation[] = [];
 
   for (const annotation of queryExcludingOverlay<Element>(
     'annotation[encoding="application/x-tex"]',
@@ -138,7 +165,10 @@ function extractKatexEquations(claimed: Set<Element>, roots: (Document | ShadowR
     const mathNode = annotation.closest('math');
     if (mathNode) claimed.add(mathNode);
 
-    equations.push({ latex });
+    equations.push({
+      equation: { latex },
+      element: annotation.closest('.katex') ?? mathNode,
+    });
   }
 
   return equations;
@@ -161,9 +191,13 @@ function extractKatexEquations(claimed: Set<Element>, roots: (Document | ShadowR
 // last-resort fallback, tried only after both stronger sources come up
 // empty, and still scoped to a real mjx-container so it can't pick up
 // unrelated aria-labels elsewhere on the page.
-function extractMathJaxEquations(claimed: Set<Element>, roots: (Document | ShadowRoot)[]): PageEquation[] {
-  const equations: PageEquation[] = [];
+function extractMathJaxEquations(claimed: Set<Element>, roots: (Document | ShadowRoot)[]): ExtractedEquation[] {
+  const equations: ExtractedEquation[] = [];
 
+  // Registry element (ADR-022): always the mjx-container itself -- it is
+  // the visible rendered equation in every branch below, including the
+  // aria-label one (where the LaTeX/MathML source is elsewhere or absent
+  // but the container is still what's on screen).
   for (const container of queryExcludingOverlay<Element>('mjx-container', roots)) {
     const mathNode = container.querySelector('math');
     if (mathNode) claimed.add(mathNode);
@@ -179,12 +213,15 @@ function extractMathJaxEquations(claimed: Set<Element>, roots: (Document | Shado
     }
 
     if (latex) {
-      equations.push({ latex });
+      equations.push({ equation: { latex }, element: container });
     } else if (mathNode) {
-      equations.push({ mathml: mathNode.outerHTML, text: mathNode.textContent?.trim() || undefined });
+      equations.push({
+        equation: { mathml: mathNode.outerHTML, text: mathNode.textContent?.trim() || undefined },
+        element: container,
+      });
     } else {
       const ariaLabel = container.getAttribute('aria-label')?.trim();
-      if (ariaLabel) equations.push({ text: ariaLabel });
+      if (ariaLabel) equations.push({ equation: { text: ariaLabel }, element: container });
     }
   }
 
@@ -194,17 +231,20 @@ function extractMathJaxEquations(claimed: Set<Element>, roots: (Document | Shado
 // --- data-*/aria-label carriers ---------------------------------------------
 // A handful of smaller math widgets skip the KaTeX/MathJax DOM shape
 // entirely and stash the source directly on the element instead.
-function extractDataCarrierEquations(roots: (Document | ShadowRoot)[]): PageEquation[] {
-  const equations: PageEquation[] = [];
+function extractDataCarrierEquations(roots: (Document | ShadowRoot)[]): ExtractedEquation[] {
+  const equations: ExtractedEquation[] = [];
 
+  // Registry element (ADR-022): the carrier element itself -- for these
+  // widgets the element holding the data-*/aria-label attribute IS the
+  // rendered equation.
   for (const el of queryExcludingOverlay<HTMLElement>('[data-latex], [data-tex]', roots)) {
     const latex = (el.dataset.latex ?? el.dataset.tex)?.trim();
-    if (latex) equations.push({ latex });
+    if (latex) equations.push({ equation: { latex }, element: el });
   }
 
   for (const el of queryExcludingOverlay<HTMLElement>('[role="math"][aria-label]', roots)) {
     const label = el.getAttribute('aria-label')?.trim();
-    if (label) equations.push({ latex: label });
+    if (label) equations.push({ equation: { latex: label }, element: el });
   }
 
   return equations;
@@ -213,12 +253,17 @@ function extractDataCarrierEquations(roots: (Document | ShadowRoot)[]): PageEqua
 // --- plain MathML adapter ---------------------------------------------------
 // Whatever <math> nodes neither the KaTeX nor the MathJax adapter already
 // claimed -- a page that renders MathML directly with no JS renderer.
-function extractRemainingMathml(claimed: Set<Element>, roots: (Document | ShadowRoot)[]): PageEquation[] {
-  const equations: PageEquation[] = [];
+function extractRemainingMathml(claimed: Set<Element>, roots: (Document | ShadowRoot)[]): ExtractedEquation[] {
+  const equations: ExtractedEquation[] = [];
 
+  // Registry element (ADR-022): the <math> node itself -- with no JS
+  // renderer in play it is the visible render.
   for (const mathNode of queryExcludingOverlay<Element>('math', roots)) {
     if (claimed.has(mathNode)) continue;
-    equations.push({ mathml: mathNode.outerHTML, text: mathNode.textContent?.trim() || undefined });
+    equations.push({
+      equation: { mathml: mathNode.outerHTML, text: mathNode.textContent?.trim() || undefined },
+      element: mathNode,
+    });
   }
 
   return equations;
@@ -240,9 +285,13 @@ function extractRemainingMathml(claimed: Set<Element>, roots: (Document | Shadow
 // same category as the file-header's "MathJax/KaTeX expose LaTeX
 // inconsistently" note -- but a garbled transcription the tutor can still
 // reason about beats an empty PageContext on a page with real on-screen math.
-function extractKatexTextFallback(roots: (Document | ShadowRoot)[]): PageEquation[] {
-  const equations: PageEquation[] = [];
+function extractKatexTextFallback(roots: (Document | ShadowRoot)[]): ExtractedEquation[] {
+  const equations: ExtractedEquation[] = [];
 
+  // Registry element (ADR-022): the '.katex' wrapper -- the visible render
+  // in the html-only-output case this adapter exists for. (The sprint plan
+  // guessed this adapter might have no single element; it does -- the
+  // wrapper is exactly one element per equation.)
   for (const katexEl of queryExcludingOverlay<HTMLElement>('.katex', roots)) {
     // KaTeX does not nest '.katex' wrappers for sub-expressions (fractions,
     // radicals, etc. get their own internal classes) -- but guard anyway so
@@ -251,7 +300,7 @@ function extractKatexTextFallback(roots: (Document | ShadowRoot)[]): PageEquatio
     if (katexEl.querySelector('annotation[encoding="application/x-tex"], math')) continue;
 
     const text = katexEl.textContent?.trim();
-    if (text) equations.push({ text });
+    if (text) equations.push({ equation: { text }, element: katexEl });
   }
 
   return equations;
@@ -300,35 +349,53 @@ function extractVisibleText(): string | undefined {
   return collapsed ? truncate(collapsed, MAX_TEXT_CHARS) : undefined;
 }
 
+// What extractPageContext returns as of Sprint 12 (ADR-022): the wire-shape
+// PageContext (unchanged, this is what rides the AI_TURN payload) plus the
+// equation-element registry -- equationElements[i] is the source element of
+// context.equations[i]. The registry stays in the content script: elements
+// cannot serialize, and by design they never cross the messaging boundary
+// or persist anywhere (ADR-023).
+export type PageExtraction = {
+  context: PageContext;
+  equationElements: (Element | null)[];
+};
+
 // The sole export -- a synchronous, read-only pass over the host page.
-// Returns an EMPTY PageContext ({ equations: [] }, no text) when nothing
-// math-like or textual is found (e.g. an image/canvas-only page), so the
-// caller's prompt falls back to "ask the student to type it" rather than
-// inventing a read (ADR-012).
-export function extractPageContext(): PageContext {
+// Returns an EMPTY PageContext ({ equations: [] }, no text, no registry
+// entries) when nothing math-like or textual is found (e.g. an
+// image/canvas-only page), so the caller's prompt falls back to "ask the
+// student to type it" rather than inventing a read (ADR-012).
+export function extractPageContext(): PageExtraction {
   const claimed = new Set<Element>();
   const roots = collectSearchRoots();
 
-  const equations = [
+  // Cap the PAIRS, then split -- the same slice bounds both halves, so the
+  // wire equations and the element registry cannot fall out of lockstep.
+  const extracted = [
     ...extractKatexEquations(claimed, roots),
     ...extractMathJaxEquations(claimed, roots),
     ...extractDataCarrierEquations(roots),
     ...extractRemainingMathml(claimed, roots),
     ...extractKatexTextFallback(roots),
-  ]
-    .slice(0, MAX_EQUATIONS)
-    .map((equation) => ({
-      ...(equation.latex ? { latex: truncate(equation.latex, MAX_EQUATION_CHARS) } : {}),
-      ...(equation.mathml ? { mathml: truncate(equation.mathml, MAX_EQUATION_CHARS) } : {}),
-      ...(equation.text ? { text: truncate(equation.text, MAX_EQUATION_CHARS) } : {}),
-    }));
+  ].slice(0, MAX_EQUATIONS);
+
+  const equations = extracted.map(({ equation }) => ({
+    ...(equation.latex ? { latex: truncate(equation.latex, MAX_EQUATION_CHARS) } : {}),
+    ...(equation.mathml ? { mathml: truncate(equation.mathml, MAX_EQUATION_CHARS) } : {}),
+    ...(equation.text ? { text: truncate(equation.text, MAX_EQUATION_CHARS) } : {}),
+  }));
+
+  const equationElements = extracted.map(({ element }) => element);
 
   const title = document.title ? truncate(document.title, MAX_TITLE_CHARS) : undefined;
   const text = extractVisibleText();
 
   return {
-    ...(title ? { title } : {}),
-    ...(text ? { text } : {}),
-    equations,
+    context: {
+      ...(title ? { title } : {}),
+      ...(text ? { text } : {}),
+      equations,
+    },
+    equationElements,
   };
 }
