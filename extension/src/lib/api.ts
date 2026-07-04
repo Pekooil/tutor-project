@@ -9,7 +9,7 @@ import {
   type SessionMode,
   type StoredAuth,
 } from './storage';
-import type { PageContext, TurnMessage } from '../types/messages';
+import type { Annotation, PageContext, TurnMessage } from '../types/messages';
 
 // Backend HTTP client for the extension (Sprint 04 Task 6 / ADR-006).
 //
@@ -174,8 +174,9 @@ export async function endSession(sessionId: string, transcript?: TurnMessage[]):
 
 /**
  * Sends the running transcript to the Claude proxy (Sprint 05 / ADR-008) and
- * returns the tutor's reply text. `/api/ai/turn` is stateless -- non-streaming
- * fallback retained for any callers that don't need streaming.
+ * returns the tutor's reply text (+ optional annotations, Sprint 12 /
+ * ADR-023). `/api/ai/turn` is stateless -- non-streaming fallback retained
+ * for any callers that don't need streaming.
  *
  * `turnContext` (Sprint 11 / ADR-019) threads the active sessionId and the
  * client-measured think-time so the route can persist the turn's
@@ -184,12 +185,18 @@ export async function endSession(sessionId: string, transcript?: TurnMessage[]):
  * change; the route degrades to "no persistence this turn" when they are
  * absent (older callers keep working unchanged), so nothing is validated
  * on this side -- same discipline as pageContext above.
+ *
+ * `annotations` is parsed straight through from the response body with no
+ * re-validation here -- the backend already validated it (envelope.ts,
+ * ADR-019) before ever putting it on the wire, and it is OMITTED (never
+ * included, not `undefined`) from the returned object when the response
+ * didn't carry any, matching the route's own additive-omission contract.
  */
 export async function aiTurn(
   messages: TurnMessage[],
   pageContext?: PageContext,
   turnContext?: { sessionId?: string; responseLatencyMs?: number },
-): Promise<string> {
+): Promise<{ reply: string; annotations?: Annotation[] }> {
   const res = await authorizedFetch('/api/ai/turn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -208,7 +215,12 @@ export async function aiTurn(
     throw new Error(body.error ?? `ai_turn failed: ${res.status}`);
   }
 
-  return body.reply;
+  return {
+    reply: body.reply,
+    ...(Array.isArray(body.annotations) && body.annotations.length > 0
+      ? { annotations: body.annotations as Annotation[] }
+      : {}),
+  };
 }
 
 /**

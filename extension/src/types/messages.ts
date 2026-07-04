@@ -33,7 +33,10 @@ import type { ActiveSession, AuthUser } from '../lib/storage';
 //   AI_REPLY       (Sprint 05) — background -> caller, the reply to AI_TURN:
 //                  AiReplyPayload ({reply} on success, {error} otherwise --
 //                  a SignedOutError surfaces as the literal string "not
-//                  signed in").
+//                  signed in"). Sprint 12 adds an OPTIONAL `annotations`
+//                  alongside `reply` (ADR-023) -- present only when the
+//                  turn's envelope carried at least one; absent, not [],
+//                  on every other turn.
 //   VOICE_STT      (Sprint 06) — overlay -> content -> background:
 //                  VoiceSttPayload. Carries a SINGLE short push-to-talk
 //                  utterance per turn, never a live stream (ADR-010); the
@@ -128,7 +131,37 @@ export type AiTurnPayload = {
   pageContext?: PageContext;
 };
 
-export type AiReplyPayload = { reply: string } | { error: string };
+// Mirrors /web/lib/ai/envelope.ts's Annotation/AnnotationTarget exactly --
+// that file (and its parseEnvelope validation) is the source of truth for
+// the shape (by-convention re-declaration, same as PageEquation above). The
+// annotation-rendering layer (Sprint 12 / ADR-022) never crosses back the
+// other way -- these only ever travel background -> content, never
+// content -> background.
+export type AnnotationTargetKind = 'selector' | 'bbox' | 'textMatch';
+export type AnnotationType = 'highlight' | 'circle' | 'arrow' | 'label' | 'step-indicator';
+
+export type AnnotationTarget = {
+  kind: AnnotationTargetKind;
+  selector?: string;
+  bbox?: { x: number; y: number; w: number; h: number };
+  text?: string;
+};
+
+export type Annotation = {
+  id: string;
+  type: AnnotationType;
+  target: AnnotationTarget;
+  style?: { color?: string; weight?: string };
+  label?: string;
+  step?: number;
+  ttlMs?: number;
+};
+
+// Sprint 12 / ADR-023: `annotations` rides the existing AI_REPLY payload
+// ADDITIVELY -- present only when the turn's envelope carried at least one
+// (never `null`, never an empty array), so a no-annotation turn's payload is
+// byte-identical to Sprint 11's `{ reply }`. Never persisted anywhere.
+export type AiReplyPayload = { reply: string; annotations?: Annotation[] } | { error: string };
 
 export type VoiceSttPayload = {
   audio: string; // base64-encoded utterance bytes -- see the binary-over-messaging note above

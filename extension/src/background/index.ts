@@ -116,13 +116,18 @@ export default defineBackground(() => {
   // the measured think-time to the relay (getTurnContext) and stamps the
   // reply-delivered anchor afterwards (stampTurnAnchor) so the NEXT turn can
   // measure. Transport only — the payload the overlay sends and the
-  // chunk/done messages it receives are unchanged.
+  // chunk/done messages it receives are otherwise unchanged.
+  //
+  // Sprint 12 (ADR-023): `done` additionally carries `annotations` when
+  // api.aiTurn() returned any — OMITTED (not `undefined`, not `[]`) on a
+  // turn with none, so a no-annotation `done` message is byte-identical to
+  // Sprint 11's `{ type: 'done', reply }`.
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== 'AI_STREAM') return;
     port.onMessage.addListener(async (msg: AiTurnPayload) => {
       try {
         const turnContext = await getTurnContext();
-        const reply = await api.aiTurn(msg.messages, msg.pageContext, turnContext);
+        const { reply, annotations } = await api.aiTurn(msg.messages, msg.pageContext, turnContext);
         // Split on whitespace boundaries, keeping trailing spaces attached to
         // the preceding token so the overlay reconstructs spacing correctly.
         const tokens = reply.match(/\S+\s*/g) ?? [];
@@ -132,7 +137,7 @@ export default defineBackground(() => {
         await setRunningTranscript(msg.messages);
         await stampTurnAnchor(turnContext.sessionId);
         try {
-          port.postMessage({ type: 'done', reply });
+          port.postMessage({ type: 'done', reply, ...(annotations ? { annotations } : {}) });
         } catch {
           // Port already disconnected — all chunks were sent, no action needed.
         }
@@ -392,14 +397,20 @@ async function handleEndSession(): Promise<CalyxaMessage> {
  * (getTurnContext) and stamps the reply-delivered anchor on success, same
  * as the AI_STREAM port path above -- the voice pipeline's turns persist
  * session_interactions rows too.
+ *
+ * Sprint 12 (ADR-023): the AI_REPLY payload additionally carries
+ * `annotations` when api.aiTurn() returned any — OMITTED on a turn with
+ * none, so a no-annotation reply is byte-identical to Sprint 11's
+ * `{ reply }`. Voice turns get this for free too, since they relay through
+ * this same handler.
  */
 async function handleAiTurn(messages: TurnMessage[], pageContext?: PageContext): Promise<CalyxaMessage> {
   try {
     const turnContext = await getTurnContext();
-    const reply = await api.aiTurn(messages, pageContext, turnContext);
+    const { reply, annotations } = await api.aiTurn(messages, pageContext, turnContext);
     await setRunningTranscript(messages);
     await stampTurnAnchor(turnContext.sessionId);
-    return { type: 'AI_REPLY', payload: { reply } };
+    return { type: 'AI_REPLY', payload: { reply, ...(annotations ? { annotations } : {}) } };
   } catch (error) {
     return { type: 'AI_REPLY', payload: { error: toErrorMessage(error) } };
   }
