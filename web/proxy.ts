@@ -6,16 +6,20 @@ import { NextResponse, type NextRequest } from 'next/server'
 const PUBLIC_PATHS = ['/', '/login', '/signup']
 
 function isPublicPath(pathname: string) {
-  // /api/session/*, /api/ai/*, and /api/voice/* are bearer-only (ADR-006,
-  // ADR-008, ADR-010): the extension never sends our cookie, so this
-  // cookie-based gate must not run for them — clientFromBearer does each
-  // route's own auth instead.
+  // /api/session/*, /api/ai/*, /api/voice/*, and /api/profile/* are
+  // bearer-only (ADR-006, ADR-008, ADR-010, ADR-025): the extension never
+  // sends our cookie, so this cookie-based gate must not run for them —
+  // clientFromBearer does each route's own auth instead. /api/profile
+  // (Sprint 13) is the newest of these — without this exemption, a
+  // bearer-token request to it would be redirected to /login before ever
+  // reaching the route handler, exactly like the others would be.
   return (
     PUBLIC_PATHS.includes(pathname) ||
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/session') ||
     pathname.startsWith('/api/ai') ||
-    pathname.startsWith('/api/voice')
+    pathname.startsWith('/api/voice') ||
+    pathname.startsWith('/api/profile')
   )
 }
 

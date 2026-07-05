@@ -451,6 +451,7 @@ the existing handler), `/supabase` (**no migration**), or `/packages/ui`.
 ### Task 3 (web — the profile overview endpoint) creates:
 ```
 /web/app/api/profile/overview/route.ts ← new — GET, clientFromBearer auth (401 when signed out); calls loadProfile(supabase) (no topicKeys — this is the user-level "where you are", not a page-biased read); serializes display-ready: { calibrating, mastery: [{ conceptKey, title, mastery, state, confidenceBand }], weakSpots: [{ conceptKey, title, category, description }], dueForReview: [{ conceptKey, title, reason }] } — titles via getConcept(...).title, unknown keys fall back to the key. calibrating=true ⇔ loadProfile returned the empty profile. Read-only: no model call, no write, no free-tier interaction.
+/web/proxy.ts                          ← edit (found during Task 3, not in the original plan) — add /api/profile to the bearer-only path exemption alongside /api/session, /api/ai, /api/voice. Without this the cookie-based auth gate 307-redirects every request to the new route (incl. valid bearer-token ones from the extension) to /login before clientFromBearer ever runs — the same exemption those three prefixes already needed for the same reason (ADR-006/008/010).
 ```
 
 ### Task 4 (web — the tag + callback contract: envelope + prompt + profile read + route) edits:
@@ -866,8 +867,9 @@ real history:
 architecture.md); scope extended 2026-07-05 with four features (pings, callbacks,
 recap trend/forward-look, confidence-mismatch pending decision) — ADR-026 still owed
 as the Task 1 addendum; Task 2 landed (`@calyxa/curriculum` titles + strandLabels);
-Tasks 3–10 not started.** (Update this line as tasks land, per the Sprint 09–12
-convention.)
+Task 3 landed (`GET /api/profile/overview`, plus a required `proxy.ts` bearer-route
+exemption beyond the task's original file list — see its task section); Tasks 4–10
+not started.** (Update this line as tasks land, per the Sprint 09–12 convention.)
 
 - [ ] `turbo run typecheck lint build test` passes from root; `cd web && next build`
       and `cd extension && wxt build` both exit 0
