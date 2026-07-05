@@ -60,6 +60,27 @@ replace per turn, respect `ttl_ms`, clear on panel close, and fully tear down
 on overlay unmount — zero host-DOM writes, nothing persisted. See ADR-022,
 ADR-023.
 
+## Profile visibility (Sprint 13)
+The adaptive engine (Sprints 09–12) is now visible to the student through three
+display-ephemeral surfaces on the Sprint 10 overlay — none of them add a table or a
+migration. A new read-only `GET /api/profile/overview` serializes the same
+`loadProfile` read the turn prompt already uses, with concept keys resolved to
+human-readable titles (`@calyxa/curriculum`'s new `title`/`strandLabel` fields), and
+renders before the student's first question in a session. The envelope gains an
+optional `profile_tags` field — structured references (`reviewing` / `known-gap` /
+`due-review` / `strength`) the tutor can attach to a turn — which the turn route
+**grounds** against the exact `LearningProfile` it rendered into that turn's prompt
+before returning it; an ungrounded tag is dropped, never rendered, so the student never
+sees a claim about their own history that the profile read didn't actually support.
+`/api/session/end` gains an optional `recap`, built only after its existing reconcile
+sweep has run, from the tables that reconcile just updated — mastery, resolved/added
+misconceptions, next reinforcement due dates — and broadcasts it to all tabs as a new
+`SESSION_ENDED` message so the recap renders regardless of whether the popup or a new
+overlay End-session control (which reuses the existing `END_SESSION` handler) ended the
+session. Mastery deltas shown in the recap are computed client-side against the
+overview snapshot already held from panel open — no baseline is fetched or stored.
+See ADR-024, ADR-025.
+
 ## Architecture decision records
 See `/docs/adr/`. Notably:
 - ADR-001 — Extension framework (WXT)
@@ -87,6 +108,14 @@ See `/docs/adr/`. Notably:
   drop-don't-guess fallback
 - ADR-023 — Annotations ride the existing wire additively
   (`{ reply, annotations? }`) and are never persisted
+- ADR-024 — Three profile-visibility surfaces (overview / in-session tags / recap),
+  display-ephemeral, tags grounded against the exact profile injected that turn,
+  display fields server-rendered; decides the Sprint 11 audit's mode/confidence
+  question against persistence
+- ADR-025 — Profile data on the wire: a new read-only overview route;
+  `profile_tags` + the recap ride existing responses additively; the overlay's
+  End-session control reuses the existing `END_SESSION` path; deltas computed
+  client-side against the panel-open overview snapshot
 
 ## To be documented
 - System context diagram

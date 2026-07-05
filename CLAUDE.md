@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 12 — On-screen annotation layer
+Sprint 13 — Adaptive tutor experience in the overlay
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions
