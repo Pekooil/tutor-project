@@ -55,6 +55,18 @@ import type { ActiveSession, AuthUser } from '../lib/storage';
 //                  success, {error} otherwise). `audio` is base64-encoded
 //                  audio/mpeg bytes, decoded for playback only -- never
 //                  persisted (ADR-011).
+//   GET_PROFILE_OVERVIEW (Sprint 13) — content -> background, no payload.
+//                  Reply reuses the same type: GetProfileOverviewReplyPayload
+//                  ({overview} on success, {error} otherwise) — the same
+//                  request/reply type-reuse convention SESSION_STATE already
+//                  uses for GET_STATE. Read-only (ADR-024/025); the overlay
+//                  fetches it fresh on every panel open, never caches it.
+//   SESSION_ENDED  (Sprint 13) — background -> ALL tabs (broadcastToAllTabs,
+//                  the SESSION_STATE push convention), fired once a session
+//                  actually ends, from EITHER the popup's END_SESSION or a
+//                  content-sent one: SessionEndedPayload ({recap} when the
+//                  ended session had gradable interactions, omitted for a
+//                  no-gradable session — never null/{}). No reply expected.
 //
 //   Binary-over-messaging caveat (ADR-010): chrome.runtime.sendMessage
 //   payloads are structured-cloned/JSON, so a raw ArrayBuffer/Blob is not a
@@ -76,7 +88,9 @@ export type MessageType =
   | 'VOICE_STT'
   | 'VOICE_STT_REPLY'
   | 'VOICE_TTS'
-  | 'VOICE_TTS_REPLY';
+  | 'VOICE_TTS_REPLY'
+  | 'GET_PROFILE_OVERVIEW'
+  | 'SESSION_ENDED';
 
 export interface CalyxaMessage {
   type: MessageType;
@@ -157,11 +171,106 @@ export type Annotation = {
   ttlMs?: number;
 };
 
-// Sprint 12 / ADR-023: `annotations` rides the existing AI_REPLY payload
-// ADDITIVELY -- present only when the turn's envelope carried at least one
-// (never `null`, never an empty array), so a no-annotation turn's payload is
-// byte-identical to Sprint 11's `{ reply }`. Never persisted anywhere.
-export type AiReplyPayload = { reply: string; annotations?: Annotation[] } | { error: string };
+// Mirrors /web/lib/ai/envelope.ts's ProfileTag/ProfileTagKind exactly (Sprint
+// 13, ADR-024/026) -- the same by-convention re-declaration as Annotation
+// above. `label` here is already the route's grounded, title-resolved
+// display copy -- the extension never re-derives or re-validates it.
+export type ProfileTagKind = 'reviewing' | 'known-gap' | 'due-review' | 'strength' | 'callback';
+
+export type ProfileTag = {
+  kind: ProfileTagKind;
+  conceptKey: string | null;
+  label: string;
+};
+
+// Sprint 12 / ADR-023 + Sprint 13 / ADR-024/025/026: `annotations`,
+// `profileTags`, and `pings` all ride the existing AI_REPLY payload
+// ADDITIVELY -- each present only when the turn actually produced one
+// (never `null`, never an empty array), so a turn with none of the three is
+// byte-identical to Sprint 11's `{ reply }`. None of the three is ever
+// persisted anywhere.
+export type AiReplyPayload =
+  | { reply: string; annotations?: Annotation[]; profileTags?: ProfileTag[]; pings?: TurnPing[] }
+  | { error: string };
+
+// Mirrors /web/app/api/profile/overview/route.ts's response shape exactly
+// (Sprint 13, ADR-024/025) -- the source of truth for this shape; titles
+// are resolved server-side (@calyxa/curriculum never ships in this bundle).
+// Read-only, display-ephemeral: the overlay holds this in local state only,
+// re-fetched fresh on every panel open (ADR-024's server-rendered-display /
+// nothing-persisted rules).
+export type ProfileOverview = {
+  calibrating: boolean;
+  mastery: Array<{ conceptKey: string; title: string; mastery: number; state: string; confidenceBand: string }>;
+  weakSpots: Array<{ conceptKey: string; title: string; category: string; description: string }>;
+  dueForReview: Array<{ conceptKey: string; title: string; reason: string }>;
+};
+
+export type GetProfileOverviewReplyPayload = { overview: ProfileOverview } | { error: string };
+
+// Mirrors /web/lib/learning/events.ts's TurnPing/TurnPingKind exactly
+// (Sprint 13, ADR-026). Computed by the model's own math, never the LLM --
+// no grounding gate applies to this one. `label` is the full, qualitative,
+// server-rendered toast copy (never a number, ADR-026) -- the extension
+// only renders it. Shown once and discarded; never persisted.
+export type TurnPingKind = 'mastery-up' | 'misconception-resolved';
+
+export type TurnPing = {
+  kind: TurnPingKind;
+  conceptKey: string;
+  title: string;
+  label: string;
+};
+
+// Mirrors /web/lib/learning/recap.ts's SessionRecap (and its constituent
+// Recap* types) exactly (Sprint 13, ADR-025/026) -- built AFTER the
+// session-end reconcile, so it cannot disagree with the real mastery write.
+// Titles resolved server-side; display-ephemeral -- shown once on
+// SESSION_ENDED and discarded, never persisted.
+export type RecapConcept = {
+  conceptKey: string;
+  title: string;
+  turns: number;
+  correct: number;
+  incorrect: number;
+  mastery: number;
+  state: string;
+};
+
+export type RecapMisconception = {
+  conceptKey: string;
+  title: string;
+  category: string;
+  description: string;
+};
+
+export type RecapNextReview = {
+  conceptKey: string;
+  title: string;
+  dueAt: string;
+};
+
+export type RecapTrend = {
+  conceptKey: string;
+  title: string;
+  sessions: number;
+  line: string;
+};
+
+export type SessionRecap = {
+  concepts: RecapConcept[];
+  misconceptionsAdded: RecapMisconception[];
+  misconceptionsResolved: RecapMisconception[];
+  nextReviews: RecapNextReview[];
+  trends: RecapTrend[];
+};
+
+// Background -> ALL tabs (broadcastToAllTabs), fired once per actual session
+// end from either surface. `recap` is omitted (not null) for a session with
+// no gradable interactions -- the recap card then simply doesn't render
+// (Task 8), same additive-omission discipline as annotations/profileTags/
+// pings above.
+export type SessionEndedPayload = { recap?: SessionRecap };
 
 export type VoiceSttPayload = {
   audio: string; // base64-encoded utterance bytes -- see the binary-over-messaging note above

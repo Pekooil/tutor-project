@@ -888,7 +888,19 @@ miss exactly the rows the recap exists to report; live spot-checks green — rec
 matches post-reconcile `knowledge_nodes`/`reinforcement_schedule`, trend fires at 3
 strictly-improving sessions and stays silent at 1/2/non-monotone, empty session
 byte-identical to Sprint 11; full web suite 96/96 — NOTE: ADR-026 is STILL owed, now
-overdue since before Task 2); Tasks 7–10 not started.** (Update this
+overdue since before Task 2); Task 7 landed (extension transport: `messages.ts`
+mirrors `ProfileTag`/`ProfileTagKind` + declares `ProfileOverview`, `TurnPing`, and
+`SessionRecap` (incl. `trends`), `AiReplyPayload` gains `profileTags?`/`pings?`,
+`GET_PROFILE_OVERVIEW` + `SESSION_ENDED` added; `api.ts` gets `getProfileOverview()`,
+`aiTurn()` threads `profileTags?`/`pings?`, `endSession()` now returns `{ recap? }`
+instead of discarding the response body; `background/index.ts` adds the
+`GET_PROFILE_OVERVIEW` handler, threads `profileTags`/`pings` on both the AI_STREAM
+`done` message and the AI_TURN reply, and `handleEndSession` broadcasts
+`SESSION_ENDED` to all tabs after either END_SESSION caller — content
+script/overlay wiring is Task 8, not this one; `wxt build` exits 0, extension
+typecheck clean, existing 25-test extension suite green untouched; root
+`turbo run typecheck lint build test` 19/19 green across both workspaces); Tasks
+8–10 not started.** (Update this
 line as tasks land, per the Sprint 09–12 convention.)
 
 - [ ] `turbo run typecheck lint build test` passes from root; `cd web && next build`

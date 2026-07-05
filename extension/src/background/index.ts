@@ -98,6 +98,9 @@ export default defineBackground(() => {
       case 'VOICE_TTS':
         void handleVoiceTts(message.payload as VoiceTtsPayload).then(sendResponse);
         return true;
+      case 'GET_PROFILE_OVERVIEW':
+        void handleGetProfileOverview().then(sendResponse);
+        return true;
       default:
         return false;
     }
@@ -121,13 +124,18 @@ export default defineBackground(() => {
   // Sprint 12 (ADR-023): `done` additionally carries `annotations` when
   // api.aiTurn() returned any — OMITTED (not `undefined`, not `[]`) on a
   // turn with none, so a no-annotation `done` message is byte-identical to
-  // Sprint 11's `{ type: 'done', reply }`.
+  // Sprint 11's `{ type: 'done', reply }`. Sprint 13 (ADR-024/025/026)
+  // threads `profileTags` and `pings` the same way, alongside annotations.
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== 'AI_STREAM') return;
     port.onMessage.addListener(async (msg: AiTurnPayload) => {
       try {
         const turnContext = await getTurnContext();
-        const { reply, annotations } = await api.aiTurn(msg.messages, msg.pageContext, turnContext);
+        const { reply, annotations, profileTags, pings } = await api.aiTurn(
+          msg.messages,
+          msg.pageContext,
+          turnContext,
+        );
         // Split on whitespace boundaries, keeping trailing spaces attached to
         // the preceding token so the overlay reconstructs spacing correctly.
         const tokens = reply.match(/\S+\s*/g) ?? [];
@@ -137,7 +145,13 @@ export default defineBackground(() => {
         await setRunningTranscript(msg.messages);
         await stampTurnAnchor(turnContext.sessionId);
         try {
-          port.postMessage({ type: 'done', reply, ...(annotations ? { annotations } : {}) });
+          port.postMessage({
+            type: 'done',
+            reply,
+            ...(annotations ? { annotations } : {}),
+            ...(profileTags ? { profileTags } : {}),
+            ...(pings ? { pings } : {}),
+          });
         } catch {
           // Port already disconnected — all chunks were sent, no action needed.
         }
@@ -358,6 +372,16 @@ async function handleStartSession(payload: StartSessionPayload): Promise<CalyxaM
  * api.endSession itself only clears the active session on success. A
  * session ended with no prior AI_TURN (no cached transcript) still ends
  * cleanly -- transcript is simply omitted from the request body.
+ *
+ * Sprint 13 (ADR-025): on success, broadcasts SESSION_ENDED (with the
+ * recap when the route returned one) to every tab via broadcastToAllTabs --
+ * the same push used for sign-in/sign-out above. This is the ONLY handler
+ * for END_SESSION regardless of which surface sent it (the popup or, from
+ * Task 8, the overlay's own control), so both reach the same broadcast and
+ * an open panel always sees the recap of a session ended from either place.
+ * A recap-less end (no gradable interactions, or the route omitted it)
+ * still broadcasts -- with `recap` simply absent -- so listeners don't need
+ * to distinguish "no broadcast" from "broadcast, nothing to show".
  */
 async function handleEndSession(): Promise<CalyxaMessage> {
   const active = await getActiveSession();
@@ -366,11 +390,28 @@ async function handleEndSession(): Promise<CalyxaMessage> {
   }
   try {
     const transcript = await getRunningTranscript();
-    await api.endSession(active.sessionId, transcript ?? undefined);
+    const { recap } = await api.endSession(active.sessionId, transcript ?? undefined);
     await clearRunningTranscript();
+    void broadcastToAllTabs({ type: 'SESSION_ENDED', payload: { ...(recap ? { recap } : {}) } });
     return buildSessionState();
   } catch (error) {
     return buildSessionState(toErrorMessage(error));
+  }
+}
+
+/**
+ * Relays GET_PROFILE_OVERVIEW to the read-only overview endpoint (Sprint 13
+ * / ADR-024/025). Error-shaped like every other reply in this file
+ * (toErrorMessage), including the SignedOutError -> "not signed in" text.
+ * No caching here -- the overlay is responsible for re-requesting this on
+ * every panel open.
+ */
+async function handleGetProfileOverview(): Promise<CalyxaMessage> {
+  try {
+    const overview = await api.getProfileOverview();
+    return { type: 'GET_PROFILE_OVERVIEW', payload: { overview } };
+  } catch (error) {
+    return { type: 'GET_PROFILE_OVERVIEW', payload: { error: toErrorMessage(error) } };
   }
 }
 
@@ -401,16 +442,25 @@ async function handleEndSession(): Promise<CalyxaMessage> {
  * Sprint 12 (ADR-023): the AI_REPLY payload additionally carries
  * `annotations` when api.aiTurn() returned any — OMITTED on a turn with
  * none, so a no-annotation reply is byte-identical to Sprint 11's
- * `{ reply }`. Voice turns get this for free too, since they relay through
- * this same handler.
+ * `{ reply }`. Sprint 13 (ADR-024/025/026) threads `profileTags` and
+ * `pings` the same way. Voice turns get all of this for free too, since
+ * they relay through this same handler.
  */
 async function handleAiTurn(messages: TurnMessage[], pageContext?: PageContext): Promise<CalyxaMessage> {
   try {
     const turnContext = await getTurnContext();
-    const { reply, annotations } = await api.aiTurn(messages, pageContext, turnContext);
+    const { reply, annotations, profileTags, pings } = await api.aiTurn(messages, pageContext, turnContext);
     await setRunningTranscript(messages);
     await stampTurnAnchor(turnContext.sessionId);
-    return { type: 'AI_REPLY', payload: { reply, ...(annotations ? { annotations } : {}) } };
+    return {
+      type: 'AI_REPLY',
+      payload: {
+        reply,
+        ...(annotations ? { annotations } : {}),
+        ...(profileTags ? { profileTags } : {}),
+        ...(pings ? { pings } : {}),
+      },
+    };
   } catch (error) {
     return { type: 'AI_REPLY', payload: { error: toErrorMessage(error) } };
   }

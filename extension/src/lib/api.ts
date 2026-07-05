@@ -9,7 +9,15 @@ import {
   type SessionMode,
   type StoredAuth,
 } from './storage';
-import type { Annotation, PageContext, TurnMessage } from '../types/messages';
+import type {
+  Annotation,
+  PageContext,
+  ProfileOverview,
+  ProfileTag,
+  SessionRecap,
+  TurnMessage,
+  TurnPing,
+} from '../types/messages';
 
 // Backend HTTP client for the extension (Sprint 04 Task 6 / ADR-006).
 //
@@ -157,7 +165,15 @@ export async function startSession({
 // input and runs the session-summary write best-effort, so it is forwarded
 // as-is here with no validation on this side, same discipline as
 // pageContext in aiTurn() below.
-export async function endSession(sessionId: string, transcript?: TurnMessage[]): Promise<void> {
+//
+// Sprint 13 (ADR-025): the route's response now additionally carries
+// `recap` (built after the reconcile, from the post-apply tables) -- this
+// was previously discarded (`Promise<void>`); it is now parsed straight
+// through and returned, same no-re-validation discipline as `annotations`
+// in aiTurn() below. Omitted (not `undefined`, not `{}`) for a session with
+// no gradable interactions. The storage clear and error handling are
+// otherwise unchanged.
+export async function endSession(sessionId: string, transcript?: TurnMessage[]): Promise<{ recap?: SessionRecap }> {
   const res = await authorizedFetch('/api/session/end', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -170,13 +186,35 @@ export async function endSession(sessionId: string, transcript?: TurnMessage[]):
   }
 
   await clearActiveSession();
+
+  return { ...(body.recap ? { recap: body.recap as SessionRecap } : {}) };
+}
+
+/**
+ * Fetches the read-only profile overview (Sprint 13 / ADR-024/025) -- the
+ * "where you are" panel the overlay renders before the first question.
+ * Fresh per call, never cached here: the overlay is responsible for
+ * re-fetching on every panel open (ADR-024's nothing-persisted rule). No
+ * write, no free-tier interaction; reuses authorizedFetch verbatim, so a
+ * dead refresh token surfaces SignedOutError exactly as every other helper.
+ */
+export async function getProfileOverview(): Promise<ProfileOverview> {
+  const res = await authorizedFetch('/api/profile/overview', { method: 'GET' });
+
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body.error ?? `profile_overview failed: ${res.status}`);
+  }
+
+  return body as ProfileOverview;
 }
 
 /**
  * Sends the running transcript to the Claude proxy (Sprint 05 / ADR-008) and
  * returns the tutor's reply text (+ optional annotations, Sprint 12 /
- * ADR-023). `/api/ai/turn` is stateless -- non-streaming fallback retained
- * for any callers that don't need streaming.
+ * ADR-023; + optional profileTags/pings, Sprint 13 / ADR-024/025/026).
+ * `/api/ai/turn` is stateless -- non-streaming fallback retained for any
+ * callers that don't need streaming.
  *
  * `turnContext` (Sprint 11 / ADR-019) threads the active sessionId and the
  * client-measured think-time so the route can persist the turn's
@@ -186,17 +224,18 @@ export async function endSession(sessionId: string, transcript?: TurnMessage[]):
  * absent (older callers keep working unchanged), so nothing is validated
  * on this side -- same discipline as pageContext above.
  *
- * `annotations` is parsed straight through from the response body with no
- * re-validation here -- the backend already validated it (envelope.ts,
- * ADR-019) before ever putting it on the wire, and it is OMITTED (never
- * included, not `undefined`) from the returned object when the response
- * didn't carry any, matching the route's own additive-omission contract.
+ * `annotations`, `profileTags`, and `pings` are all parsed straight through
+ * from the response body with no re-validation here -- the backend already
+ * validated/grounded/computed them before ever putting them on the wire,
+ * and each is OMITTED (never included, not `undefined`) from the returned
+ * object when the response didn't carry any, matching the route's own
+ * additive-omission contract.
  */
 export async function aiTurn(
   messages: TurnMessage[],
   pageContext?: PageContext,
   turnContext?: { sessionId?: string; responseLatencyMs?: number },
-): Promise<{ reply: string; annotations?: Annotation[] }> {
+): Promise<{ reply: string; annotations?: Annotation[]; profileTags?: ProfileTag[]; pings?: TurnPing[] }> {
   const res = await authorizedFetch('/api/ai/turn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -220,6 +259,10 @@ export async function aiTurn(
     ...(Array.isArray(body.annotations) && body.annotations.length > 0
       ? { annotations: body.annotations as Annotation[] }
       : {}),
+    ...(Array.isArray(body.profileTags) && body.profileTags.length > 0
+      ? { profileTags: body.profileTags as ProfileTag[] }
+      : {}),
+    ...(Array.isArray(body.pings) && body.pings.length > 0 ? { pings: body.pings as TurnPing[] } : {}),
   };
 }
 
