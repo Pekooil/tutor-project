@@ -878,7 +878,17 @@ write path byte-identical, existing 96-test suite green untouched; `events.ts`
 prospective compute; route returns `pings?` additively, gated on `persistInteraction`
 now returning whether the apply was actually SCHEDULED — a design addition beyond the
 plan text: a no-session/foreign-session/failed-insert turn suppresses its pings rather
-than celebrating a write that will never land); Tasks 6–10 not started.** (Update this
+than celebrating a write that will never land); Task 6 landed (session-end recap:
+`recap.ts` + the additive `/api/session/end` field; one deviation from the plan text,
+commented in `recap.ts`: the misconception added/resolved window is
+[`started_at`, recap-build time] rather than [`started_at`, `ended_at`] — the reconcile
+sweep runs AFTER `end_session` stamps `ended_at` in the same request, so rows it
+creates/resolves carry timestamps seconds past `ended_at` and the plan's window would
+miss exactly the rows the recap exists to report; live spot-checks green — recap
+matches post-reconcile `knowledge_nodes`/`reinforcement_schedule`, trend fires at 3
+strictly-improving sessions and stays silent at 1/2/non-monotone, empty session
+byte-identical to Sprint 11; full web suite 96/96 — NOTE: ADR-026 is STILL owed, now
+overdue since before Task 2); Tasks 7–10 not started.** (Update this
 line as tasks land, per the Sprint 09–12 convention.)
 
 - [ ] `turbo run typecheck lint build test` passes from root; `cd web && next build`

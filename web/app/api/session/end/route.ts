@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { clientFromBearer } from '@/lib/auth/bearer'
 import { endSession } from '@/lib/tier/session-gate'
 import { reconcileSession } from '@/lib/learning/apply'
+import { buildSessionRecap, type SessionRecap } from '@/lib/learning/recap'
 
 // Ends a session (Sprint 04 behaviour, unchanged). ADR-019 retires the
 // end-of-session summariser Anthropic call (ADR-015) -- learning state is
@@ -49,9 +50,24 @@ export async function POST(request: Request) {
     console.error('session/end: reconcile failed', err)
   }
 
+  // The recap (Sprint 13, ADR-025): a read of the tables the awaited
+  // reconcile above just finished writing -- built here, in the same
+  // request, so it cannot disagree with the real mastery write. Additive
+  // and best-effort, the same posture as the reconcile: a recap failure is
+  // logged and the field omitted, never an error on an already-successful
+  // end; a session with no gradable interactions returns undefined and the
+  // response stays byte-identical to Sprint 11.
+  let recap: SessionRecap | undefined
+  try {
+    recap = await buildSessionRecap(auth.supabase, auth.user.id, body.sessionId)
+  } catch (err) {
+    console.error('session/end: recap build failed', err)
+  }
+
   return NextResponse.json({
     sessionId: ended.id,
     endedAt: ended.ended_at,
     interactionCount: ended.interaction_count,
+    ...(recap ? { recap } : {}),
   })
 }
