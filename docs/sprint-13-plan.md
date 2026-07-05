@@ -899,8 +899,26 @@ instead of discarding the response body; `background/index.ts` adds the
 `SESSION_ENDED` to all tabs after either END_SESSION caller — content
 script/overlay wiring is Task 8, not this one; `wxt build` exits 0, extension
 typecheck clean, existing 25-test extension suite green untouched; root
-`turbo run typecheck lint build test` 19/19 green across both workspaces); Tasks
-8–10 not started.** (Update this
+`turbo run typecheck lint build test` 19/19 green across both workspaces); Task 8
+landed (overlay surfaces: `content/index.ts` — `sendAiTurn` resolves
+`{ reply, tags?, pings? }` on both paths, `loadProfileOverview`/`endSessionFromOverlay`
+callbacks, SESSION_ENDED → `calyxa:session-recap` CustomEvent; `Overlay.tsx` —
+overview card in the empty expanded state (calibrating variant, silent degrade,
+snapshot kept as the delta baseline), tag pills on assistant bubbles (≤2, one visual
+language, history stripped to role/content via `stripHistory`), frosted-glass ping
+toasts (≤2/turn, one mastery-up per concept per session, ~4s, aria-live polite,
+motion-safe, anchored above the panel), recap card (delta arrows vs baseline, trends,
+humanized forward look) + the End-session header control; `mount.tsx` transport
+contract updated; pure display helpers (`stripHistory`/`capTags`/
+`filterPingsForDisplay`/`masteryDelta`/`humanizeDue`) exported for Task 9's spec.
+Judgment calls: End-session lives in the non-playing header only (during TTS playback
+a turn is in flight and it would be disabled anyway); the recap is discarded on panel
+close AND when a new message is sent; the overview is cleared on close and refetched
+per open. Verified: `wxt build` 0, typecheck clean, 25-test suite green, root turbo
+19/19, plus a throwaway jsdom render smoke (overview/tags/ping-dedupe/stripping/recap
+deltas/calibrating/failure-degrade — written, run green, deleted); the gate's LIVE
+unpacked-extension pass was NOT run here (no browser harness) — it folds into Task
+10's manual acceptance); Tasks 9–10 not started.** (Update this
 line as tasks land, per the Sprint 09–12 convention.)
 
 - [ ] `turbo run typecheck lint build test` passes from root; `cd web && next build`

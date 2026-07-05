@@ -2,7 +2,7 @@ import { createShadowRootUi, defineContentScript } from '#imports';
 import type { ShadowRootContentScriptUi } from '#imports';
 import type { Root } from 'react-dom/client';
 import { mountOverlay, unmountOverlay } from '../overlay/mount';
-import { PANEL_CLOSED_EVENT } from '../overlay/Overlay';
+import { PANEL_CLOSED_EVENT, SESSION_RECAP_EVENT, type TurnResult } from '../overlay/Overlay';
 import type { Utterance } from '../overlay/VoiceController';
 import {
   clearAnnotations,
@@ -16,9 +16,14 @@ import type {
   AiReplyPayload,
   Annotation,
   CalyxaMessage,
+  GetProfileOverviewReplyPayload,
   PageContext,
+  ProfileOverview,
+  ProfileTag,
+  SessionEndedPayload,
   SessionStatePayload,
   TurnMessage,
+  TurnPing,
   VoiceSttReplyPayload,
   VoiceTtsReplyPayload,
 } from '../types/messages';
@@ -69,10 +74,16 @@ function currentEquationRegistry(): EquationRegistry {
 // This is the ONLY chrome.* surface threaded into the overlay — Overlay.tsx
 // itself never imports chrome.*, so this function is its sole window onto
 // the extension. pageContext is captured at overlay-open time (see below).
+//
+// Sprint 13 (ADR-024/026): resolves { reply, tags?, pings? } instead of a
+// bare string -- profileTags/pings ride both reply paths (the port's `done`
+// message and the AI_REPLY payload) additively, each key present only when
+// the wire carried entries, so the overlay's omission checks mirror the
+// route's own. Annotation handling on both paths is unchanged.
 async function sendAiTurn(
   messages: TurnMessage[],
   onChunk?: (text: string) => void,
-): Promise<string> {
+): Promise<TurnResult> {
   // Snapshotted once per turn, not re-read at reply time: a turn's whole
   // round trip should resolve against the page as it was when the turn was
   // sent, not whatever the overlay happens to hold by the time the reply
@@ -80,12 +91,20 @@ async function sendAiTurn(
   const registry = currentEquationRegistry();
 
   if (onChunk) {
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<TurnResult>((resolve, reject) => {
       const port = chrome.runtime.connect({ name: 'AI_STREAM' });
       let settled = false;
 
       port.onMessage.addListener(
-        (msg: { type: string; text?: string; reply?: string; annotations?: Annotation[]; error?: string }) => {
+        (msg: {
+          type: string;
+          text?: string;
+          reply?: string;
+          annotations?: Annotation[];
+          profileTags?: ProfileTag[];
+          pings?: TurnPing[];
+          error?: string;
+        }) => {
           if (msg.type === 'chunk' && msg.text) {
             onChunk(msg.text);
           } else if (msg.type === 'done' && !settled) {
@@ -94,7 +113,11 @@ async function sendAiTurn(
             // New turn's annotations replace the previous turn's drawings
             // (controller behaviour); a turn with none is a no-op there.
             showTurnAnnotations(msg.annotations ?? [], registry);
-            resolve(msg.reply ?? '');
+            resolve({
+              reply: msg.reply ?? '',
+              ...(msg.profileTags && msg.profileTags.length > 0 ? { tags: msg.profileTags } : {}),
+              ...(msg.pings && msg.pings.length > 0 ? { pings: msg.pings } : {}),
+            });
           } else if (msg.type === 'error' && !settled) {
             settled = true;
             port.disconnect();
@@ -132,7 +155,37 @@ async function sendAiTurn(
     throw new Error(payload.error);
   }
   pendingVoiceAnnotations = { annotations: payload.annotations ?? [], registry };
-  return payload.reply;
+  return {
+    reply: payload.reply,
+    ...(payload.profileTags && payload.profileTags.length > 0 ? { tags: payload.profileTags } : {}),
+    ...(payload.pings && payload.pings.length > 0 ? { pings: payload.pings } : {}),
+  };
+}
+
+// The overlay's overview transport (Sprint 13, ADR-024/025): relays
+// GET_PROFILE_OVERVIEW to the background and unwraps the error-shaped
+// reply, same pattern as sendVoiceStt below. A rejection is the overlay's
+// signal to render the plain Sprint 10 empty state.
+async function loadProfileOverview(): Promise<ProfileOverview> {
+  const response: CalyxaMessage = await chrome.runtime.sendMessage({ type: 'GET_PROFILE_OVERVIEW' });
+  const payload = response.payload as GetProfileOverviewReplyPayload;
+  if ('error' in payload) {
+    throw new Error(payload.error);
+  }
+  return payload.overview;
+}
+
+// The overlay's End-session transport (Sprint 13, ADR-025): the EXISTING
+// END_SESSION message -- the same background handler, RPC, and storage
+// clear the popup uses, no parallel path. The reply is a SESSION_STATE
+// (error-carrying on failure); the recap arrives separately via the
+// SESSION_ENDED broadcast handled in main() below.
+async function endSessionFromOverlay(): Promise<void> {
+  const response: CalyxaMessage = await chrome.runtime.sendMessage({ type: 'END_SESSION' });
+  const payload = response.payload as SessionStatePayload | undefined;
+  if (payload?.error) {
+    throw new Error(payload.error);
+  }
 }
 
 // Set by sendAiTurn's voice-path branch above when a reply arrives, and
@@ -274,6 +327,18 @@ export default defineContentScript({
         applySignedIn(overlayUi, signedIn);
         return;
       }
+      // SESSION_ENDED (Sprint 13, ADR-025): forwarded to the overlay as the
+      // SESSION_RECAP_EVENT window CustomEvent (the 'calyxa:toggle-panel'
+      // bridge). Registered once here for the content script's lifetime,
+      // like the panel-close listener above; if no panel is mounted/open,
+      // the event simply has no listener -- ephemeral by design.
+      if (message.type === 'SESSION_ENDED') {
+        const { recap } = (message.payload ?? {}) as SessionEndedPayload;
+        window.dispatchEvent(
+          new CustomEvent(SESSION_RECAP_EVENT, { detail: recap ? { recap } : {} }),
+        );
+        return;
+      }
       if (message.type !== 'TOGGLE_OVERLAY') return;
       console.log('Calyxa content: TOGGLE_OVERLAY received; overlay ready =', !!overlayUi);
       if (!overlayUi) {
@@ -340,6 +405,8 @@ export default defineContentScript({
           onTranscribe: sendVoiceStt,
           onSynthesize: sendVoiceTts,
           onVoicePlaybackStart: handleVoicePlaybackStart,
+          onLoadOverview: loadProfileOverview,
+          onEndSession: endSessionFromOverlay,
         });
       },
       onRemove: (root) => {
