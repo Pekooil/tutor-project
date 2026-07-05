@@ -60,15 +60,40 @@ export type Annotation = {
   ttlMs?: number
 }
 
-// annotations/mode/assessment are all optional at the type level: an
-// opening turn (no prior student answer) omits assessment, a turn with
-// nothing to point at omits annotations, and a degrade-to-plain-text
-// result (see parseEnvelope) omits everything but `say`.
+// Profile tags (Sprint 13, ADR-024/026): the tutor's structured references
+// to the student's OWN profile, rendered as visible pills in the transcript
+// (e.g. [reviewing: Factoring quadratics], [known gap: sign errors]). Unlike
+// assessment (persisted) and annotations (drawn), a tag is a student-facing
+// CLAIM about what the tutor remembers about them -- so beyond this
+// structural parse, the turn route grounds every tag against the exact
+// profile it injected into that turn's prompt and drops anything the
+// profile didn't actually contain (drop-don't-invent). `callback` is the
+// cross-session kind: "this connects to a prior session" -- grounded
+// against the priorWork digest, and prompted to at most one per session.
+export type ProfileTagKind = 'reviewing' | 'known-gap' | 'due-review' | 'strength' | 'callback'
+
+export type ProfileTag = {
+  kind: ProfileTagKind
+  conceptKey: string | null
+  label: string
+}
+
+// Defence in depth alongside the prompt's "at most 2 per turn" instruction
+// (and the overlay's own client-side cap): parse keeps the first two valid
+// entries and silently discards the rest.
+const MAX_PROFILE_TAGS = 2
+
+// annotations/mode/assessment/profileTags are all optional at the type
+// level: an opening turn (no prior student answer) omits assessment, a turn
+// with nothing to point at omits annotations, most turns carry no profile
+// tags, and a degrade-to-plain-text result (see parseEnvelope) omits
+// everything but `say`.
 export type TurnEnvelope = {
   say: string
   annotations?: Annotation[]
   mode?: Mode
   assessment?: Assessment
+  profileTags?: ProfileTag[]
 }
 
 // Same fence-stripping regex as summarise.ts -- duplicated rather than
@@ -128,6 +153,16 @@ function isValidConfidence(value: unknown): value is AssessmentConfidence {
 
 function isValidSelfConfidence(value: unknown): value is AssessmentSelfConfidence {
   return value === 'low' || value === 'med' || value === 'high' || value === 'unknown'
+}
+
+function isValidProfileTagKind(value: unknown): value is ProfileTagKind {
+  return (
+    value === 'reviewing' ||
+    value === 'known-gap' ||
+    value === 'due-review' ||
+    value === 'strength' ||
+    value === 'callback'
+  )
 }
 
 function isValidAnnotationType(value: unknown): value is AnnotationType {
@@ -234,6 +269,32 @@ function parseAnnotation(candidate: unknown): Annotation | undefined {
   return annotation
 }
 
+// Parses one candidate profile tag. Follows parseAnnotation's discipline
+// (drop, not default) for the fields that make a tag meaningless when
+// absent -- an unknown kind or an empty label leaves nothing safe to
+// render, so the entry is excluded and the rest of the array is
+// unaffected. concept_key follows parseAssessment's discipline instead:
+// an unknown key nulls the FIELD but keeps the entry, because the route's
+// grounding gate (the real authority on whether this tag may render --
+// ADR-024) still has the kind + label to check against the injected
+// profile. Structural validity here is necessary, never sufficient: every
+// surviving tag is re-checked against the actual profile server-side.
+function parseProfileTag(candidate: unknown): ProfileTag | undefined {
+  if (typeof candidate !== 'object' || candidate === null) {
+    return undefined
+  }
+
+  const { kind, concept_key, label } = candidate as Record<string, unknown>
+
+  if (!isValidProfileTagKind(kind)) return undefined
+  if (typeof label !== 'string' || label.trim().length === 0) return undefined
+
+  const conceptKey =
+    typeof concept_key === 'string' && CONCEPT_KEYS.includes(concept_key) ? concept_key : null
+
+  return { kind, conceptKey, label: label.trim() }
+}
+
 // Defensive parse of the model's raw turn output into a TurnEnvelope. The
 // one hard requirement is a string "say" -- everything else (mode,
 // assessment, annotations) degrades field-by-field. Each candidate slice
@@ -257,7 +318,13 @@ export function parseEnvelope(raw: string): TurnEnvelope {
       continue
     }
 
-    const envelopeSource = parsed as { say: string; mode?: unknown; assessment?: unknown; annotations?: unknown }
+    const envelopeSource = parsed as {
+      say: string
+      mode?: unknown
+      assessment?: unknown
+      annotations?: unknown
+      profile_tags?: unknown
+    }
     const envelope: TurnEnvelope = { say: envelopeSource.say }
 
     if (isValidMode(envelopeSource.mode)) {
@@ -276,6 +343,17 @@ export function parseEnvelope(raw: string): TurnEnvelope {
 
       if (annotations.length > 0) {
         envelope.annotations = annotations
+      }
+    }
+
+    if (Array.isArray(envelopeSource.profile_tags)) {
+      const profileTags = (envelopeSource.profile_tags as unknown[])
+        .map(parseProfileTag)
+        .filter((t): t is ProfileTag => t !== undefined)
+        .slice(0, MAX_PROFILE_TAGS)
+
+      if (profileTags.length > 0) {
+        envelope.profileTags = profileTags
       }
     }
 

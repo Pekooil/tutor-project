@@ -868,8 +868,13 @@ architecture.md); scope extended 2026-07-05 with four features (pings, callbacks
 recap trend/forward-look, confidence-mismatch pending decision) — ADR-026 still owed
 as the Task 1 addendum; Task 2 landed (`@calyxa/curriculum` titles + strandLabels);
 Task 3 landed (`GET /api/profile/overview`, plus a required `proxy.ts` bearer-route
-exemption beyond the task's original file list — see its task section); Tasks 4–10
-not started.** (Update this line as tasks land, per the Sprint 09–12 convention.)
+exemption beyond the task's original file list — see its task section); Task 4 landed
+(tag + callback contract; two gate-found fixes: `@calyxa/curriculum` dist was stale —
+Task 2 never rebuilt it, so titles were missing at RUNTIME while typecheck passed via
+source paths — and the grounding normalizer now folds `-_.` separators so a
+"sign errors" label grounds against a "sign-errors" category; full web suite 96/96);
+Tasks 5–10 not started.** (Update this line as tasks land, per the Sprint 09–12
+convention.)
 
 - [ ] `turbo run typecheck lint build test` passes from root; `cd web && next build`
       and `cd extension && wxt build` both exit 0

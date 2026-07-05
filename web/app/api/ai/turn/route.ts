@@ -1,7 +1,10 @@
 import { NextResponse, after } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getConcept } from '@calyxa/curriculum'
 import { clientFromBearer } from '@/lib/auth/bearer'
 import { runTutorTurn, type TurnEnvelope, type TurnMessage } from '@/lib/ai/claude'
+import type { ProfileTag } from '@/lib/ai/envelope'
+import type { LearningProfile } from '@/lib/ai/profile'
 import { loadProfile } from '@/lib/learning/profile-read'
 import { detectTopicKeys } from '@/lib/learning/topic'
 import { applyInteraction } from '@/lib/learning/apply'
@@ -25,6 +28,11 @@ import {
 // `annotations` ADDITIVELY (`{ reply, annotations? }`, field omitted when
 // empty) -- annotations are never persisted; session_interactions keeps its
 // Sprint 11 shape regardless of what a turn drew.
+//
+// As of ADR-024/025 (Sprint 13) it additionally carries `profileTags` the
+// same way -- but only tags that survive the grounding gate below, which
+// verifies each one against the exact profile this request injected into
+// the prompt (drop-don't-invent). Tags are never persisted either.
 
 // Defends the token budget against abusive payloads, not an exact token
 // count — PLAN.md §2.5 targets the last 6–8 turns (well under MAX_MESSAGES).
@@ -190,6 +198,110 @@ function parseResponseLatencyMs(body: unknown): number | undefined {
   }
 
   return Math.round(responseLatencyMs)
+}
+
+// Model-authored tag labels (known-gap / callback keep them) are clipped
+// hard rather than trusted; concept-anchored labels are replaced with the
+// curriculum title outright (below), so this cap never clips a title.
+const MAX_TAG_LABEL_LENGTH = 30
+
+// Folds case, whitespace, AND the separator characters misconception
+// categories actually use (dotted.snake / hyphen-case) to spaces — the
+// model writes labels like "sign errors" while the stored category is
+// "sign-errors" or "algebra.sign_errors"; without separator folding the
+// containment check below never fires and every legitimate known-gap tag
+// would be dropped (found by the Task 4 gate test, not hypothetical).
+function normalizeTagText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[-_.]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// Loose bidirectional containment after the folding above — enough to
+// accept "sign errors" against a category like "algebra.sign-errors" being
+// described as "Sign errors when distributing", without a fuzzy-match
+// dependency on this hot path.
+function tagTextOverlaps(a: string, b: string): boolean {
+  const na = normalizeTagText(a)
+  const nb = normalizeTagText(b)
+  return na.length > 0 && nb.length > 0 && (na.includes(nb) || nb.includes(na))
+}
+
+// The grounding gate (ADR-024): every structurally-valid profile tag is
+// verified against the EXACT LearningProfile this request rendered into the
+// prompt -- the model cannot surface a "memory" the profile read didn't
+// actually contain. Per-kind rules:
+//   reviewing/strength -> a listed mastery node
+//   known-gap          -> a listed ACTIVE misconception (concept-key match,
+//                          or label overlap with its category/description)
+//   due-review         -> a listed dueForReview item
+//   callback           -> a listed priorWork digest entry (ADR-026)
+// An ungrounded tag is dropped with a console.debug -- never rendered, and
+// never an error (the reply is unaffected; this mirrors the annotation
+// layer's drop-don't-guess). Grounded concept-anchored tags get their label
+// replaced by the curriculum title (server-rendered display, ADR-024) so
+// the pill always reads cleanly regardless of what the model wrote;
+// known-gap/callback keep the model's label (it describes the error or the
+// connection -- nothing in the curriculum can generate it), truncated.
+function groundProfileTags(tags: ProfileTag[] | undefined, profile: LearningProfile): ProfileTag[] {
+  if (!tags || tags.length === 0) return []
+
+  const grounded: ProfileTag[] = []
+
+  for (const tag of tags) {
+    let isGrounded = false
+
+    switch (tag.kind) {
+      case 'reviewing':
+      case 'strength':
+        isGrounded =
+          tag.conceptKey !== null &&
+          profile.masteryNodes.some((n) => n.conceptKey === tag.conceptKey)
+        break
+      case 'known-gap':
+        isGrounded = profile.activeMisconceptions.some(
+          (m) =>
+            (tag.conceptKey !== null && m.conceptKey === tag.conceptKey) ||
+            tagTextOverlaps(tag.label, m.category) ||
+            tagTextOverlaps(tag.label, m.description)
+        )
+        break
+      case 'due-review':
+        isGrounded =
+          tag.conceptKey !== null &&
+          (profile.dueForReview ?? []).some((d) => d.conceptKey === tag.conceptKey)
+        break
+      case 'callback':
+        isGrounded =
+          tag.conceptKey !== null &&
+          (profile.priorWork ?? []).some((p) => p.conceptKey === tag.conceptKey)
+        break
+    }
+
+    if (!isGrounded) {
+      console.debug('[ai/turn] profile tag dropped: not grounded in the injected profile', {
+        kind: tag.kind,
+        conceptKey: tag.conceptKey,
+        label: tag.label,
+      })
+      continue
+    }
+
+    const conceptTitle =
+      tag.conceptKey !== null && (tag.kind === 'reviewing' || tag.kind === 'strength' || tag.kind === 'due-review')
+        ? getConcept(tag.conceptKey)?.title
+        : undefined
+
+    grounded.push({
+      kind: tag.kind,
+      conceptKey: tag.conceptKey,
+      label: conceptTitle ?? tag.label.slice(0, MAX_TAG_LABEL_LENGTH),
+    })
+  }
+
+  return grounded
 }
 
 type InsertedInteraction = { id: string }
@@ -396,9 +508,18 @@ export async function POST(request: Request) {
     // ever reaching the client. Never persisted -- session_interactions
     // keeps its Sprint 11 shape regardless of what this turn drew.
     const annotations = envelope.annotations
+
+    // Sprint 13 (ADR-024/025): profile tags ride the wire ADDITIVELY, same
+    // omission discipline as annotations -- but only after the grounding
+    // gate above has verified each one against the profile this very
+    // request injected. Never persisted -- session_interactions keeps its
+    // shape regardless of what this turn tagged (ADR-024).
+    const profileTags = groundProfileTags(envelope.profileTags, profile)
+
     return NextResponse.json({
       reply: envelope.say,
       ...(annotations && annotations.length > 0 ? { annotations } : {}),
+      ...(profileTags.length > 0 ? { profileTags } : {}),
     })
   } catch {
     // Never relay the provider's error text or any key material to the client.

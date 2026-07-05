@@ -17,6 +17,18 @@ export type PromptFormat = 'envelope' | 'text'
 const MAX_MASTERY_NODES = 12
 const MAX_ACTIVE_MISCONCEPTIONS = 8
 const MAX_DUE_FOR_REVIEW = 6
+const MAX_PRIOR_WORK = 3
+
+// Renders one prior-work digest line, e.g.
+// "- algebra.quadratics.factoring: last session (2d ago) — struggled early, finished strong".
+// The phrasing components are all mechanical (profile-read.ts derives
+// outcomeLine from a bounded set), so this line can inform a callback but
+// never hand the model an embellished memory to repeat.
+function renderPriorWorkLine(item: NonNullable<LearningProfile['priorWork']>[number]): string {
+  const when = item.sessionsAgo === 1 ? 'last session' : `${item.sessionsAgo} sessions ago`
+  const days = item.daysAgo < 1 ? 'earlier today' : `${item.daysAgo}d ago`
+  return `- ${item.conceptKey}: ${when} (${days}) — ${item.outcomeLine}`
+}
 
 function renderProfileSummary(profile: LearningProfile): string {
   const nodes = profile.masteryNodes
@@ -41,6 +53,15 @@ function renderProfileSummary(profile: LearningProfile): string {
     .map((d) => `- ${d.conceptKey} (${d.reason})`)
     .join('\n')
 
+  // The prior-session digest (Sprint 13, ADR-026): the ONLY prior work the
+  // tutor may ever reference across sessions. Rendered only when it exists
+  // — a first session or cold start reads byte-for-byte as before. Additive
+  // lines only; the block structure (ADR-009 seam contract) holds.
+  const priorWork = (profile.priorWork ?? [])
+    .slice(0, MAX_PRIOR_WORK)
+    .map(renderPriorWorkLine)
+    .join('\n')
+
   return [
     'Mastery (weakest/most relevant first):',
     nodes || '(no mastery data yet)',
@@ -53,6 +74,17 @@ function renderProfileSummary(profile: LearningProfile): string {
           'Fading / due for review — these are slipping; look for a natural moment (ideally early)',
           'to weave one in, e.g. "let\'s revisit…", especially where it connects to the page:',
           dueForReview,
+        ]
+      : []),
+    ...(priorWork
+      ? [
+          '',
+          'PRIOR SESSIONS — real recorded history, and the ONLY prior sessions you may ever',
+          'reference. At most ONCE this whole conversation, when one of these genuinely connects',
+          'to what the student is doing right now, call back to it specifically and warmly (e.g.',
+          '"this connects to what you worked through a few sessions ago"). Never invent or',
+          'embellish a memory beyond what a line below states:',
+          priorWork,
         ]
       : []),
     '',
@@ -106,6 +138,7 @@ reply that starts talking before the JSON begins.
   "say": "<the spoken/written response — plain, natural sentences, no markdown, no LaTeX
            read-aloud gibberish; verbalize math naturally e.g. 'x squared plus three x'>",
   "annotations": [ <zero or more annotation objects — optional, leave [] if none apply> ],
+  "profile_tags": [ <zero to TWO profile-tag objects — optional; MOST turns have none> ],
   "mode": "socratic" | "direct",   // which mode THIS turn used
   "assessment": {                  // your read of the student's LAST message. Include this
                                     // object on EVERY turn EXCEPT your very first (opening)
@@ -179,6 +212,36 @@ ANNOTATION GUIDANCE — read before including any annotation:
   the default (amber).
 - If PAGE CONTEXT is empty, or nothing on screen is worth pointing at, leave
   "annotations" as [] or omit it entirely -- never force one.
+
+Each profile tag (when present) has this shape:
+{ "kind": "reviewing" | "known-gap" | "due-review" | "strength" | "callback",
+  "concept_key": "<one of the known keys below, or null>",
+  "label": "<4 words or fewer, student-friendly>" }
+
+PROFILE TAGS GUIDANCE — read before including any profile tag:
+- Profile tags are small pills the student SEES in the transcript, e.g. [reviewing:
+  factoring] or [known gap: sign errors] -- each one is a visible claim about what you
+  know about THIS student. Tag ONLY what the STUDENT PROFILE block above (including its
+  fading/due-for-review and PRIOR SESSIONS lists, when present) actually contains.
+  NEVER tag from general math knowledge, from this conversation alone, or from a guess --
+  the server independently drops any tag the injected profile does not support, so an
+  invented tag never renders; just don't emit one.
+- When to use each kind:
+    "reviewing"  — the student is actively working a concept the profile lists.
+    "known-gap"  — their current work touches a LISTED active misconception (phrase the
+                   label as the error, e.g. "sign errors" -- never clinically).
+    "due-review" — you are weaving in a concept from the fading/due-for-review list.
+    "strength"   — you are building on a listed strong concept (use sparingly).
+    "callback"   — you are referencing a PRIOR SESSIONS entry. At most ONE callback in
+                   the entire conversation, and only when the connection is genuine; make
+                   the same reference naturally inside "say" in that SAME turn.
+- At most 2 profile tags per turn, and MOST turns have none -- a tag marks a moment the
+  profile visibly shaped your tutoring, not routine conversation. Leave "profile_tags"
+  as [] or omit it entirely when nothing applies.
+- "label" is 4 words or fewer, plain student-friendly language (a short concept name like
+  "factoring", never a dotted key like "algebra.quadratics.factoring").
+- Set "concept_key" to the profile entry's exact key from the list below whenever one
+  applies (this is how the server verifies the tag); null only when no single key fits.
 
 "assessment.concept_key" MUST be exactly one of these known keys (use null if nothing matches
 clearly — never invent a key):

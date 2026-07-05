@@ -32,6 +32,20 @@ export type DueForReviewItem = {
   reason: string
 }
 
+// A prior-session digest entry (Sprint 13, ADR-026): the real-history
+// material behind the tutor's cross-session callbacks ("this connects to
+// something you worked through a few sessions ago"). `outcomeLine` is
+// derived MECHANICALLY from that session's recorded outcomes — one of a
+// bounded set of phrasings computed in profile-read.ts, never free text —
+// so the digest can state what happened but can never editorialize beyond
+// what the rows support.
+export type PriorWorkItem = {
+  conceptKey: string
+  sessionsAgo: number
+  daysAgo: number
+  outcomeLine: string
+}
+
 export type LearningProfile = {
   masteryNodes: MasteryNode[]
   activeMisconceptions: ActiveMisconception[]
@@ -39,4 +53,8 @@ export type LearningProfile = {
   // Present only when the scheduler queue has due items (ADR-021) — a
   // profile with none reads exactly as it did before Sprint 11.
   dueForReview?: DueForReviewItem[]
+  // Present only when the student has prior ENDED sessions touching
+  // currently-relevant concepts (Sprint 13, ADR-026) — cold start and
+  // first-session profiles read exactly as before.
+  priorWork?: PriorWorkItem[]
 }
