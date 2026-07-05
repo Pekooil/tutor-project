@@ -873,8 +873,13 @@ exemption beyond the task's original file list — see its task section); Task 4
 Task 2 never rebuilt it, so titles were missing at RUNTIME while typecheck passed via
 source paths — and the grounding normalizer now folds `-_.` separators so a
 "sign errors" label grounds against a "sign-errors" category; full web suite 96/96);
-Tasks 5–10 not started.** (Update this line as tasks land, per the Sprint 09–12
-convention.)
+Task 5 landed (turn-time event pings: `computeNodeUpdate` extracted from apply.ts —
+write path byte-identical, existing 96-test suite green untouched; `events.ts`
+prospective compute; route returns `pings?` additively, gated on `persistInteraction`
+now returning whether the apply was actually SCHEDULED — a design addition beyond the
+plan text: a no-session/foreign-session/failed-insert turn suppresses its pings rather
+than celebrating a write that will never land); Tasks 6–10 not started.** (Update this
+line as tasks land, per the Sprint 09–12 convention.)
 
 - [ ] `turbo run typecheck lint build test` passes from root; `cd web && next build`
       and `cd extension && wxt build` both exit 0

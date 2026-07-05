@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   updateKnowledgeNode,
   type FsrsObservation,
+  type KnowledgeNodeUpdate,
   type Outcome,
   type ReasoningQuality,
   type SelfConfidence,
@@ -22,7 +23,10 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24
 // (migration 0006) is untouched -- apply.ts always passes this value
 // explicitly, so that default is dead code, not a second place to update.
 const TRIGRAM_THRESHOLD = 0.35
-const RESOLUTION_STREAK = 3
+// Exported as of Sprint 13 (ADR-026): events.ts's prospective
+// misconception-resolved check must use the SAME streak length the real
+// resolution below uses, or the ping could fire a turn early/late.
+export const RESOLUTION_STREAK = 3
 // A claim older than this is treated as abandoned (the claiming process
 // likely crashed mid-work) and eligible for reconcileSession to retry.
 // Comfortably longer than the handful of sequential Supabase round trips
@@ -43,6 +47,11 @@ type KnowledgeNodeRow = {
   difficulty: number
   observation_count: number
   last_practiced_at: string | null
+  // Stored state label from the last write (DB CHECK-constrained to the
+  // MasteryState union) -- read so computeNodeUpdate can report the PRIOR
+  // state alongside the computed next one (Sprint 13, ADR-026). The write
+  // path itself never consumes it.
+  state: string
 }
 
 type MisconceptionMatch = {
@@ -61,20 +70,30 @@ function daysSince(timestamp: string | null): number {
   return Math.max(0, (Date.now() - new Date(timestamp).getTime()) / MS_PER_DAY)
 }
 
-// The full §2.4 FSRS update, now run once per INTERACTION (ADR-019 revises
-// ADR-016's session-end granularity). Returns the post-update node so the
-// caller can feed it straight into scheduleReinforcement (PLAN §2.4 calls
-// scheduleReinforcement(node) with the just-updated node, not the prior
-// one).
-async function applyMasteryUpdate(
+// The shared per-interaction core (Sprint 13, ADR-026): read the concept's
+// knowledge_nodes row, assemble the FSRS observation (real
+// timeSinceLastDays from last_practiced_at), run the pure
+// updateKnowledgeNode -- WITHOUT writing anything. Extracted from
+// applyMasteryUpdate below so the turn route's prospective ping
+// computation (events.ts) and the real apply run the SAME input assembly
+// and the SAME pure function over the same row: whatever this returns IS
+// what the apply will write, so a ping derived from it cannot drift from
+// the eventual write by construction. `priorState` is 'unseen' when no
+// row exists yet (the concept has never been observed).
+export type NodeUpdateComputation = {
+  priorState: string
+  next: KnowledgeNodeUpdate
+}
+
+export async function computeNodeUpdate(
   supabase: SupabaseClient,
   userId: string,
   conceptKey: string,
   observation: Omit<FsrsObservation, 'timeSinceLastDays'>
-): Promise<{ stability: number; state: string }> {
+): Promise<NodeUpdateComputation> {
   const { data: existing } = await supabase
     .from('knowledge_nodes')
-    .select('mastery, stability, difficulty, observation_count, last_practiced_at')
+    .select('mastery, stability, difficulty, observation_count, last_practiced_at, state')
     .eq('user_id', userId)
     .eq('concept_key', conceptKey)
     .is('deleted_at', null)
@@ -93,6 +112,24 @@ async function applyMasteryUpdate(
     ...observation,
     timeSinceLastDays: daysSince(row?.last_practiced_at ?? null),
   })
+
+  return { priorState: row?.state ?? 'unseen', next }
+}
+
+// The full §2.4 FSRS update, now run once per INTERACTION (ADR-019 revises
+// ADR-016's session-end granularity). Returns the post-update node so the
+// caller can feed it straight into scheduleReinforcement (PLAN §2.4 calls
+// scheduleReinforcement(node) with the just-updated node, not the prior
+// one). As of Sprint 13 the read+compute half lives in computeNodeUpdate
+// above (shared with events.ts, ADR-026); this function is that plus the
+// one upsert -- the write payload is unchanged.
+async function applyMasteryUpdate(
+  supabase: SupabaseClient,
+  userId: string,
+  conceptKey: string,
+  observation: Omit<FsrsObservation, 'timeSinceLastDays'>
+): Promise<{ stability: number; state: string }> {
+  const { next } = await computeNodeUpdate(supabase, userId, conceptKey, observation)
 
   await supabase.from('knowledge_nodes').upsert(
     {

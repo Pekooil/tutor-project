@@ -8,6 +8,7 @@ import type { LearningProfile } from '@/lib/ai/profile'
 import { loadProfile } from '@/lib/learning/profile-read'
 import { detectTopicKeys } from '@/lib/learning/topic'
 import { applyInteraction } from '@/lib/learning/apply'
+import { computeTurnPings, type TurnPing } from '@/lib/learning/events'
 import {
   MAX_EQUATIONS,
   MAX_EQUATION_CHARS,
@@ -314,6 +315,12 @@ type InsertedInteraction = { id: string }
 // "no persistence this turn" -- the exact discipline parsePageContext
 // already applies to a read, now applied to this write. Never throws, and
 // is called after the reply is already computed, never before.
+//
+// Returns whether the apply was actually SCHEDULED (Sprint 13, ADR-026):
+// the ping computation predicts what the apply will write, so a turn whose
+// apply never got scheduled -- no sessionId, foreign sessionId, failed
+// insert -- must suppress its pings, or the toast would celebrate a write
+// that will never land.
 async function persistInteraction(
   supabase: SupabaseClient,
   userId: string,
@@ -321,7 +328,7 @@ async function persistInteraction(
   lastUserMessage: string,
   envelope: TurnEnvelope,
   responseLatencyMs: number | undefined
-): Promise<void> {
+): Promise<boolean> {
   if (!sessionId || !envelope.assessment) {
     // Diagnostic only (never thrown, never changes the reply): every
     // degrade path here was previously silent, which made a real bug
@@ -336,7 +343,7 @@ async function persistInteraction(
         ? 'no sessionId on the request'
         : `envelope carried no assessment (say: "${envelope.say.slice(0, 120)}")`
     )
-    return
+    return false
   }
 
   try {
@@ -373,7 +380,7 @@ async function persistInteraction(
       console.warn('[ai/turn] persistInteraction skipped: sessionId does not resolve to a session this caller owns', {
         sessionId,
       })
-      return
+      return false
     }
 
     const turnIndex = (count ?? 0) + 1
@@ -404,7 +411,7 @@ async function persistInteraction(
         sessionId,
         error: error?.message,
       })
-      return
+      return false
     }
 
     const insertedId = (inserted as InsertedInteraction).id
@@ -426,11 +433,14 @@ async function persistInteraction(
         responseLatencyMs: responseLatencyMs ?? null,
       })
     )
+
+    return true
   } catch (err) {
     // Never let a persistence failure affect the turn -- but do surface it,
     // unlike before, so a real bug here doesn't read identically to a
     // designed degrade in the server's own logs.
     console.error('[ai/turn] persistInteraction threw', { sessionId }, err)
+    return false
   }
 }
 
@@ -490,15 +500,31 @@ export async function POST(request: Request) {
     // The ADR-013 reversal site: persistence is best-effort and always
     // happens after the reply is already computed, so a slow or failing
     // write can never delay or break the turn (persistInteraction never
-    // throws).
-    await persistInteraction(
-      auth.supabase,
-      auth.user.id,
-      sessionId,
-      messages[messages.length - 1].content,
-      envelope,
-      responseLatencyMs
-    )
+    // throws). The prospective ping computation (Sprint 13, ADR-026) runs
+    // IN PARALLEL with it -- they touch disjoint tables (the insert writes
+    // session_interactions; the pings read knowledge_nodes/misconceptions,
+    // which only the after() apply writes, and that runs post-response) --
+    // so the voice hot path pays for the slower of the two, not the sum.
+    // computeTurnPings never throws either (degrades to []).
+    const [persisted, prospectivePings] = await Promise.all([
+      persistInteraction(
+        auth.supabase,
+        auth.user.id,
+        sessionId,
+        messages[messages.length - 1].content,
+        envelope,
+        responseLatencyMs
+      ),
+      envelope.assessment
+        ? computeTurnPings(auth.supabase, auth.user.id, envelope.assessment, responseLatencyMs ?? null)
+        : Promise.resolve<TurnPing[]>([]),
+    ])
+
+    // A ping is a claim about what this turn's apply will write -- so it
+    // only rides the response when that apply was actually scheduled
+    // (ADR-026). A no-session/foreign-session/failed-insert turn keeps its
+    // reply and loses only the toast.
+    const pings = persisted ? prospectivePings : []
 
     // ADR-023: annotations ride the wire ADDITIVELY -- the field is OMITTED
     // (not null, not []) when the envelope carried none, so a no-annotation
@@ -520,6 +546,7 @@ export async function POST(request: Request) {
       reply: envelope.say,
       ...(annotations && annotations.length > 0 ? { annotations } : {}),
       ...(profileTags.length > 0 ? { profileTags } : {}),
+      ...(pings.length > 0 ? { pings } : {}),
     })
   } catch {
     // Never relay the provider's error text or any key material to the client.
