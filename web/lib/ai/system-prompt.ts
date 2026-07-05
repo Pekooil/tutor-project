@@ -137,6 +137,15 @@ Each annotation (when present) has this shape:
   "ttl_ms"?: number }
 
 ANNOTATION GUIDANCE — read before including any annotation:
+- Annotate PROACTIVELY, by default -- this is not an optional extra the student has to ask
+  for. Whenever your "say" text references a specific term, part, step, or value of an
+  on-screen equation while explaining or walking through a problem (e.g. "look at the
+  exponent", "the constant term is what matters here", "first isolate x"), circle/highlight
+  it automatically in that SAME turn, without waiting to be asked to point at it. Treat
+  pointing at what you're discussing as a normal part of explaining, not a special request.
+  Only skip annotating when there is genuinely nothing to point at: PAGE CONTEXT is empty,
+  your reply doesn't reference anything specific on screen, or you're asking a question
+  rather than pointing something out.
 - Only annotate content that appears in PAGE CONTEXT below. You cannot see the student's
   screen, the page's DOM, or any pixels directly -- PAGE CONTEXT is the ONLY thing you
   know is really there.
@@ -144,12 +153,25 @@ ANNOTATION GUIDANCE — read before including any annotation:
   spacing -- from one of the equations or the page-text excerpt in PAGE CONTEXT. Do not
   paraphrase, reformat, or "clean up" the notation: an exact copy is what lets the
   extension find it on the real page; a paraphrase will simply fail to draw anything.
+- Point at the SPECIFIC part you are talking about, not the whole equation, whenever you
+  are discussing one term or piece of it. If you say "look at the exponent" or "the
+  constant term is what matters here", set "text" to just that piece (e.g. "x^2", or "6"
+  out of "x^2 + 5x + 6 = 0") copied exactly as it appears in the equation -- never the
+  full equation string when a smaller exact substring says what you mean. Only target the
+  whole equation when you are genuinely referring to it as a whole (e.g. "this whole
+  expression needs to be factored").
+- When your explanation walks through several distinct parts of the SAME equation in one
+  turn (e.g. naming the x² term, then the middle term, then the constant), give each its
+  OWN annotation with its own exact substring, up to the 3-per-turn limit below -- do not
+  collapse them into a single annotation spanning everything you mentioned.
 - NEVER invent a "selector" (a CSS selector) or a "bbox" (pixel coordinates). You have no
   way to know either one, and a fabricated value risks drawing in the wrong place, which
   is worse than not drawing at all. Leave those target kinds for a page context that
   actually supplies them.
-- At most 3 annotations per turn. Most turns should have none at all -- annotate only
-  when pointing at something specific genuinely helps (e.g. "look at THIS term").
+- At most 3 annotations per turn. An explanation turn that references specific on-screen
+  content should typically carry at least one; a turn with nothing specific to point at
+  (e.g. a purely conversational reply, or a question with no on-screen referent) has none --
+  that's the normal reason for zero, not caution about annotating too often.
 - Keep "label" text to 5 words or fewer.
 - Use "step-indicator" (with "step" set to its position, starting at 1) to walk through a
   multi-step process within the SAME turn's annotations, not across turns.

@@ -48,8 +48,12 @@ export const ANNOTATIONS_EVENT = 'calyxa:annotations';
 export const MAX_ANNOTATIONS_PER_TURN = 3;
 
 // A substring registry match (pass 2 in matchRegistryEntries) below this
-// many normalised chars is refused: "2" would "match" the first equation
-// containing a 2, which is exactly the guessing ADR-022 forbids.
+// many normalised chars is refused UNLESS it uniquely identifies exactly
+// one registry entry: "2" would otherwise "match" the first of several
+// equations containing a 2, which is exactly the cross-equation guessing
+// ADR-022 forbids. See matchRegistryEntries's own comment for why a short
+// but UNAMBIGUOUS match is a different (and now safely sub-rect-
+// resolvable) case.
 export const MIN_SUBSTRING_MATCH_CHARS = 4;
 
 // The page-text search examines at most this many text nodes before giving
@@ -105,8 +109,14 @@ export type EquationRegistry = EquationRegistryEntry[];
 //   bbox    -- CANNOT re-derive: the coords were viewport-relative at
 //              emission time, so the first scroll/resize invalidates what
 //              they point at; re-anchoring drops them (drop-don't-guess).
+//   sub-term -- a textMatch that resolved to a SUBSTRING of a registered
+//              equation (see resolveSubTermRect below): re-anchoring
+//              re-runs the same leaf walk against the (still-connected)
+//              equation element rather than re-reading a fixed rect, since
+//              the equation can reflow between scroll/resize passes.
 type ResolvedAnchor =
   | { kind: 'element'; element: Element }
+  | { kind: 'sub-term'; element: Element; targetText: string }
   | { kind: 'range'; node: Text; start: number; end: number; matched: string }
   | { kind: 'bbox' };
 
@@ -114,14 +124,43 @@ export type ResolvedTarget = { rect: DrawRect; anchor: ResolvedAnchor };
 
 // --- pure helpers (exported for Task 8's jsdom spec) --------------------------
 
-// The match normalisation: collapse whitespace runs, trim, case-fold.
-// Deliberately nothing cleverer (no LaTeX-vs-Unicode folding) this sprint:
-// the prompt demands exact copies of strings the model was GIVEN, so
-// whitespace/case are the only drift worth absorbing -- anything looser
-// starts matching things the model didn't mean (the plan's named risk; if
-// Task 9 shows systematic misses, deepening THIS function is the fix).
+// A small, closed set of Unicode math symbols folded to their ASCII
+// equivalents before comparison -- found live on Khan Academy (Task 9
+// follow-up): MathJax's assistive MathML renders U+2212 MINUS SIGN (an
+// <mo> glyph), not the ASCII hyphen a model naturally types when it
+// reproduces "x^2 - 3x + 2" in its own JSON output. Deliberately narrow
+// (four visually-standard substitutions, not a general Unicode-math-to-
+// ASCII transliteration): each one is a like-for-like symbol a model would
+// write differently than the extractor reads, not a semantic rewrite that
+// could match something the model didn't mean.
+const SYMBOL_FOLDS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/−/g, '-'], // − MINUS SIGN -> hyphen-minus
+  [/[×⋅]/g, '*'], // × MULTIPLICATION SIGN, ⋅ DOT OPERATOR -> asterisk
+  [/÷/g, '/'], // ÷ DIVISION SIGN -> solidus
+];
+
+// Just the symbol-folding step, split out from normalizeMatchText below so
+// the sub-term leaf-matching code (findLeafRun) can fold WITHOUT the
+// whitespace-collapsing step -- collapsing runs of whitespace into one
+// space shifts character offsets, which is fine for a one-shot equality/
+// substring check but wrong for anything that needs to map a matched span
+// back to a specific run of DOM leaves by position.
+function foldMatchSymbols(value: string): string {
+  let folded = value;
+  for (const [pattern, replacement] of SYMBOL_FOLDS) {
+    folded = folded.replace(pattern, replacement);
+  }
+  return folded;
+}
+
+// The match normalisation: fold a narrow set of Unicode math symbols to
+// ASCII, collapse whitespace runs, trim, case-fold. Whitespace/case were
+// the only drift absorbed through Sprint 12 (ADR-022's original scope --
+// "anything looser starts matching things the model didn't mean"); the
+// symbol folds above are the deepening that same comment named as the fix
+// once live use showed a systematic miss, not a loosening beyond it.
 export function normalizeMatchText(value: string): string {
-  return value.replace(/\s+/g, ' ').trim().toLowerCase();
+  return foldMatchSymbols(value).replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 function escapeRegExp(value: string): string {
@@ -147,17 +186,32 @@ export function findInText(
 
 // Registry candidates for a textMatch target, ORDERED: exact normalised
 // equality first (against latex, mathml, AND text -- renderPageContext
-// showed the model `latex ?? mathml ?? text`, so any of the three can be
-// what it copied), then bounded substring containment (a partial copy like
-// just the "x^2" out of "x^2 + 5x + 6 = 0" still anchors to the right
-// equation -- the whole-equation rect is a correct anchor, just a larger
-// one), registry order within each tier. Returns ALL candidates rather
-// than the first because an equation can appear twice on a page (problem
-// statement + worked solution) and the first instance's element may be
-// dead by draw time -- resolveTarget takes the first candidate whose
-// element is actually usable. Pure string logic; element
-// liveness/visibility is deliberately NOT this function's business (that
-// is what keeps it testable without layout).
+// shows the model `latex ?? text ?? mathml`, but matching stays permissive
+// against all three since a partially-updated prompt or a future caller
+// could still surface any of them), then bounded substring containment (a
+// partial copy like just the "x^2" out of "x^2 + 5x + 6 = 0" still anchors
+// to the right equation -- resolveTarget's sub-term resolver then narrows
+// the rect to just that span within it, rather than the whole equation).
+// Registry order within each tier. Returns ALL candidates rather than the
+// first because an equation can appear twice on a page (problem statement
+// + worked solution) and the first instance's element may be dead by draw
+// time -- resolveTarget takes the first candidate whose element is
+// actually usable. Pure string logic; element liveness/visibility is
+// deliberately NOT this function's business (that is what keeps it
+// testable without layout).
+//
+// The MIN_SUBSTRING_MATCH_CHARS floor exists to stop a short, generic
+// substring ("2") from guessing WHICH equation it belongs to when several
+// on the page could contain it. Once the sub-term resolver made even a
+// short match SAFE to draw precisely (a small box within the right
+// equation, not a wrong whole-equation guess), that floor became too
+// blunt for realistic algebra: a bare "x2" or "3x" copied verbatim from an
+// extracted equation is often shorter than 4 chars. So a substring under
+// the floor is now allowed through in the one case where there is no
+// "which equation" question to guess at: when it is UNIQUE to exactly one
+// registry entry. A short substring appearing in more than one equation is
+// still refused -- that is exactly the cross-equation ambiguity the floor
+// was protecting against, and uniqueness doesn't resolve it.
 export function matchRegistryEntries(
   targetText: string,
   registry: EquationRegistry,
@@ -174,13 +228,15 @@ export function matchRegistryEntries(
     fieldsOf(entry.equation).some((field) => normalizeMatchText(field) === target),
   );
 
+  const substringCandidates = registry.filter(
+    (entry) =>
+      !exact.includes(entry) &&
+      fieldsOf(entry.equation).some((field) => normalizeMatchText(field).includes(target)),
+  );
+
   const substring =
-    target.length >= MIN_SUBSTRING_MATCH_CHARS
-      ? registry.filter(
-          (entry) =>
-            !exact.includes(entry) &&
-            fieldsOf(entry.equation).some((field) => normalizeMatchText(field).includes(target)),
-        )
+    target.length >= MIN_SUBSTRING_MATCH_CHARS || substringCandidates.length === 1
+      ? substringCandidates
       : [];
 
   return [...exact, ...substring];
@@ -233,6 +289,234 @@ function isElementVisible(el: Element): boolean {
 function rectOfElement(el: Element): DrawRect {
   const rect = el.getBoundingClientRect();
   return { x: rect.left, y: rect.top, w: rect.width, h: rect.height };
+}
+
+// --- sub-term rect resolution ---------------------------------------------
+//
+// A textMatch that names only PART of a registered equation ("x^2" out of
+// "x^2 - 3x + 2 = 0") used to resolve to the WHOLE equation's rect -- the
+// registry only ever held one element per equation, so there was no rect
+// for anything smaller. Circling the entire expression when the tutor is
+// talking about one term is the exact complaint this section fixes: each
+// resolver below walks the equation's OWN rendered leaves (the individual
+// glyph-bearing DOM nodes KaTeX/MathJax/native-MathML already produced) and
+// returns the union rect of just the leaves the matched span covers.
+//
+// Every path here can fail -- an unfamiliar internal structure, leaf counts
+// that don't line up, a degenerate union rect -- and a failure returns
+// undefined, never a guess: resolveTarget's caller falls back to the whole-
+// equation rect exactly as before, which is always a CORRECT (if coarse)
+// anchor, so sub-term resolution can only ever improve precision, never
+// regress correctness.
+
+// Leaf-collection helper for KaTeX and plain-MathML (see below):
+// terminal elements only (no element children) in DOM order, which is
+// reading order for the flat, non-reordering layouts both renderers use.
+function collectLeafElements(root: Element): Element[] {
+  const leaves: Element[] = [];
+  const walk = (el: Element): void => {
+    const children = Array.from(el.children);
+    if (children.length === 0) {
+      leaves.push(el);
+      return;
+    }
+    for (const child of children) walk(child);
+  };
+  walk(root);
+  return leaves;
+}
+
+// The bounding box of a set of leaf elements, taking the union of their
+// individual client rects. Degenerate (zero-size, e.g. a purely structural
+// spacer) leaves are skipped rather than allowed to collapse the union;
+// an entirely-degenerate set (nothing left to bound) returns undefined.
+function unionElementRects(elements: readonly Element[]): DrawRect | undefined {
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+
+  for (const el of elements) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) continue;
+    left = Math.min(left, rect.left);
+    top = Math.min(top, rect.top);
+    right = Math.max(right, rect.right);
+    bottom = Math.max(bottom, rect.bottom);
+  }
+
+  if (!Number.isFinite(left) || right <= left || bottom <= top) return undefined;
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+// Locates the contiguous run of leaves whose concatenated OWN text contains
+// the (symbol-folded, case-folded, whitespace-STRIPPED -- not collapsed) target
+// substring, returning the run as a leaf-index range [start, end). Stripped
+// rather than collapsed on both sides: rendered glyph leaves carry no
+// meaningful internal spacing of their own, so counting any would only ever
+// misalign the offsets between the concatenation and the model's target
+// string. A leaf whose folded text is empty (a purely structural node)
+// contributes a zero-width span and so can never anchor a match by itself,
+// but is harmlessly included if it falls inside a real match's range.
+export function findLeafRun(
+  leafTexts: readonly string[],
+  targetText: string,
+): { start: number; end: number } | undefined {
+  const fold = (value: string) => foldMatchSymbols(value).toLowerCase().replace(/\s+/g, '');
+  const target = fold(targetText);
+  if (!target) return undefined;
+
+  const folded = leafTexts.map(fold);
+  const offsets: number[] = [];
+  let concatenated = '';
+  for (const text of folded) {
+    offsets.push(concatenated.length);
+    concatenated += text;
+  }
+
+  const matchIndex = concatenated.indexOf(target);
+  if (matchIndex === -1) return undefined;
+  const matchEnd = matchIndex + target.length;
+
+  let start = -1;
+  let end = -1;
+  for (let i = 0; i < offsets.length; i++) {
+    const leafStart = offsets[i];
+    const leafEnd = leafStart + folded[i].length;
+    if (start === -1 && leafEnd > matchIndex) start = i;
+    if (leafStart < matchEnd) end = i + 1;
+  }
+
+  if (start === -1 || end === -1 || start >= end) return undefined;
+  return { start, end };
+}
+
+// A match spanning every leaf is really a whole-equation reference -- the
+// caller already has a correct (and simpler) whole-element rect for that
+// case, so sub-term resolution only returns something for a GENUINE partial
+// span.
+function isWholeRun(run: { start: number; end: number }, leafCount: number): boolean {
+  return run.start === 0 && run.end === leafCount;
+}
+
+// KaTeX renders its visible half as '.katex-html', a flat-ish tree of glyph
+// spans that (unlike MathJax's CHTML output) carry real textContent per
+// leaf -- so this can walk the leaves directly.
+function resolveKatexSubRect(katexEl: Element, targetText: string): DrawRect | undefined {
+  const html = katexEl.querySelector('.katex-html');
+  if (!html) return undefined;
+
+  const leaves = collectLeafElements(html);
+  if (leaves.length === 0) return undefined;
+
+  const run = findLeafRun(
+    leaves.map((el) => el.textContent ?? ''),
+    targetText,
+  );
+  if (!run || isWholeRun(run, leaves.length)) return undefined;
+
+  return unionElementRects(leaves.slice(run.start, run.end));
+}
+
+// A bare <math> node with no KaTeX/MathJax wrapper: the browser renders
+// <mi>/<mn>/<mo>/<mtext> leaves natively, with real textContent and real
+// rects -- same walk as KaTeX, just rooted on the <math> node itself.
+function resolveMathMlSubRect(mathEl: Element, targetText: string): DrawRect | undefined {
+  const leaves = collectLeafElements(mathEl);
+  if (leaves.length === 0) return undefined;
+
+  const run = findLeafRun(
+    leaves.map((el) => el.textContent ?? ''),
+    targetText,
+  );
+  if (!run || isWholeRun(run, leaves.length)) return undefined;
+
+  return unionElementRects(leaves.slice(run.start, run.end));
+}
+
+// MathJax v3's visible CHTML tree (<mjx-math>) renders glyphs with NO
+// textContent at all -- confirmed empirically on Khan Academy -- so there
+// is no text to walk directly. Its assistive-MathML sibling
+// (<mjx-assistive-mml><math>...) is generated from the SAME internal AST,
+// in the SAME order, and DOES carry real text, so the two token sequences
+// are correlated positionally: token N's text comes from the assistive
+// side, token N's rect comes from the visible side. Grouped at TOKEN
+// granularity (stopping the visible-tree walk at MJX-MI/MJX-MN/MJX-MO/
+// MJX-MTEXT rather than descending into their per-character MJX-C
+// children) so a multi-character token ("12", "sin") is one leaf on both
+// sides, not a character-vs-token mismatch. The tag-shape check
+// (assistive <mi> <-> visible MJX-MI, position by position) is a cheap
+// extra guard against the rarer case where the two trees' orders diverge
+// (e.g. some under/over-script constructs) -- a shape mismatch means the
+// positional correlation isn't trustworthy, so this bails rather than
+// pairing the wrong token to the wrong rect.
+const MATHJAX_TOKEN_TAGS = new Set(['MJX-MI', 'MJX-MN', 'MJX-MO', 'MJX-MTEXT']);
+
+function collectMathJaxVisibleTokens(root: Element): Element[] {
+  const tokens: Element[] = [];
+  const walk = (el: Element): void => {
+    if (MATHJAX_TOKEN_TAGS.has(el.tagName)) {
+      tokens.push(el);
+      return;
+    }
+    for (const child of Array.from(el.children)) walk(child);
+  };
+  walk(root);
+  return tokens;
+}
+
+function resolveMathJaxSubRect(containerEl: Element, targetText: string): DrawRect | undefined {
+  const visibleRoot = containerEl.querySelector('mjx-math');
+  const assistiveMath = containerEl.querySelector('mjx-assistive-mml math');
+  if (!visibleRoot || !assistiveMath) return undefined;
+
+  const visibleTokens = collectMathJaxVisibleTokens(visibleRoot);
+  const assistiveTokens = collectLeafElements(assistiveMath);
+  if (visibleTokens.length === 0 || visibleTokens.length !== assistiveTokens.length) return undefined;
+
+  const sameShape = assistiveTokens.every(
+    (el, i) => `MJX-${el.tagName.toUpperCase()}` === visibleTokens[i].tagName,
+  );
+  if (!sameShape) return undefined;
+
+  const run = findLeafRun(
+    assistiveTokens.map((el) => el.textContent ?? ''),
+    targetText,
+  );
+  if (!run || isWholeRun(run, visibleTokens.length)) return undefined;
+
+  return unionElementRects(visibleTokens.slice(run.start, run.end));
+}
+
+// Dispatches on the registered element's own shape -- the same shape every
+// pageExtractor.ts adapter produces (a '.katex' wrapper, an 'mjx-container',
+// or a bare '<math>' node) -- so no renderer identity needs to travel with
+// the registry entry itself. An element none of these match (e.g. a
+// data-latex/aria-label carrier widget, which has no rich internal
+// structure to sub-divide) falls through to undefined, same as any other
+// resolution failure.
+function resolveSubTermRect(el: Element, targetText: string): DrawRect | undefined {
+  try {
+    if (el.classList.contains('katex')) return resolveKatexSubRect(el, targetText);
+    if (el.tagName.toLowerCase() === 'mjx-container') return resolveMathJaxSubRect(el, targetText);
+    if (el.tagName.toLowerCase() === 'math') return resolveMathMlSubRect(el, targetText);
+    return undefined;
+  } catch (err) {
+    console.debug('[calyxa annotations] sub-term resolution threw; falling back to whole equation', err);
+    return undefined;
+  }
+}
+
+// True when target.text is an exact (normalised) reproduction of one of the
+// equation's OWN fields -- i.e. the model referenced the whole equation, not
+// a piece of it. Sub-term resolution is only attempted for a target that
+// ISN'T this -- an exact whole-equation reference already has a correct,
+// simpler answer (the whole element's rect).
+function isExactEquationReference(targetText: string, equation: PageEquation): boolean {
+  const target = normalizeMatchText(targetText);
+  return [equation.latex, equation.mathml, equation.text]
+    .filter((field): field is string => typeof field === 'string')
+    .some((field) => normalizeMatchText(field) === target);
 }
 
 // The bounded visible-text search -- the textMatch fallback for targets
@@ -325,10 +609,21 @@ export function resolveTarget(
     // 2. textMatch, registry first: the precise path for on-page equations.
     //    First candidate with a live, visible element wins; a matched-but-
     //    dead entry falls through to its duplicate or to the page search.
+    //    A target that names only PART of the equation (not an exact
+    //    reproduction of one of its fields) tries the sub-term leaf-walk
+    //    FIRST, for a tight rect around just that part; a whole-equation
+    //    reference, or a sub-term walk that can't confidently resolve,
+    //    uses the whole element's rect exactly as before.
     if (target.text) {
       for (const entry of matchRegistryEntries(target.text, registry)) {
         const el = entry.element;
         if (el && isElementVisible(el)) {
+          if (!isExactEquationReference(target.text, entry.equation)) {
+            const subRect = resolveSubTermRect(el, target.text);
+            if (subRect) {
+              return { rect: subRect, anchor: { kind: 'sub-term', element: el, targetText: target.text } };
+            }
+          }
           return { rect: rectOfElement(el), anchor: { kind: 'element', element: el } };
         }
       }
@@ -362,11 +657,58 @@ type ActiveAnnotation = {
   timer: ReturnType<typeof setTimeout> | undefined;
 };
 
+// Resolves + caps a turn's raw annotations against the registry (shared by
+// showTurnAnnotations and its voice-sequenced variant below), WITHOUT
+// touching module state or starting any timers -- each caller decides how
+// and when a resolved entry actually becomes active (all at once, or one
+// at a time). Drop-on-miss and over-cap diagnostics are logged here once,
+// so both callers get the same console.debug behaviour for free.
+function resolveCappedAnnotations(
+  annotations: Annotation[],
+  registry: EquationRegistry,
+  turnLabel: number,
+): { annotation: Annotation; rect: DrawRect; anchor: ResolvedAnchor }[] {
+  const capped = annotations.slice(0, MAX_ANNOTATIONS_PER_TURN);
+  if (annotations.length > capped.length) {
+    console.debug(
+      `[calyxa annotations] turn ${turnLabel}: ${annotations.length - capped.length} over the per-turn cap, dropped`,
+    );
+  }
+
+  const resolved: { annotation: Annotation; rect: DrawRect; anchor: ResolvedAnchor }[] = [];
+  for (const annotation of capped) {
+    const target = resolveTarget(annotation.target, registry);
+    if (!target) {
+      console.debug('[calyxa annotations] dropped (unresolvable target)', {
+        id: annotation.id,
+        type: annotation.type,
+        kind: annotation.target.kind,
+      });
+      continue;
+    }
+    resolved.push({ annotation, rect: target.rect, anchor: target.anchor });
+  }
+  return resolved;
+}
+
 let active: ActiveAnnotation[] = [];
 let currentRegistry: EquationRegistry = [];
 let turnCounter = 0;
 let listening = false;
 let rafHandle: number | null = null;
+
+// The reveal-ladder timers for an in-flight voice-mode sequence
+// (showTurnAnnotationsSequenced below) -- tracked separately from each
+// entry's own ttl timer above (sequenced mode doesn't use per-annotation
+// ttl; the time slice itself is the lifetime) so a new turn or a
+// clear/teardown can cancel a still-running sequence cleanly via the same
+// resetActive() choke point every other reset already goes through.
+let sequenceTimers: ReturnType<typeof setTimeout>[] = [];
+
+function clearSequenceTimers(): void {
+  for (const timer of sequenceTimers) clearTimeout(timer);
+  sequenceTimers = [];
+}
 
 function dispatchActive(): void {
   const detail: AnnotationsEventDetail = {
@@ -391,6 +733,7 @@ function resetActive(): void {
     if (entry.timer !== undefined) clearTimeout(entry.timer);
   }
   active = [];
+  clearSequenceTimers();
 }
 
 function onScrollOrResize(): void {
@@ -438,6 +781,23 @@ function reanchorOne(entry: ActiveAnnotation): ActiveAnnotation | undefined {
   if (anchor.kind === 'element') {
     if (isElementVisible(anchor.element)) {
       return { ...entry, rect: rectOfElement(anchor.element) };
+    }
+  } else if (anchor.kind === 'sub-term') {
+    // Re-run the SAME leaf walk against the still-connected equation --
+    // the equation can reflow (line-wrap, font load) between re-anchor
+    // passes, so the sub-rect is re-derived, not just re-read. A walk that
+    // fails on re-anchor (e.g. the renderer replaced its internal DOM on a
+    // re-render) degrades to the whole equation's rect rather than
+    // dropping outright -- the element itself is still live and correct,
+    // just at coarser precision.
+    if (isElementVisible(anchor.element)) {
+      const rect = resolveSubTermRect(anchor.element, anchor.targetText);
+      if (rect) return { ...entry, rect };
+      return {
+        ...entry,
+        rect: rectOfElement(anchor.element),
+        anchor: { kind: 'element', element: anchor.element },
+      };
     }
   } else {
     const { node, start, end, matched } = anchor;
@@ -517,30 +877,8 @@ export function showTurnAnnotations(annotations: Annotation[], registry: Equatio
     currentRegistry = registry;
     turnCounter += 1;
 
-    const capped = annotations.slice(0, MAX_ANNOTATIONS_PER_TURN);
-    if (annotations.length > capped.length) {
-      console.debug(
-        `[calyxa annotations] turn ${turnCounter}: ${annotations.length - capped.length} over the per-turn cap, dropped`,
-      );
-    }
-
-    for (const annotation of capped) {
-      const resolved = resolveTarget(annotation.target, registry);
-      if (!resolved) {
-        console.debug('[calyxa annotations] dropped (unresolvable target)', {
-          id: annotation.id,
-          type: annotation.type,
-          kind: annotation.target.kind,
-        });
-        continue;
-      }
-
-      const entry: ActiveAnnotation = {
-        annotation,
-        rect: resolved.rect,
-        anchor: resolved.anchor,
-        timer: undefined,
-      };
+    for (const { annotation, rect, anchor } of resolveCappedAnnotations(annotations, registry, turnCounter)) {
+      const entry: ActiveAnnotation = { annotation, rect, anchor, timer: undefined };
       if (typeof annotation.ttlMs === 'number' && annotation.ttlMs > 0) {
         entry.timer = setTimeout(() => expire(entry), annotation.ttlMs);
       }
@@ -551,6 +889,68 @@ export function showTurnAnnotations(annotations: Annotation[], registry: Equatio
     dispatchActive();
   } catch (err) {
     console.debug('[calyxa annotations] controller error; clearing', err);
+    resetActive();
+    setListeners(false);
+    dispatchActive();
+  }
+}
+
+/**
+ * Voice-mode variant of showTurnAnnotations (item 2 of the live Task 9
+ * follow-up: "change which term is circled as the tutor speaks, not show
+ * everything it will eventually mention"). Resolves the turn's annotations
+ * exactly as showTurnAnnotations does, then -- when there are 2 or more --
+ * reveals them ONE AT A TIME, each getting an even share of
+ * `totalDurationMs` (the synthesised speech's known duration) before the
+ * next replaces it, chosen (over per-annotation model-estimated timing)
+ * for shipping without a prompt/schema change and because the model has no
+ * reliable way to predict its own TTS pacing anyway. Falls back to the
+ * normal simultaneous display when there are 0 or 1 resolvable annotations
+ * (nothing to sequence) or no usable duration. Per-annotation ttlMs is
+ * ignored in sequenced mode -- the time slice itself is the entry's
+ * lifetime; the LAST slice's annotation is left showing once its slice
+ * elapses (same persist-until-replaced default as ttlMs 0) rather than
+ * auto-clearing the instant speech ends. Re-anchoring (scroll/resize)
+ * keeps working throughout: only ONE entry is ever in `active` at a time,
+ * so the existing listener/dispatch machinery tracks whichever one is
+ * currently showing exactly as it would for any other turn.
+ */
+export function showTurnAnnotationsSequenced(
+  annotations: Annotation[],
+  registry: EquationRegistry,
+  totalDurationMs: number,
+): void {
+  try {
+    resetActive();
+    currentRegistry = registry;
+    turnCounter += 1;
+
+    const resolved = resolveCappedAnnotations(annotations, registry, turnCounter);
+
+    if (resolved.length <= 1 || !(totalDurationMs > 0)) {
+      for (const { annotation, rect, anchor } of resolved) {
+        active.push({ annotation, rect, anchor, timer: undefined });
+      }
+      setListeners(active.length > 0);
+      dispatchActive();
+      return;
+    }
+
+    const sliceMs = totalDurationMs / resolved.length;
+
+    const showSlice = (index: number): void => {
+      const { annotation, rect, anchor } = resolved[index];
+      active = [{ annotation, rect, anchor, timer: undefined }];
+      setListeners(true);
+      dispatchActive();
+    };
+
+    showSlice(0);
+    for (let i = 1; i < resolved.length; i++) {
+      sequenceTimers.push(setTimeout(() => showSlice(i), sliceMs * i));
+    }
+  } catch (err) {
+    console.debug('[calyxa annotations] sequenced controller error; clearing', err);
     resetActive();
     setListeners(false);
     dispatchActive();

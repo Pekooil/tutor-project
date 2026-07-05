@@ -32,8 +32,20 @@ function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value
 }
 
+// Prefers `text` over `mathml` when there's no `latex` source: `mathml` is
+// raw markup (`<math><msup>...`), which a model can neither read naturally
+// nor ever reasonably reproduce character-for-character for a textMatch
+// target -- `text` is the extractor's flattened, human-readable rendering
+// of the SAME node (pageExtractor.ts always populates both together), so it
+// is both a better reading signal and the only one a model can plausibly
+// copy exactly. Real-world bug: found live on Khan Academy, whose MathJax
+// integration exposes assistive MathML but no LaTeX source -- every
+// equation on such a page was showing the model raw MathML instead of
+// readable text, degrading both comprehension and annotation targeting.
+// `mathml` stays as the final fallback for the (currently theoretical) case
+// of a MathML node with no text content at all.
 function renderEquation(equation: PageEquation): string | null {
-  const body = equation.latex ?? equation.mathml ?? equation.text
+  const body = equation.latex ?? equation.text ?? equation.mathml
   return body ? `- ${truncate(body, MAX_EQUATION_CHARS)}` : null
 }
 

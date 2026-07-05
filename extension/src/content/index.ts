@@ -4,7 +4,13 @@ import type { Root } from 'react-dom/client';
 import { mountOverlay, unmountOverlay } from '../overlay/mount';
 import { PANEL_CLOSED_EVENT } from '../overlay/Overlay';
 import type { Utterance } from '../overlay/VoiceController';
-import { clearAnnotations, showTurnAnnotations, teardown as teardownAnnotations, type EquationRegistry } from './annotations';
+import {
+  clearAnnotations,
+  showTurnAnnotations,
+  showTurnAnnotationsSequenced,
+  teardown as teardownAnnotations,
+  type EquationRegistry,
+} from './annotations';
 import { extractPageContext } from './pageExtractor';
 import type {
   AiReplyPayload,
@@ -108,9 +114,14 @@ async function sendAiTurn(
     });
   }
 
-  // Non-streaming path (voice turns): annotations resolve and draw before
-  // the reply is handed back, so the drawing is in place as TTS playback
-  // starts (VoiceController synthesizes/plays after this promise settles).
+  // Non-streaming path (voice turns): annotations are NOT drawn here.
+  // Synthesis + playback happen after this promise resolves (Overlay.tsx's
+  // handleMicStop calls onSynthesize then plays the audio), and the voice
+  // sequencing feature needs the actual TTS duration -- unknown until
+  // playback starts -- to time the reveal ladder. The resolved payload is
+  // held here and consumed by handleVoicePlaybackStart below, once that
+  // duration is known. Always overwrites any previous pending value, so an
+  // interrupted/failed prior voice turn can never leak into this one.
   const message: CalyxaMessage = {
     type: 'AI_TURN',
     payload: { messages, pageContext: capturedPageContext },
@@ -120,8 +131,28 @@ async function sendAiTurn(
   if ('error' in payload) {
     throw new Error(payload.error);
   }
-  showTurnAnnotations(payload.annotations ?? [], registry);
+  pendingVoiceAnnotations = { annotations: payload.annotations ?? [], registry };
   return payload.reply;
+}
+
+// Set by sendAiTurn's voice-path branch above when a reply arrives, and
+// consumed the moment TTS playback actually starts (handleVoicePlaybackStart
+// below) -- the gap between the two is exactly the onSynthesize + audio-
+// decode time Overlay.tsx's handleMicStop spends between them. undefined
+// whenever no voice reply is currently waiting on a playback-start signal.
+let pendingVoiceAnnotations: { annotations: Annotation[]; registry: EquationRegistry } | undefined;
+
+// Wired to Overlay.tsx's onVoicePlaybackStart (Sprint 12 follow-up): reveals
+// the held turn's annotations sequenced to the now-known speech duration
+// (showTurnAnnotationsSequenced -- "point at what's currently being said",
+// item 2 of the live annotation-precision follow-up) instead of showing
+// them all at once. A no-op if nothing is pending (e.g. a text turn, which
+// never sets pendingVoiceAnnotations in the first place).
+function handleVoicePlaybackStart(durationMs: number): void {
+  if (!pendingVoiceAnnotations) return;
+  const { annotations, registry } = pendingVoiceAnnotations;
+  pendingVoiceAnnotations = undefined;
+  showTurnAnnotationsSequenced(annotations, registry, durationMs);
 }
 
 // The overlay's VOICE_STT/VOICE_TTS transports (Sprint 06). Same role as
@@ -308,6 +339,7 @@ export default defineContentScript({
           onSend: sendAiTurn,
           onTranscribe: sendVoiceStt,
           onSynthesize: sendVoiceTts,
+          onVoicePlaybackStart: handleVoicePlaybackStart,
         });
       },
       onRemove: (root) => {

@@ -17,6 +17,7 @@ import {
   normalizeMatchText,
   resolveTarget,
   showTurnAnnotations,
+  showTurnAnnotationsSequenced,
   teardown,
   type AnnotationsEventDetail,
   type DrawInstruction,
@@ -94,12 +95,26 @@ describe('normalizeMatchText / matchRegistryEntries / clampRectToViewport (pure 
   it('registry matching: exact (normalised) beats substring, and a too-short substring never matches', () => {
     const registry: EquationRegistry = [
       { equation: { latex: 'x^2 + 5x + 6 = 0' }, element: null },
-      { equation: { latex: 'x = 4' }, element: null },
+      { equation: { latex: 'x^2 - 9 = 0' }, element: null },
     ];
 
     expect(matchRegistryEntries('X^2 + 5X + 6 = 0', registry)).toEqual([registry[0]]);
     expect(matchRegistryEntries('x^2 +', registry)).toEqual([registry[0]]); // bounded substring, >= 4 chars
-    expect(matchRegistryEntries('4', registry)).toEqual([]); // below MIN_SUBSTRING_MATCH_CHARS -- would be a guess
+    // "x^2" is short (below MIN_SUBSTRING_MATCH_CHARS) AND appears in BOTH
+    // equations -- genuinely ambiguous WHICH one it means, still refused.
+    expect(matchRegistryEntries('x^2', registry)).toEqual([]);
+  });
+
+  it('a short substring is still allowed through when it is UNIQUE to exactly one registry entry', () => {
+    const registry: EquationRegistry = [
+      { equation: { latex: 'x^2 + 5x + 6 = 0' }, element: null },
+      { equation: { latex: 'x = 4' }, element: null },
+    ];
+
+    // "4" is below MIN_SUBSTRING_MATCH_CHARS, but it only appears in ONE of
+    // the two equations -- no "which equation" question to guess at, so
+    // it's allowed (the sub-term resolver then narrows the rect within it).
+    expect(matchRegistryEntries('4', registry)).toEqual([registry[1]]);
   });
 
   it('clamps a bbox to the viewport and refuses one that clamps to nothing', () => {
@@ -278,6 +293,249 @@ describe('showTurnAnnotations — replace-per-turn, ttl, cap, teardown (ADR-022)
 
     clearAnnotations(); // nothing active -- no empty-to-empty dispatch
     expect(capture.dispatches).toHaveLength(2);
+
+    capture.stop();
+  });
+});
+
+describe('sub-term rect resolution — precise boxes for a piece of an equation, not the whole thing', () => {
+  it('KaTeX: a substring target resolves to a rect around just that glyph, not the whole equation', () => {
+    // "x2-3x+2=" -- one leaf span per glyph, each wrapped in an extra
+    // structural span with no text of its own, proving the leaf walk
+    // descends through non-leaf wrappers rather than only checking direct
+    // children.
+    const glyphs = ['x', '2', '-', '3', 'x', '+', '2', '='];
+    const katexEl = document.createElement('span');
+    katexEl.classList.add('katex');
+    const html = document.createElement('span');
+    html.classList.add('katex-html');
+    const base = document.createElement('span');
+    glyphs.forEach((text, i) => {
+      const wrap = document.createElement('span');
+      const glyph = document.createElement('span');
+      glyph.textContent = text;
+      withRect(glyph, { x: i * 10, y: 0, w: 10, h: 20 });
+      wrap.appendChild(glyph);
+      base.appendChild(wrap);
+    });
+    html.appendChild(base);
+    katexEl.appendChild(html);
+    document.body.appendChild(katexEl);
+    withRect(katexEl, { x: 0, y: 0, w: glyphs.length * 10, h: 20 });
+
+    const registry: EquationRegistry = [{ equation: { latex: 'x2-3x+2=' }, element: katexEl }];
+    const resolved = resolveTarget({ kind: 'textMatch', text: '2' }, registry);
+
+    expect(resolved?.anchor).toEqual({ kind: 'sub-term', element: katexEl, targetText: '2' });
+    // "2" first occurs as the exponent, glyph index 1 -> x = 10..20 -- a
+    // rect narrower than (and inside) the whole equation's 0..80.
+    expect(resolved?.rect).toEqual({ x: 10, y: 0, w: 10, h: 20 });
+  });
+
+  it('MathJax: correlates the (textless) visible token tree with the assistive-MathML text positionally', () => {
+    // Mirrors the real Khan Academy shape: mjx-math's tokens carry NO
+    // textContent at all (their MJX-C children render glyphs via CSS only)
+    // -- the assistive-mml <math> sibling is the only text source, and is
+    // correlated to the visible tokens by POSITION.
+    const tokenTags = ['mi', 'mn', 'mo', 'mn', 'mi', 'mo', 'mn', 'mo'];
+    const glyphTexts = ['x', '2', '−', '3', 'x', '+', '2', '='];
+
+    const container = document.createElement('mjx-container');
+    const mjxMath = document.createElement('mjx-math');
+    tokenTags.forEach((tag, i) => {
+      const token = document.createElement(`mjx-${tag}`);
+      token.appendChild(document.createElement('mjx-c')); // per-character leaf, no text
+      withRect(token, { x: i * 12, y: 5, w: 12, h: 18 });
+      mjxMath.appendChild(token);
+    });
+    container.appendChild(mjxMath);
+
+    const mathNS = 'http://www.w3.org/1998/Math/MathML';
+    const assistive = document.createElement('mjx-assistive-mml');
+    const mathEl = document.createElementNS(mathNS, 'math');
+    tokenTags.forEach((tag, i) => {
+      const leaf = document.createElementNS(mathNS, tag);
+      leaf.textContent = glyphTexts[i];
+      mathEl.appendChild(leaf);
+    });
+    assistive.appendChild(mathEl);
+    container.appendChild(assistive);
+    document.body.appendChild(container);
+    withRect(container, { x: 0, y: 0, w: 96, h: 20 });
+
+    const registry: EquationRegistry = [{ equation: { text: 'x2−3x+2=' }, element: container }];
+    // "3" is unambiguous within the string (occurs once) -- token index 3.
+    const resolved = resolveTarget({ kind: 'textMatch', text: '3' }, registry);
+
+    expect(resolved?.anchor).toEqual({ kind: 'sub-term', element: container, targetText: '3' });
+    expect(resolved?.rect).toEqual({ x: 36, y: 5, w: 12, h: 18 });
+  });
+
+  it('MathJax: a mismatched visible/assistive leaf count (e.g. a multi-character token) bails to the whole equation', () => {
+    const container = document.createElement('mjx-container');
+    const mjxMath = document.createElement('mjx-math');
+    const token = document.createElement('mjx-mi');
+    // "sin" as ONE token but THREE MJX-C children -- collectMathJaxVisibleTokens
+    // stops at the token, so this alone wouldn't cause a mismatch; instead
+    // simulate the mismatch directly: two visible tokens, three assistive ones.
+    mjxMath.appendChild(token);
+    const token2 = document.createElement('mjx-mo');
+    mjxMath.appendChild(token2);
+    container.appendChild(mjxMath);
+    withRect(container, { x: 0, y: 0, w: 40, h: 20 });
+
+    const mathNS = 'http://www.w3.org/1998/Math/MathML';
+    const assistive = document.createElement('mjx-assistive-mml');
+    const mathEl = document.createElementNS(mathNS, 'math');
+    for (const [tag, text] of [['mi', 'x'], ['mo', '='], ['mn', '5']] as const) {
+      const leaf = document.createElementNS(mathNS, tag);
+      leaf.textContent = text;
+      mathEl.appendChild(leaf);
+    }
+    assistive.appendChild(mathEl);
+    container.appendChild(assistive);
+    document.body.appendChild(container);
+
+    const registry: EquationRegistry = [{ equation: { text: 'x=5' }, element: container }];
+    const resolved = resolveTarget({ kind: 'textMatch', text: '5' }, registry);
+
+    // 2 visible tokens vs 3 assistive leaves -- resolveMathJaxSubRect bails,
+    // and resolveTarget falls back to the whole element's rect.
+    expect(resolved?.anchor).toEqual({ kind: 'element', element: container });
+    expect(resolved?.rect).toEqual({ x: 0, y: 0, w: 40, h: 20 });
+  });
+
+  it('plain MathML: a bare <math> node walks its own <mi>/<mn>/<mo> leaves directly', () => {
+    const mathNS = 'http://www.w3.org/1998/Math/MathML';
+    const mathEl = document.createElementNS(mathNS, 'math');
+    const parts: [string, string][] = [
+      ['mi', 'x'],
+      ['mo', '='],
+      ['mn', '5'],
+    ];
+    parts.forEach(([tag, text], i) => {
+      const leaf = document.createElementNS(mathNS, tag);
+      leaf.textContent = text;
+      withRect(leaf, { x: i * 10, y: 0, w: 10, h: 15 });
+      mathEl.appendChild(leaf);
+    });
+    document.body.appendChild(mathEl);
+    withRect(mathEl, { x: 0, y: 0, w: 30, h: 15 });
+
+    const registry: EquationRegistry = [{ equation: { text: 'x=5' }, element: mathEl }];
+    const resolved = resolveTarget({ kind: 'textMatch', text: '5' }, registry);
+
+    expect(resolved?.anchor).toEqual({ kind: 'sub-term', element: mathEl, targetText: '5' });
+    expect(resolved?.rect).toEqual({ x: 20, y: 0, w: 10, h: 15 });
+  });
+
+  it('a sub-term walk that cannot resolve (no internal structure to sub-divide) falls back to the whole-equation rect, never a guess', () => {
+    const katexEl = document.createElement('span');
+    katexEl.classList.add('katex');
+    // No '.katex-html' child at all -- resolveKatexSubRect bails immediately.
+    document.body.appendChild(katexEl);
+    withRect(katexEl, { x: 0, y: 0, w: 80, h: 20 });
+
+    const registry: EquationRegistry = [{ equation: { latex: 'x^2 + 5x + 6 = 0' }, element: katexEl }];
+    const resolved = resolveTarget({ kind: 'textMatch', text: 'x^2' }, registry);
+
+    expect(resolved?.anchor).toEqual({ kind: 'element', element: katexEl });
+    expect(resolved?.rect).toEqual({ x: 0, y: 0, w: 80, h: 20 });
+  });
+
+  it('an EXACT whole-equation reference skips sub-term resolution and uses the whole element rect', () => {
+    const glyphs = ['x', '=', '4'];
+    const katexEl = document.createElement('span');
+    katexEl.classList.add('katex');
+    const html = document.createElement('span');
+    html.classList.add('katex-html');
+    glyphs.forEach((text, i) => {
+      const glyph = document.createElement('span');
+      glyph.textContent = text;
+      withRect(glyph, { x: i * 10, y: 0, w: 10, h: 20 });
+      html.appendChild(glyph);
+    });
+    katexEl.appendChild(html);
+    document.body.appendChild(katexEl);
+    withRect(katexEl, { x: 0, y: 0, w: 30, h: 20 });
+
+    const registry: EquationRegistry = [{ equation: { latex: 'x=4' }, element: katexEl }];
+    const resolved = resolveTarget({ kind: 'textMatch', text: '  X=4  ' }, registry);
+
+    expect(resolved?.anchor).toEqual({ kind: 'element', element: katexEl });
+    expect(resolved?.rect).toEqual({ x: 0, y: 0, w: 30, h: 20 });
+  });
+});
+
+describe('showTurnAnnotationsSequenced — voice-mode even time-split reveal', () => {
+  it('reveals N annotations one at a time, each getting an even share of the total duration', () => {
+    vi.useFakeTimers();
+    const capture = captureDispatches();
+
+    const a = resolvableAnnotation('a-1', 'eq1');
+    const b = resolvableAnnotation('a-2', 'eq2');
+    const c = resolvableAnnotation('a-3', 'eq3');
+    const registry: EquationRegistry = [
+      { equation: { latex: 'eq1' }, element: a.el },
+      { equation: { latex: 'eq2' }, element: b.el },
+      { equation: { latex: 'eq3' }, element: c.el },
+    ];
+
+    showTurnAnnotationsSequenced([a.annotation, b.annotation, c.annotation], registry, 3000);
+    expect(capture.latest()?.map((d) => d.id)).toEqual(['a-1']);
+
+    vi.advanceTimersByTime(999);
+    expect(capture.latest()?.map((d) => d.id)).toEqual(['a-1']); // still inside the first 1000ms slice
+
+    vi.advanceTimersByTime(2);
+    expect(capture.latest()?.map((d) => d.id)).toEqual(['a-2']); // crossed into the second slice
+
+    vi.advanceTimersByTime(1000);
+    expect(capture.latest()?.map((d) => d.id)).toEqual(['a-3']); // crossed into the third slice
+
+    // The last slice's annotation persists once its own duration elapses --
+    // same persist-until-replaced default as ttlMs 0, not an auto-clear the
+    // instant speech ends.
+    vi.advanceTimersByTime(10_000);
+    expect(capture.latest()?.map((d) => d.id)).toEqual(['a-3']);
+
+    capture.stop();
+  });
+
+  it('falls back to simultaneous display when there is only one resolvable annotation (nothing to sequence)', () => {
+    const capture = captureDispatches();
+    const only = resolvableAnnotation('a-solo', 'eq1');
+
+    showTurnAnnotationsSequenced([only.annotation], [{ equation: { latex: 'eq1' }, element: only.el }], 5000);
+
+    expect(capture.latest()?.map((d) => d.id)).toEqual(['a-solo']);
+    capture.stop();
+  });
+
+  it('a new (non-sequenced) turn cancels an in-flight sequence', () => {
+    vi.useFakeTimers();
+    const capture = captureDispatches();
+
+    const a = resolvableAnnotation('seq-a', 'eqA');
+    const b = resolvableAnnotation('seq-b', 'eqB');
+    showTurnAnnotationsSequenced(
+      [a.annotation, b.annotation],
+      [
+        { equation: { latex: 'eqA' }, element: a.el },
+        { equation: { latex: 'eqB' }, element: b.el },
+      ],
+      2000,
+    );
+    expect(capture.latest()?.map((d) => d.id)).toEqual(['seq-a']);
+
+    const next = resolvableAnnotation('next-turn', 'eqNext');
+    showTurnAnnotations([next.annotation], [{ equation: { latex: 'eqNext' }, element: next.el }]);
+    expect(capture.latest()?.map((d) => d.id)).toEqual(['next-turn']);
+
+    // If the cancelled sequence's timer had still fired, it would have
+    // replaced "next-turn" with "seq-b" here.
+    vi.advanceTimersByTime(5000);
+    expect(capture.latest()?.map((d) => d.id)).toEqual(['next-turn']);
 
     capture.stop();
   });

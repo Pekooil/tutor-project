@@ -14,6 +14,8 @@ export type OverlayTransports = {
   onSend: (messages: TurnMessage[], onChunk?: (chunk: string) => void) => Promise<string>;
   onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
   onSynthesize: (text: string) => Promise<{ audio: ArrayBuffer; ttsMs: number }>;
+  /** Reports when synthesized speech starts playing + its duration (ms) -- see Overlay.tsx's prop comment. */
+  onVoicePlaybackStart: (durationMs: number) => void;
 };
 
 export type MountOverlayOptions = OverlayTransports;

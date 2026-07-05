@@ -40,10 +40,18 @@ export function Overlay({
   onSend,
   onTranscribe,
   onSynthesize,
+  onVoicePlaybackStart,
 }: {
   onSend: (messages: TurnMessage[], onChunk?: (chunk: string) => void) => Promise<string>;
   onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
   onSynthesize: (text: string) => Promise<{ audio: ArrayBuffer; ttsMs: number }>;
+  // Called once synthesized speech actually starts playing, with its known
+  // duration in ms -- content/index.ts uses this to reveal the turn's
+  // annotations sequenced to playback instead of all at once (voice-mode
+  // sub-term sequencing, Sprint 12 follow-up). Overlay itself does nothing
+  // with annotations -- it just reports the moment/duration, same as every
+  // other chrome.*-free callback here.
+  onVoicePlaybackStart: (durationMs: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [messages, setMessages] = useState<TurnMessage[]>([]);
@@ -262,7 +270,7 @@ export function Overlay({
       // Play audio and reveal the reply word-by-word in sync with speech.
       // Each word is appended as a new token so it gets the cx-word-in
       // entry animation. The reply commits to messages after playback ends.
-      await playAudioWithTextReveal(audio, reply, appendStreamToken, setPlaying, audioRef);
+      await playAudioWithTextReveal(audio, reply, appendStreamToken, setPlaying, audioRef, onVoicePlaybackStart);
 
       clearStreamTokens();
       setMessages((current) => [...current, { role: 'assistant', content: reply }]);
@@ -686,6 +694,7 @@ async function playAudioWithTextReveal(
   appendToken: (text: string) => void,
   setPlaying: (playing: boolean) => void,
   audioRef: { current: HTMLAudioElement | null },
+  onPlaybackStart: (durationMs: number) => void,
 ): Promise<void> {
   const url = URL.createObjectURL(new Blob([buffer], { type: 'audio/mpeg' }));
   const audio = new Audio(url);
@@ -724,6 +733,12 @@ async function playAudioWithTextReveal(
     URL.revokeObjectURL(url);
     return;
   }
+
+  // Only reported once playback has actually started (not merely
+  // requested) -- a rejected/aborted play() above returns before this,
+  // so a failed voice turn never kicks off an annotation sequence with no
+  // audio behind it. `duration` is in seconds; the controller wants ms.
+  onPlaybackStart(duration * 1000);
 
   // Append one word token per interval tick so each gets the cx-word-in
   // entry animation, matching the text-streaming path's visual behaviour.

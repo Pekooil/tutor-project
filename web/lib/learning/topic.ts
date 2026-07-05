@@ -121,7 +121,12 @@ function buildHaystack(pageContext: PageContext | undefined, recentMessages: Rec
     if (pageContext.title) parts.push(pageContext.title)
     if (pageContext.text) parts.push(pageContext.text)
     for (const equation of pageContext.equations) {
-      const body = equation.latex ?? equation.mathml ?? equation.text
+      // Same fix as renderEquation in page-context.ts: prefer readable
+      // `text` over raw `mathml` markup when there's no `latex` source --
+      // matching regexes against literal `<math><msup>...` tags can never
+      // hit a word/symbol alias, while the flattened text at least has a
+      // chance to.
+      const body = equation.latex ?? equation.text ?? equation.mathml
       if (body) parts.push(body)
     }
   }

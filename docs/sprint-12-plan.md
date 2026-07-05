@@ -598,9 +598,13 @@ extension loaded:
 
 ## Acceptance criteria (full checklist)
 
-**Sprint status: IN PROGRESS — Tasks 1–8 landed; next: Task 9 (manual annotation
-acceptance).** (Tasks 1–9 below; update this line as tasks land, per the Sprint 09/10/11
-convention.)
+**Sprint status: IN PROGRESS — Tasks 1–8 landed; Task 9's server-side half verified live
+(2026-07-04: real-model turns emit textMatch annotations copied exactly from page
+context, ≤3, no fabricated selector/bbox; no-annotation turn wire-identical to Sprint 11;
+annotated gradable turn persists the Sprint 11 row shape with no annotation data);
+browser-side half (items 1–8: draw/track/fallback/lifecycle/voice/pointer-events/
+MutationObserver/back-compat UX) still to be observed by hand.** (Tasks 1–9 below;
+update this line as tasks land, per the Sprint 09/10/11 convention.)
 
 - [ ] `turbo run typecheck lint build test` passes from root (now including the
       extension's new test task); `cd web && next build` and `cd extension && wxt build`
