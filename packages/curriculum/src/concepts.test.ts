@@ -5,7 +5,7 @@
 // the prerequisite edges it ships must not contain a cycle.
 
 import { describe, it, expect } from 'vitest'
-import { CONCEPT_KEYS, prerequisitesOf } from './concepts'
+import { CONCEPT_KEYS, getConcept, prerequisitesOf } from './concepts'
 
 // The exact eight keys Sprint 08's inline stopgap used (Task 3 acceptance).
 const SPRINT_08_KEYS = [
@@ -52,5 +52,23 @@ describe('prerequisitesOf', () => {
 
   it('returns an empty list for a key with no prerequisites', () => {
     expect(prerequisitesOf('algebra.linear-equations.one-variable')).toEqual([])
+  })
+})
+
+// Sprint 13 / Task 2: every concept must carry a human-readable `title` +
+// `strandLabel` — the profile overview, in-session tags, event pings, and
+// session recap (Sprint 13) all resolve concept keys through these fields
+// server-side, so a missing one would leak a raw key onto a screen. This
+// test fails the build the moment a new concept is added without one,
+// making that drift louder than the Sprint 11 audit's topic-alias-table
+// drift risk (a silently missing entry there is invisible).
+describe('display titles', () => {
+  it('gives every concept a non-empty title and strandLabel', () => {
+    for (const key of CONCEPT_KEYS) {
+      const concept = getConcept(key)
+      expect(concept).toBeDefined()
+      expect(concept?.title.length).toBeGreaterThan(0)
+      expect(concept?.strandLabel.length).toBeGreaterThan(0)
+    }
   })
 })
