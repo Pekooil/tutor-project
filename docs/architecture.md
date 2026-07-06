@@ -97,9 +97,18 @@ mismatch feature is deferred pending its proxy decision. See ADR-024, ADR-025, A
 ## Session lifecycle + overlay surfaces (Sprint 14)
 A session is now **problem-sized and auto-managed**, reversing part of ADR-007's
 manually-toggled model (the atomic `start_session` gate itself is unchanged — only
-its trigger point moves). The background worker auto-starts a session on the
-student's first turn — never on panel open or minimize — and the envelope gains two
-additive fields: `solution_progress` (0–1, model-emitted, client-clamped with bounded
+its trigger point moves). A session starts one of two ways: the **proactive opening
+scan** (ADR-030) — a new, AI-initiated turn kind that fires on panel **expand** when
+the freshly-captured `PageContext` shows a plausible problem, before the student has
+sent anything — or, when the scan finds nothing (or degrades), the student's first
+*sent* turn, as a fallback trigger (ADR-027, amended). Opening the panel on a blank
+page, reading the overview, and minimizing still start nothing. The opening scan
+reads the same topic-biased `LearningProfile` read (Sprint 11) and the existing
+`callback` cross-session-digest mechanism (ADR-024/026) as any other turn, and emits
+`say` + an annotation + an optional grounded `callback` tag — **never** `assessment`,
+which `envelope.ts` already tolerates as the "opening turn, no prior student answer"
+case, so no schema change was needed for it. The envelope gains two additive fields
+on every turn: `solution_progress` (0–1, model-emitted, client-clamped with bounded
 regression and monotone easing) and `session` (`{ complete, reason }`, one of three
 named end-conditions: solved, answered-then-declined-follow-up,
 corrected-follow-up-retry). A malformed or absent `session` field is a non-close, the
@@ -107,11 +116,14 @@ safe failure; on a real completion the tutor says "Now closing tutoring session.
 the background POSTs the existing `/api/session/end`, and the overlay runs a
 close choreography (recap → green ring sweep on ✕ → panel close + transcript clear).
 The popup loses its Start/End controls entirely and becomes a display-only surface
-(sign-in state, remaining quota, degraded notice). Neither new envelope field is
-persisted (no migration — both are ephemeral overlay/wire state only). Page context
-and the equation-element registry (ADR-022) now capture on panel **expand** rather
-than mount, fixing a Sprint 13 live-find where an SPA's post-load render (e.g. Khan
-Academy) could leave a session context-blind. See ADR-027, ADR-028.
+(sign-in state, remaining quota, degraded notice). Neither new envelope field, nor
+the opening scan's turn, is persisted differently — the opening scan writes the same
+`session_interactions` row shape as any other turn, just assessment-less, and no
+migration is added (ADR-028, ADR-030). Page context and the equation-element
+registry (ADR-022) now capture on panel **expand** rather than mount, fixing a
+Sprint 13 live-find where an SPA's post-load render (e.g. Khan Academy) could leave a
+session context-blind — and that same fresh capture is what the opening scan's
+plausible-problem check runs against. See ADR-027, ADR-028, ADR-030.
 
 The 1,247-line `Overlay.tsx` is decomposed into five presentational components —
 `TitleBar`, `Composer`, `InsightStrip`, `Transcript`, `PingToasts` — with
@@ -126,11 +138,19 @@ discipline preserved). The composer also gains a thin, low-saturation solution-
 progress bar, visually distinct from the strip's brighter transient bar.
 
 Annotations move to a **box-first** default (`highlight` renders as an outlined
-rect, the primary vocabulary; circle/arrow remain for when shape adds meaning), the
-model is steered to annotate proactively whenever a reply references on-screen PAGE
-CONTEXT, and the rendering layer gains a deterministic label-collision pass so
-same-region annotations no longer produce overlapping labels (ADR-022's ≤3 cap and
-drop-don't-guess resolution unchanged). Turn-time pings (ADR-026) gain three new
+rect, the primary vocabulary; circle/arrow remain for when shape adds meaning). The
+model is steered to annotate whenever a reply references on-screen PAGE CONTEXT —
+tightened same-sprint from a permission to an **expectation** (ADR-029 amendment) —
+and the rendering layer gains a deterministic label-collision pass so same-region
+annotations no longer produce overlapping labels (ADR-022's ≤3 cap and
+drop-don't-guess resolution unchanged). Annotations are also **color-linked to the
+text that names them**: when `say` refers to something it is also annotating, the
+prompt requires it to reuse that annotation's exact `target.text` substring (no new
+envelope field), and the client assigns each turn's annotations a deterministic
+color from a small fixed palette, shared between the on-page box and the matching
+substring in the chat bubble — an exact-match-only link, so a paraphrase renders as
+plain text rather than a guessed color (ADR-029 amendment). Turn-time pings (ADR-026)
+gain three new
 kinds on top of the original two — `unseen->learning`/`unseen->mastered` join
 `mastery-up`'s transition set, plus new `mastery-progress` (≥+0.10 in-state) and
 `streak-progress` (`RESOLUTION_STREAK − 1`) kinds, superseded by
@@ -183,17 +203,28 @@ See `/docs/adr/`. Notably:
   recap trend rollup + forward look; the confidence-mismatch proxy decision
   deferred with candidates recorded (amended by ADR-029: three more ping kinds,
   same never-the-LLM contract, plus a client-side session cap)
-- ADR-027 — Problem-sized sessions: auto-start on first turn only (revisits
-  ADR-007's manual trigger, not its atomic gate), AI-signaled + client-confirmed
-  completion (three named end-conditions), popup demoted to a display hint,
-  `FREE_SESSION_LIMIT` renumbering deliberately deferred to Sprint 16
+- ADR-027 — Problem-sized sessions: revisits ADR-007's manual trigger (not its
+  atomic gate), AI-signaled + client-confirmed completion (three named
+  end-conditions), popup demoted to a display hint, `FREE_SESSION_LIMIT`
+  renumbering deliberately deferred to Sprint 16; AMENDED same-sprint (ADR-030):
+  the start trigger widens from "first sent turn only" to "opening scan finds a
+  problem, OR first sent turn as the fallback"
 - ADR-028 — Solution-progress signal: model-emitted `solution_progress`,
   client-clamped (bounded regression, floor, monotone easing, forced full on
   `'solved'`); ephemeral, never persisted, never conflated with mastery
 - ADR-029 — Annotation legibility: outlined box as the primary annotation type,
   proactive prompt steering, a deterministic label-collision layout pass; AMENDS
   ADR-026 with three new ping kinds (two added `mastery-up` transitions,
-  `mastery-progress`, `streak-progress`) and their client-side session cap
+  `mastery-progress`, `streak-progress`) and their client-side session cap;
+  AMENDED again same-sprint: proactive steering raised from permission to
+  expectation, plus the color-link mechanism (exact `target.text` reuse in
+  `say`, deterministic per-turn palette, no new envelope field)
+- ADR-030 — The proactive opening scan: a new AI-initiated turn kind firing on
+  panel expand when a plausible problem is detected, reusing the topic-biased
+  profile read and the `callback` grounding gate, never emitting `assessment`;
+  makes open-with-a-detected-problem the session start (amends ADR-027),
+  degrades to silence (never a wrong guess) on failure or an unidentifiable
+  problem; explicitly forecloses a free/uncounted scan mode
 
 ## To be documented
 - System context diagram

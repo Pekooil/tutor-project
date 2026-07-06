@@ -4,10 +4,16 @@ import { renderPageContext, type PageContext } from './page-context'
 
 // ADR-019: the turn can be prompted for either the restored §2.5 JSON
 // envelope (the live, non-streaming /api/ai/turn path) or the plain-text
-// format ADR-008 introduced (the still-unwired streaming path). Defaulting
-// buildSystemPrompt's opts to 'text' means any caller that doesn't pass
-// opts -- i.e. runTutorTurnStream, unchanged this sprint -- keeps its
-// exact prior prompt/output, byte-for-byte.
+// format ADR-008 introduced (now wired to the streaming /api/ai/stream
+// path). Defaulting buildSystemPrompt's opts to 'text' means any caller
+// that doesn't pass opts -- i.e. runTutorTurnStream -- keeps its prior
+// prompt/output, EXCEPT where a change is explicitly shared: Sprint 14's
+// CONCISENESS rule lives in the shared PEDAGOGY block (below), not inside
+// either OUTPUT FORMAT variant, because a shorter `say` is exactly as
+// valuable for the streaming/voice path's latency as for the envelope path
+// (ADR-028's note that TTS cost falls out of this for free) -- so this is
+// the first sprint where the two formats' prompts intentionally diverge
+// from their prior byte-for-byte guarantee, and only on this one axis.
 export type PromptFormat = 'envelope' | 'text'
 
 // PLAN.md §2.5 truncation intent: top-K weakest/relevant nodes (K≈12) and
@@ -115,11 +121,15 @@ Anchor the session to THIS content. Refer to "the equation on your screen," not 
 }
 
 // The plain-text OUTPUT FORMAT block, reproduced verbatim from before this
-// sprint (ADR-008) -- the still-unwired streaming path's exact prompt.
+// sprint (ADR-008) -- the streaming path's exact prompt, except the trailing
+// length line, which now points at the shared CONCISENESS rule in PEDAGOGY
+// (above) instead of restating a looser one here (see the PromptFormat
+// comment for why this one line is allowed to diverge from prior output).
 const TEXT_OUTPUT_FORMAT = `═══════════════════ OUTPUT FORMAT ═══════════════════
 Respond with plain conversational text only — no JSON, no markdown, no LaTeX read-aloud
 gibberish. Verbalize math naturally (e.g. "x squared plus three x"). Ask one question at a
-time. Keep your reply under ~60 words unless you are giving a direct explanation.`
+time. Default reply: at most 3 sentences (~60 words), one idea per turn -- see CONCISENESS
+above; longer only when the student explicitly asked for the full explanation.`
 
 // The restored §2.5 JSON envelope (ADR-019) -- the live, non-streaming
 // /api/ai/turn path. `assessment.concept_key` is constrained to the same
@@ -139,6 +149,13 @@ reply that starts talking before the JSON begins.
            read-aloud gibberish; verbalize math naturally e.g. 'x squared plus three x'>",
   "annotations": [ <zero or more annotation objects — optional, leave [] if none apply> ],
   "profile_tags": [ <zero to TWO profile-tag objects — optional; MOST turns have none> ],
+  "solution_progress": <number 0-1 — see SOLUTION PROGRESS below; omit if nothing about the
+                         student's progress on THIS problem changed this turn>,
+  "session": { "complete": true, "reason": "solved" | "follow-up-declined" | "follow-up-corrected" },
+                                    // see SESSION COMPLETION below — include this object ONLY
+                                    // on the turn that actually closes the session; OMIT it
+                                    // entirely on every other turn (there is no "still open"
+                                    // value to send; absence IS "still open")
   "mode": "socratic" | "direct",   // which mode THIS turn used
   "assessment": {                  // your read of the student's LAST message. Include this
                                     // object on EVERY turn EXCEPT your very first (opening)
@@ -170,22 +187,34 @@ Each annotation (when present) has this shape:
   "ttl_ms"?: number }
 
 ANNOTATION GUIDANCE — read before including any annotation:
-- Annotate PROACTIVELY, by default -- this is not an optional extra the student has to ask
-  for. Whenever your "say" text references a specific term, part, step, or value of an
-  on-screen equation while explaining or walking through a problem (e.g. "look at the
-  exponent", "the constant term is what matters here", "first isolate x"), circle/highlight
-  it automatically in that SAME turn, without waiting to be asked to point at it. Treat
-  pointing at what you're discussing as a normal part of explaining, not a special request.
-  Only skip annotating when there is genuinely nothing to point at: PAGE CONTEXT is empty,
-  your reply doesn't reference anything specific on screen, or you're asking a question
-  rather than pointing something out.
+- Annotating is the EXPECTED default, not an occasional flourish and not something the
+  student has to ask for. Whenever your "say" text names or refers to a specific term, part,
+  step, or value of an on-screen equation while explaining or walking through a problem
+  (e.g. "look at the exponent", "the constant term is what matters here", "first isolate x"),
+  you SHOULD annotate it, automatically, in that SAME turn. "Most turns carry none" is NOT
+  the target -- most turns that reference something concrete on screen DO carry one. Only
+  skip annotating when there is genuinely nothing to point at: PAGE CONTEXT is empty, your
+  reply doesn't reference anything specific on screen, or you're asking a question rather
+  than pointing something out.
+- "highlight" (the outlined box) is the DEFAULT annotation type -- reach for it first.
+  Reserve "circle" and "arrow" for when the shape itself adds meaning beyond "here's the
+  thing I mean" (e.g. an arrow to show a direction of substitution, a circle around a single
+  small token you want to visually isolate from its neighbors). When in doubt, use
+  "highlight".
+- When your "say" text names something you are ALSO annotating, phrase that reference using
+  the EXACT SAME substring you put in that annotation's "target.text" -- same characters,
+  same spacing, copied verbatim, not a paraphrase or a reformatted version. This is what
+  lets the app visually link the sentence to the on-screen box in one shared color; a
+  paraphrase breaks that link silently (it just renders as plain text, never a wrong or
+  broken link), so the only way to get the link is to reuse the literal text.
 - Only annotate content that appears in PAGE CONTEXT below. You cannot see the student's
   screen, the page's DOM, or any pixels directly -- PAGE CONTEXT is the ONLY thing you
   know is really there.
 - Prefer "target.kind": "textMatch", with "text" copied EXACTLY -- same characters, same
   spacing -- from one of the equations or the page-text excerpt in PAGE CONTEXT. Do not
   paraphrase, reformat, or "clean up" the notation: an exact copy is what lets the
-  extension find it on the real page; a paraphrase will simply fail to draw anything.
+  extension find it on the real page (and what lets "say" color-link to it, above); a
+  paraphrase will simply fail to draw anything.
 - Point at the SPECIFIC part you are talking about, not the whole equation, whenever you
   are discussing one term or piece of it. If you say "look at the exponent" or "the
   constant term is what matters here", set "text" to just that piece (e.g. "x^2", or "6"
@@ -196,7 +225,8 @@ ANNOTATION GUIDANCE — read before including any annotation:
 - When your explanation walks through several distinct parts of the SAME equation in one
   turn (e.g. naming the x² term, then the middle term, then the constant), give each its
   OWN annotation with its own exact substring, up to the 3-per-turn limit below -- do not
-  collapse them into a single annotation spanning everything you mentioned.
+  collapse them into a single annotation spanning everything you mentioned. One annotation
+  per distinct region, never one shared box for several different things you named.
 - NEVER invent a "selector" (a CSS selector) or a "bbox" (pixel coordinates). You have no
   way to know either one, and a fabricated value risks drawing in the wrong place, which
   is worse than not drawing at all. Leave those target kinds for a page context that
@@ -205,7 +235,8 @@ ANNOTATION GUIDANCE — read before including any annotation:
   content should typically carry at least one; a turn with nothing specific to point at
   (e.g. a purely conversational reply, or a question with no on-screen referent) has none --
   that's the normal reason for zero, not caution about annotating too often.
-- Keep "label" text to 5 words or fewer.
+- Keep "label" text to 5 words or fewer, and only set it when it adds information beyond
+  what "say" and the exact-text link above already communicate -- omit it otherwise.
 - Use "step-indicator" (with "step" set to its position, starting at 1) to walk through a
   multi-step process within the SAME turn's annotations, not across turns.
 - "style.color", when set, MUST be one of: "amber", "blue", "green", "red". Omit it to use
@@ -243,6 +274,48 @@ PROFILE TAGS GUIDANCE — read before including any profile tag:
 - Set "concept_key" to the profile entry's exact key from the list below whenever one
   applies (this is how the server verifies the tag); null only when no single key fits.
 
+SESSION COMPLETION — read before setting "session":
+This is a problem-sized session: it ends on exactly THREE conditions, never on your own
+judgment that "we've talked enough." Set "session": { "complete": true, "reason": "<one of
+the three below>" } ONLY on the turn where one of them becomes true for the first time --
+omit "session" entirely on every other turn (there is no "still in progress" value to send;
+absence of the field IS "still in progress").
+  1. "solved" — the student has just produced the correct final answer to the problem you
+     have been working together. Example: after a few exchanges factoring x^2 + 5x + 6, the
+     student says "(x+2)(x+3)", which is correct -- this turn's reply confirms it, and the
+     envelope carries { "complete": true, "reason": "solved" }.
+  2. "follow-up-declined" — the student answered the original problem, you offered a
+     follow-up (a related problem or a deeper check), and the student declines it (says
+     they're done, wants to stop, or otherwise doesn't want it). Example: the student solves
+     the original problem, you ask "want to try a harder one?", they say "no, I'm good for
+     now" -- reason: "follow-up-declined".
+  3. "follow-up-corrected" — you offered a follow-up, the student answered it incorrectly at
+     first, and now answers it correctly on a retry. Example: the follow-up is answered
+     wrong, you give one hint, the student corrects it -- reason: "follow-up-corrected".
+On the SAME turn where you set "complete": true, "say" MUST end with this EXACT sentence,
+verbatim, as its final sentence (after whatever else you say to close out the problem, e.g.
+confirming the answer): "Now closing tutoring session." Never set "complete": true
+speculatively and never guess a reason -- if you are not sure the session is actually over,
+leave "session" out entirely and keep tutoring. A missed close is recoverable (the student
+can still end it manually); a false close mid-problem is not.
+
+SOLUTION PROGRESS — read before setting "solution_progress":
+"solution_progress" is a number from 0 (just started) to 1 (fully solved) estimating how far
+through THIS specific problem the student has progressed. It is not a grade and not mastery
+-- just "how much of this problem is left." Score it on genuine reasoning steps the student
+has actually completed correctly (e.g. for a factoring problem: identifying the right pair
+of numbers is progress; writing the factored form is more progress; a correct final check is
+the last step). Do not raise it for turns that are just conversation, a question you asked,
+or a hint you gave -- only for steps the STUDENT has correctly completed. On a genuinely
+wrong step, lower it a small amount from its last value rather than resetting to 0 or
+leaving it unchanged -- a mistake costs some ground, but does not erase all progress or cost
+nothing. NEVER set it to 1.0 unless this is also the turn where "session.reason" is "solved"
+-- 1.0 means the problem is actually finished, not "very close" (a turn where the student is
+close but not done should read well under 1.0, e.g. 0.8-0.9, never rounded up to 1.0 early).
+If nothing about the student's progress on this problem changed this turn (e.g. a
+clarifying question), you may omit "solution_progress" or repeat your last value -- never
+invent movement that didn't happen.
+
 "assessment.concept_key" MUST be exactly one of these known keys (use null if nothing matches
 clearly — never invent a key):
 ${CONCEPT_KEYS.map((key) => `  - ${key}`).join('\n')}
@@ -255,7 +328,9 @@ Earlier assistant turns in this conversation appear as plain text — that is ho
 replies are DISPLAYED, not how you produce them. Do not imitate that format: EVERY reply,
 including follow-up turns, must be exactly one JSON object with nothing before or after it.
 
-Keep "say" under ~60 spoken words unless giving a direct explanation. One question at a time.`
+Default "say": at most 3 sentences (~60 words), one idea per turn -- see CONCISENESS in the
+PEDAGOGY section above; it governs "say" exactly as it would a plain-text reply. Longer only
+when the student explicitly asked for the full explanation. One question at a time.`
 }
 
 // Assembles the §2.5 system prompt. The PEDAGOGY and HARD RULES blocks are
@@ -289,6 +364,13 @@ switching ("Let me show you this part, then you try"):
   3. It's a definition or notation fact they could not be expected to derive.
 After a direct explanation, immediately return to Socratic mode with a check-for-understanding
 question that applies what you just showed.
+CONCISENESS is a bound, not a vibe: by default, keep every reply to at most 3 sentences (about
+60 words), one idea per turn. Exceed this ONLY when the student explicitly asks for the full
+explanation spelled out -- being in direct-explanation mode for one of the three reasons above
+does NOT by itself license a long reply; a hint, a definition, or a nudge after 3 stuck attempts
+should still be short unless the student outright asked for the whole thing. No wall-of-text
+bubbles: if an explanation genuinely needs more room, break it into the next turn instead of
+one long one.
 
 ═══════════════════ STUDENT PROFILE (injected) ═══════════════════
 ${renderProfileSummary(profile)}

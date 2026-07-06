@@ -84,3 +84,39 @@ tracks a boundary only the tutor can see.
 - Defers: `FREE_SESSION_LIMIT` renumbering to Sprint 16, which inherits problem-sized
   sessions as its metering unit; nothing else about entitlements or billing changes
   here.
+
+---
+
+**Amendment (2026-07-05, before Task 5 landed) — start trigger moves from first
+sent turn to panel-expand-with-a-detected-problem.**
+
+Darcy added a same-day scope extension (the proactive opening scan, ADR-032):
+on panel expand, if the freshly-captured `PageContext` shows a plausible problem
+(non-empty equations/text), the tutor now acts **before** the student sends
+anything — it identifies the problem, frames it with an annotation, asks
+"is that what you need help on?", and surfaces relevant profile history. That is
+a real, billable AI call firing at open time, which forces a decision Decision 1
+above did not anticipate: does opening the panel cost quota?
+
+Darcy's call: **yes — open (when a problem is detected) is now the session
+start**, not the first sent turn. Rationale: the opening scan is not a diagnostic
+freebie — it is the tutor's real first move on a real problem, so treating it as
+anything other than the start of engagement would let quota accounting drift
+from what actually happened. It is also simpler: one trigger point, not two.
+
+**What changes:** `handleAiTurn`'s auto-start check moves to the panel-expand
+handler (`content/index.ts`), gated on `PageContext` containing a plausible
+problem — opening on a blank page or a non-math page still starts nothing. A
+sent turn no longer independently checks for an empty `ActiveSession` in the
+common case (the session already exists by the time the student types), but the
+check is **not removed** — it is the fallback for the case the opening scan
+found no problem (or degraded) and the student asks a question anyway, which
+still needs to start a session on send. So the trigger widens (open-with-problem
+OR first-send-if-not-already-started); it does not narrow.
+
+**What does not change:** the atomic `start_session` RPC, `FREE_SESSION_LIMIT`,
+the lazy 30-day reset, and Decision 5's deferral of the limit's renumbering to
+Sprint 16 — all unchanged. Decision 2 (AI-signaled, client-confirmed *end*) is
+also unchanged; only the *start* trigger moves. See ADR-032 for the opening
+scan's own contract (what it reads, what it emits, why it counts as a real turn
+rather than a template).

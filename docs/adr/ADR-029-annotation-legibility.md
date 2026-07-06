@@ -108,3 +108,56 @@ boundary-crossing events that don't fire on every session.
   granularity (per-concept-per-kind, not global) remain a constants/tuning surface for
   the beta feedback loop, explicitly not a redesign per the sprint's "What the next
   sprint needs to know."
+
+---
+
+**Amendment (2026-07-05, before Task 3 landed) — annotate whenever referenced, and
+color-link the on-page box to the exact phrase in the chat bubble.**
+
+Darcy added a same-day scope extension: "annotate proactively when the reply
+references PAGE CONTEXT content" (the original decision, above) reads as a
+*permission*; live use showed the model still treats it as optional too often.
+The amendment tightens it to an **expectation**: whenever the reply's `say`
+references a specific piece of on-screen content that PAGE CONTEXT makes
+targetable, the turn **should** carry an annotation for it — "most turns none"
+is retired as the default framing. The ≤3-per-turn cap and drop-don't-guess
+resolution are unchanged; this raises the floor, not the ceiling.
+
+The second half is new: the on-page box and the phrase in the chat transcript
+that refers to it should share **one color**, so a student can visually trace
+"this sentence" to "that box" without re-reading. This needs **no new envelope
+field**. A `textMatch` annotation's `target.text` is already the *exact* text
+copied from PAGE CONTEXT (Task 2's original targeting rule); the amendment adds
+one prompt constraint — when `say` refers to content it is also annotating, the
+referring phrase in `say` should reuse that same exact `target.text` substring
+— and one client-side behavior: `Transcript.tsx` finds that substring in the
+rendered `say` and wraps it in a span colored to match its annotation's
+`AnnotationLayer.tsx` color. Each turn's annotations are assigned colors, in
+order, from a small fixed palette (mapped to `@calyxa/ui` tokens, ADR-018
+discipline — no new colors); the same palette index is used for the box and the
+matched text span. A `say` phrase that does not exactly match any annotation's
+`target.text` renders as plain text — no color, no guess, no broken partial
+match.
+
+**Rationale:**
+- Requiring exact-text reuse (rather than a semantic/fuzzy match) means the
+  text-to-annotation link is a plain substring search, not a new parsing or
+  matching layer — it reuses the discipline the targeting rule already
+  established for a different reason (resolving against the live DOM) and gets
+  the linking for free.
+- Raising the floor from permission to expectation is a prompt-only change,
+  consistent with this ADR's existing instinct that annotation frequency is a
+  prompt-tuning surface, not an architecture one.
+
+**Consequences:**
+- Enables: a student can see, in the same color, both what the tutor is talking
+  about (bold/tinted phrase in the bubble) and where it is on their screen (the
+  box) — closing the gap between "Calyxa is very talkative about annotating" and
+  "but I don't actually see the connection."
+- Requires: a small fixed color palette shared between `Transcript.tsx` and
+  `AnnotationLayer.tsx` (new, additive `@calyxa/ui` aliases — one per palette
+  slot, not one per concept/tag-kind, so it does not collide with the tag-color
+  aliases Task 6 already adds); the substring match to be exact and case-
+  sensitive (a near-miss is a plain-text render, never a mis-colored guess).
+- Forecloses: nothing — the palette size and the "expectation vs. requirement"
+  strength of the prompt language remain tunable without an architecture change.

@@ -60,6 +60,54 @@ export type Annotation = {
   ttlMs?: number
 }
 
+// Solution progress (Sprint 14, ADR-028): the model's own read of how far
+// the student is through THIS problem, 0-1. Model-emitted, client-clamped --
+// parse only clamps to the valid range (defence in depth; the overlay's own
+// bounded-regression/monotone-easing clamp, ADR-028, is the real contract);
+// a non-numeric value is DROPPED (undefined), never defaulted to 0, so a
+// malformed value reads as "no progress signal this turn" rather than "no
+// progress made this turn" -- those are different claims.
+function parseSolutionProgress(candidate: unknown): number | undefined {
+  if (typeof candidate !== 'number' || !Number.isFinite(candidate)) {
+    return undefined
+  }
+
+  return Math.max(0, Math.min(1, candidate))
+}
+
+// Session completion (Sprint 14, ADR-027): AI-signaled, client-confirmed.
+// Exactly three reasons, verbatim from the ADR -- the model names WHY the
+// problem is done, and the client runs the visible close (say line -> recap
+// -> ring -> close) only in response to this field. `complete` must be
+// exactly `true` and `reason` one of the three known literals for the field
+// to survive parsing AT ALL -- a `complete: false`, a missing/invalid
+// `reason`, or any non-object shape all drop the WHOLE field (never a
+// partial accept, e.g. never `{ complete: true }` with a guessed reason).
+// This is the ADR's "a dropped completion is a non-close, the safe failure"
+// rule: the model is only ever prompted to include `session` when actually
+// closing, so anything that doesn't parse cleanly as a genuine close is
+// treated identically to omitting it -- the session simply stays open.
+export type SessionCompletionReason = 'solved' | 'follow-up-declined' | 'follow-up-corrected'
+export type SessionCompletion = { complete: true; reason: SessionCompletionReason }
+
+function isValidCompletionReason(value: unknown): value is SessionCompletionReason {
+  return value === 'solved' || value === 'follow-up-declined' || value === 'follow-up-corrected'
+}
+
+function parseSessionCompletion(candidate: unknown): SessionCompletion | undefined {
+  if (typeof candidate !== 'object' || candidate === null) {
+    return undefined
+  }
+
+  const { complete, reason } = candidate as Record<string, unknown>
+
+  if (complete !== true || !isValidCompletionReason(reason)) {
+    return undefined
+  }
+
+  return { complete: true, reason }
+}
+
 // Profile tags (Sprint 13, ADR-024/026): the tutor's structured references
 // to the student's OWN profile, rendered as visible pills in the transcript
 // (e.g. [reviewing: Factoring quadratics], [known gap: sign errors]). Unlike
@@ -83,17 +131,20 @@ export type ProfileTag = {
 // entries and silently discards the rest.
 const MAX_PROFILE_TAGS = 2
 
-// annotations/mode/assessment/profileTags are all optional at the type
-// level: an opening turn (no prior student answer) omits assessment, a turn
-// with nothing to point at omits annotations, most turns carry no profile
-// tags, and a degrade-to-plain-text result (see parseEnvelope) omits
-// everything but `say`.
+// annotations/mode/assessment/profileTags/solutionProgress/session are all
+// optional at the type level: an opening turn (no prior student answer)
+// omits assessment, a turn with nothing to point at omits annotations, most
+// turns carry no profile tags, most turns carry no session completion (only
+// the turn that actually closes the problem does), and a degrade-to-
+// plain-text result (see parseEnvelope) omits everything but `say`.
 export type TurnEnvelope = {
   say: string
   annotations?: Annotation[]
   mode?: Mode
   assessment?: Assessment
   profileTags?: ProfileTag[]
+  solutionProgress?: number
+  session?: SessionCompletion
 }
 
 // Same fence-stripping regex as summarise.ts -- duplicated rather than
@@ -324,6 +375,8 @@ export function parseEnvelope(raw: string): TurnEnvelope {
       assessment?: unknown
       annotations?: unknown
       profile_tags?: unknown
+      solution_progress?: unknown
+      session?: unknown
     }
     const envelope: TurnEnvelope = { say: envelopeSource.say }
 
@@ -334,6 +387,16 @@ export function parseEnvelope(raw: string): TurnEnvelope {
     const assessment = parseAssessment(envelopeSource.assessment)
     if (assessment) {
       envelope.assessment = assessment
+    }
+
+    const solutionProgress = parseSolutionProgress(envelopeSource.solution_progress)
+    if (solutionProgress !== undefined) {
+      envelope.solutionProgress = solutionProgress
+    }
+
+    const session = parseSessionCompletion(envelopeSource.session)
+    if (session) {
+      envelope.session = session
     }
 
     if (Array.isArray(envelopeSource.annotations)) {

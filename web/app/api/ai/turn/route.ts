@@ -542,11 +542,21 @@ export async function POST(request: Request) {
     // shape regardless of what this turn tagged (ADR-024).
     const profileTags = groundProfileTags(envelope.profileTags, profile)
 
+    // Sprint 14 (ADR-027/028): solutionProgress + session ride the wire the
+    // same additive way -- fields OMITTED (not null, not a default) when the
+    // envelope didn't carry them, so a turn with neither is byte-identical
+    // to Sprint 13's response. Both are thread-through only: envelope.ts
+    // already did the clamping/validation (a malformed session field never
+    // reaches here at all -- it was dropped at parse time), and neither
+    // field is persisted -- persistInteraction above and session_interactions'
+    // row shape are completely unaffected by either.
     return NextResponse.json({
       reply: envelope.say,
       ...(annotations && annotations.length > 0 ? { annotations } : {}),
       ...(profileTags.length > 0 ? { profileTags } : {}),
       ...(pings.length > 0 ? { pings } : {}),
+      ...(envelope.solutionProgress !== undefined ? { solutionProgress: envelope.solutionProgress } : {}),
+      ...(envelope.session ? { session: envelope.session } : {}),
     })
   } catch {
     // Never relay the provider's error text or any key material to the client.
