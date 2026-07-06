@@ -328,6 +328,44 @@ are unverified in an actual browser this session — Task 11 items.
 /web/app/layout.tsx                       ← edit — metadata only: title ("Calyxa — the math tutor that lives on your screen"), description, OpenGraph/Twitter card pointing at the existing /og.png.
 ```
 
+**Addendum (Task 9, as built).** `Pricing.tsx` keeps its own literal
+constants (`FREE_SESSIONS_PER_MONTH = 10`, `PRO_PRICE_PER_MONTH = 12`) rather
+than importing `FREE_SESSION_LIMIT` from `web/lib/tier/session-gate.ts`: that
+module pulls in `@supabase/supabase-js` and is written for server routes
+(its own comment says "server-side only"), not a client-rendered marketing
+page, and importing product-tier code into `/web/components/marketing/**`
+isn't this sprint's pattern anywhere else. Matches the handoff's own framing
+("Pricing.tsx has one constant to update") — two separate constants kept in
+sync by convention, not by import. Both plan CTAs link to `#final-cta`
+(`<Button asChild>` wrapping an anchor, same pattern as Nav's waitlist
+button) rather than embedding a third `WaitlistForm` instance — the route's
+`ALLOWED_SOURCES` and the form's `source` prop are typed to exactly `'hero'
+| 'footer'` (Task 2/3), and adding a third tag was out of this task's scope.
+`SocialProof.tsx`'s placeholder quotes are attributed literally as "Beta
+student — placeholder quote" (not a fabricated name) and its stat strip
+renders em-dash values with real labels, never an invented number — read
+literally against "nothing on the page invents a named person or a fake
+metric presented as real." `layout.tsx`'s metadata sets `metadataBase` to
+`process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'`: no production
+domain has been chosen yet, so this isn't guessed — it's the standard
+Next.js fallback, verified locally (og:image/twitter:image resolve to the
+absolute `http://localhost:3000/og.png`, confirmed reachable, 200
+image/png). **Manual step for Darcy:** set `NEXT_PUBLIC_SITE_URL` once a
+real domain is chosen, or these tags will keep pointing at localhost in
+production. Verified: typecheck/lint green; curled the same
+externally-running dev server — title/description/OG/Twitter tags exact,
+Pricing shows $0/$12 and both plan taglines, SocialProof shows all three
+placeholder quotes and stat labels, FinalCta's form and heading render, zero
+errors in the final state. One transient `ReferenceError: Section is not
+defined` appeared mid-edit in the dev log (an intermediate save between
+removing the unused `Section` import and finishing the placeholder swap in
+`page.tsx`) and self-resolved on the next HMR recompile — not present in the
+final state. **Noted, not touched:** the same dev server's working tree also
+shows an uncommitted, unrelated diff in `web/lib/ai/system-prompt.ts`
+(product-track prompt-engineering work, matching the live `/api/ai/turn`
+traffic already observed in Tasks 7-8's addenda) — left alone, as it belongs
+to whoever is driving that session, not this one.
+
 ### Task 10 (tests) creates:
 ```
 /web/tests/waitlist.test.ts ← new — route: valid email inserts (service-role client mocked); duplicate → 200 idempotent; malformed → 400; filled honeypot → silent 200 with no insert; email normalized (trim + lowercase) before insert.
