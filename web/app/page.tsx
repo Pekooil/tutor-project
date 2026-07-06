@@ -1,16 +1,15 @@
 import { Nav } from '@/components/marketing/Nav'
 import { Footer } from '@/components/marketing/Footer'
+import { Hero } from '@/components/marketing/Hero'
 import { Section } from '@/components/marketing/Section'
 import { Reveal } from '@/components/marketing/Reveal'
 import { WaitlistForm } from '@/components/marketing/WaitlistForm'
-import { DemoStage } from '@/components/marketing/demo/DemoStage'
-import { heroSession } from '@/components/marketing/demo/scripts'
 
 // Sprint 20 Task 3: the full page skeleton, in the plan's section order.
-// Hero is a placeholder here — Task 5 replaces it with a real <Hero />.
-// Every section below it is a placeholder stub via <Section>, replaced
-// component-by-component in Tasks 6-9. This file itself only composes;
-// nothing here should need touching once every section is a real import.
+// Hero is real (Task 5); every section below it is a placeholder stub via
+// <Section>, replaced component-by-component in Tasks 6-9. This file itself
+// only composes; nothing here should need touching once every section is a
+// real import.
 function DemoPlaceholder({ label }: { label: string }) {
   return (
     <div className="flex aspect-video items-center justify-center rounded-lg border border-dashed border-border bg-surface text-sm text-muted-foreground">
@@ -24,26 +23,7 @@ export default function Home() {
     <>
       <Nav />
       <main>
-        <section id="hero" className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
-          <div className="max-w-2xl">
-            <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
-              The math tutor that lives on your screen.
-            </h1>
-            <p className="mt-6 text-lg text-muted-foreground">
-              Calyxa sees the problem you&apos;re stuck on, talks you through it out loud, and
-              points at the exact step you&apos;re missing — without ever just giving you the
-              answer.
-            </p>
-            <WaitlistForm source="hero" className="mt-8 max-w-md" />
-            <p className="mt-3 text-sm text-muted-foreground">Free for 10 sessions a month · Chrome</p>
-          </div>
-          <div className="mt-16">
-            <DemoStage
-              script={heroSession}
-              alt="A live demo of a Calyxa tutoring session: the tutor annotates the equation x² + 5x + 6 = 0 on a practice page, asks guiding questions while a solution progress bar fills, flags a sign-error weak spot, fires a 'Gap closed: sign errors' ping when the student self-corrects, and closes with a session recap."
-            />
-          </div>
-        </section>
+        <Hero />
 
         <Reveal>
           <Section
