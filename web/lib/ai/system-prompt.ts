@@ -16,6 +16,13 @@ import { renderPageContext, type PageContext } from './page-context'
 // from their prior byte-for-byte guarantee, and only on this one axis.
 export type PromptFormat = 'envelope' | 'text'
 
+// Sprint 14 Task 4 (ADR-030): the fifth additive block, appended only for the
+// proactive opening scan -- the one turn kind with no student message at all.
+// `opening` is independent of `format` (the opening scan always calls with
+// 'envelope', but this flag is what actually appends the block; the two are
+// separate knobs, not the same one renamed).
+export type PromptOpts = { format?: PromptFormat; opening?: boolean }
+
 // PLAN.md §2.5 truncation intent: top-K weakest/relevant nodes (K≈12) and
 // active misconceptions only (cap ≈8). The hardcoded profile is already
 // small, but the caps are applied here so the live profile (learning-connect
@@ -333,17 +340,55 @@ PEDAGOGY section above; it governs "say" exactly as it would a plain-text reply.
 when the student explicitly asked for the full explanation. One question at a time.`
 }
 
+// The fifth additive block (Sprint 14 Task 4, ADR-030): appended only for the
+// proactive opening scan, the one turn kind fired with no student message at
+// all -- panel expand found a plausible problem before anything was typed.
+// Read alongside the envelope's existing "your very first (opening) turn...
+// omit assessment" tolerance above: that line already covers this exact case,
+// so this block only adds what's genuinely new -- what an opening turn is
+// FOR, and the empty-say escape hatch that lets the model say "I'm not sure"
+// instead of guessing.
+const OPENING_SCAN_MODE = `═══════════════════ OPENING SCAN MODE ═══════════════════
+This is the OPENING SCAN: the panel just opened and the student has not sent a message yet.
+There is no conversation history -- PAGE CONTEXT above is everything you have. Your ONLY job
+this turn is to look at PAGE CONTEXT and decide whether you can confidently name the SPECIFIC
+problem the student appears to be working on.
+
+If you CAN confidently name it:
+- Set "say" to exactly ONE line naming that ACTUAL problem -- never a generic line like "Looks
+  like you're working on something, need help?" -- and asking whether that's what they need
+  help with, e.g. "Looks like you're working on factoring x^2 + 5x + 6 -- is that what you need
+  help with?"
+- Include exactly one annotation framing it. The ANNOTATION GUIDANCE above applies in full:
+  "highlight" (the box) first, "target.text" copied EXACTLY from PAGE CONTEXT, and "say" must
+  reuse that same exact text for the color-link.
+- Include a "callback" profile tag ONLY when the STUDENT PROFILE's PRIOR SESSIONS list above
+  contains a genuinely relevant prior session on this same topic -- the exact same grounding
+  gate as any mid-conversation callback: never invent one, and omit "profile_tags" entirely
+  when nothing genuinely connects.
+- NEVER include "assessment" -- there is no student answer yet, nothing to grade (this is the
+  "opening turn, no prior student answer" case already described above).
+- NEVER include "solution_progress" or "session" -- there is no progress yet to score and
+  nothing yet to close.
+
+If you CANNOT confidently name a specific problem (PAGE CONTEXT is too thin, ambiguous, or
+doesn't actually show a problem), set "say" to an empty string ("") and omit "annotations",
+"profile_tags", "assessment", "solution_progress", and "session" entirely. An empty "say" is a
+valid, EXPECTED answer here -- it means "I looked and I'm not confident," and is treated as
+such downstream. Do NOT invent a plausible-sounding problem just to have something to say.`
+
 // Assembles the §2.5 system prompt. The PEDAGOGY and HARD RULES blocks are
 // static and reproduced verbatim from PLAN.md §2.5; STUDENT PROFILE renders
 // the injected profile; PAGE CONTEXT renders the extracted page when present
 // (ADR-012/013) and falls back to the empty-slot wording otherwise; OUTPUT
 // FORMAT switches on `opts.format` (ADR-019) -- 'envelope' restores the
 // §2.5 JSON contract for the live turn path, 'text' (the default) keeps the
-// ADR-008 plain-text block the streaming path still uses unchanged.
+// ADR-008 plain-text block the streaming path still uses unchanged. OPENING
+// SCAN MODE (ADR-030) is appended only when `opts.opening` is set.
 export function buildSystemPrompt(
   profile: LearningProfile,
   pageContext?: PageContext,
-  opts?: { format?: PromptFormat }
+  opts?: PromptOpts
 ): string {
   const format = opts?.format ?? 'text'
   const outputFormat = format === 'envelope' ? buildEnvelopeOutputFormat() : TEXT_OUTPUT_FORMAT
@@ -390,5 +435,5 @@ ${renderPageContextBlock(pageContext)}
 - NEVER invent page or context content you cannot see.
 - NEVER shame mistakes. Treat every error as information.
 
-${outputFormat}`
+${outputFormat}${opts?.opening ? `\n\n${OPENING_SCAN_MODE}` : ''}`
 }

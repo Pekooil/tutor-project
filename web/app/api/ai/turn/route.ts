@@ -1,9 +1,11 @@
 import { NextResponse, after } from 'next/server'
+import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getConcept } from '@calyxa/curriculum'
 import { clientFromBearer } from '@/lib/auth/bearer'
 import { runTutorTurn, type TurnEnvelope, type TurnMessage } from '@/lib/ai/claude'
-import type { ProfileTag } from '@/lib/ai/envelope'
+import { parseEnvelope, type ProfileTag } from '@/lib/ai/envelope'
+import { buildSystemPrompt } from '@/lib/ai/system-prompt'
 import type { LearningProfile } from '@/lib/ai/profile'
 import { loadProfile } from '@/lib/learning/profile-read'
 import { detectTopicKeys } from '@/lib/learning/topic'
@@ -307,6 +309,40 @@ function groundProfileTags(tags: ProfileTag[] | undefined, profile: LearningProf
 
 type InsertedInteraction = { id: string }
 
+// Shared by persistInteraction (below) and the opening scan's
+// persistOpeningInteraction (Sprint 14 Task 4): resolves whether `sessionId`
+// is a real, non-deleted session this caller owns, and if so, the turn_index
+// the next inserted row should carry. Returns null on any ownership failure
+// -- the caller decides what "no row this turn" means for its own logging.
+// Split out of persistInteraction unchanged (same two-query, RLS-plus-
+// explicit-ownership-check shape) so the opening scan doesn't re-derive it.
+async function resolveOwnedTurnIndex(
+  supabase: SupabaseClient,
+  userId: string,
+  sessionId: string
+): Promise<number | null> {
+  const [{ data: sessionRow }, { count }] = await Promise.all([
+    supabase
+      .from('sessions')
+      .select('id')
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .is('deleted_at', null)
+      .maybeSingle(),
+    supabase
+      .from('session_interactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('session_id', sessionId)
+      .is('deleted_at', null),
+  ])
+
+  if (!sessionRow) {
+    return null
+  }
+
+  return (count ?? 0) + 1
+}
+
 // Persists one session_interactions row for a gradable turn and kicks the
 // per-interaction learning-model apply off the critical path via `after()`
 // (ADR-019 -- the ADR-013 reversal). Best-effort and silent throughout: a
@@ -347,43 +383,27 @@ async function persistInteraction(
   }
 
   try {
-    // Two independent reads, run in parallel: this await sits on the turn's
-    // critical path (the reply is not returned until persistInteraction
-    // resolves), so the sequential ownership-check -> count -> insert chain
-    // was three DB round-trips of added voice latency where the plan's own
-    // bar (ADR-019 "off the critical path") budgets for one insert. The
-    // count is harmless to run before ownership resolves -- RLS scopes it,
-    // and a foreign sessionId returns before the count is ever used.
-    //
     // The ownership check is explicit, not just the FK's existence check:
     // RLS on session_interactions is keyed on user_id (which we set to the
     // caller), not session_id -- without this, a sessionId belonging to a
     // DIFFERENT user would still accept an insert, corrupting that user's
     // session with a row RLS would then hide from everyone (including
-    // them). This confirms the caller actually owns the session.
-    const [{ data: sessionRow }, { count }] = await Promise.all([
-      supabase
-        .from('sessions')
-        .select('id')
-        .eq('id', sessionId)
-        .eq('user_id', userId)
-        .is('deleted_at', null)
-        .maybeSingle(),
-      supabase
-        .from('session_interactions')
-        .select('id', { count: 'exact', head: true })
-        .eq('session_id', sessionId)
-        .is('deleted_at', null),
-    ])
+    // them). resolveOwnedTurnIndex confirms the caller actually owns the
+    // session and runs both reads in parallel (this await sits on the
+    // turn's critical path -- the reply is not returned until
+    // persistInteraction resolves -- so the sequential ownership-check ->
+    // count -> insert chain was three DB round-trips of added voice latency
+    // where the plan's own bar, ADR-019 "off the critical path", budgets
+    // for one insert).
+    const turnIndex = await resolveOwnedTurnIndex(supabase, userId, sessionId)
 
-    if (!sessionRow) {
+    if (turnIndex === null) {
       console.warn('[ai/turn] persistInteraction skipped: sessionId does not resolve to a session this caller owns', {
         sessionId,
       })
       return false
     }
 
-    const turnIndex = (count ?? 0) + 1
     const { assessment } = envelope
 
     const { data: inserted, error } = await supabase
@@ -444,6 +464,178 @@ async function persistInteraction(
   }
 }
 
+// Persists the opening scan's row (Sprint 14 Task 4, ADR-030): a genuine
+// session_interactions row, same schema, but assessment-less by design --
+// there is no student answer to grade yet, so every assessment column
+// writes its neutral default rather than a value read off `envelope`. This
+// is deliberately NOT persistInteraction: that function's `!envelope.
+// assessment` guard means "the model unexpectedly graded nothing," a real
+// anomaly for a normal turn worth skipping and logging; here, no assessment
+// is the ENTIRE point (an opening turn never has one), so the row is
+// written every time ownership resolves -- "found the problem" and "found
+// nothing" both produce a row, only `tutor_response` (the "say", possibly
+// empty) differs. Never schedules applyInteraction (there is no assessment
+// for FSRS to apply) and never computes pings (nothing was learned this
+// turn) -- both are exclusively persistInteraction's business.
+async function persistOpeningInteraction(
+  supabase: SupabaseClient,
+  userId: string,
+  sessionId: string | undefined,
+  envelope: TurnEnvelope
+): Promise<void> {
+  if (!sessionId) {
+    console.warn('[ai/turn] opening scan: no sessionId on the request, nothing persisted')
+    return
+  }
+
+  try {
+    const turnIndex = await resolveOwnedTurnIndex(supabase, userId, sessionId)
+
+    if (turnIndex === null) {
+      console.warn('[ai/turn] opening scan: sessionId does not resolve to a session this caller owns', { sessionId })
+      return
+    }
+
+    const { error } = await supabase.from('session_interactions').insert({
+      session_id: sessionId,
+      user_id: userId,
+      turn_index: turnIndex,
+      concept_key: null,
+      student_transcript: null,
+      tutor_response: envelope.say,
+      outcome: 'none',
+      self_confidence: 'unknown',
+      reasoning_quality: 'none',
+      response_latency_ms: null,
+      misconception_category: null,
+      misconception_description: null,
+      applied_to_profile: false,
+    })
+
+    if (error) {
+      console.warn('[ai/turn] opening scan: session_interactions insert failed', { sessionId, error: error.message })
+    }
+  } catch (err) {
+    console.error('[ai/turn] opening scan: persistOpeningInteraction threw', { sessionId }, err)
+  }
+}
+
+// A dedicated, minimal Anthropic call for the opening scan. claude.ts's
+// runTutorTurn always builds its system prompt with the fixed
+// `{ format: 'envelope' }` and requires a non-empty `messages` array ending
+// in a user turn -- neither fits the opening scan (no student message
+// exists yet, and the call needs `opts.opening` threaded into
+// buildSystemPrompt to get the OPENING SCAN MODE block). claude.ts is
+// out of scope for this sprint (frozen per the sprint plan), so this
+// mirrors its MODEL/createClient shape here rather than changing it; if
+// this duplication grows, promoting an opts-aware runTutorTurn in claude.ts
+// is the fix, not a third copy.
+const OPENING_SCAN_MODEL = 'claude-haiku-4-5-20251001'
+const OPENING_SCAN_MAX_TOKENS = 300 // one say line + at most one annotation + optional tag -- well under a normal turn's budget
+
+function createOpeningScanClient(): Anthropic {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+
+  if (!apiKey) {
+    throw new Error('ANTHROPIC_API_KEY is not set — the Claude proxy cannot run without it.')
+  }
+
+  return new Anthropic({ apiKey })
+}
+
+// The placeholder "user" turn the Anthropic API requires (messages must be
+// non-empty and start with a user role) when there is no real student
+// message -- OPENING SCAN MODE in the system prompt is what actually drives
+// the model's behavior here; this content is never shown to the student and
+// carries no instructions of its own beyond pointing at that block.
+const OPENING_SCAN_PLACEHOLDER_MESSAGE: TurnMessage = {
+  role: 'user',
+  content: '(The panel just opened. No message has been sent yet -- this is the opening scan; follow OPENING SCAN MODE.)',
+}
+
+async function runOpeningScanTurn({
+  pageContext,
+  profile,
+}: {
+  pageContext: PageContext
+  profile: LearningProfile
+}): Promise<TurnEnvelope> {
+  const response = await createOpeningScanClient().messages.create({
+    model: OPENING_SCAN_MODEL,
+    max_tokens: OPENING_SCAN_MAX_TOKENS,
+    system: buildSystemPrompt(profile, pageContext, { format: 'envelope', opening: true }),
+    messages: [OPENING_SCAN_PLACEHOLDER_MESSAGE],
+  })
+
+  const textBlock = response.content.find((block) => block.type === 'text')
+  const raw = textBlock?.type === 'text' ? textBlock.text : ''
+
+  return parseEnvelope(raw)
+}
+
+// Detects the opening-scan request shape: `{ opening: true, pageContext,
+// sessionId? }`, no `messages` at all -- distinguished from a normal turn by
+// this flag alone, not by the absence of `messages` (a malformed/absent
+// `messages` on an ordinary request is still the existing 400, below).
+function isOpeningScanBody(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null) {
+    return false
+  }
+
+  return (body as { opening?: unknown }).opening === true
+}
+
+// The opening-scan branch (Sprint 14 Task 4, ADR-030): same auth already
+// resolved by the caller, same topic-biased loadProfile read Sprint 11
+// built, same grounding gate for any profile tag -- only the AI call and
+// the response shape differ from a normal turn. Never returns `assessment`,
+// `solutionProgress`, or `session`: even if a non-conforming model output
+// smuggled one past the OPENING SCAN MODE instructions, this response shape
+// drops it rather than relay it, so the caller (the background worker,
+// Task 6) never sees those fields from this branch. An empty/whitespace
+// `reply` is passed through as-is -- deciding what "nothing found" means to
+// the student is the caller's job, not this route's.
+async function handleOpeningScan(
+  auth: { supabase: SupabaseClient; user: { id: string } },
+  body: unknown
+): Promise<NextResponse> {
+  const pageContext = parsePageContext(body)
+
+  if (!pageContext) {
+    return NextResponse.json({ error: 'An opening scan request requires a pageContext.' }, { status: 400 })
+  }
+
+  const sessionId = parseSessionId(body)
+
+  // Turn-time topic detection (ADR-021), reused as-is: no transcript yet, so
+  // the haystack is PAGE CONTEXT alone (an empty recentMessages array reads
+  // identically to how detectTopicKeys already treats a page with no text).
+  const topicKeys = detectTopicKeys(pageContext, [])
+  const profile = await loadProfile(auth.supabase, { topicKeys })
+
+  try {
+    const envelope = await runOpeningScanTurn({ pageContext, profile })
+
+    // Best-effort, off the reply's critical path is unnecessary here (there
+    // is no apply/ping work riding on it) -- but it still must never delay
+    // the reply on a slow write, so this mirrors persistInteraction's own
+    // never-throws discipline instead of gating the response on it.
+    await persistOpeningInteraction(auth.supabase, auth.user.id, sessionId, envelope)
+
+    const annotations = envelope.annotations
+    const profileTags = groundProfileTags(envelope.profileTags, profile)
+
+    return NextResponse.json({
+      reply: envelope.say,
+      ...(annotations && annotations.length > 0 ? { annotations } : {}),
+      ...(profileTags.length > 0 ? { profileTags } : {}),
+    })
+  } catch {
+    // Never relay the provider's error text or any key material to the client.
+    return NextResponse.json({ error: 'Tutor is unavailable right now.' }, { status: 502 })
+  }
+}
+
 export async function POST(request: Request) {
   const auth = await clientFromBearer(request)
 
@@ -452,6 +644,15 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => null)
+
+  // The opening scan (Sprint 14 Task 4, ADR-030) is a distinct request shape
+  // -- no `messages` at all -- detected by the explicit `opening: true` flag
+  // rather than by absence of `messages`, so a malformed/missing `messages`
+  // on an ORDINARY request still hits the existing 400 below, unchanged.
+  if (isOpeningScanBody(body)) {
+    return handleOpeningScan(auth, body)
+  }
+
   const messages = parseMessages(body)
 
   if (!messages) {
