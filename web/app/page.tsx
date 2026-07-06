@@ -1,15 +1,16 @@
 import { Nav } from '@/components/marketing/Nav'
 import { Footer } from '@/components/marketing/Footer'
 import { Hero } from '@/components/marketing/Hero'
+import { SessionShowcase } from '@/components/marketing/SessionShowcase'
 import { Section } from '@/components/marketing/Section'
 import { Reveal } from '@/components/marketing/Reveal'
 import { WaitlistForm } from '@/components/marketing/WaitlistForm'
 
 // Sprint 20 Task 3: the full page skeleton, in the plan's section order.
-// Hero is real (Task 5); every section below it is a placeholder stub via
-// <Section>, replaced component-by-component in Tasks 6-9. This file itself
-// only composes; nothing here should need touching once every section is a
-// real import.
+// Hero (Task 5) and SessionShowcase (Task 6) are real; the sections below
+// them are placeholder stubs via <Section>, replaced component-by-component
+// in Tasks 7-9. This file itself only composes; nothing here should need
+// touching once every section is a real import.
 function DemoPlaceholder({ label }: { label: string }) {
   return (
     <div className="flex aspect-video items-center justify-center rounded-lg border border-dashed border-border bg-surface text-sm text-muted-foreground">
@@ -26,14 +27,7 @@ export default function Home() {
         <Hero />
 
         <Reveal>
-          <Section
-            id="session-showcase"
-            kicker="See it work"
-            heading="It talks you through the problem, live."
-            sub="Annotations, progress, profile tags, and voice — one session, four things happening at once."
-          >
-            <DemoPlaceholder label="Session scrollytelling arriving in Task 6" />
-          </Section>
+          <SessionShowcase />
         </Reveal>
 
         <Reveal>

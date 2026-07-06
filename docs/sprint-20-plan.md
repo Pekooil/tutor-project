@@ -232,6 +232,24 @@ and is a named Task 11 manual-acceptance item.
 /web/components/marketing/SessionShowcase.tsx ← new — the pinned-stage section: DemoStage sticky in one column, four copy beats scrolling past in the other; scroll progress (motion useScroll) scrubs the sessionBeats script. Beats: 1) "It points at the problem" (annotations + color-linking), 2) "You see yourself getting closer" (solution progress bar, easing back on a wrong step), 3) "It knows what you're working on" (profile tags + the ping), 4) "Talk it through out loud" (waveform + a spoken-reply caption, "replies in under 2.5 seconds"). Mobile: the pin degrades to stacked beat cards, each with its own static frame.
 ```
 
+**Addendum (Task 6, as built).** The stacked mobile/reduced-motion beat
+cards need a per-beat STATIC frame, but `useSceneTimeline`'s reduced-motion
+contract deliberately overrides scrub to the script-end frame — so all four
+cards would have rendered the same frame, failing this task's gate
+("reduced-motion shows all four final frames"). Fix in the direction of the
+gate: `useSceneTimeline` gains a `frameMs` option and `DemoStage` forwards
+it as a prop — a fixed frame is already motionless, so it takes priority
+over the clock, the scrub, AND the reduced-motion override; the pinned
+scrub path is unchanged (scroll-linked scrubbing still collapses to the end
+frame under reduced motion). Two Task 4 files edited
+(`demo/useSceneTimeline.ts`, `demo/DemoStage.tsx`), no new files. Desktop
+reduced-motion renders the stacked-cards variant (four beat frames), not a
+frozen pin. Note for Task 11's honesty check: beat 4's plan-dictated
+spoken-reply caption ("replies in under 2.5 seconds") is Sprint 15's
+p50 budget, not today's measured latency (Sprint 06 recorded ~3.1s) — same
+marketing-leads-product class as the ADR-031 study-loop flag, resolved by
+Sprint 15 shipping before invites.
+
 ### Task 7 (profile adaptation section) creates:
 ```
 /web/components/marketing/ProfileSection.tsx ← new — "It learns how you learn": a two-panel before/after driven by profileScene — left, the pre-session overview (mastery bars, a weak spot, a due-for-review item); right, the post-session recap (bars animating up with delta arrows, "Gap closed: sign errors", trend rollup "3 sessions in a row improving", forward look "Factoring quadratics comes back Thursday"); beneath, a callback quote bubble ("this connects to the factoring work from a few sessions ago") illustrating cross-session memory.

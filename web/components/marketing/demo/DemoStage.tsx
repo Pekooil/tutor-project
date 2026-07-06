@@ -24,16 +24,19 @@ const DESIGN_H = 612
 export function DemoStage({
   script,
   scrub,
+  frameMs,
   alt,
   className,
 }: {
   script: SceneScript
   /** 0..1 scroll progress for scrub mode (Task 6); omit for looping clock mode. */
   scrub?: number | null
+  /** Fixed scene time in ms — one static frame, wins over scrub and reduced motion (Task 6's stacked beat cards). */
+  frameMs?: number | null
   alt: string
   className?: string
 }) {
-  const { ref: timelineRef, state } = useSceneTimeline(script, { scrub })
+  const { ref: timelineRef, state } = useSceneTimeline(script, { scrub, frameMs })
   const outerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const [scale, setScale] = useState(1)
