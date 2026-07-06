@@ -204,6 +204,24 @@ like the others). This file was not in Task 2's original scope; it is now.
 /web/components/marketing/demo/scripts.ts           ← new — the three scene scripts as pure data: heroSession (full ~18s loop: opening scan line → annotation draws → student turn → progress bump → tag → wrong step, bar eases back → ping → solve, bar fills → "Now closing tutoring session." → recap strip → loop), sessionBeats (the same session cut into 4 scrub-addressable beats), profileScene + studyLoopScene (Tasks 7–8 consume).
 ```
 
+**Addendum (Task 4, as built).** Three product-truth adjustments against this
+list, all in the direction of fidelity: (1) annotation labels render as
+adjacent solid pills exactly like the real `AnnotationLayer.tsx` LabelPill —
+no leader lines (those are the extension's collision-pass special case, and
+demo scripts are hand-placed to never collide); (2) the annotation palette
+mirrors the product's real amber/blue/green/red (`Overlay.css`'s own
+documented extension-local exception — amber/blue are not @calyxa/ui
+tokens); (3) the overlay's decorative hairline (`--color-border`, #e5e3de)
+is unreachable by name inside /web (globals.css re-targets that name to
+border-strong for shadcn), so the demo scopes the product value as
+`--cx-demo-hairline` on the stage root — same exception pattern, never used
+outside the demo tree. `scene.test.ts` was written in this task per the
+gate (18 cases; Task 10 formalizes). Verified by scrubbing three frames
+(mid-conversation, ping, final/reduced-motion) against the real overlay;
+clock-mode looping could not be exercised in the preview harness (the tab
+runs permanently hidden — rAF and IntersectionObserver never fire there)
+and is a named Task 11 manual-acceptance item.
+
 ### Task 5 (hero) creates:
 ```
 /web/components/marketing/Hero.tsx ← new — full-bleed hero: H1 + sub + WaitlistForm('hero') + trust line ("Free for 10 sessions a month · Chrome"), with DemoStage playing the heroSession script beside/beneath (stacks on mobile, demo below the fold-line text so LCP is the H1).

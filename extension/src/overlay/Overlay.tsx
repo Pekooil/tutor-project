@@ -7,11 +7,15 @@ import {
 import { CalyxaMark } from '@calyxa/ui';
 import './Overlay.css';
 import type {
+  Annotation,
   ProfileOverview,
   ProfileTag,
+  ProfileTagKind,
+  SessionCompletion,
   SessionRecap,
   TurnMessage,
   TurnPing,
+  TurnPingKind,
 } from '../types/messages';
 import { AnnotationLayer } from './AnnotationLayer';
 import { Composer } from './Composer';
@@ -46,18 +50,39 @@ export const PANEL_EXPANDED_EVENT = 'calyxa:panel-expanded';
 // `{ recap?: SessionRecap }`. Flows content -> Overlay only.
 export const SESSION_RECAP_EVENT = 'calyxa:session-recap';
 
-// What one turn resolves to (Sprint 13): the reply plus the turn's grounded
-// profile tags and computed event pings, when the wire carried any --
+// What one turn resolves to (Sprint 13; widened Sprint 14 Task 7): the
+// reply plus the turn's grounded profile tags, computed event pings, raw
+// annotations, and progress/completion signal, when the wire carried any --
 // content/index.ts's sendAiTurn builds this from the `done` message / the
 // AI_REPLY payload on both paths. The empty-reply guard keys on `reply`
-// exactly as it did when onSend resolved a bare string.
-export type TurnResult = { reply: string; tags?: ProfileTag[]; pings?: TurnPing[] };
+// exactly as it did when onSend resolved a bare string. `annotations` rides
+// here (in ADDITION to content/index.ts already drawing them via
+// showTurnAnnotations) specifically so this file can compute the per-turn
+// color assignment and Transcript can match `target.text` inside `say` --
+// the resolved DrawInstruction[] the layer draws from has already lost that
+// exact text by the time it's dispatched as a window event.
+export type TurnResult = {
+  reply: string;
+  tags?: ProfileTag[];
+  pings?: TurnPing[];
+  annotations?: Annotation[];
+  solutionProgress?: number;
+  session?: SessionCompletion;
+};
 
-// Local DISPLAY message type (Sprint 13, ADR-024): the transcript the
-// overlay renders carries each assistant bubble's tags, but the history
-// handed back to onSend is stripped to role/content (stripHistory below) --
-// tags are display-ephemeral and never re-enter the wire request.
-export type DisplayMessage = TurnMessage & { tags?: ProfileTag[] };
+// Local DISPLAY message type (Sprint 13, ADR-024; widened Sprint 14 Task 7):
+// the transcript the overlay renders carries each assistant bubble's tags
+// AND (new) the turn's own annotations + the deterministic per-turn color
+// assignment computed for them (assignAnnotationColors below) -- both are
+// needed at RENDER time, not just at commit time, since Transcript
+// re-renders the whole message list on every change. The history handed
+// back to onSend is stripped to role/content (stripHistory below) -- none
+// of this is display-ephemeral state ever re-enters the wire request.
+export type DisplayMessage = TurnMessage & {
+  tags?: ProfileTag[];
+  annotations?: Annotation[];
+  annotationColors?: AnnotationColorMap;
+};
 
 // Client-side caps (defence in depth -- the server already enforces both):
 // ≤2 tags per bubble (envelope.ts's MAX_PROFILE_TAGS) and ≤2 pings per turn
@@ -65,6 +90,13 @@ export type DisplayMessage = TurnMessage & { tags?: ProfileTag[] };
 export const MAX_TAGS_PER_TURN = 2;
 export const MAX_PINGS_PER_TURN = 2;
 const PING_DISMISS_MS = 4000;
+// The overview/recap strip's auto-dismiss sweep (Sprint 14 Task 7): shown
+// expanded for this long, then folds to a compact one-line handle rather
+// than disappearing -- hover/click re-expands it (InsightStrip.tsx).
+// Exported so InsightStrip's own CSS sweep animation can share the exact
+// same duration (via a --cx-strip-fold-duration custom property, the same
+// technique TitleBar's ring uses) rather than a second, driftable copy.
+export const STRIP_FOLD_MS = 6000;
 
 // ---- Pure display logic (exported for the Task 9 vitest/jsdom spec, the
 // annotations.ts testable-module precedent) ----
@@ -79,23 +111,49 @@ export function capTags(tags: ProfileTag[] | undefined): ProfileTag[] {
 }
 
 /**
- * The ping dedupe gate: ≤2 per turn, and at most ONE mastery-up per concept
- * per session (a state oscillating across a boundary doesn't re-celebrate,
- * ADR-026). `shownMasteryUpConcepts` is the session-lifetime dedupe map,
- * mutated here; it resets when a SESSION_RECAP_EVENT arrives (the session
- * is over). Resolved pings are not deduped -- each completed streak is a
- * distinct, real event.
+ * The tags/annotations/annotationColors extras every committed assistant
+ * DisplayMessage carries (Sprint 14 Task 7) -- one place for the three
+ * commit sites (text, voice, opening scan) so the color assignment is
+ * computed the exact same way regardless of which turn kind produced it.
+ */
+function assistantMessageExtras(result: {
+  tags?: ProfileTag[];
+  annotations?: Annotation[];
+}): Pick<DisplayMessage, 'tags' | 'annotations' | 'annotationColors'> {
+  return {
+    ...(result.tags && result.tags.length > 0 ? { tags: capTags(result.tags) } : {}),
+    ...(result.annotations && result.annotations.length > 0
+      ? { annotations: result.annotations, annotationColors: assignAnnotationColors(result.annotations) }
+      : {}),
+  };
+}
+
+/**
+ * The ping dedupe gate: ≤2 per turn, and (Sprint 14 Task 7, widened from
+ * Sprint 13's mastery-up-only rule) at most ONE ping of a given KIND per
+ * concept per session for every kind EXCEPT misconception-resolved -- the
+ * looser Task 5 thresholds (mastery-up's two new transitions, mastery-
+ * progress, streak-progress) can otherwise fire repeatedly for the same
+ * concept across a long session, and this is the client-side cap that
+ * keeps that from reading as spam. `shownPingKeys` is the session-lifetime
+ * dedupe set, keyed `${kind}:${conceptKey}` so two DIFFERENT kinds on the
+ * SAME concept (e.g. a mastery-up then, later, a mastery-progress) each
+ * still get their own one-time celebration; mutated here, reset when a
+ * SESSION_RECAP_EVENT arrives (the session is over). misconception-resolved
+ * stays exempt, unchanged from Sprint 13 -- each completed streak is a
+ * distinct, real, non-repeating event (Task 5 didn't loosen its threshold).
  */
 export function filterPingsForDisplay(
   pings: readonly TurnPing[] | undefined,
-  shownMasteryUpConcepts: Set<string>,
+  shownPingKeys: Set<string>,
 ): TurnPing[] {
   const shown: TurnPing[] = [];
   for (const ping of pings ?? []) {
     if (shown.length >= MAX_PINGS_PER_TURN) break;
-    if (ping.kind === 'mastery-up') {
-      if (shownMasteryUpConcepts.has(ping.conceptKey)) continue;
-      shownMasteryUpConcepts.add(ping.conceptKey);
+    if (ping.kind !== 'misconception-resolved') {
+      const key = `${ping.kind}:${ping.conceptKey}`;
+      if (shownPingKeys.has(key)) continue;
+      shownPingKeys.add(key);
     }
     shown.push(ping);
   }
@@ -119,6 +177,145 @@ export function masteryDelta(
 // Below this, a delta renders no arrow -- display precision, not model
 // precision (a recap row is shown as a whole percent).
 export const DELTA_EPSILON = 0.005;
+
+// ---- Sprint 14 Task 7: the solution-progress bar (ADR-028) ----
+
+// "Model-emitted, client-clamped": the server already scores genuine
+// reasoning steps and softens a wrong one (system-prompt.ts's SOLUTION
+// PROGRESS rubric) -- this is the CLIENT half, a defence-in-depth bound so
+// a misbehaving turn can never crater the bar to near-zero in one step,
+// and a plain number->number jump never reads as jitter. Exported as a
+// pure function for the Task 9 vitest spec (lifecycle.test.ts's "progress
+// clamp/easing reducer").
+export const PROGRESS_MAX_REGRESSION = 0.15;
+
+/**
+ * `solved` forces the bar to exactly 1 regardless of what solutionProgress
+ * said this turn (the completion signal and the bar are ONE contract, per
+ * the sprint plan -- "solved" IS "fully done", never "very close" rounded
+ * up). `next === undefined` means the turn carried no solutionProgress at
+ * all (a clarifying question, etc.) -- the bar holds its last value rather
+ * than inventing movement. Otherwise: clamp to [0,1] (defence in depth --
+ * envelope.ts already did this server-side), then bound a downward move to
+ * at most PROGRESS_MAX_REGRESSION so one wrong step costs ground without
+ * erasing the whole climb.
+ */
+export function easeProgress(previous: number, next: number | undefined, solved: boolean): number {
+  if (solved) return 1;
+  if (next === undefined) return previous;
+  const clamped = Math.max(0, Math.min(1, next));
+  if (clamped < previous) {
+    return Math.max(clamped, previous - PROGRESS_MAX_REGRESSION);
+  }
+  return clamped;
+}
+
+// ---- Sprint 14 Task 7: the close-choreography state machine (ADR-027
+// Decision 2, ADR-028) ----
+
+export type CloseChoreographyState = 'idle' | 'completing' | 'ringing' | 'closed';
+export type CloseChoreographyEvent = 'complete' | 'recap-grace-elapsed' | 'ring-elapsed' | 'reset';
+
+/**
+ * idle -> completing (a turn's session.complete just arrived, or the
+ * student clicked ✕ -- give the SESSION_ENDED recap broadcast a moment to
+ * land) -> ringing (the ~4s green ring sweep) -> closed (Overlay.tsx's own
+ * effect performs the actual teardown -- collapse, clear transcript, reset
+ * the bar -- then fires 'reset' to return here to idle). A pure reducer
+ * (Overlay.tsx drives it with real timers) so Task 9's vitest spec can
+ * exercise the transitions with no timers/mocks at all. Any event that
+ * doesn't match the current state is a no-op -- e.g. a stray 'ring-elapsed'
+ * while still 'completing' (a timer race) changes nothing rather than
+ * skipping a step.
+ */
+export function nextCloseState(
+  current: CloseChoreographyState,
+  event: CloseChoreographyEvent,
+): CloseChoreographyState {
+  if (event === 'reset') return 'idle';
+  if (current === 'idle' && event === 'complete') return 'completing';
+  if (current === 'completing' && event === 'recap-grace-elapsed') return 'ringing';
+  if (current === 'ringing' && event === 'ring-elapsed') return 'closed';
+  return current;
+}
+
+// A short head start for the SESSION_ENDED recap broadcast (fired
+// unawaited by the background the moment it sees session.complete, Sprint
+// 14 Task 6) to land before the ring starts sweeping -- so the recap card
+// is already visible for the whole ~4s sweep rather than popping in
+// mid-ring. Not a promise race against the broadcast (there's no promise to
+// await here, it's a separate chrome.runtime message) -- just a fixed,
+// generous buffer.
+export const RECAP_GRACE_MS = 400;
+export const CLOSE_RING_MS = 4000;
+
+// ---- Sprint 14 Task 7: per-turn annotation color assignment (ADR-029
+// amendment) ----
+
+// The annotation-ordinal palette's slot NAMES (the actual color values are
+// theme.css's --calyxa-annot-1..4 aliases, referenced by these names from
+// Overlay.css) -- deliberately a small fixed set, cycling if a turn somehow
+// exceeds it (the envelope's own ≤3-per-turn annotation cap means this
+// should never actually wrap in practice).
+const ANNOTATION_COLOR_SLOTS = ['annot-1', 'annot-2', 'annot-3', 'annot-4'] as const;
+export type AnnotationColorSlot = (typeof ANNOTATION_COLOR_SLOTS)[number];
+export type AnnotationColorMap = Record<string, AnnotationColorSlot>;
+
+/**
+ * Order-assigned, deterministic: the turn's annotations, in the order the
+ * model emitted them, each get the next palette slot. Computed ONCE per
+ * turn (when the turn's result is committed) and stored on the
+ * DisplayMessage so it's stable across re-renders -- re-running this on
+ * every render would still be deterministic for a fixed input, but storing
+ * it once avoids recomputing it on every keystroke/re-render for no reason.
+ * The SAME map is the one source of truth Transcript's color-linked
+ * highlighting reads today; AnnotationLayer reads it too once Task 8 gives
+ * that component a prop for it.
+ */
+export function assignAnnotationColors(annotations: Annotation[] | undefined): AnnotationColorMap {
+  const map: AnnotationColorMap = {};
+  (annotations ?? []).forEach((annotation, index) => {
+    map[annotation.id] = ANNOTATION_COLOR_SLOTS[index % ANNOTATION_COLOR_SLOTS.length];
+  });
+  return map;
+}
+
+// ---- Sprint 14 Task 7: kind -> color mappings (ADR-018 discipline: no new
+// colors, just naming which existing alias each kind reads) ----
+
+// Reused by Transcript's tag pills AND (for known-gap/due-review)
+// InsightStrip's weak-spot/due-for-review lines -- "kind->color mapping
+// shared with the strip" from the sprint plan. `reviewing` and `strength`
+// intentionally share one color (green): the brand has exactly four
+// non-neutral hues (green/red/amber/blue) and amber fails AA as small TEXT
+// on the panel's light surface (~2.97:1, measured against #f7f7f5 --
+// verified while building this, not assumed), so it's reserved for the
+// annotation layer's existing non-text fill/stroke use and excluded from
+// every NEW text-colored alias here. Five kinds, four AA-safe hues:
+// reviewing/strength share green (both a "you're doing fine here" framing,
+// disambiguated by their own text prefixes), known-gap is red, due-review
+// is blue, callback is a quieter neutral (a factual nod to history, not an
+// urgent signal).
+export const TAG_KIND_COLOR_CLASS: Record<ProfileTagKind, string> = {
+  reviewing: 'cx-tag-reviewing',
+  strength: 'cx-tag-reviewing',
+  'known-gap': 'cx-tag-gap',
+  'due-review': 'cx-tag-due',
+  callback: 'cx-tag-callback',
+};
+
+// Ping-kind colors: the two mastery kinds (a state crossing, or a real
+// in-state jump) read as the same positive green as a resolved gap
+// (closing a gap is equally good news); streak-progress (not yet resolved,
+// still in progress) reads blue -- distinct from "already achieved" green,
+// consistent with due-review's blue above ("something in motion, not done
+// yet").
+export const PING_KIND_COLOR_CLASS: Record<TurnPingKind, string> = {
+  'mastery-up': 'cx-ping-green',
+  'mastery-progress': 'cx-ping-green',
+  'misconception-resolved': 'cx-ping-green',
+  'streak-progress': 'cx-ping-blue',
+};
 
 /**
  * The forward look's humanized due phrasing ("comes back Thursday", Task 8
@@ -189,15 +386,17 @@ export function Overlay({
   // recap does not come back through this promise -- it arrives via the
   // SESSION_ENDED broadcast so a popup-triggered end renders identically.
   onEndSession: () => Promise<void>;
-  // Sprint 14 Task 6 (ADR-030): the proactive opening scan. Called on panel
-  // expand under the SAME guard as onLoadOverview (no messages yet) --
+  // Sprint 14 Task 6/7 (ADR-030): the proactive opening scan. Called on
+  // panel expand under the SAME guard as onLoadOverview (no messages yet) --
   // content/index.ts runs its own plausible-problem gate first and resolves
   // null when there's nothing to scan, the call failed, or the model found
   // nothing confident to say; a non-null result renders as the first
   // assistant bubble, no preceding student message. chrome.*-free, like
   // every prop here -- content/index.ts owns the OPENING_SCAN message and
-  // drawing any annotations it carries.
-  onOpeningScan: () => Promise<{ reply: string; tags?: ProfileTag[] } | null>;
+  // drawing any annotations it carries; `annotations` also rides the
+  // resolved result (Task 7) so this file can color-link the first bubble
+  // exactly like every other turn.
+  onOpeningScan: () => Promise<{ reply: string; tags?: ProfileTag[]; annotations?: Annotation[] } | null>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -257,14 +456,44 @@ export function Overlay({
   const shownMasteryUpRef = useRef<Set<string>>(new Set());
   const [ending, setEnding] = useState(false);
 
-  // The overview card renders only in the true empty state -- the Sprint 10
-  // empty panel's upgrade, never competing with a conversation or the recap.
-  const showOverviewCard =
-    overview !== null && messages.length === 0 && !busy && !liveTranscript && !recap;
+  // ---- Sprint 14 Task 7 state (ADR-027/028) ----
+  // The solution-progress bar's CURRENT (eased/clamped) value -- see
+  // easeProgress above. Reset to 0 once the close choreography actually
+  // finishes (finishCloseChoreography below), same lifetime as the
+  // transcript it describes.
+  const [solutionProgress, setSolutionProgress] = useState(0);
+  // The close-choreography state machine (nextCloseState above) + the
+  // pending grace/ring timers driving it, so they can be cleared on unmount
+  // or if a fresh minimize/expand races them.
+  const [closeState, setCloseState] = useState<CloseChoreographyState>('idle');
+  const closeTimersRef = useRef<number[]>([]);
+
+  function clearCloseTimers() {
+    for (const timer of closeTimersRef.current) window.clearTimeout(timer);
+    closeTimersRef.current = [];
+  }
+
+  // The strip's (InsightStrip) auto-dismiss fold: expanded while a fresh
+  // overview/recap is showing, folds to a one-line handle after
+  // STRIP_FOLD_MS -- unless the close choreography is already running, in
+  // which case the recap holds through the ring (the sprint plan's own
+  // phrasing) rather than folding mid-sweep. stripHovered is a transient
+  // peek (same pattern as the idle pill's pillHovered above); clicking the
+  // folded handle un-folds it more durably via setStripFolded directly.
+  const [stripFolded, setStripFolded] = useState(false);
+  const [stripHovered, setStripHovered] = useState(false);
+
+  // The overview card renders whenever there's no STUDENT message yet --
+  // not "zero messages" -- so it renders ALONGSIDE the opening scan's own
+  // assistant-first bubble, not instead of it (ADR-030 Decision 4): the
+  // scan's message doesn't answer "where do I generally stand", the two
+  // surfaces answer different questions and both belong on screen together.
+  const hasStudentMessage = messages.some((message) => message.role === 'user');
+  const showOverviewCard = overview !== null && !hasStudentMessage && !busy && !liveTranscript && !recap;
 
   // True whenever the chat area should be rendered (no gap when empty).
   const hasContent =
-    messages.length > 0 || busy || !!notice || !!liveTranscript || showOverviewCard || !!recap;
+    messages.length > 0 || busy || !!notice || !!liveTranscript || !!recap;
 
   function appendStreamToken(text: string) {
     const id = tokenIdRef.current++;
@@ -313,6 +542,7 @@ export function Overlay({
       speechRecRef.current = null;
       for (const timer of pingTimersRef.current) clearTimeout(timer);
       pingTimersRef.current = [];
+      clearCloseTimers();
     };
   }, []);
 
@@ -331,6 +561,50 @@ export function Overlay({
       pingTimersRef.current.push(timer);
     }
   }
+
+  // Drives nextCloseState with real timers (Sprint 14 Task 7): called
+  // whenever a turn's session.complete arrives (automatic) or the student
+  // clicks ✕ (manual, handleEndSessionClick below) -- both converge on the
+  // SAME visible choreography. A no-op if the choreography is already
+  // running (idle is the only state 'complete' does anything from), so a
+  // stray second signal can't restart the ring mid-sweep.
+  function beginCloseChoreography() {
+    setCloseState((prev) => {
+      const next = nextCloseState(prev, 'complete');
+      if (next === prev) return prev;
+      const graceTimer = window.setTimeout(() => {
+        setCloseState((state) => nextCloseState(state, 'recap-grace-elapsed'));
+        const ringTimer = window.setTimeout(() => {
+          setCloseState((state) => nextCloseState(state, 'ring-elapsed'));
+        }, CLOSE_RING_MS);
+        closeTimersRef.current.push(ringTimer);
+      }, RECAP_GRACE_MS);
+      closeTimersRef.current.push(graceTimer);
+      return next;
+    });
+  }
+
+  // The choreography's actual teardown (Sprint 14 Task 7): fires exactly
+  // once, when closeState reaches 'closed' -- collapse to the pill, clear
+  // the transcript, reset the progress bar, drop the recap/overview (a
+  // fresh open re-fetches), and dispatch PANEL_CLOSED_EVENT for the
+  // annotation controller, same as a manual minimize. Then resets the
+  // state machine back to idle for the next problem. Minimizing (−) never
+  // reaches this path -- it stays handleMinimize below, unchanged from the
+  // old handleClose.
+  useEffect(() => {
+    if (closeState !== 'closed') return;
+    setExpanded(false);
+    setMessages([]);
+    setSolutionProgress(0);
+    setRecap(null);
+    setOverview(null);
+    setDragPos(null);
+    setIsDragging(false);
+    dragOriginRef.current = null;
+    window.dispatchEvent(new CustomEvent(PANEL_CLOSED_EVENT));
+    setCloseState((prev) => nextCloseState(prev, 'reset'));
+  }, [closeState]);
 
   // The panel-EXPAND signal (Sprint 14 Task 6): fires on EVERY transition to
   // expanded, regardless of message count -- content/index.ts's listener
@@ -371,6 +645,18 @@ export function Overlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded]);
 
+  // Guards the opening scan (below) against React StrictMode's dev-only
+  // double-invoke of effects (mount -> cleanup -> mount again, same
+  // `expanded` value). onLoadOverview above tolerates that harmlessly (a
+  // duplicate GET), but onOpeningScan triggers a real, billable
+  // api.startSession -- a duplicate there is a real session/quota bug, not
+  // a cosmetic one, so unlike that effect this one needs an explicit
+  // in-flight guard. Reset only when the panel actually closes (the effect
+  // body's own `!expanded` branch, not the cleanup function, which also
+  // runs on StrictMode's simulated remount and would otherwise defeat the
+  // guard) -- a genuine re-expand after a minimize is still free to try again.
+  const openingScanFiredRef = useRef(false);
+
   // The proactive opening scan (Sprint 14 Task 6, ADR-030): fires under the
   // EXACT same guard as the overview fetch above -- "expanded, and no
   // conversation yet" -- since it is itself the session start and must
@@ -381,19 +667,23 @@ export function Overlay({
   // FIRST assistant bubble with no preceding student message -- the
   // opening scan's whole point.
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded) {
+      openingScanFiredRef.current = false;
+      return;
+    }
     if (messages.length > 0) return;
+    if (openingScanFiredRef.current) return;
+    openingScanFiredRef.current = true;
     let cancelled = false;
     onOpeningScan()
       .then((result) => {
         if (cancelled || !result) return;
+        // Task 7: the opening scan's own bubble gets the same per-turn
+        // annotation-color assignment as any other turn (its "say" line is
+        // held to the same exact-target.text-reuse discipline).
         setMessages((current) => [
           ...current,
-          {
-            role: 'assistant',
-            content: result.reply,
-            ...(result.tags && result.tags.length > 0 ? { tags: capTags(result.tags) } : {}),
-          },
+          { role: 'assistant', content: result.reply, ...assistantMessageExtras(result) },
         ]);
       })
       .catch((error) => {
@@ -420,6 +710,24 @@ export function Overlay({
     return () => window.removeEventListener(SESSION_RECAP_EVENT, onSessionRecap);
   }, []);
 
+  // The strip's auto-dismiss fold (Sprint 14 Task 7): expands fresh
+  // whenever a NEW overview or recap object lands (both are replaced
+  // wholesale, never mutated, so a reference change here always means
+  // "something new to show"), then folds to the one-line handle after
+  // STRIP_FOLD_MS -- unless the close choreography is already running, in
+  // which case the recap holds through the ring rather than folding
+  // mid-sweep (the panel closes well before the fold timer would fire
+  // anyway, since CLOSE_RING_MS < STRIP_FOLD_MS, but this is the
+  // defensive, correct-by-construction version of that fact rather than a
+  // lucky timing coincidence).
+  useEffect(() => {
+    if (!overview && !recap) return;
+    setStripFolded(false);
+    if (closeState !== 'idle') return;
+    const timer = window.setTimeout(() => setStripFolded(true), STRIP_FOLD_MS);
+    return () => window.clearTimeout(timer);
+  }, [overview, recap, closeState]);
+
   // Scroll to bottom when messages, streaming tokens, or live transcript change.
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -444,6 +752,17 @@ export function Overlay({
     return () => window.removeEventListener('calyxa:toggle-panel', onTogglePanel);
   }, []);
 
+  // The progress bar + close choreography share one commit-time hook
+  // (Sprint 14 Task 7): called at the moment each path's reply actually
+  // becomes visible -- immediately for text (handleSubmit), after TTS
+  // playback for voice (handleMicStop, matching where tags already commit
+  // there). `solved` forces the bar to 1 before the choreography's own
+  // "Now closing tutoring session." bubble is even read.
+  function applyProgressAndCompletion(result: TurnResult) {
+    setSolutionProgress((prev) => easeProgress(prev, result.solutionProgress, result.session?.reason === 'solved'));
+    if (result.session?.complete) beginCloseChoreography();
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
@@ -465,17 +784,15 @@ export function Overlay({
       });
       if (!result.reply.trim()) throw new Error('The tutor returned an empty reply.');
       clearStreamTokens();
-      // Text path: tags commit WITH the bubble at `done`, and pings show at
-      // the same moment (the promise resolves when `done` arrives).
+      // Text path: tags/annotations commit WITH the bubble at `done`, and
+      // pings show at the same moment (the promise resolves when `done`
+      // arrives).
       setMessages((current) => [
         ...current,
-        {
-          role: 'assistant',
-          content: result.reply,
-          ...(result.tags && result.tags.length > 0 ? { tags: capTags(result.tags) } : {}),
-        },
+        { role: 'assistant', content: result.reply, ...assistantMessageExtras(result) },
       ]);
       showPings(result.pings);
+      applyProgressAndCompletion(result);
     } catch (error) {
       clearStreamTokens();
       setNotice(describeError(error, "Couldn't reach the tutor — try again."));
@@ -570,16 +887,14 @@ export function Overlay({
       });
 
       clearStreamTokens();
-      // Voice tags commit with the reply after playback -- they don't
-      // pre-announce what the tutor hasn't said yet (Task 8 spec).
+      // Voice tags/annotations commit with the reply after playback -- they
+      // don't pre-announce what the tutor hasn't said yet (Task 8 spec).
+      // Progress/completion apply at the SAME moment, for the same reason.
       setMessages((current) => [
         ...current,
-        {
-          role: 'assistant',
-          content: result.reply,
-          ...(result.tags && result.tags.length > 0 ? { tags: capTags(result.tags) } : {}),
-        },
+        { role: 'assistant', content: result.reply, ...assistantMessageExtras(result) },
       ]);
+      applyProgressAndCompletion(result);
     } catch (error) {
       setLiveTranscript('');
       clearStreamTokens();
@@ -603,29 +918,41 @@ export function Overlay({
     audioRef.current?.pause();
   }
 
-  function handleClose() {
+  // The − (minimize) control (Sprint 14 Task 7 -- this is the exact old ✕
+  // handler, just relabeled/rewired to the new − button): collapse to the
+  // pill, session continues untouched. Never ends the session -- that is
+  // only ever an explicit END_SESSION (below) or the model's own
+  // session.complete signal, both of which run the close choreography
+  // instead of this.
+  function handleMinimize() {
     setExpanded(false);
     setDragPos(null);
     setIsDragging(false);
     dragOriginRef.current = null;
     // The recap is shown once and discarded on panel close (ADR-025); the
-    // overview is refetched fresh on the next open. Panel close does NOT
-    // end the session -- that is only ever an explicit END_SESSION.
+    // overview is refetched fresh on the next open. Minimizing does NOT
+    // end the session.
     setRecap(null);
     setOverview(null);
     window.dispatchEvent(new CustomEvent(PANEL_CLOSED_EVENT));
   }
 
-  // The overlay's End-session control (Sprint 13, ADR-025): reuses the
-  // popup's END_SESSION path verbatim via the onEndSession callback. The
-  // recap does not come back through this promise -- it arrives via the
-  // SESSION_ENDED broadcast so a popup-triggered end renders identically.
-  async function handleEndSession() {
-    if (busy || ending || recording) return;
+  // The ✕ (end session) control (Sprint 14 Task 7 -- this is the exact old
+  // "End session" button's handler, now wired to ✕ instead of a standalone
+  // text button, and followed by the SAME visible choreography an
+  // automatic session.complete triggers): reuses the popup's END_SESSION
+  // path verbatim via the onEndSession callback. The recap does not come
+  // back through this promise -- it arrives via the SESSION_ENDED broadcast
+  // so a popup-triggered end still renders identically; beginCloseChoreography
+  // only runs on SUCCESS, so a "no active session" error still surfaces as
+  // a notice instead of animating a close with nothing to close.
+  async function handleEndSessionClick() {
+    if (busy || ending || recording || closeState !== 'idle') return;
     setEnding(true);
     setNotice(null);
     try {
       await onEndSession();
+      beginCloseChoreography();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown error';
       setNotice(
@@ -731,12 +1058,15 @@ export function Overlay({
           recording={recording}
           busy={busy}
           ending={ending}
+          closing={closeState !== 'idle'}
+          ringing={closeState === 'ringing'}
+          ringDurationMs={CLOSE_RING_MS}
           onHeaderPointerDown={handleHeaderPointerDown}
           onHeaderPointerMove={handleHeaderPointerMove}
           onHeaderPointerUp={handleHeaderPointerUp}
           onInterrupt={handleInterrupt}
-          onClose={handleClose}
-          onEndSession={() => void handleEndSession()}
+          onMinimize={handleMinimize}
+          onCloseSession={() => void handleEndSessionClick()}
         />
 
         {/* ── Chat area — only rendered when there is something to show ── */}
@@ -745,22 +1075,31 @@ export function Overlay({
             aria-live="polite"
             className="flex max-h-[272px] flex-col gap-3 overflow-y-auto px-4 py-3 scroll-smooth"
           >
-            {/* The "where you are" overview card (Sprint 13, ADR-024) --
-                the empty state's upgrade, rendered before the first
-                question and only then. */}
-            {showOverviewCard && overview && <InsightStrip kind="overview" overview={overview} />}
-
             <Transcript
               messages={messages}
               streamingTokens={streamingTokens}
               busy={busy}
               notice={notice}
               liveTranscript={liveTranscript}
-              recap={recap}
-              baseline={baselineRef.current}
               chatEndRef={chatEndRef}
             />
           </div>
+        )}
+
+        {/* ── Overview/recap strip (Sprint 14 Task 7) — ABOVE the composer,
+            never inside the scrollable transcript, so it never competes
+            for scroll with the conversation. Renders alongside the opening
+            scan's own bubble (showOverviewCard no longer excludes on it),
+            not instead of it. */}
+        {(showOverviewCard || recap) && (
+          <InsightStrip
+            {...(recap ? { kind: 'recap', recap, baseline: baselineRef.current } : { kind: 'overview', overview: overview! })}
+            folded={stripFolded && !stripHovered}
+            foldDurationMs={STRIP_FOLD_MS}
+            onMouseEnter={() => setStripHovered(true)}
+            onMouseLeave={() => setStripHovered(false)}
+            onExpand={() => setStripFolded(false)}
+          />
         )}
 
         {/* ── Input row — border-t only when chat area is present above ── */}
@@ -770,6 +1109,8 @@ export function Overlay({
           level={level}
           input={input}
           busy={busy}
+          closing={closeState !== 'idle'}
+          solutionProgress={solutionProgress}
           inputFocused={inputFocused}
           caretLeft={caretLeft}
           inputElRef={inputElRef}

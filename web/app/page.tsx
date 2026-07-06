@@ -3,6 +3,8 @@ import { Footer } from '@/components/marketing/Footer'
 import { Section } from '@/components/marketing/Section'
 import { Reveal } from '@/components/marketing/Reveal'
 import { WaitlistForm } from '@/components/marketing/WaitlistForm'
+import { DemoStage } from '@/components/marketing/demo/DemoStage'
+import { heroSession } from '@/components/marketing/demo/scripts'
 
 // Sprint 20 Task 3: the full page skeleton, in the plan's section order.
 // Hero is a placeholder here — Task 5 replaces it with a real <Hero />.
@@ -36,7 +38,10 @@ export default function Home() {
             <p className="mt-3 text-sm text-muted-foreground">Free for 10 sessions a month · Chrome</p>
           </div>
           <div className="mt-16">
-            <DemoPlaceholder label="Live demo arriving in Task 4/5" />
+            <DemoStage
+              script={heroSession}
+              alt="A live demo of a Calyxa tutoring session: the tutor annotates the equation x² + 5x + 6 = 0 on a practice page, asks guiding questions while a solution progress bar fills, flags a sign-error weak spot, fires a 'Gap closed: sign errors' ping when the student self-corrects, and closes with a session recap."
+            />
           </div>
         </section>
 
