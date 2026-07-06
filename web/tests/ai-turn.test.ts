@@ -1546,7 +1546,7 @@ describe('/api/ai/turn: event pings', () => {
     ])
   })
 
-  it('a correct/sound answer at streak 1 -> 2 (not yet resolved) fires no ping', async () => {
+  it('a correct/sound answer at streak 1 -> 2 (RESOLUTION_STREAK - 1, not yet resolved) fires exactly one streak-progress ping (Sprint 14 Task 5 -- Sprint 13 kept this silent, deliberately reversed)', async () => {
     const conceptKey = 'algebra.exponents.power-rule'
     await seedNode(conceptKey, { mastery: 0.8, stability: 20, state: 'learning', confidenceBand: 'medium', observationCount: 6 })
     await seedMisconception(conceptKey, 1)
@@ -1554,7 +1554,9 @@ describe('/api/ai/turn: event pings', () => {
     const { status, json } = await soundCorrectTurn(conceptKey)
 
     expect(status).toBe(200)
-    expect(json.pings).toBeUndefined()
+    expect(json.pings).toEqual([
+      { kind: 'streak-progress', conceptKey, title: 'The power rule for exponents', label: 'Almost closed: sign errors (2 of 3)' },
+    ])
   })
 
   it('a turn that flags a NEWLY detected misconception fires no ping (it surfaces later, only in the recap)', async () => {

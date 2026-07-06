@@ -5,32 +5,50 @@ import type { Assessment } from '@/lib/ai/envelope'
 import { computeNodeUpdate, RESOLUTION_STREAK } from './apply'
 import { KNOWN_CONCEPT_KEYS } from './types'
 
-// Turn-time event pings (Sprint 13, ADR-026): facts about what THIS turn's
-// FSRS apply will do, computed prospectively so they can ride the turn
-// response -- the only delivery that is "immediately after the answer" --
-// while the real apply still runs off the critical path (after(), ADR-019).
-// The LLM plays no part here: no envelope field, no prompt work, no
-// grounding gate. Drift-proofing is structural, not hopeful: this module
-// runs the SAME computeNodeUpdate (same row read, same input assembly, same
-// pure updateKnowledgeNode) the apply itself runs seconds later, and turns
-// are serialized by the extension's background worker, so the inputs read
-// here are the inputs the apply will read.
+// Turn-time event pings (Sprint 13, ADR-026; loosened Sprint 14 Task 5, the
+// ADR-026 amendment): facts about what THIS turn's FSRS apply will do,
+// computed prospectively so they can ride the turn response -- the only
+// delivery that is "immediately after the answer" -- while the real apply
+// still runs off the critical path (after(), ADR-019). The LLM plays no
+// part here: no envelope field, no prompt work, no grounding gate.
+// Drift-proofing is structural, not hopeful: this module runs the SAME
+// computeNodeUpdate (same row read, same input assembly, same pure
+// updateKnowledgeNode) the apply itself runs seconds later, and turns are
+// serialized by the extension's background worker, so the inputs read here
+// are the inputs the apply will read.
 //
-// Exactly TWO event kinds, by contract (ADR-026's asymmetry):
-//   mastery-up             -- the update crosses one of the model's own
-//                             named upward MasteryState boundaries
+// FOUR event kinds now, by contract (the Sprint 13 asymmetry, reversed in
+// part -- deliberately, not by drift, see the ADR-026 amendment):
+//   mastery-up        -- the update crosses one of the model's own named
+//                         upward MasteryState boundaries, INCLUDING first
+//                         contact that lands at a real level (unseen->
+//                         learning / unseen->mastered, widened this sprint)
+//   mastery-progress   -- an in-state (learning|mastered) single-turn
+//                         mastery gain >= MASTERY_PROGRESS_THRESHOLD (new)
 //   misconception-resolved -- this correct answer completes an active
-//                             misconception's RESOLUTION_STREAK
-// Explicitly silent: in-state mastery ticks (the routine adjustment on
-// nearly every answer), confidence_band upticks (the band rises
+//                         misconception's RESOLUTION_STREAK
+//   streak-progress    -- this correct answer brings an active
+//                         misconception to RESOLUTION_STREAK - 1, one away
+//                         from resolving (new) -- superseded by
+//                         misconception-resolved on the completing turn:
+//                         the two thresholds (STREAK-1 and STREAK) can
+//                         never both match the same consecutive_correct
+//                         value, so this is structural, not a runtime check
+// Still explicitly silent: confidence_band upticks (the band rises
 // mechanically with observation count -- pinging it would fire on a
-// schedule, not on merit), unseen->* transitions (first contact is not an
-// improvement), and NEWLY DETECTED misconceptions (persisted quietly by the
-// apply exactly as before; they surface only in the session-end recap --
-// celebrating progress mid-session helps, announcing "new gap detected"
-// mid-struggle does the opposite).
+// schedule, not on merit), and NEWLY DETECTED misconceptions (persisted
+// quietly by the apply exactly as before; they surface only in the
+// session-end recap -- celebrating progress mid-session helps, announcing
+// "new gap detected" mid-struggle does the opposite). That second half of
+// the original asymmetry is UNCHANGED by this amendment.
 
-export type TurnPingKind = 'mastery-up' | 'misconception-resolved'
+export type TurnPingKind = 'mastery-up' | 'mastery-progress' | 'misconception-resolved' | 'streak-progress'
+
+// The in-state mastery gain that earns a ping on its own (Sprint 14 Task 5).
+// A named constant, not a magic number, per the sprint's tuning discipline
+// -- beta feedback on threshold tightness is a constants edit here, not a
+// redesign.
+const MASTERY_PROGRESS_THRESHOLD = 0.1
 
 // Display-ready (ADR-024's server-rendered-display rule): `title` is the
 // curriculum display name, `label` the full toast copy -- QUALITATIVE, no
@@ -44,14 +62,28 @@ export type TurnPing = {
 }
 
 // The named upward state transitions (deriveState's own thresholds --
-// @calyxa/learning-model constants, not new magic numbers).
+// @calyxa/learning-model constants, not new magic numbers). Sprint 14 Task 5
+// widens this with the two first-contact transitions (ADR-026 amendment):
+// unseen->learning and unseen->mastered now celebrate too -- Sprint 13 kept
+// first contact silent on purpose, and live use showed that under-fires
+// when a student's very first turn on a concept already lands solidly.
 const MASTERY_UP_TRANSITIONS: ReadonlySet<string> = new Set([
   'weak->learning',
   'forgotten->learning',
   'learning->mastered',
   'weak->mastered',
   'forgotten->mastered',
+  'unseen->learning',
+  'unseen->mastered',
 ])
+
+// States eligible for the in-state mastery-progress ping -- deliberately
+// narrower than "every state": a first-touch 'unseen' node has no
+// meaningful prior mastery to gain from (that's mastery-up's job above,
+// widened this sprint), and 'weak'/'forgotten' in-state ticks stay silent
+// exactly as ADR-026 originally specified (routine adjustment, not a
+// celebration-worthy gain).
+const MASTERY_PROGRESS_STATES: ReadonlySet<string> = new Set(['learning', 'mastered'])
 
 type ActiveMisconceptionStreakRow = {
   id: string
@@ -102,10 +134,16 @@ export async function computeTurnPings(
     // Mirrors applyInteraction's resolution branch EXACTLY: it only runs
     // when no misconception was flagged this turn AND the answer was a
     // sound correct -- and a row resolves when its streak reaches
-    // RESOLUTION_STREAK with this answer counted.
+    // RESOLUTION_STREAK with this answer counted. streak-progress (Sprint 14
+    // Task 5) reuses the SAME guard and the SAME rows, one turn earlier:
+    // RESOLUTION_STREAK - 1 instead of >= RESOLUTION_STREAK. The two never
+    // fire on the same row for the same turn -- a row's post-turn streak is
+    // one specific number, and STREAK-1 != STREAK -- so "superseded on the
+    // completing turn" holds structurally, not via an extra runtime check.
     if (!misconceptionCategory && outcome === 'correct' && reasoningQuality === 'sound') {
       const activeRows = (misconceptionsResult.data ?? []) as ActiveMisconceptionStreakRow[]
       const resolving = activeRows.find((row) => row.consecutive_correct + 1 >= RESOLUTION_STREAK)
+      const almostResolving = activeRows.find((row) => row.consecutive_correct + 1 === RESOLUTION_STREAK - 1)
 
       if (resolving) {
         pings.push({
@@ -114,16 +152,39 @@ export async function computeTurnPings(
           title,
           label: `Gap closed: ${humanizeCategory(resolving.category)}`,
         })
+      } else if (almostResolving) {
+        pings.push({
+          kind: 'streak-progress',
+          conceptKey,
+          title,
+          label: `Almost closed: ${humanizeCategory(almostResolving.category)} (${RESOLUTION_STREAK - 1} of ${RESOLUTION_STREAK})`,
+        })
       }
     }
 
     const transition = `${nodeComputation.priorState}->${nodeComputation.next.state}`
+    const masteryDelta = nodeComputation.next.mastery - nodeComputation.priorMastery
+
     if (MASTERY_UP_TRANSITIONS.has(transition)) {
       pings.push({
         kind: 'mastery-up',
         conceptKey,
         title,
         label: nodeComputation.next.state === 'mastered' ? `Mastered: ${title}` : `Leveled up: ${title}`,
+      })
+    } else if (
+      MASTERY_PROGRESS_STATES.has(nodeComputation.priorState) &&
+      nodeComputation.priorState === nodeComputation.next.state &&
+      masteryDelta >= MASTERY_PROGRESS_THRESHOLD
+    ) {
+      // In-state only (Sprint 14 Task 5): a boundary-crossing turn already
+      // got its (bigger) celebration above via mastery-up -- this is the
+      // "same state, but a real jump" case Sprint 13 left silent.
+      pings.push({
+        kind: 'mastery-progress',
+        conceptKey,
+        title,
+        label: `Progress: ${title}`,
       })
     }
 

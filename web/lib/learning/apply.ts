@@ -82,6 +82,13 @@ function daysSince(timestamp: string | null): number {
 // row exists yet (the concept has never been observed).
 export type NodeUpdateComputation = {
   priorState: string
+  // The row's mastery BEFORE this turn's update (0 for a never-seen concept,
+  // same default `node.mastery` below already uses) -- additive (Sprint 14
+  // Task 5, ADR-026 amendment): events.ts's mastery-progress ping needs a
+  // single-turn delta, and this is the one place that already reads the
+  // row, so exposing the value it already has avoids a second query rather
+  // than requiring one.
+  priorMastery: number
   next: KnowledgeNodeUpdate
 }
 
@@ -113,7 +120,7 @@ export async function computeNodeUpdate(
     timeSinceLastDays: daysSince(row?.last_practiced_at ?? null),
   })
 
-  return { priorState: row?.state ?? 'unseen', next }
+  return { priorState: row?.state ?? 'unseen', priorMastery: node.mastery, next }
 }
 
 // The full §2.4 FSRS update, now run once per INTERACTION (ADR-019 revises
