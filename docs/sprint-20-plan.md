@@ -255,6 +255,34 @@ Sprint 15 shipping before invites.
 /web/components/marketing/ProfileSection.tsx ← new — "It learns how you learn": a two-panel before/after driven by profileScene — left, the pre-session overview (mastery bars, a weak spot, a due-for-review item); right, the post-session recap (bars animating up with delta arrows, "Gap closed: sign errors", trend rollup "3 sessions in a row improving", forward look "Factoring quadratics comes back Thursday"); beneath, a callback quote bubble ("this connects to the factoring work from a few sessions ago") illustrating cross-session memory.
 ```
 
+**Addendum (Task 7, as built).** This section deliberately does NOT play
+profileScene through `useSceneTimeline` like Tasks 5–6. That hook's clock
+mode is built to loop (hero) or scrub (showcase); this task's own gate says
+the opposite — "bars animate once on first in-view (not every scroll-past)."
+Reusing the loop would replay the before→after motion forever while the
+section stays on screen, and adding a "play once, then hold" mode to the
+shared engine was out of this task's file scope (`ProfileSection.tsx` only).
+So `ProfileSection.tsx` hand-rolls a local one-shot driver — `motion`'s
+`useInView(once: true)` gates a rAF clock that runs 0→`profileScene.durationMs`
+once and stops — while still calling the shared, pure `reduceScene` to turn
+that local clock into state, same discipline as SessionShowcase hand-rolling
+its own scroll-scrub source instead of extending the engine for one script.
+Reduced motion renders the end frame immediately (`t = durationMs`), same
+contract as everywhere else. The pre-session weak-spot/due-review copy isn't
+in profileScene (only heroSession's overview strip carries it) — mirrored
+verbatim from there so the two sections agree on one snapshot; this is
+section-local copy, same precedent as SessionShowcase's own `BEATS` copy
+living outside `scripts.ts`. Verified: typecheck/lint green; curled the
+running dev server's SSR output for `#profile` and confirmed both panels
+render with the correct starting widths (45/72/88%) and the callback quote,
+trend, and forward-look text all present, no server errors. Live in-view
+trigger and reduced-motion behavior were not exercised in a real browser this
+session — the project's dev server was already running externally (a
+pre-existing process on port 3000) rather than one this session started, so
+it wasn't restarted to avoid disrupting whatever else was using it; this is
+a Task 11 manual-acceptance item, same class as Task 4/6's noted preview-
+harness gaps.
+
 ### Task 8 (study loop + how it works) creates:
 ```
 /web/components/marketing/StudyLoopSection.tsx ← new — "One session in. A study kit out.": a finished-session card fanning out (studyLoopScene) into three artifact cards — study notes (titled outline with the session's actual steps), practice problems (two fresh factoring variants), flashcards (a flip-on-hover card, "What two numbers multiply to 6 and add to 5?") — closing with the loop line: session → profile → study kit → next session.

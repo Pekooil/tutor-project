@@ -2,6 +2,7 @@ import { Nav } from '@/components/marketing/Nav'
 import { Footer } from '@/components/marketing/Footer'
 import { Hero } from '@/components/marketing/Hero'
 import { SessionShowcase } from '@/components/marketing/SessionShowcase'
+import { ProfileSection } from '@/components/marketing/ProfileSection'
 import { Section } from '@/components/marketing/Section'
 import { Reveal } from '@/components/marketing/Reveal'
 import { WaitlistForm } from '@/components/marketing/WaitlistForm'
@@ -31,14 +32,7 @@ export default function Home() {
         </Reveal>
 
         <Reveal>
-          <Section
-            id="profile"
-            kicker="It learns how you learn"
-            heading="Every session updates what Calyxa knows about you."
-            sub="Mastery levels, weak spots, and what's due for review — visible before and after every session."
-          >
-            <DemoPlaceholder label="Profile adaptation demo arriving in Task 7" />
-          </Section>
+          <ProfileSection />
         </Reveal>
 
         <Reveal>
