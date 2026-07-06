@@ -3,6 +3,8 @@ import { Footer } from '@/components/marketing/Footer'
 import { Hero } from '@/components/marketing/Hero'
 import { SessionShowcase } from '@/components/marketing/SessionShowcase'
 import { ProfileSection } from '@/components/marketing/ProfileSection'
+import { StudyLoopSection } from '@/components/marketing/StudyLoopSection'
+import { HowItWorks } from '@/components/marketing/HowItWorks'
 import { Section } from '@/components/marketing/Section'
 import { Reveal } from '@/components/marketing/Reveal'
 import { WaitlistForm } from '@/components/marketing/WaitlistForm'
@@ -36,27 +38,11 @@ export default function Home() {
         </Reveal>
 
         <Reveal>
-          <Section
-            id="study-loop"
-            kicker="One session in. A study kit out."
-            heading="Notes, practice problems, and flashcards from every session."
-            sub="Built from the exact steps you worked through — closing the loop back into your next session."
-          >
-            <DemoPlaceholder label="Study loop demo arriving in Task 8" />
-          </Section>
+          <StudyLoopSection />
         </Reveal>
 
         <Reveal>
-          <Section id="how-it-works" kicker="How it works" heading="Three steps to your first session.">
-            <ol className="grid gap-6 sm:grid-cols-3">
-              {['Add Calyxa to Chrome', 'Open any math page', 'Start talking'].map((step, index) => (
-                <li key={step} className="rounded-md border border-border bg-surface p-6">
-                  <span className="text-sm font-semibold text-accent-emphasis">{index + 1}</span>
-                  <p className="mt-2 font-medium text-foreground">{step}</p>
-                </li>
-              ))}
-            </ol>
-          </Section>
+          <HowItWorks />
         </Reveal>
 
         <Reveal>

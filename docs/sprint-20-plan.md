@@ -289,6 +289,37 @@ harness gaps.
 /web/components/marketing/HowItWorks.tsx       ← new — three numbered steps: Add Calyxa to Chrome → Open any math page → Start talking. One icon + line each; installs the mental model before pricing.
 ```
 
+**Addendum (Task 8, as built).** `StudyLoopSection.tsx` fans out a static
+session-summary card ("Session complete — Factoring quadratics · x² + 5x + 6
+= 0 · Gap closed: sign errors") into three artifact cards gated by
+`studyLoopScene`'s `artifacts` array (notes → problems → flashcards, at
+300/800/1300ms). Same deviation as Task 7 and for the same reason: the gate
+wants the fan-out to play ONCE on first in-view, not loop or scrub, so this
+hand-rolls the identical local one-shot driver (`motion`'s
+`useInView(once: true)` gating a rAF clock into the shared, pure
+`reduceScene`) rather than extending `useSceneTimeline` — out of this task's
+file scope (`StudyLoopSection.tsx` + `HowItWorks.tsx` only). **That one-shot
+driver is now duplicated verbatim in two files** (`ProfileSection.tsx`,
+`StudyLoopSection.tsx`); worth extracting into a real shared hook the next
+time either file changes, but doing so wasn't in either task's scope so it
+wasn't done unilaterally — noted in the handoff. The flashcard flips via
+`group-hover` (desktop hover) layered with a click/Enter/Space-toggled
+`aria-pressed` state (touch tap + keyboard) on a `role="button"` div — both
+paths drive the same CSS 3D-rotate transform, and the transition is dropped
+under reduced motion (instant flip, no spin). `HowItWorks.tsx` stayed to
+"one icon + one numeral + one line" per step with no added body copy, to
+hold the "reads in under ten seconds" gate literally. Verified: typecheck/
+lint green; curled the same externally-running dev server's SSR output for
+`#study-loop` and `#how-it-works` — both artifact titles, the session-card
+text, the flashcard front, both fresh practice problems, the loop line, and
+all three how-it-works steps render, zero server errors, clean HMR
+recompiles after each edit (dev log also shows unrelated live product-track
+`/api/ai/turn` traffic in the same window, confirming this is someone's real
+working session, not an idle process — reinforces the Task 7 call not to
+kill it). Same live-browser gap as Task 7: the once-in-view fan-out timing,
+the flashcard's hover/tap/keyboard flip, and the reduced-motion static frame
+are unverified in an actual browser this session — Task 11 items.
+
 ### Task 9 (pricing, social proof, final CTA, SEO) creates / edits:
 ```
 /web/components/marketing/Pricing.tsx     ← new — two cards: Free (10 sessions/mo, all tutoring features) and Pro ($12/mo, unlimited sessions) per PLAN.md §2.8; Pro card accent-bordered; both CTAs are the waitlist (no live checkout this sprint).

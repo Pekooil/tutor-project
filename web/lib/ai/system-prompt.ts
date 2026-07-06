@@ -340,6 +340,33 @@ PEDAGOGY section above; it governs "say" exactly as it would a plain-text reply.
 when the student explicitly asked for the full explanation. One question at a time.`
 }
 
+// Sprint 14 Task 10 live-find: a real acceptance-test session showed the
+// model satisficing with a bare { "say": "..." } on almost every turn of a
+// long, scaffolded Socratic exchange -- "assessment" (required on every
+// non-opening turn per OUTPUT FORMAT above), "solution_progress", and
+// on-screen annotations all went missing even when they clearly applied
+// (confirmed by reproducing the exact conversation shape against the live
+// model: the envelope that came back had exactly one key, "say"). The
+// individual field instructions above already say what to do; this is a
+// short, blunt closer restating the two non-negotiable ones RIGHT BEFORE
+// generation starts, since a checklist read last is a checklist that
+// actually gets followed by a small model buried in a long system prompt.
+// Appended only for envelope-format, non-opening turns -- the opening scan
+// has its own, opposite instruction (never include either field) which
+// must not compete with this one.
+const ENVELOPE_COMPLIANCE_CHECK = `═══════════════════ BEFORE YOU ANSWER ═══════════════════
+Two fields above are NOT optional extras -- check both, every single turn, even a small
+scaffolding step:
+1. "assessment" -- is this your very first turn of the whole conversation? If not, INCLUDE
+   "assessment". A short clarifying answer, a partial step, or "yes"/"no" is still something to
+   grade -- set "outcome" accordingly (use "none" only if the student didn't actually answer
+   anything). Returning { "say": "..." } alone on a non-opening turn is a mistake, not a valid
+   minimal reply.
+2. "solution_progress" -- did the student's last message move them forward, backward, or
+   nowhere on THIS problem? If forward or backward, set the number. Only leave it out when
+   truly nothing changed (e.g. you just asked a question with no prior student step to score).
+Also re-check: does "say" name anything currently visible in PAGE CONTEXT? If so, annotate it.`
+
 // The fifth additive block (Sprint 14 Task 4, ADR-030): appended only for the
 // proactive opening scan, the one turn kind fired with no student message at
 // all -- panel expand found a plausible problem before anything was typed.
