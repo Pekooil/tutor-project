@@ -94,6 +94,54 @@ trend rollup (≥3 consecutive strictly-improving sessions only) and the FSRS fo
 (due dates straight from `reinforcement_schedule`). The confidence-vs-correctness
 mismatch feature is deferred pending its proxy decision. See ADR-024, ADR-025, ADR-026.
 
+## Session lifecycle + overlay surfaces (Sprint 14)
+A session is now **problem-sized and auto-managed**, reversing part of ADR-007's
+manually-toggled model (the atomic `start_session` gate itself is unchanged — only
+its trigger point moves). The background worker auto-starts a session on the
+student's first turn — never on panel open or minimize — and the envelope gains two
+additive fields: `solution_progress` (0–1, model-emitted, client-clamped with bounded
+regression and monotone easing) and `session` (`{ complete, reason }`, one of three
+named end-conditions: solved, answered-then-declined-follow-up,
+corrected-follow-up-retry). A malformed or absent `session` field is a non-close, the
+safe failure; on a real completion the tutor says "Now closing tutoring session.",
+the background POSTs the existing `/api/session/end`, and the overlay runs a
+close choreography (recap → green ring sweep on ✕ → panel close + transcript clear).
+The popup loses its Start/End controls entirely and becomes a display-only surface
+(sign-in state, remaining quota, degraded notice). Neither new envelope field is
+persisted (no migration — both are ephemeral overlay/wire state only). Page context
+and the equation-element registry (ADR-022) now capture on panel **expand** rather
+than mount, fixing a Sprint 13 live-find where an SPA's post-load render (e.g. Khan
+Academy) could leave a session context-blind. See ADR-027, ADR-028.
+
+The 1,247-line `Overlay.tsx` is decomposed into five presentational components —
+`TitleBar`, `Composer`, `InsightStrip`, `Transcript`, `PingToasts` — with
+`Overlay.tsx` kept as the state owner and composition root (state moved, not
+redesigned). The title card's − minimizes (collapse to pill, session continues) and
+✕ ends the session (now with the ring countdown); the old standalone "End session"
+button and the Typing/Voice mode chip are deleted; Send becomes an ↵ icon button. The
+overview/recap render above the composer as an auto-dismissing strip rather than
+inline in the transcript flow, and profile tags/pings pick up a shared kind→color
+mapping from new additive `theme.css` aliases (no new palette values, ADR-018
+discipline preserved). The composer also gains a thin, low-saturation solution-
+progress bar, visually distinct from the strip's brighter transient bar.
+
+Annotations move to a **box-first** default (`highlight` renders as an outlined
+rect, the primary vocabulary; circle/arrow remain for when shape adds meaning), the
+model is steered to annotate proactively whenever a reply references on-screen PAGE
+CONTEXT, and the rendering layer gains a deterministic label-collision pass so
+same-region annotations no longer produce overlapping labels (ADR-022's ≤3 cap and
+drop-don't-guess resolution unchanged). Turn-time pings (ADR-026) gain three new
+kinds on top of the original two — `unseen->learning`/`unseen->mastered` join
+`mastery-up`'s transition set, plus new `mastery-progress` (≥+0.10 in-state) and
+`streak-progress` (`RESOLUTION_STREAK − 1`) kinds, superseded by
+`misconception-resolved` on the completing turn — still computed exclusively by the
+shared FSRS core, never the LLM, now bounded by a client-side per-concept-per-kind
+session cap. See ADR-029, which also amends ADR-026.
+
+The tutor's replies also get shorter by prompt contract (default ≤3 sentences / one
+idea per turn, full explanations only on explicit request) — a pure prompt change,
+no new wire field, banked by Sprint 15's voice-latency work.
+
 ## Architecture decision records
 See `/docs/adr/`. Notably:
 - ADR-001 — Extension framework (WXT)
@@ -133,7 +181,19 @@ See `/docs/adr/`. Notably:
   LLM; two event kinds only, the silences a recorded contract), cross-session
   callbacks from the `priorWork` digest with the grounding gate extended,
   recap trend rollup + forward look; the confidence-mismatch proxy decision
-  deferred with candidates recorded
+  deferred with candidates recorded (amended by ADR-029: three more ping kinds,
+  same never-the-LLM contract, plus a client-side session cap)
+- ADR-027 — Problem-sized sessions: auto-start on first turn only (revisits
+  ADR-007's manual trigger, not its atomic gate), AI-signaled + client-confirmed
+  completion (three named end-conditions), popup demoted to a display hint,
+  `FREE_SESSION_LIMIT` renumbering deliberately deferred to Sprint 16
+- ADR-028 — Solution-progress signal: model-emitted `solution_progress`,
+  client-clamped (bounded regression, floor, monotone easing, forced full on
+  `'solved'`); ephemeral, never persisted, never conflated with mastery
+- ADR-029 — Annotation legibility: outlined box as the primary annotation type,
+  proactive prompt steering, a deterministic label-collision layout pass; AMENDS
+  ADR-026 with three new ping kinds (two added `mastery-up` transitions,
+  `mastery-progress`, `streak-progress`) and their client-side session cap
 
 ## To be documented
 - System context diagram

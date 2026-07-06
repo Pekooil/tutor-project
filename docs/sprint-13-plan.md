@@ -1154,11 +1154,7 @@ back to real prior sessions occasionally, and recaps the real mastery write — 
 trends and the FSRS forward look — at session end. All of it is display-ephemeral: no
 new table, no migration, nothing persisted. What attaches next:
 
-- **Dashboard sprint (Sprint 14):** the Sprint 11 audit's readiness table transfers as
-  its planning input, now improved: **concept titles exist** (`@calyxa/curriculum` —
-  gap #1 closed here); the overview/recap serialization shapes, the trend rollup, and
-  the ping event definitions are working precedents for the dashboard's mastery, due-
-  queue, and history views. Still open from the audit: chart colors as named
+- **Sprint 14 + 15 (session lifecycle + curriculum + voice)** → **Sprint 16+ (cost/compliance → instrumentation → hardening → store) → beta after Sprint 19.** The dashboard and marketing follow post-beta. See `/docs/sprint-14-plan.md` and `/docs/sprint-15-plan.md` (2026-07-05 replan for extension-only free beta). The Sprint 11 audit's readiness table transfers to the post-beta dashboard sprint, now improved: **concept titles exist** (`@calyxa/curriculum` — gap #1 closed in Sprint 15); the overview/recap serialization shapes, the trend rollup, and the ping event definitions are working precedents for the dashboard's mastery, due-queue, and history views. Still open: chart colors as named
   `@calyxa/ui` tokens; `(session_id, turn_index)` as display order not identity;
   per-request-fresh reads (no cache masking the reconcile).
 - **The confidence-vs-correctness mismatch decision** either shipped (check ADR-026's
