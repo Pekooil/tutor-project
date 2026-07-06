@@ -2,20 +2,23 @@ import {
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
   type FormEvent,
 } from 'react';
-import { CalyxaMark, Card, VisuallyHidden } from '@calyxa/ui';
+import { CalyxaMark } from '@calyxa/ui';
 import './Overlay.css';
 import type {
   ProfileOverview,
   ProfileTag,
-  ProfileTagKind,
   SessionRecap,
   TurnMessage,
   TurnPing,
 } from '../types/messages';
 import { AnnotationLayer } from './AnnotationLayer';
+import { Composer } from './Composer';
+import { InsightStrip } from './InsightStrip';
+import { PingToasts } from './PingToasts';
+import { TitleBar } from './TitleBar';
+import { Transcript } from './Transcript';
 import { startRecording, type RecordingHandle, type Utterance } from './VoiceController';
 
 // The panel-close signal (Sprint 12 Task 6): dispatched from handleClose
@@ -50,16 +53,6 @@ export type DisplayMessage = TurnMessage & { tags?: ProfileTag[] };
 export const MAX_TAGS_PER_TURN = 2;
 export const MAX_PINGS_PER_TURN = 2;
 const PING_DISMISS_MS = 4000;
-
-// One visual language for all five kinds (Task 8 spec): a short
-// student-facing prefix per kind, rendered as `[prefix: label]` pills.
-const TAG_KIND_PREFIX: Record<ProfileTagKind, string> = {
-  reviewing: 'reviewing',
-  'known-gap': 'known gap',
-  'due-review': 'due review',
-  strength: 'strength',
-  callback: 'from a previous session',
-};
 
 // ---- Pure display logic (exported for the Task 9 vitest/jsdom spec, the
 // annotations.ts testable-module precedent) ----
@@ -131,14 +124,6 @@ export function humanizeDue(dueAt: string, now: Date = new Date()): string {
   return `comes back ${due.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
 }
 
-// "sign_error.distribution" -> "sign error distribution" for recap
-// misconception rows -- the same phrasing rule the server's ping copy uses
-// (events.ts's humanizeCategory), applied to the one recap field that
-// arrives as a raw category.
-function humanizeCategory(category: string): string {
-  return category.replace(/[-_.]/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
 // Calyxa overlay — Sprint 10 Task 6 (chat UI + real streaming + voice text sync).
 //
 // Layout (expanded):
@@ -146,6 +131,12 @@ function humanizeCategory(category: string): string {
 //   chat area  — ONLY rendered when there is content; absent when empty so the
 //                panel collapses to header + input row with no gap.
 //   input row  — text input + mic + send
+//
+// Sprint 14 Task 2: the five pieces of that layout now live in their own
+// files (TitleBar, Composer, InsightStrip, Transcript, PingToasts) --
+// presentational components that take props/callbacks. Overlay.tsx keeps
+// every state hook, effect, and handler (moved, not rewritten) and is the
+// composition root that wires them together; behavior is unchanged.
 //
 // Text turns: `onSend` receives an `onChunk` callback; each arriving token
 // appends to `streamingContent`, which renders as a pending assistant bubble
@@ -182,8 +173,8 @@ export function Overlay({
   onLoadOverview: () => Promise<ProfileOverview>;
   // Sprint 13 (ADR-025): sends the existing END_SESSION message -- the same
   // handler, RPC, and storage-clear the popup uses, no parallel path. The
-  // recap arrives separately via the SESSION_ENDED broadcast ->
-  // SESSION_RECAP_EVENT, never as this promise's value.
+  // recap does not come back through this promise -- it arrives via the
+  // SESSION_ENDED broadcast so a popup-triggered end renders identically.
   onEndSession: () => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -661,110 +652,22 @@ export function Overlay({
         className={`fixed z-[2147483647] w-[420px] font-sans text-base text-foreground${isDragging ? ' select-none' : ''}${!dragPos ? ' bottom-7 left-1/2 -translate-x-1/2' : ''}`}
         style={dragPos ? { top: `${dragPos.y}px`, left: `${dragPos.x}px` } : undefined}
       >
-      {/* Event-ping toasts (Sprint 13, ADR-026): transient frosted-glass
-          pills anchored ABOVE the panel (bottom-full), so they can never
-          block or overlap the input row. Entry animation is motion-safe:
-          gated; auto-dismiss ~4s (showPings); aria-live polite. */}
-      {activePings.length > 0 && (
-        <div
-          aria-live="polite"
-          className="pointer-events-none absolute bottom-full left-0 right-0 mb-2.5 flex flex-col items-center gap-2"
-        >
-          {activePings.map(({ id, ping }) => (
-            <div
-              key={id}
-              className="flex items-center gap-2 rounded-full border border-border bg-background/85 px-3.5 py-1.5 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5] motion-safe:animate-[cx-rise_0.32s_cubic-bezier(0.2,0.8,0.2,1)_both]"
-            >
-              <span
-                aria-hidden="true"
-                className="h-2 w-2 flex-none rounded-full bg-accent-glow-strong shadow-[0_0_0_3px_rgba(134,239,172,0.35)]"
-              />
-              <span className="text-[12px] font-semibold text-accent-emphasis">{ping.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <PingToasts pings={activePings} />
       <div className="overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
 
-        {/* ── Header ── */}
-        {playing ? (
-          <header
-            className={`flex items-center gap-[9px] border-b border-border px-4 pb-3 pt-[14px] ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-            onPointerDown={handleHeaderPointerDown}
-            onPointerMove={handleHeaderPointerMove}
-            onPointerUp={handleHeaderPointerUp}
-          >
-            <CalyxaMark className="h-[19px] w-[19px] flex-none" />
-            <span className="text-[13.5px] font-semibold text-foreground">Calyxa</span>
-            <span className="ml-auto flex items-center gap-2">
-              <span className="flex h-4 items-center">
-                <WaveformBars count={7} barWidth={3} gap={3} gradientFrom="#22a06b" gradientTo="#4ade80" durationBase={0.65} />
-              </span>
-              <span className="text-[11.5px] text-muted-foreground">Speaking</span>
-              <button
-                type="button"
-                onClick={handleInterrupt}
-                aria-label="Stop speaking"
-                className="flex h-7 w-7 flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-              >
-                <span aria-hidden="true" className="block h-2.5 w-2.5 rounded-[2px] bg-foreground" />
-              </button>
-            </span>
-            <button
-              type="button"
-              onClick={handleClose}
-              aria-label="Close Calyxa"
-              className="flex h-7 w-7 flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-            >
-              <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
-          </header>
-        ) : (
-          <header
-            className={`flex items-center gap-[9px] border-b border-border px-4 pb-3 pt-[14px] ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-            onPointerDown={handleHeaderPointerDown}
-            onPointerMove={handleHeaderPointerMove}
-            onPointerUp={handleHeaderPointerUp}
-          >
-            <CalyxaMark className="h-[19px] w-[19px] flex-none" />
-            <span className="text-[13.5px] font-semibold text-foreground">Calyxa</span>
-            {recording ? (
-              <span className="ml-auto flex items-center gap-1.5 rounded-full bg-accent-subtle px-[10px] py-1 text-[11.5px] font-semibold text-accent-emphasis">
-                <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full bg-accent-glow-strong motion-safe:animate-[cx-dot_1.4s_ease-in-out_infinite]" />
-                Listening
-              </span>
-            ) : (
-              <span className="ml-auto rounded-full border border-border bg-surface px-[10px] py-1 text-[11.5px] font-semibold text-muted-foreground">
-                Typing
-              </span>
-            )}
-            {/* End-session (Sprint 13, ADR-025): the overlay's ONE new
-                session control -- same END_SESSION path as the popup.
-                Disabled while a turn is in flight; distinct from Close,
-                which only dismisses the panel and ends nothing. */}
-            <button
-              type="button"
-              onClick={() => void handleEndSession()}
-              disabled={busy || recording || ending}
-              aria-label="End session"
-              className="flex h-7 flex-none cursor-pointer items-center rounded-full border border-border bg-background px-2.5 text-[11px] font-semibold text-muted-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              End session
-            </button>
-            <button
-              type="button"
-              onClick={handleClose}
-              aria-label="Close Calyxa"
-              className="flex h-7 w-7 flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-            >
-              <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
-          </header>
-        )}
+        <TitleBar
+          playing={playing}
+          isDragging={isDragging}
+          recording={recording}
+          busy={busy}
+          ending={ending}
+          onHeaderPointerDown={handleHeaderPointerDown}
+          onHeaderPointerMove={handleHeaderPointerMove}
+          onHeaderPointerUp={handleHeaderPointerUp}
+          onInterrupt={handleInterrupt}
+          onClose={handleClose}
+          onEndSession={() => void handleEndSession()}
+        />
 
         {/* ── Chat area — only rendered when there is something to show ── */}
         {hasContent && (
@@ -775,379 +678,49 @@ export function Overlay({
             {/* The "where you are" overview card (Sprint 13, ADR-024) --
                 the empty state's upgrade, rendered before the first
                 question and only then. */}
-            {showOverviewCard && overview && <OverviewCard overview={overview} />}
+            {showOverviewCard && overview && <InsightStrip kind="overview" overview={overview} />}
 
-            {messages.map((msg, index) =>
-              msg.role === 'user' ? (
-                <div key={index} className="flex justify-end">
-                  <p className="m-0 max-w-[80%] rounded-2xl rounded-tr-sm bg-surface px-3.5 py-2 text-[13.5px] leading-relaxed text-foreground">
-                    {msg.content}
-                  </p>
-                </div>
-              ) : (
-                <div key={index} className="flex justify-start">
-                  <div className="flex max-w-[88%] flex-col items-start gap-1.5">
-                    <p className="m-0 whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-foreground">
-                      {msg.content}
-                    </p>
-                    {/* Profile-tag pills (Sprint 13, ADR-024): ≤2, one
-                        visual language for all five kinds. Display-only --
-                        stripHistory keeps them out of the outbound wire. */}
-                    {msg.tags && msg.tags.length > 0 && (
-                      <span className="flex flex-wrap gap-1.5">
-                        {capTags(msg.tags).map((tag, tagIndex) => (
-                          <span
-                            key={tagIndex}
-                            className="rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
-                          >
-                            {TAG_KIND_PREFIX[tag.kind]}: {tag.label}
-                          </span>
-                        ))}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ),
-            )}
-
-            {/* The session recap card (Sprint 13, ADR-025): rendered once
-                on SESSION_ENDED, discarded on panel close / next message. */}
-            {recap && <RecapCard recap={recap} baseline={baselineRef.current} />}
-
-            {/* Live interim transcript from SpeechRecognition, updated word-by-word
-                as the user speaks. Kept visible after recording stops until the
-                accurate Whisper result is committed, to avoid a visible gap. */}
-            {liveTranscript && (
-              <div className="flex justify-end">
-                <p className="m-0 max-w-[80%] rounded-2xl rounded-tr-sm bg-surface px-3.5 py-2 text-[13.5px] leading-relaxed text-foreground">
-                  {liveTranscript}
-                </p>
-              </div>
-            )}
-
-            {/* Streaming text (text turns) or word-reveal (voice turns).
-                Each token is a separate <span key={id}> so only newly
-                appended tokens trigger the cx-word-in entry animation. */}
-            {busy && (
-              <div className="flex justify-start">
-                {streamingTokens.length > 0 ? (
-                  <p className="m-0 max-w-[88%] whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-foreground">
-                    {streamingTokens.map((token) => (
-                      <span key={token.id} className="inline-block cx-word-in">
-                        {token.text}
-                      </span>
-                    ))}
-                    {/* Green step-blink cursor matching step 04 of the design. */}
-                    <span
-                      aria-hidden="true"
-                      className="inline-block w-[2px] bg-accent-glow-strong ml-[2px]"
-                      style={{ height: '1.05em', verticalAlign: '-0.18em', animation: 'cx-caret 1s step-end infinite' }}
-                    />
-                  </p>
-                ) : (
-                  <TypingIndicator />
-                )}
-              </div>
-            )}
-
-            {notice && (
-              <Card role="alert" className="border-danger px-3 py-2 text-xs text-danger !shadow-none">
-                {notice}
-              </Card>
-            )}
-
-            <div ref={chatEndRef} />
+            <Transcript
+              messages={messages}
+              streamingTokens={streamingTokens}
+              busy={busy}
+              notice={notice}
+              liveTranscript={liveTranscript}
+              recap={recap}
+              baseline={baselineRef.current}
+              chatEndRef={chatEndRef}
+            />
           </div>
         )}
 
         {/* ── Input row — border-t only when chat area is present above ── */}
-        <div className={`${hasContent ? 'border-t border-border' : ''} px-[18px] pb-[14px] pt-3`}>
-          <form
-            onSubmit={handleSubmit}
-            className="flex items-center gap-2 rounded-full border border-border bg-background py-[7px] pr-[7px] pl-[18px] shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
-          >
-            {recording ? (
-              <div className="flex h-[34px] flex-1 items-center justify-center">
-                <VisuallyHidden>Recording — click the square button to stop and send</VisuallyHidden>
-                <WaveformBars count={24} barWidth={3} gap={3} gradientFrom="#4ade80" gradientTo="#86efac" durationBase={0.9} level={level} />
-              </div>
-            ) : (
-              <div className="relative flex flex-1 items-center overflow-hidden">
-                {/* Hidden span with the same font as the input. getBoundingClientRect()
-                    on it gives the text-before-cursor width, letting us position the
-                    fake caret without caret-width (not supported in Chrome). */}
-                <span
-                  ref={measureElRef}
-                  aria-hidden="true"
-                  className="pointer-events-none invisible absolute whitespace-pre text-[14.5px]"
-                />
-                <input
-                  ref={inputElRef}
-                  className="w-full border-none bg-transparent text-[14.5px] text-foreground outline-none placeholder:text-muted-foreground caret-transparent"
-                  type="text"
-                  value={input}
-                  onChange={(event) => { setInput(event.target.value); refreshCaret(); }}
-                  onKeyDown={refreshCaret}
-                  onKeyUp={refreshCaret}
-                  onMouseDown={refreshCaret}
-                  onClick={refreshCaret}
-                  onSelect={refreshCaret}
-                  onScroll={refreshCaret}
-                  onFocus={() => { setInputFocused(true); refreshCaret(); }}
-                  onBlur={() => setInputFocused(false)}
-                  placeholder="Ask a math question…"
-                  disabled={busy}
-                />
-                {inputFocused && !busy && (
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute top-1/2 w-[2px] -translate-y-1/2 bg-accent-glow-strong"
-                    style={{ left: caretLeft, height: '1.05em', animation: 'cx-caret 1s step-end infinite' }}
-                  />
-                )}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={handleMicClick}
-              disabled={busy && !recording}
-              aria-label={recording ? 'Stop recording and send' : 'Switch to voice'}
-              title={recording ? 'Stop and send' : 'Switch to voice'}
-              className="flex h-[34px] w-[34px] flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {recording ? (
-                <span aria-hidden="true" className="block h-2.5 w-2.5 rounded-[2px] bg-muted-foreground" />
-              ) : (
-                <span aria-hidden="true" className="block h-[13px] w-[7px] rounded-full bg-muted-foreground" />
-              )}
-            </button>
-            <button
-              type="submit"
-              disabled={!input.trim() || recording || busy}
-              className="h-[34px] flex-none cursor-pointer rounded-full border-0 bg-accent px-[17px] text-[13px] font-semibold text-accent-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Send
-            </button>
-          </form>
-        </div>
+        <Composer
+          hasContent={hasContent}
+          recording={recording}
+          level={level}
+          input={input}
+          busy={busy}
+          inputFocused={inputFocused}
+          caretLeft={caretLeft}
+          inputElRef={inputElRef}
+          measureElRef={measureElRef}
+          onSubmit={handleSubmit}
+          onInputChange={(event) => {
+            setInput(event.target.value);
+            refreshCaret();
+          }}
+          onCaretRefresh={refreshCaret}
+          onInputFocus={() => {
+            setInputFocused(true);
+            refreshCaret();
+          }}
+          onInputBlur={() => setInputFocused(false)}
+          onMicClick={handleMicClick}
+        />
 
       </div>
       </div>
     </>
-  );
-}
-
-// The pre-question "where you are" card (Sprint 13, ADR-024): mastery bars
-// ≤5, weak spots ≤3, due items ≤3 -- all server-titled, all read-only. The
-// calibrating variant is the cold-start experience; it never blocks the
-// input row below it.
-function OverviewCard({ overview }: { overview: ProfileOverview }) {
-  if (overview.calibrating) {
-    return (
-      <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
-        <p className="m-0 text-[12.5px] leading-relaxed text-muted-foreground">
-          I&rsquo;m still getting to know you — ask your first question.
-        </p>
-      </div>
-    );
-  }
-
-  const mastery = overview.mastery.slice(0, 5);
-  const weakSpots = overview.weakSpots.slice(0, 3);
-  const due = overview.dueForReview.slice(0, 3);
-
-  return (
-    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-3.5 py-3">
-      <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-        Where you are
-      </p>
-      <div className="flex flex-col gap-1.5">
-        {mastery.map((node) => (
-          <div key={node.conceptKey} className="flex items-center gap-2">
-            <span className="w-[45%] flex-none truncate text-[12px] text-foreground">{node.title}</span>
-            <span
-              role="img"
-              aria-label={`${node.title}: ${Math.round(node.mastery * 100)} percent mastery`}
-              className="h-1.5 flex-1 overflow-hidden rounded-full bg-border"
-            >
-              <span
-                className="block h-full rounded-full bg-accent-glow-strong"
-                style={{ width: `${Math.round(Math.max(0, Math.min(1, node.mastery)) * 100)}%` }}
-              />
-            </span>
-          </div>
-        ))}
-      </div>
-      {weakSpots.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-            Working through
-          </p>
-          {weakSpots.map((spot, index) => (
-            <p key={index} className="m-0 text-[12px] leading-relaxed text-muted-foreground">
-              {spot.title} — {humanizeCategory(spot.category)}
-            </p>
-          ))}
-        </div>
-      )}
-      {due.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-            Due for review
-          </p>
-          {due.map((item, index) => (
-            <p key={index} className="m-0 text-[12px] leading-relaxed text-muted-foreground">
-              {item.title} — {item.reason}
-            </p>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// The end-of-session recap card (Sprint 13, ADR-025): per-concept mastery
-// with delta arrows against the panel-open baseline when one exists
-// (absolute otherwise), misconceptions resolved/added, trend lines when
-// earned (most sessions have none, by design), and the FSRS forward look.
-function RecapCard({ recap, baseline }: { recap: SessionRecap; baseline: ProfileOverview | null }) {
-  return (
-    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-3.5 py-3">
-      <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-        Session recap
-      </p>
-      <div className="flex flex-col gap-1">
-        {recap.concepts.map((concept) => {
-          const delta = masteryDelta(baseline, concept.conceptKey, concept.mastery);
-          const showArrow = delta !== null && Math.abs(delta) >= DELTA_EPSILON;
-          return (
-            <div key={concept.conceptKey} className="flex items-center justify-between gap-2">
-              <span className="truncate text-[12.5px] text-foreground">{concept.title}</span>
-              <span className="flex flex-none items-center gap-1 text-[12px] text-muted-foreground">
-                {Math.round(concept.mastery * 100)}%
-                {showArrow && (
-                  <span
-                    aria-label={delta > 0 ? 'improved this session' : 'slipped this session'}
-                    className={delta > 0 ? 'text-accent-emphasis' : 'text-muted-foreground'}
-                  >
-                    {delta > 0 ? '▲' : '▼'}
-                  </span>
-                )}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      {recap.misconceptionsResolved.length > 0 && (
-        <div className="flex flex-col gap-1">
-          {recap.misconceptionsResolved.map((item, index) => (
-            <p key={index} className="m-0 text-[12px] leading-relaxed text-accent-emphasis">
-              ✓ Gap closed: {humanizeCategory(item.category)}
-            </p>
-          ))}
-        </div>
-      )}
-      {recap.misconceptionsAdded.length > 0 && (
-        <div className="flex flex-col gap-1">
-          {recap.misconceptionsAdded.map((item, index) => (
-            <p key={index} className="m-0 text-[12px] leading-relaxed text-muted-foreground">
-              Something to work on: {humanizeCategory(item.category)}
-            </p>
-          ))}
-        </div>
-      )}
-      {recap.trends.length > 0 && (
-        <div className="flex flex-col gap-1">
-          {recap.trends.map((trend, index) => (
-            <p key={index} className="m-0 text-[12px] font-medium leading-relaxed text-accent-emphasis">
-              {trend.title}: {trend.line}
-            </p>
-          ))}
-        </div>
-      )}
-      {recap.nextReviews.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-            Coming back
-          </p>
-          {recap.nextReviews.map((review, index) => (
-            <p key={index} className="m-0 text-[12px] leading-relaxed text-muted-foreground">
-              {review.title} — {humanizeDue(review.dueAt)}
-            </p>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Small breathing orb shown while waiting for the first streaming chunk.
-// Uses the same cx-orb / cx-ring keyframes as the old full-size thinking
-// state but scaled down to ~20 px so it sits inline in the chat bubble row,
-// matching the ChatGPT-style pulsing dot pattern.
-function TypingIndicator() {
-  return (
-    <div aria-label="Calyxa is thinking" className="flex items-center py-1">
-      <div className="relative flex h-5 w-5 items-center justify-center">
-        <div
-          aria-hidden="true"
-          className="absolute h-5 w-5 rounded-full border border-accent motion-safe:animate-[cx-ring_2.6s_ease-out_infinite]"
-        />
-        <div
-          aria-hidden="true"
-          className="h-3.5 w-3.5 rounded-full shadow-[0_0_6px_rgba(74,222,128,0.45)] motion-safe:animate-[cx-orb_2.8s_ease-in-out_infinite]"
-          style={{ background: 'radial-gradient(circle at 38% 32%, #dcfce7 0%, #86efac 45%, #4ade80 100%)' }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function WaveformBars({
-  count,
-  barWidth,
-  gap,
-  gradientFrom,
-  gradientTo,
-  durationBase,
-  level,
-}: {
-  count: number;
-  barWidth: number;
-  gap: number;
-  gradientFrom: string;
-  gradientTo: string;
-  durationBase: number;
-  level?: number;
-}) {
-  const levelDriven = level !== undefined;
-  return (
-    <div aria-hidden="true" className="flex h-full items-center" style={{ gap }}>
-      {Array.from({ length: count }, (_, index) => {
-        const style: CSSProperties = {
-          width: barWidth,
-          background: `linear-gradient(180deg, ${gradientFrom}, ${gradientTo})`,
-          transformOrigin: 'center',
-        };
-        if (levelDriven) {
-          const restFloor = 0.12;
-          const perBarGain = 0.55 + ((index * 37) % 100) / 100;
-          const scale = Math.max(restFloor, Math.min(1, level * perBarGain));
-          style.transform = `scaleY(${scale})`;
-          style.transition = 'transform 80ms ease-out';
-        } else {
-          style.animationDuration = `${(durationBase + (index % 5) * 0.12).toFixed(2)}s`;
-          style.animationDelay = `${((index * 0.13) % 1).toFixed(2)}s`;
-        }
-        return (
-          <span
-            key={index}
-            className={levelDriven ? 'block h-full rounded-full' : 'cx-bar block h-full rounded-full'}
-            style={style}
-          />
-        );
-      })}
-    </div>
   );
 }
 

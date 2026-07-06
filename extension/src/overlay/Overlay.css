@@ -5,7 +5,14 @@
  * (cssInjectionMode: 'ui'), never the host page <head> — so this can never
  * leak onto, or be bled into from, the host page. See ADR-002 + ADR-018.
  * Overlay.tsx now carries all layout/visual classes directly; this file is
- * bootstrap only. */
+ * bootstrap only.
+ *
+ * Sprint 14 Task 2 regrouped the sections below per the component that now
+ * owns the JSX using them (Overlay.tsx was decomposed into TitleBar/
+ * Composer/InsightStrip/Transcript/PingToasts) — selector names and rules
+ * are unchanged, several keyframes are shared across more than one
+ * component (noted per section) since a component split doesn't imply a
+ * one-keyframe-per-file split. */
 @import 'tailwindcss';
 @import '@calyxa/ui/theme.css';
 /* @calyxa/ui resolves through the npm workspace symlink (node_modules/@calyxa/ui
@@ -69,6 +76,9 @@
   --text-4xl--line-height: 40px;
 }
 
+/* ── Shared: host bootstrap + idle-pill glow (Overlay.tsx's own JSX --
+   the idle pill was not one of Task 2's five extractions) ── */
+
 /* Capsule + Gemini-style input-bar ambient glow (round 2 redesign). A
  * radial-gradient + blur has no Tailwind utility equivalent, so it lives
  * here; the breathing animation itself is applied as a Tailwind arbitrary
@@ -95,14 +105,18 @@
   }
 }
 
-/* Four-state redesign (Sprint 10 Task 6 round 3, Calyxa Overlay.dc.html).
- * One keyframe per state's signature motion: cx-dot is the idle-pill/
- * listening-badge readiness pulse, cx-bar drives both waveform variants
- * (listening + TTS playback, different amplitude/timing via inline style,
- * same keyframe), cx-orb/cx-ring are the thinking state's breathing core +
- * expanding ring, cx-rise is the idle-pill's mount transition. All applied
- * as Tailwind arbitrary-value classes gated by motion-safe: in Overlay.tsx —
- * per brand.md S6, none of this motion is load-bearing for comprehension. */
+/* ── Shared: TitleBar + Composer + Transcript + PingToasts ──
+ * Four-state redesign (Sprint 10 Task 6 round 3, Calyxa Overlay.dc.html).
+ * One keyframe per state's signature motion: cx-dot is the idle-pill
+ * (Overlay.tsx)/listening-badge (TitleBar) readiness pulse, cx-bar drives
+ * both waveform variants (TitleBar's speaking indicator + Composer's
+ * recording level meter — the shared WaveformBars component now lives in
+ * Composer.tsx, Task 2), cx-orb/cx-ring are Transcript's TypingIndicator
+ * breathing core + expanding ring, cx-rise is the idle-pill's mount
+ * transition (also reused by PingToasts' entry animation). All applied as
+ * Tailwind arbitrary-value classes gated by motion-safe: in the owning
+ * component's JSX — per brand.md S6, none of this motion is load-bearing
+ * for comprehension. */
 @keyframes cx-dot {
   0%,
   100% {
@@ -148,7 +162,8 @@
   }
 }
 
-/* Word-entry animation (step 04, Calyxa Overlay.dc.html): each new streaming
+/* ── Transcript: streaming/voice-reveal tokens ──
+ * Word-entry animation (step 04, Calyxa Overlay.dc.html): each new streaming
  * token or voice-reveal word fades in from 4 px below. One-shot (not looping)
  * so already-visible words never re-animate — React's stable per-token keys
  * guarantee only newly mounted spans trigger this. fill-mode: both holds the
@@ -172,7 +187,8 @@
   }
 }
 
-/* Green text-cursor blink (step 04). step-end keeps the transition sharp
+/* ── Shared: Composer's input caret + Transcript's streaming cursor ──
+ * Green text-cursor blink (step 04). step-end keeps the transition sharp
  * (no cross-fade between on/off states). Not gated by prefers-reduced-motion
  * because a blinking cursor is communicative, not decorative. */
 @keyframes cx-caret {
@@ -186,7 +202,8 @@
   }
 }
 
-/* Vertical-only (and opacity) — the horizontal centering on the idle pill's
+/* ── Shared: Overlay.tsx's idle pill + PingToasts' entry animation ──
+ * Vertical-only (and opacity) — the horizontal centering on the idle pill's
  * wrapper is Tailwind's own -translate-x-1/2 utility (a separate `translate`
  * property in Tailwind v4, not `transform`), so this keyframe must not also
  * touch X or the two would compose into a doubled offset. */
@@ -201,7 +218,8 @@
   }
 }
 
-/* The waveform bars (Overlay.tsx's WaveformBars) need a per-bar
+/* ── Composer: WaveformBars (also used by TitleBar's speaking indicator) ──
+ * The waveform bars (Composer.tsx's WaveformBars, Task 2) need a per-bar
  * animation-duration/delay, which Tailwind's arbitrary-value `animate-[...]`
  * syntax can't express (resolved once at build time, not per element) — so
  * this is the one animation set via a plain class + inline style instead of
@@ -218,7 +236,9 @@
   }
 }
 
-/* Annotation layer (Sprint 12 Task 6, ADR-022). The SVG itself: full-
+/* ── AnnotationLayer.tsx (unchanged by Sprint 14 Task 2 -- not one of the
+   five decomposed components; grouped here since it shares this file) ──
+   Annotation layer (Sprint 12 Task 6, ADR-022). The SVG itself: full-
  * viewport, fixed, pointer-events: none (the host page underneath stays
  * fully clickable/selectable — verified by hand in Task 9), aria-hidden via
  * the JSX prop. Sized with plain vw/vh rather than a viewBox so 1 SVG user
