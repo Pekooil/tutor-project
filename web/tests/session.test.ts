@@ -53,6 +53,18 @@ let tokenA: string
 let tokenB: string
 const sessionIds: string[] = []
 
+// Sprint 13 Task 9: a dedicated third user for the session-end recap +
+// trend rollup (ADR-025/026), isolated from userA's long, shared history
+// above. The trend rollup scans this USER's recent ended sessions per
+// concept -- reusing userA would mean each trend test's "3 consecutive
+// improving sessions" claim has to reason about every earlier test's
+// touches on the same 8-key curriculum, which is fragile and order-
+// dependent. A fresh user sidesteps that entirely.
+let userC: { id: string; email: string }
+let clientC: SupabaseClient
+let tokenC: string
+const recapSessionIds: string[] = []
+
 // --- Fake Anthropic backend (Sprint 08 Task 7; ADR-019 changes what calls it) ---
 // Sprint 09/10: /api/session/end's summariser call (summariseSession,
 // ADR-015) was the only path in this file reaching the Anthropic SDK.
@@ -293,6 +305,23 @@ beforeAll(async () => {
   })
   if (signInBErr || !signInB.session) throw new Error(`sign-in failed for B: ${signInBErr?.message}`)
   tokenB = signInB.session.access_token
+
+  const emailC = testEmail('c')
+  const { data: createdC, error: errC } = await admin.auth.admin.createUser({
+    email: emailC,
+    password: PASSWORD,
+    email_confirm: true,
+  })
+  if (errC || !createdC.user) throw new Error(`fixture setup failed for C: ${errC?.message}`)
+  userC = { id: createdC.user.id, email: emailC }
+
+  clientC = createClient(url, anonKey)
+  const { data: signInC, error: signInCErr } = await clientC.auth.signInWithPassword({
+    email: emailC,
+    password: PASSWORD,
+  })
+  if (signInCErr || !signInC.session) throw new Error(`sign-in failed for C: ${signInCErr?.message}`)
+  tokenC = signInC.session.access_token
 }, 45000)
 
 afterAll(async () => {
@@ -318,6 +347,17 @@ afterAll(async () => {
   if (userB) {
     await admin.from('users').delete().eq('id', userB.id)
     await admin.auth.admin.deleteUser(userB.id)
+  }
+  if (userC) {
+    await admin.from('session_interactions').delete().eq('user_id', userC.id)
+    for (const id of recapSessionIds) {
+      await admin.from('sessions').delete().eq('id', id)
+    }
+    await admin.from('reinforcement_schedule').delete().eq('user_id', userC.id)
+    await admin.from('misconceptions').delete().eq('user_id', userC.id)
+    await admin.from('knowledge_nodes').delete().eq('user_id', userC.id)
+    await admin.from('users').delete().eq('id', userC.id)
+    await admin.auth.admin.deleteUser(userC.id)
   }
 
   if (server?.pid) {
@@ -1105,5 +1145,176 @@ describe('per-turn learning-state write -> live profile', () => {
         .single()
       expect(nodeAfter!.observation_count).toBe(observationsBefore + 1)
     })
+  })
+})
+
+// --- Sprint 13 Task 9: the session-end recap + trend rollup (ADR-025/026) ---
+// Runs against the dedicated userC fixture (isolated history -- see its
+// declaration comment above). recap.ts reads session_interactions.outcome
+// (written SYNCHRONOUSLY during the turn, before the off-critical-path
+// apply) for the trend rollup, so trend assertions need no waitFor; the
+// per-concept mastery/nextReviews values DO depend on the off-critical-path
+// apply having landed, so those tests wait for the real write before
+// calling end() -- the recap is read in the SAME request as end(), with no
+// follow-up poll of its own.
+describe('session-end recap + trend rollup', () => {
+  it("a session's recap reflects the real post-reconcile mastery + reinforcement schedule, matching a direct table read", async () => {
+    const conceptKey = 'algebra.quadratics.factoring'
+
+    setFakeEnvelope('Nice, that factoring is correct.', {
+      conceptKey,
+      outcome: 'correct',
+      reasoningQuality: 'sound',
+      selfConfidence: 'high',
+    })
+    const started = await start(tokenC, { pageDomain: 'example.com', mode: 'text' })
+    expect(started.status).toBe(200)
+    recapSessionIds.push(started.json.sessionId)
+
+    const turnRes = await turn(tokenC, {
+      sessionId: started.json.sessionId,
+      messages: [{ role: 'user', content: 'x^2 - 4 factors to (x-2)(x+2)' }],
+    })
+    expect(turnRes.status).toBe(200)
+
+    // Wait for the off-critical-path apply to land BEFORE ending -- the
+    // recap is read inside end()'s own response, with no follow-up poll, so
+    // the write must already be settled by the time end() is called. This
+    // waits for BOTH the FSRS write (knowledge_nodes) and the scheduler's
+    // upsert (reinforcement_schedule, ADR-020) -- the latter runs after the
+    // former inside the same applyInteraction call, so it lands slightly later.
+    await waitFor(async () => {
+      const { data: node, error: nodeErr } = await clientC
+        .from('knowledge_nodes')
+        .select('mastery, state')
+        .eq('user_id', userC.id)
+        .eq('concept_key', conceptKey)
+        .single()
+      expect(nodeErr).toBeNull()
+      expect(node!.state).not.toBeNull()
+
+      const { data: schedule, error: scheduleErr } = await clientC
+        .from('reinforcement_schedule')
+        .select('due_at')
+        .eq('user_id', userC.id)
+        .eq('concept_key', conceptKey)
+        .single()
+      expect(scheduleErr).toBeNull()
+      expect(schedule).not.toBeNull()
+    })
+
+    const [{ data: directNode }, { data: directSchedule }] = await Promise.all([
+      clientC.from('knowledge_nodes').select('mastery, state').eq('user_id', userC.id).eq('concept_key', conceptKey).single(),
+      clientC
+        .from('reinforcement_schedule')
+        .select('due_at')
+        .eq('user_id', userC.id)
+        .eq('concept_key', conceptKey)
+        .single(),
+    ])
+
+    const ended = await end(tokenC, started.json.sessionId)
+    expect(ended.status).toBe(200)
+    const recap = ended.json.recap
+
+    expect(recap.concepts).toEqual([
+      {
+        conceptKey,
+        title: 'Factoring quadratics',
+        turns: 1,
+        correct: 1,
+        incorrect: 0,
+        // Loose precision: both this direct read and the recap's own read
+        // apply retrievability decay against `now` at slightly different
+        // instants (a few ms apart), so the two values are close, not
+        // bit-identical.
+        mastery: expect.closeTo(directNode!.mastery, 4),
+        state: directNode!.state,
+      },
+    ])
+    expect(recap.nextReviews).toEqual([{ conceptKey, title: 'Factoring quadratics', dueAt: directSchedule!.due_at }])
+    expect(recap.misconceptionsAdded).toEqual([])
+    expect(recap.misconceptionsResolved).toEqual([])
+  })
+
+  it('recap is omitted (not null, not present) for a session with no gradable interactions -- byte-identical to Sprint 11', async () => {
+    const started = await start(tokenC, { pageDomain: 'example.com', mode: 'text' })
+    expect(started.status).toBe(200)
+    recapSessionIds.push(started.json.sessionId)
+
+    const ended = await end(tokenC, started.json.sessionId)
+    expect(ended.status).toBe(200)
+    expect(Object.keys(ended.json).sort()).toEqual(['endedAt', 'interactionCount', 'sessionId'])
+  })
+
+  it('3 strictly improving sessions on the same concept earn a trend line on the 3rd recap', async () => {
+    const conceptKey = 'algebra.linear-equations.one-variable'
+    const outcomes: Array<'incorrect' | 'partial' | 'correct'> = ['incorrect', 'partial', 'correct']
+
+    let lastRecap: { trends?: unknown[] } | undefined
+    for (const outcome of outcomes) {
+      setFakeEnvelope('Keep going.', { conceptKey, outcome })
+      const started = await start(tokenC, { pageDomain: 'example.com', mode: 'text' })
+      recapSessionIds.push(started.json.sessionId)
+      const turnRes = await turn(tokenC, {
+        sessionId: started.json.sessionId,
+        messages: [{ role: 'user', content: `attempt: ${outcome}` }],
+      })
+      expect(turnRes.status).toBe(200)
+      const ended = await end(tokenC, started.json.sessionId)
+      expect(ended.status).toBe(200)
+      lastRecap = ended.json.recap
+    }
+
+    expect(lastRecap?.trends).toEqual([
+      { conceptKey, title: 'One-variable linear equations', sessions: 3, line: '3 sessions in a row improving' },
+    ])
+  })
+
+  it('2 improving sessions are not enough -- no trend line yet', async () => {
+    const conceptKey = 'algebra.exponents.product-rule'
+    const outcomes: Array<'incorrect' | 'correct'> = ['incorrect', 'correct']
+
+    let lastRecap: { trends?: unknown[] } | undefined
+    for (const outcome of outcomes) {
+      setFakeEnvelope('Keep going.', { conceptKey, outcome })
+      const started = await start(tokenC, { pageDomain: 'example.com', mode: 'text' })
+      recapSessionIds.push(started.json.sessionId)
+      const turnRes = await turn(tokenC, {
+        sessionId: started.json.sessionId,
+        messages: [{ role: 'user', content: `attempt: ${outcome}` }],
+      })
+      expect(turnRes.status).toBe(200)
+      const ended = await end(tokenC, started.json.sessionId)
+      expect(ended.status).toBe(200)
+      lastRecap = ended.json.recap
+    }
+
+    expect(lastRecap?.trends ?? []).toEqual([])
+  })
+
+  it('a non-monotone (dip in the middle) 3-session history earns no trend line', async () => {
+    const conceptKey = 'algebra.exponents.power-rule'
+    // partial (0.5) -> incorrect (0, a DIP) -> correct (1): walking back from
+    // the 3rd session, 1 > 0 (run=2), but 0 is NOT > 0.5 -- the run stops at
+    // 2, short of TREND_MIN_SESSIONS.
+    const outcomes: Array<'partial' | 'incorrect' | 'correct'> = ['partial', 'incorrect', 'correct']
+
+    let lastRecap: { trends?: unknown[] } | undefined
+    for (const outcome of outcomes) {
+      setFakeEnvelope('Keep going.', { conceptKey, outcome })
+      const started = await start(tokenC, { pageDomain: 'example.com', mode: 'text' })
+      recapSessionIds.push(started.json.sessionId)
+      const turnRes = await turn(tokenC, {
+        sessionId: started.json.sessionId,
+        messages: [{ role: 'user', content: `attempt: ${outcome}` }],
+      })
+      expect(turnRes.status).toBe(200)
+      const ended = await end(tokenC, started.json.sessionId)
+      expect(ended.status).toBe(200)
+      lastRecap = ended.json.recap
+    }
+
+    expect(lastRecap?.trends ?? []).toEqual([])
   })
 })

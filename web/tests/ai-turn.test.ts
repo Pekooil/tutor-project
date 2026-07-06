@@ -79,6 +79,33 @@ const DUE_WEAK_CONCEPT = 'algebra.linear-equations.one-variable'
 const DUE_TOPIC_CONCEPT = 'algebra.quadratics.factoring'
 const DUE_OVERDUE_DAYS = 2
 
+// --- Sprint 13 Task 9: a fifth fixture user for the tag + callback grounding
+// gate (ADR-024/026). One node + one active misconception on TAG_MASTERY_CONCEPT
+// (reviewing/strength/known-gap targets), one due item on TAG_DUE_CONCEPT
+// (due-review target), and a real prior ENDED session on TAG_CALLBACK_CONCEPT
+// -- driven through a genuine turn + apply + end, so the priorWork digest
+// (profile-read.ts) has real history to ground a callback against, not a
+// fixture row that never went through the write path. TAG_UNGROUNDED_CONCEPT
+// is a valid curriculum key this user has NO signal on at all -- the target
+// for every "this profile doesn't support that claim" drop case.
+let userTags: { id: string }
+let tokenTags: string
+const TAG_MASTERY_CONCEPT = 'algebra.quadratics.factoring'
+const TAG_MASTERY_TITLE = 'Factoring quadratics'
+const TAG_DUE_CONCEPT = 'algebra.linear-equations.one-variable'
+const TAG_DUE_TITLE = 'One-variable linear equations'
+const TAG_CALLBACK_CONCEPT = 'algebra.exponents.power-rule'
+const TAG_UNGROUNDED_CONCEPT = 'algebra.polynomials.expanding'
+
+// --- Sprint 13 Task 9: a sixth fixture user for the event-ping thresholds
+// (ADR-026). Each ping test seeds its own concept's knowledge_nodes/
+// misconceptions row directly (fixture data, not the write path -- the
+// PING computation is the thing under test) and drives one real,
+// sessionId-bearing turn, since `pings` only rides the response when
+// persistInteraction actually scheduled the apply (a real, owned session).
+let userPings: { id: string }
+let tokenPings: string
+
 // --- Fake Anthropic backend ---
 // We spawn a REAL `next dev` below (not a direct route-function call) for the
 // same reason session.test.ts does: it exercises proxy.ts for real, which
@@ -143,6 +170,72 @@ async function turn(bearer: string | null, body: Record<string, unknown>) {
   const res = await fetch(`${API_BASE}/api/ai/turn`, { method: 'POST', headers, body: JSON.stringify(body) })
   return { status: res.status, json: await res.json() }
 }
+
+// Sprint 13 (ADR-025/026): pings only ride the response when persistInteraction
+// actually scheduled the off-critical-path apply -- which needs a REAL,
+// owned sessionId (session.test.ts's start/end helpers, reproduced here so
+// this file's ping/tag-grounding fixtures don't need session.test.ts's
+// spawned server).
+async function start(bearer: string, body: Record<string, unknown> = {}) {
+  const res = await fetch(`${API_BASE}/api/session/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
+    body: JSON.stringify(body),
+  })
+  return { status: res.status, json: await res.json() }
+}
+
+async function end(bearer: string, sessionId: string) {
+  const res = await fetch(`${API_BASE}/api/session/end`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
+    body: JSON.stringify({ sessionId }),
+  })
+  return { status: res.status, json: await res.json() }
+}
+
+// The off-critical-path apply (ADR-019) means no request in this file's
+// vocabulary is a hard sync point for "the write has landed" -- the
+// session.test.ts polling convention, reproduced here for the priorWork
+// fixture below (which needs a real FSRS write to exist before the
+// grounding turn reads it back via loadProfile).
+async function waitFor(check: () => Promise<void>, timeoutMs = 5000, intervalMs = 200): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let lastError: unknown
+  while (Date.now() < deadline) {
+    try {
+      await check()
+      return
+    } catch (err) {
+      lastError = err
+      await new Promise((r) => setTimeout(r, intervalMs))
+    }
+  }
+  throw lastError
+}
+
+// Module scope (not inside a single describe) -- Sprint 13 Task 9's new
+// grounding/ping describe blocks assert the same "nothing new persisted"
+// shape as the Sprint 12 annotations test this was first pinned for.
+const EXPECTED_SESSION_INTERACTIONS_COLUMNS = [
+  'id',
+  'session_id',
+  'user_id',
+  'turn_index',
+  'concept_key',
+  'student_transcript',
+  'tutor_response',
+  'outcome',
+  'self_confidence',
+  'response_latency_ms',
+  'misconception_category',
+  'applied_to_profile',
+  'created_at',
+  'deleted_at',
+  'reasoning_quality',
+  'misconception_description',
+  'claimed_at',
+].sort()
 
 beforeAll(async () => {
   fakeAnthropic = await startFakeAnthropic()
@@ -320,6 +413,120 @@ beforeAll(async () => {
     throw new Error(`sign-in failed (due user): ${signInDueErr?.message}`)
   }
   tokenDue = signInDue.session.access_token
+
+  // --- userTags fixture (Sprint 13 Task 9) ---
+  const tagsEmail = `darcy20080911+calyxaaiturntags${Date.now()}@gmail.com`
+  const { data: createdTags, error: tagsErr } = await admin.auth.admin.createUser({
+    email: tagsEmail,
+    password: PASSWORD,
+    email_confirm: true,
+  })
+  if (tagsErr || !createdTags.user) throw new Error(`fixture setup failed (tags user): ${tagsErr?.message}`)
+  userTags = { id: createdTags.user.id }
+
+  const { error: tagsNodeErr } = await admin.from('knowledge_nodes').insert({
+    user_id: userTags.id,
+    concept_key: TAG_MASTERY_CONCEPT,
+    mastery: 0.5,
+    stability: 5,
+    state: 'learning',
+    confidence_band: 'medium',
+    observation_count: 4,
+    last_practiced_at: new Date().toISOString(),
+  })
+  if (tagsNodeErr) throw new Error(`fixture setup failed (tags knowledge_nodes seed): ${tagsNodeErr.message}`)
+
+  const { error: tagsMisconceptionErr } = await admin.from('misconceptions').insert({
+    user_id: userTags.id,
+    concept_key: TAG_MASTERY_CONCEPT,
+    category: 'sign-errors',
+    description: 'drops the negative sign when distributing',
+    status: 'active',
+    occurrence_count: 2,
+    consecutive_correct: 0,
+  })
+  if (tagsMisconceptionErr) {
+    throw new Error(`fixture setup failed (tags misconceptions seed): ${tagsMisconceptionErr.message}`)
+  }
+
+  const { error: tagsScheduleErr } = await admin.from('reinforcement_schedule').insert({
+    user_id: userTags.id,
+    concept_key: TAG_DUE_CONCEPT,
+    due_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    interval_days: 1.0,
+    priority: 0.5,
+    lapses: 0,
+  })
+  if (tagsScheduleErr) throw new Error(`fixture setup failed (tags reinforcement_schedule seed): ${tagsScheduleErr.message}`)
+
+  const tagsClient = createClient(url, anonKey)
+  const { data: signInTags, error: signInTagsErr } = await tagsClient.auth.signInWithPassword({
+    email: tagsEmail,
+    password: PASSWORD,
+  })
+  if (signInTagsErr || !signInTags.session) throw new Error(`sign-in failed (tags user): ${signInTagsErr?.message}`)
+  tokenTags = signInTags.session.access_token
+
+  // A REAL prior ended session on TAG_CALLBACK_CONCEPT -- priorWork
+  // (profile-read.ts) only ever digests genuine session_interactions rows
+  // from an ended session, so the callback-grounding test needs an actual
+  // turn + off-critical-path apply + end, not a fixture row.
+  const tagsStarted = await start(tokenTags, { mode: 'text' })
+  if (tagsStarted.status !== 200) throw new Error('fixture setup failed (tags callback session start)')
+  nextResponse = {
+    status: 200,
+    body: fakeTextMessage(
+      JSON.stringify({
+        say: 'Nice, clean use of the power rule.',
+        assessment: {
+          concept_key: TAG_CALLBACK_CONCEPT,
+          outcome: 'correct',
+          reasoning_quality: 'sound',
+          self_confidence: 'high',
+          confidence: 'high',
+        },
+      })
+    ),
+  }
+  const tagsCallbackTurn = await turn(tokenTags, {
+    sessionId: tagsStarted.json.sessionId,
+    messages: [{ role: 'user', content: '(x^2)^3 = x^6' }],
+  })
+  if (tagsCallbackTurn.status !== 200) throw new Error('fixture setup failed (tags callback turn)')
+  const tagsEnded = await end(tokenTags, tagsStarted.json.sessionId)
+  if (tagsEnded.status !== 200) throw new Error('fixture setup failed (tags callback session end)')
+
+  // Confirms the off-critical-path apply actually landed (a real
+  // knowledge_nodes row) before any grounding test runs against this
+  // user's profile -- without this wait, a still-in-flight apply would make
+  // the callback digest flakily empty depending on timing.
+  await waitFor(async () => {
+    const { data, error } = await admin
+      .from('knowledge_nodes')
+      .select('mastery')
+      .eq('user_id', userTags.id)
+      .eq('concept_key', TAG_CALLBACK_CONCEPT)
+      .single()
+    if (error || !data) throw new Error('tags callback knowledge_nodes row not yet written')
+  })
+
+  // --- userPings fixture (Sprint 13 Task 9) ---
+  const pingsEmail = `darcy20080911+calyxaaiturnpings${Date.now()}@gmail.com`
+  const { data: createdPings, error: pingsErr } = await admin.auth.admin.createUser({
+    email: pingsEmail,
+    password: PASSWORD,
+    email_confirm: true,
+  })
+  if (pingsErr || !createdPings.user) throw new Error(`fixture setup failed (pings user): ${pingsErr?.message}`)
+  userPings = { id: createdPings.user.id }
+
+  const pingsClient = createClient(url, anonKey)
+  const { data: signInPings, error: signInPingsErr } = await pingsClient.auth.signInWithPassword({
+    email: pingsEmail,
+    password: PASSWORD,
+  })
+  if (signInPingsErr || !signInPings.session) throw new Error(`sign-in failed (pings user): ${signInPingsErr?.message}`)
+  tokenPings = signInPings.session.access_token
 }, 45000)
 
 afterAll(async () => {
@@ -330,7 +537,7 @@ afterAll(async () => {
   // -> users -> auth user. `user` needs this too as of Sprint 11: the
   // ADR-019 positive-path test drives a real session + interaction + apply
   // for it (before Sprint 11 that user owned no rows at all).
-  for (const fixture of [userDue, userDecayed, userWithProfile, user]) {
+  for (const fixture of [userPings, userTags, userDue, userDecayed, userWithProfile, user]) {
     if (!fixture) continue
     await admin.from('session_interactions').delete().eq('user_id', fixture.id)
     await admin.from('sessions').delete().eq('user_id', fixture.id)
@@ -867,26 +1074,6 @@ describe('/api/ai/turn', () => {
   // at the route boundary -- the actual `{ reply, annotations? }` JSON a
   // caller receives.
 
-  const EXPECTED_SESSION_INTERACTIONS_COLUMNS = [
-    'id',
-    'session_id',
-    'user_id',
-    'turn_index',
-    'concept_key',
-    'student_transcript',
-    'tutor_response',
-    'outcome',
-    'self_confidence',
-    'response_latency_ms',
-    'misconception_category',
-    'applied_to_profile',
-    'created_at',
-    'deleted_at',
-    'reasoning_quality',
-    'misconception_description',
-    'claimed_at',
-  ].sort()
-
   it('returns the envelope\'s validated annotations additively as { reply, annotations }', async () => {
     nextResponse = {
       status: 200,
@@ -1022,5 +1209,379 @@ describe('/api/ai/turn', () => {
     expect(row.concept_key).toBe(SEEDED_CONCEPT_KEY)
     expect(row.outcome).toBe('correct')
     expect(row.tutor_response).toBe('Nice, that factoring is correct.')
+  })
+})
+
+// --- Sprint 13 Task 9: the tag + callback grounding gate (ADR-024/026) ---
+// envelope.test.ts already pins parseProfileTag's own structural contract;
+// these assert the SEPARATE, decisive authority -- turn/route.ts's
+// groundProfileTags, which verifies each structurally-valid tag against the
+// EXACT LearningProfile this request injected, using userTags's fixture
+// profile (one mastery node + active misconception on TAG_MASTERY_CONCEPT,
+// one due item on TAG_DUE_CONCEPT, one real prior-session digest entry on
+// TAG_CALLBACK_CONCEPT). envelope.ts's MAX_PROFILE_TAGS caps the parsed
+// array at 2 BEFORE grounding ever runs, so each case below sends exactly
+// one tag to isolate what's under test.
+describe('/api/ai/turn: profile-tag grounding gate', () => {
+  it('a "reviewing" tag on a listed mastery node is grounded, with its label replaced by the curriculum title', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Let\'s keep working on this.',
+          profile_tags: [{ kind: 'reviewing', concept_key: TAG_MASTERY_CONCEPT, label: 'model-written label' }],
+        })
+      ),
+    }
+
+    const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: 'more factoring practice' }] })
+
+    expect(status).toBe(200)
+    expect(json.profileTags).toEqual([{ kind: 'reviewing', conceptKey: TAG_MASTERY_CONCEPT, label: TAG_MASTERY_TITLE }])
+  })
+
+  it('a "strength" tag on the same listed mastery node is grounded, title-replaced the same way', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Building on what you know.',
+          profile_tags: [{ kind: 'strength', concept_key: TAG_MASTERY_CONCEPT, label: 'model-written label' }],
+        })
+      ),
+    }
+
+    const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: 'another one' }] })
+
+    expect(status).toBe(200)
+    expect(json.profileTags).toEqual([{ kind: 'strength', conceptKey: TAG_MASTERY_CONCEPT, label: TAG_MASTERY_TITLE }])
+  })
+
+  it('a "known-gap" tag matching a listed ACTIVE misconception\'s concept key is grounded, keeping the model\'s own label', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Watch that sign.',
+          profile_tags: [{ kind: 'known-gap', concept_key: TAG_MASTERY_CONCEPT, label: 'sign errors' }],
+        })
+      ),
+    }
+
+    const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: '-(x+2) = -x+2' }] })
+
+    expect(status).toBe(200)
+    // known-gap keeps the model's label verbatim (truncated, never
+    // title-replaced) -- it describes the error, which no curriculum title can.
+    expect(json.profileTags).toEqual([{ kind: 'known-gap', conceptKey: TAG_MASTERY_CONCEPT, label: 'sign errors' }])
+  })
+
+  it('a "due-review" tag on a listed due item is grounded, title-replaced', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: "Let's revisit this one.",
+          profile_tags: [{ kind: 'due-review', concept_key: TAG_DUE_CONCEPT, label: 'model-written label' }],
+        })
+      ),
+    }
+
+    const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: 'ready to review' }] })
+
+    expect(status).toBe(200)
+    expect(json.profileTags).toEqual([{ kind: 'due-review', conceptKey: TAG_DUE_CONCEPT, label: TAG_DUE_TITLE }])
+  })
+
+  it('a "callback" tag naming a REAL priorWork entry is grounded, keeping the model\'s own label', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'This connects to what you worked through a few sessions ago.',
+          profile_tags: [{ kind: 'callback', concept_key: TAG_CALLBACK_CONCEPT, label: 'a few sessions ago' }],
+        })
+      ),
+    }
+
+    const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: 'x^3 * x^4' }] })
+
+    expect(status).toBe(200)
+    expect(json.profileTags).toEqual([{ kind: 'callback', conceptKey: TAG_CALLBACK_CONCEPT, label: 'a few sessions ago' }])
+  })
+
+  it('a "known-gap" tag on a concept with NO active misconception is dropped -- the field is omitted, not empty', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Nice work.',
+          profile_tags: [{ kind: 'known-gap', concept_key: TAG_UNGROUNDED_CONCEPT, label: 'a made-up gap' }],
+        })
+      ),
+    }
+
+    const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: 'expand (x+1)(x+2)' }] })
+
+    expect(status).toBe(200)
+    expect(Object.keys(json)).toEqual(['reply'])
+  })
+
+  it('a "callback" tag naming a session/concept absent from priorWork is dropped', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Nice work.',
+          profile_tags: [{ kind: 'callback', concept_key: TAG_UNGROUNDED_CONCEPT, label: 'a session that never happened' }],
+        })
+      ),
+    }
+
+    const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: 'expand (x+1)(x+2)' }] })
+
+    expect(status).toBe(200)
+    expect(Object.keys(json)).toEqual(['reply'])
+  })
+
+  it('a "due-review" tag on a concept that is not actually due is dropped', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Nice work.',
+          profile_tags: [{ kind: 'due-review', concept_key: TAG_UNGROUNDED_CONCEPT, label: 'made up' }],
+        })
+      ),
+    }
+
+    const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: 'expand (x+1)(x+2)' }] })
+
+    expect(status).toBe(200)
+    expect(Object.keys(json)).toEqual(['reply'])
+  })
+
+  it('a grounded tag is never persisted -- session_interactions keeps its Sprint 11 shape', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Nice, that factoring is correct.',
+          profile_tags: [{ kind: 'reviewing', concept_key: TAG_MASTERY_CONCEPT, label: 'model-written label' }],
+          assessment: {
+            concept_key: TAG_MASTERY_CONCEPT,
+            outcome: 'correct',
+            reasoning_quality: 'sound',
+            self_confidence: 'high',
+            misconception_category: null,
+            confidence: 'high',
+          },
+        })
+      ),
+    }
+
+    const started = await start(tokenTags, { mode: 'text' })
+    expect(started.status).toBe(200)
+
+    const { status, json } = await turn(tokenTags, {
+      sessionId: started.json.sessionId,
+      messages: [{ role: 'user', content: 'x^2 - 4 factors to (x-2)(x+2)' }],
+    })
+
+    expect(status).toBe(200)
+    expect(json.profileTags).toHaveLength(1)
+
+    const { data, count } = await admin
+      .from('session_interactions')
+      .select('*', { count: 'exact' })
+      .eq('session_id', started.json.sessionId)
+
+    expect(count).toBe(1)
+    expect(Object.keys(data![0]).sort()).toEqual(EXPECTED_SESSION_INTERACTIONS_COLUMNS)
+    expect(JSON.stringify(data![0])).not.toContain('reviewing')
+  })
+})
+
+// --- Sprint 13 Task 9: turn-time event pings (ADR-026) ---
+// Pings only ride the response when persistInteraction actually scheduled
+// the off-critical-path apply (a real, owned sessionId), so every case here
+// starts a real session first. Each concept is seeded directly via the
+// service role (fixture data, not the write path -- computeTurnPings' READ
+// of it is what's under test) and touched by exactly one real turn.
+describe('/api/ai/turn: event pings', () => {
+  async function seedNode(
+    conceptKey: string,
+    row: {
+      mastery: number
+      stability: number
+      difficulty?: number
+      state: string
+      confidenceBand: string
+      observationCount: number
+    }
+  ) {
+    const { error } = await admin.from('knowledge_nodes').insert({
+      user_id: userPings.id,
+      concept_key: conceptKey,
+      mastery: row.mastery,
+      stability: row.stability,
+      difficulty: row.difficulty ?? 0.3,
+      state: row.state,
+      confidence_band: row.confidenceBand,
+      observation_count: row.observationCount,
+      last_practiced_at: new Date().toISOString(),
+    })
+    if (error) throw new Error(`ping fixture seed failed for ${conceptKey}: ${error.message}`)
+  }
+
+  async function seedMisconception(conceptKey: string, consecutiveCorrect: number) {
+    const { error } = await admin.from('misconceptions').insert({
+      user_id: userPings.id,
+      concept_key: conceptKey,
+      category: 'sign-errors',
+      description: 'drops the negative sign when distributing',
+      status: 'active',
+      occurrence_count: 2,
+      consecutive_correct: consecutiveCorrect,
+    })
+    if (error) throw new Error(`ping fixture misconception seed failed for ${conceptKey}: ${error.message}`)
+  }
+
+  async function soundCorrectTurn(conceptKey: string, misconceptionCategory: string | null = null) {
+    const started = await start(tokenPings, { mode: 'text' })
+    expect(started.status).toBe(200)
+
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Nice work.',
+          assessment: {
+            concept_key: conceptKey,
+            outcome: misconceptionCategory ? 'incorrect' : 'correct',
+            reasoning_quality: misconceptionCategory ? 'shallow' : 'sound',
+            self_confidence: misconceptionCategory ? 'low' : 'high',
+            misconception_category: misconceptionCategory,
+            confidence: 'high',
+          },
+        })
+      ),
+    }
+
+    return turn(tokenPings, { sessionId: started.json.sessionId, messages: [{ role: 'user', content: 'my attempt' }] })
+  }
+
+  it('a state-crossing update (weak -> learning) fires exactly one mastery-up ping', async () => {
+    const conceptKey = 'algebra.polynomials.expanding'
+    await seedNode(conceptKey, { mastery: 0.45, stability: 5, state: 'weak', confidenceBand: 'low', observationCount: 2 })
+
+    const { status, json } = await soundCorrectTurn(conceptKey)
+
+    expect(status).toBe(200)
+    expect(json.pings).toEqual([
+      { kind: 'mastery-up', conceptKey, title: 'Expanding polynomials', label: 'Leveled up: Expanding polynomials' },
+    ])
+  })
+
+  it('an in-state tick (learning -> learning) fires no ping', async () => {
+    const conceptKey = 'algebra.inequalities.linear'
+    await seedNode(conceptKey, { mastery: 0.6, stability: 10, state: 'learning', confidenceBand: 'medium', observationCount: 5 })
+
+    const { status, json } = await soundCorrectTurn(conceptKey)
+
+    expect(status).toBe(200)
+    expect(json.pings).toBeUndefined()
+  })
+
+  it('mastery already at the mastered threshold but held in "learning" by a low confidence band fires no ping (a band-gated state, not a boundary crossing)', async () => {
+    const conceptKey = 'algebra.quadratics.formula'
+    // mastery 0.9 would clear MASTERED_THRESHOLD, but confidence_band 'low'
+    // (observation_count 1) blocks deriveState's mastered branch, so the
+    // STORED state is 'learning' -- and stays 'learning' after this turn,
+    // since observationCount is still < the low/medium boundary. No
+    // MasteryState transition occurs, so no ping -- exactly the "band
+    // upticks alone never ping" contract (ADR-026), since the ping
+    // computation only ever looks at the state label, never the band.
+    await seedNode(conceptKey, {
+      mastery: 0.9,
+      stability: 20,
+      state: 'learning',
+      confidenceBand: 'low',
+      observationCount: 1,
+    })
+
+    const { status, json } = await soundCorrectTurn(conceptKey)
+
+    expect(status).toBe(200)
+    expect(json.pings).toBeUndefined()
+  })
+
+  it('a first-ever (unseen) observation fires no ping -- first contact is never an improvement', async () => {
+    // No seed row at all -- computeNodeUpdate reads priorState 'unseen'.
+    // Under the current constants a fresh node's mastery can only reach
+    // ~0.3 on one observation (BASE_K=0.3, confidenceWeight(0)=1), which
+    // deriveState reads as 'weak', not 'learning' -- 'unseen->weak' isn't a
+    // named upward transition either, so this also pins the exclusion at
+    // the only value first contact can actually produce.
+    const conceptKey = 'algebra.linear-equations.two-variable'
+
+    const { status, json } = await soundCorrectTurn(conceptKey)
+
+    expect(status).toBe(200)
+    expect(json.pings).toBeUndefined()
+  })
+
+  it('a correct/sound answer that completes the 3-correct resolution streak fires exactly one misconception-resolved ping', async () => {
+    const conceptKey = 'algebra.exponents.product-rule'
+    // Mastery stays inside 'learning' before and after (no crossing), so the
+    // resolved ping is the ONLY ping this turn produces.
+    await seedNode(conceptKey, { mastery: 0.8, stability: 20, state: 'learning', confidenceBand: 'medium', observationCount: 6 })
+    await seedMisconception(conceptKey, 2)
+
+    const { status, json } = await soundCorrectTurn(conceptKey)
+
+    expect(status).toBe(200)
+    expect(json.pings).toEqual([
+      { kind: 'misconception-resolved', conceptKey, title: 'The product rule for exponents', label: 'Gap closed: sign errors' },
+    ])
+  })
+
+  it('a correct/sound answer at streak 1 -> 2 (not yet resolved) fires no ping', async () => {
+    const conceptKey = 'algebra.exponents.power-rule'
+    await seedNode(conceptKey, { mastery: 0.8, stability: 20, state: 'learning', confidenceBand: 'medium', observationCount: 6 })
+    await seedMisconception(conceptKey, 1)
+
+    const { status, json } = await soundCorrectTurn(conceptKey)
+
+    expect(status).toBe(200)
+    expect(json.pings).toBeUndefined()
+  })
+
+  it('a turn that flags a NEWLY detected misconception fires no ping (it surfaces later, only in the recap)', async () => {
+    const conceptKey = 'algebra.linear-equations.one-variable'
+
+    const { status, json } = await soundCorrectTurn(conceptKey, 'sign_error.distribution')
+
+    expect(status).toBe(200)
+    expect(json.pings).toBeUndefined()
+  })
+
+  it('pings are never persisted -- session_interactions keeps its Sprint 11 shape', async () => {
+    const conceptKey = 'algebra.quadratics.factoring'
+    await seedNode(conceptKey, { mastery: 0.45, stability: 5, state: 'weak', confidenceBand: 'low', observationCount: 2 })
+
+    const { status, json } = await soundCorrectTurn(conceptKey)
+    expect(status).toBe(200)
+    expect(json.pings).toHaveLength(1)
+
+    const { data, count } = await admin
+      .from('session_interactions')
+      .select('*', { count: 'exact' })
+      .eq('user_id', userPings.id)
+      .eq('concept_key', conceptKey)
+
+    expect(count).toBe(1)
+    expect(Object.keys(data![0]).sort()).toEqual(EXPECTED_SESSION_INTERACTIONS_COLUMNS)
+    expect(JSON.stringify(data![0])).not.toContain('mastery-up')
   })
 })

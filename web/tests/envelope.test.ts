@@ -204,3 +204,96 @@ describe('parseEnvelope: annotations (validated structurally, always optional)',
     expect(allInvalid.say).toBe('What two numbers multiply to 6 and add to 5?')
   })
 })
+
+// --- Sprint 13 (ADR-024/026): profile_tags -- structural parse only. The
+// route's grounding gate (per-kind checks against the injected profile) is
+// a separate authority tested end-to-end in ai-turn.test.ts; this file pins
+// parseProfileTag's own structural contract, case by case, the same split
+// annotations already established.
+describe('parseEnvelope: profile_tags (all five kinds structurally validated, always optional)', () => {
+  const allKinds: Array<{ kind: string; concept_key: string | null; label: string }> = [
+    { kind: 'reviewing', concept_key: VALID_KEY, label: 'Factoring' },
+    { kind: 'known-gap', concept_key: VALID_KEY, label: 'sign errors' },
+    { kind: 'due-review', concept_key: VALID_KEY, label: 'Factoring review' },
+    { kind: 'strength', concept_key: VALID_KEY, label: 'Solid factoring' },
+    { kind: 'callback', concept_key: VALID_KEY, label: 'a few sessions ago' },
+  ]
+
+  it('parses a tag of each of the five kinds (one at a time -- parse caps at 2 per turn)', () => {
+    for (const tag of allKinds) {
+      const envelope = parseEnvelope(validEnvelopeJson({ profile_tags: [tag] }))
+      expect(envelope.profileTags).toEqual([{ kind: tag.kind, conceptKey: tag.concept_key, label: tag.label }])
+    }
+  })
+
+  it('drops an entry with an unrecognised kind, and keeps the rest', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({
+        profile_tags: [
+          { kind: 'reviewing', concept_key: VALID_KEY, label: 'Factoring' },
+          { kind: 'obsessing', concept_key: VALID_KEY, label: 'not a real kind' },
+        ],
+      })
+    )
+
+    expect(envelope.profileTags).toEqual([{ kind: 'reviewing', conceptKey: VALID_KEY, label: 'Factoring' }])
+  })
+
+  it('drops an entry with an empty or whitespace-only label, and keeps the rest', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({
+        profile_tags: [
+          { kind: 'reviewing', concept_key: VALID_KEY, label: '   ' },
+          { kind: 'strength', concept_key: VALID_KEY, label: '' },
+          { kind: 'due-review', concept_key: VALID_KEY, label: 'Factoring review' },
+        ],
+      })
+    )
+
+    expect(envelope.profileTags).toEqual([{ kind: 'due-review', conceptKey: VALID_KEY, label: 'Factoring review' }])
+  })
+
+  it('trims a label, and nulls (but keeps) an entry whose concept_key is not in CONCEPT_KEYS', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({
+        profile_tags: [
+          { kind: 'known-gap', concept_key: 'calculus.derivatives.chain-rule', label: '  sign errors  ' },
+        ],
+      })
+    )
+
+    expect(CONCEPT_KEYS).not.toContain('calculus.derivatives.chain-rule')
+    expect(envelope.profileTags).toEqual([{ kind: 'known-gap', conceptKey: null, label: 'sign errors' }])
+  })
+
+  it('caps at 2 tags even when the model sends more, keeping the first two', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({
+        profile_tags: [
+          { kind: 'reviewing', concept_key: VALID_KEY, label: 'one' },
+          { kind: 'strength', concept_key: VALID_KEY, label: 'two' },
+          { kind: 'due-review', concept_key: VALID_KEY, label: 'three' },
+        ],
+      })
+    )
+
+    expect(envelope.profileTags).toHaveLength(2)
+    expect(envelope.profileTags?.map((t) => t.label)).toEqual(['one', 'two'])
+  })
+
+  it('omits the profileTags key when the array is empty or nothing survives validation', () => {
+    const empty = parseEnvelope(validEnvelopeJson({ profile_tags: [] }))
+    expect(empty.profileTags).toBeUndefined()
+
+    const allInvalid = parseEnvelope(
+      validEnvelopeJson({ profile_tags: [{ kind: 'not-a-kind', concept_key: null, label: 'x' }] })
+    )
+    expect(allInvalid.profileTags).toBeUndefined()
+    expect(allInvalid.say).toBe('What two numbers multiply to 6 and add to 5?')
+  })
+
+  it('a tag-free envelope (the common case -- most turns have none) is unchanged from Sprint 12', () => {
+    const envelope = parseEnvelope(validEnvelopeJson())
+    expect(envelope.profileTags).toBeUndefined()
+  })
+})

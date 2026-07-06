@@ -918,7 +918,35 @@ per open. Verified: `wxt build` 0, typecheck clean, 25-test suite green, root tu
 19/19, plus a throwaway jsdom render smoke (overview/tags/ping-dedupe/stripping/recap
 deltas/calibrating/failure-degrade — written, run green, deleted); the gate's LIVE
 unpacked-extension pass was NOT run here (no browser harness) — it folds into Task
-10's manual acceptance); Tasks 9–10 not started.** (Update this
+10's manual acceptance); Task 9 landed (tests: `envelope.test.ts` gains the
+profile-tag structural-parse cases — all five kinds, invalid-kind/empty-label drops,
+concept-key nulling, the 2-cap, tag-free back-compat; `ai-turn.test.ts` gains two new
+describe blocks against two new fixture users — the tag+callback grounding gate (one
+case per kind grounded + title-replacement vs. label-kept per the reviewing/strength/
+due-review vs. known-gap/callback split, plus ungrounded known-gap/callback/due-review
+drops, plus a never-persisted check) and the event-ping thresholds (state-crossing,
+in-state tick, a band-gated-but-not-crossing case, first-contact/unseen, streak
+2→3 resolved, streak 1→2 silent, a newly-flagged misconception silent, never-persisted);
+new `learning-events.test.ts` pins the ADR-026 equivalence claim end-to-end (a ping's
+implied transition/streak outcome is independently confirmed against the real
+post-write `knowledge_nodes`/`misconceptions` row, for a `learning`-crossing case, a
+`mastered`-crossing case, a resolution case, and a no-ping case) plus one apply.ts
+extraction-safety case (a fresh/unseen concept still writes the pre-extraction
+mastery/state); new `profile-overview.test.ts` covers 401/calibrating/display-shape/
+no-write; `session.test.ts` gains a dedicated third fixture user (userC, isolated
+history) and a recap+trend describe block (recap matches a direct `knowledge_nodes`/
+`reinforcement_schedule` read, omitted for a no-gradable session, and the 3-improving/
+2-improving/non-monotone trend cases); new `extension/tests/overlay-display.test.ts`
+covers the exported pure helpers (`stripHistory`, `capTags`, `filterPingsForDisplay`'s
+dedupe + cap, `masteryDelta`, `humanizeDue`). NOT added, and flagged rather than
+silently skipped: a forced-recap-DB-failure case (session/end's `catch` around
+`buildSessionRecap` isn't practically triggerable without mocking Supabase; the
+Task 6 landing note's live spot-check is the coverage this relies on) and a live
+unpacked-extension pass (folds into Task 10, per Task 8's own note). Verified:
+`turbo run typecheck lint build test` 19/19 across every workspace (root + web +
+extension + `@calyxa/curriculum` + `@calyxa/learning-model` + `@calyxa/ui`); web
+135/135, extension 46/46; no live Anthropic call anywhere in the new tests (the
+fake-Anthropic-backend convention throughout). Task 10 not started.** (Update this
 line as tasks land, per the Sprint 09–12 convention.)
 
 - [ ] `turbo run typecheck lint build test` passes from root; `cd web && next build`
@@ -969,7 +997,7 @@ line as tasks land, per the Sprint 09–12 convention.)
 - [ ] the scheduler, topic bias, annotation layer, voice internals,
       auth/freemium/session logic, `/supabase`, and `/packages/ui` are untouched;
       `loadProfile`'s existing legs are unchanged (the `priorWork` leg is additive)
-- [ ] the web suite covers tag parse/grounding/omission/non-persistence, ping
+- [x] the web suite covers tag parse/grounding/omission/non-persistence, ping
       thresholds + the prospective/actual equivalence pin, the overview route, and the
       recap incl. trend conservatism; the extension spec covers delta/cap/stripping/
       ping-dedupe logic — no live Anthropic call
