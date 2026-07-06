@@ -166,10 +166,21 @@ is consumed, not edited), or the dashboard/account pages.
 
 ### Task 2 (waitlist backend) creates:
 ```
-/supabase/migrations/0012_waitlist.sql   ← new — waitlist(id uuid pk default gen_random_uuid(), email text not null, source text, created_at timestamptz not null default now()); unique index on lower(email); RLS ENABLED with NO policies (service-role writes only — the RLS-before-data rule, enforced as deny-all).
-/web/app/api/waitlist/route.ts           ← new — POST { email, source? }: trim/lowercase, format-validate, reject a filled honeypot field with a 200 (silent), insert via the service-role client; unique violation → 200 { ok: true } (idempotent, never leaks existence); malformed → 400; no GET.
-/web/lib/supabase/admin.ts               ← new IF no service-role client factory exists yet (check first — reuse if one does): server-only client from SUPABASE_SERVICE_ROLE_KEY, never imported by client components.
+/supabase/migrations/0012_waitlist.sql   ← new — waitlist(id uuid pk default gen_random_uuid(), email citext not null, source text, created_at timestamptz not null default now()); unique index on email (case-insensitive via citext, already enabled by 0001); RLS ENABLED with NO policies (service-role writes only — the RLS-before-data rule, enforced as deny-all — Shape 3 in /supabase/policies/README.md, added this task).
+/web/app/api/waitlist/route.ts           ← new — POST { email, source? }: trim/lowercase, format-validate, reject a filled honeypot field with a 200 (silent), insert via the service-role client (upsert + onConflict/ignoreDuplicates); duplicate → 200 { ok: true } (idempotent, never leaks existence); malformed → 400; no GET.
+/web/lib/supabase/admin.ts               ← ALREADY EXISTED (createAdminClient, server-only) — reused as-is, no edit needed.
 ```
+
+**Addendum (found during Task 2 verification):** `web/proxy.ts` gates every
+non-`PUBLIC_PATHS` route behind cookie auth, with an explicit allowlist of
+bearer-only API prefixes that skip the check (`/api/auth`, `/api/session`,
+`/api/ai`, `/api/voice`, `/api/profile`). `/api/waitlist` was not on that
+list, so a signed-out visitor's request was silently 307-redirected to
+`/login` before ever reaching the route — caught by curling the real running
+route, not just the raw migration. Fixed by adding
+`pathname.startsWith('/api/waitlist')` to `isPublicPath`, matching the
+existing pattern exactly (it's public like `/`, not a bearer-auth exemption
+like the others). This file was not in Task 2's original scope; it is now.
 
 ### Task 3 (marketing foundation) creates / edits:
 ```

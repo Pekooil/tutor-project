@@ -43,6 +43,19 @@ create policy <table>_modify_own on public.<table>
             with check (auth.uid() = user_id);
 ```
 
+## Shape 3 — anonymous-write, deny-all tables
+
+Used for tables written by unauthenticated visitors (no `auth.uid()` to scope
+a policy to) that no client key should ever be able to read or write at all —
+only a service-role server route may touch them.
+
+```sql
+alter table public.<table> enable row level security;
+-- No policies: RLS enabled with zero policies denies all client access
+-- (anon and authenticated alike). Only the service-role client, which
+-- bypasses RLS entirely, may read or write.
+```
+
 ## Rules
 
 - RLS is enabled and every policy above is created inside the same migration
@@ -65,6 +78,7 @@ create policy <table>_modify_own on public.<table>
 | `misconceptions` | 2 (`user_id`) | `0004_knowledge_graph.sql` |
 | `session_interactions` | 2 (`user_id`) | `0007_session_interactions.sql` |
 | `reinforcement_schedule` | 2 (`user_id`) | `0008_reinforcement_schedule.sql` |
+| `waitlist` | 3 (deny-all) | `0012_waitlist.sql` |
 
 ## Additive columns (no policy change)
 

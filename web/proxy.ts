@@ -12,14 +12,18 @@ function isPublicPath(pathname: string) {
   // clientFromBearer does each route's own auth instead. /api/profile
   // (Sprint 13) is the newest of these — without this exemption, a
   // bearer-token request to it would be redirected to /login before ever
-  // reaching the route handler, exactly like the others would be.
+  // reaching the route handler, exactly like the others would be. /api/waitlist
+  // (Sprint 20, ADR-031) is a different case, not a bearer-only one: it's hit by
+  // a signed-out visitor on the public landing page, so it's simply public,
+  // like '/' itself, rather than exempted from a cookie check it'd otherwise need.
   return (
     PUBLIC_PATHS.includes(pathname) ||
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/session') ||
     pathname.startsWith('/api/ai') ||
     pathname.startsWith('/api/voice') ||
-    pathname.startsWith('/api/profile')
+    pathname.startsWith('/api/profile') ||
+    pathname.startsWith('/api/waitlist')
   )
 }
 
