@@ -2,7 +2,7 @@ import { createShadowRootUi, defineContentScript } from '#imports';
 import type { ShadowRootContentScriptUi } from '#imports';
 import type { Root } from 'react-dom/client';
 import { mountOverlay, unmountOverlay } from '../overlay/mount';
-import { PANEL_CLOSED_EVENT, SESSION_RECAP_EVENT, type TurnResult } from '../overlay/Overlay';
+import { PANEL_CLOSED_EVENT, PANEL_EXPANDED_EVENT, SESSION_RECAP_EVENT, type TurnResult } from '../overlay/Overlay';
 import type { Utterance } from '../overlay/VoiceController';
 import {
   clearAnnotations,
@@ -17,6 +17,7 @@ import type {
   Annotation,
   CalyxaMessage,
   GetProfileOverviewReplyPayload,
+  OpeningScanReplyPayload,
   PageContext,
   ProfileOverview,
   ProfileTag,
@@ -34,19 +35,27 @@ import type {
 // wakes. Task 4 toggles it (mount/remove) when the keyboard shortcut fires.
 let overlayUi: ShadowRootContentScriptUi<Root> | undefined;
 
-// The PageContext captured on the most recent overlay open (Sprint 07 Task
-// 5/6, ADR-012/ADR-013). Re-captured fresh every time the overlay mounts —
-// never cached across opens, never persisted to disk/DB — and read by
-// sendAiTurn below to attach to the next AI_TURN. Undefined until the
-// overlay has been opened at least once in this page's lifetime.
+// The PageContext captured on the most recent overlay EXPAND (Sprint 07 Task
+// 5/6, ADR-012/ADR-013; moved from overlay-MOUNT to overlay-EXPAND in
+// Sprint 14 Task 6 -- the filed Sprint 13 live-find). Mount happens once per
+// page load for a signed-in user, which on an SPA (Khan Academy) can run
+// before the exercise even renders, leaving the whole session context-blind;
+// expand (handlePanelExpand below, wired to Overlay.tsx's PANEL_EXPANDED_EVENT)
+// is the actually-intended "fresh right before the tutor needs it" moment,
+// and it re-fires on every re-expand too (not just the first), so an SPA
+// navigation between minimizes is picked up. Never cached across opens,
+// never persisted to disk/DB — read by sendAiTurn below to attach to the
+// next AI_TURN. Undefined until the panel has been expanded at least once
+// in this page's lifetime.
 let capturedPageContext: PageContext | undefined;
 
 // The equation-element registry captured ALONGSIDE the PageContext above
 // (Sprint 12, ADR-022): capturedEquationElements[i] is the live source
 // element of capturedPageContext.equations[i]. Same lifetime discipline —
-// refreshed on every overlay open, never cached across opens — and it never
-// leaves this content script: elements can't serialize, and by design the
-// registry never rides a chrome.runtime message or persists (ADR-023).
+// refreshed on every overlay EXPAND (Sprint 14 Task 6, moved with the
+// capture above), never cached across opens — and it never leaves this
+// content script: elements can't serialize, and by design the registry
+// never rides a chrome.runtime message or persists (ADR-023).
 // currentEquationRegistry() below zips this with capturedPageContext.equations
 // into what the annotation resolver (annotations.ts, Task 5) matches
 // textMatch targets against; sendAiTurn (Task 7) reads it per turn. Entries
@@ -65,6 +74,71 @@ function currentEquationRegistry(): EquationRegistry {
     equation,
     element: capturedEquationElements[index] ?? null,
   }));
+}
+
+// The panel-EXPAND handler (Sprint 14 Task 6): wired to Overlay.tsx's
+// PANEL_EXPANDED_EVENT below, which fires on every real expand -- first
+// open AND every re-expand after a minimize, keyboard shortcut or a direct
+// pill click alike. Synchronous (extractPageContext is a one-shot DOM read,
+// ADR-012) so the opening-scan effect's onOpeningScan call, triggered by
+// the SAME expand and resolved in the next microtask, always sees this
+// turn's fresh capture, never the previous one.
+function handlePanelExpand(): void {
+  const { context, equationElements } = extractPageContext();
+  capturedPageContext = context;
+  capturedEquationElements = equationElements;
+}
+
+// The opening-scan plausible-problem gate (Sprint 14 Task 6, ADR-030): a
+// cheap, pure pre-filter so a blank tab or a non-math page never reaches
+// the model for no value -- non-empty equations, OR a text excerpt past a
+// trivial length. Exported for the Task 9 vitest spec (lifecycle.test.ts).
+const MIN_PLAUSIBLE_TEXT_CHARS = 20;
+
+export function isPlausibleProblem(context: PageContext | undefined): boolean {
+  if (!context) return false;
+  if (context.equations.length > 0) return true;
+  return (context.text?.trim().length ?? 0) >= MIN_PLAUSIBLE_TEXT_CHARS;
+}
+
+// The opening scan's transport (Sprint 14 Task 6, ADR-030): called by
+// Overlay.tsx once per real expand while the conversation is still empty.
+// Gates on the freshly captured capturedPageContext (handlePanelExpand
+// above already ran for this same expand); requests OPENING_SCAN only when
+// the gate passes, draws any annotations the reply carries (same
+// showTurnAnnotations call sendAiTurn uses), and resolves null -- never
+// throws -- on every degrade path: nothing plausible on the page, a
+// request failure, or an empty/whitespace reply (the model's own "not
+// confident" signal, ADR-030 Decision 5). Overlay.tsx appends the result as
+// the first assistant bubble; a null result renders nothing, same as a
+// failed overview fetch.
+async function requestOpeningScan(): Promise<{ reply: string; tags?: ProfileTag[] } | null> {
+  if (!isPlausibleProblem(capturedPageContext)) return null;
+
+  const registry = currentEquationRegistry();
+  const message: CalyxaMessage = {
+    type: 'OPENING_SCAN',
+    payload: { pageContext: capturedPageContext },
+  };
+
+  let response: CalyxaMessage;
+  try {
+    response = await chrome.runtime.sendMessage(message);
+  } catch (error) {
+    console.warn('Calyxa content: opening scan not acknowledged', error);
+    return null;
+  }
+
+  const payload = response?.payload as OpeningScanReplyPayload | undefined;
+  if (!payload || 'error' in payload || !payload.reply.trim()) {
+    return null;
+  }
+
+  showTurnAnnotations(payload.annotations ?? [], registry);
+  return {
+    reply: payload.reply,
+    ...(payload.profileTags && payload.profileTags.length > 0 ? { tags: payload.profileTags } : {}),
+  };
 }
 
 // The overlay's AI_TURN transport. When `onChunk` is provided (text turns),
@@ -273,11 +347,12 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 // while the overlay is closed the host-page footprint is zero.
 //
 // Sprint 07 adds the first actual READ of host-page content: on every
-// overlay open, extractPageContext() (pageExtractor.ts) makes a one-shot,
-// synchronous, read-only pass over the page's math + visible text,
-// excluding this script's own <calyxa-overlay> host. The result is held at
-// module scope only long enough to attach to the next AI_TURN — it is never
-// written to disk/DB (ADR-012/ADR-013).
+// overlay EXPAND (Sprint 14 Task 6 -- moved from overlay mount, see
+// handlePanelExpand above), extractPageContext() (pageExtractor.ts) makes a
+// one-shot, synchronous, read-only pass over the page's math + visible
+// text, excluding this script's own <calyxa-overlay> host. The result is
+// held at module scope only long enough to attach to the next AI_TURN — it
+// is never written to disk/DB (ADR-012/ADR-013).
 export default defineContentScript({
   // (1) Inject on every page the student visits.
   matches: ['<all_urls>'],
@@ -313,6 +388,12 @@ export default defineContentScript({
     window.addEventListener(PANEL_CLOSED_EVENT, () => {
       clearAnnotations();
     });
+
+    // The panel-EXPAND signal (Sprint 14 Task 6): fires on every real
+    // expand -- see handlePanelExpand's own comment for why this replaces
+    // the old onMount-time capture below. Registered once for the content
+    // script's lifetime, same as the listener above.
+    window.addEventListener(PANEL_EXPANDED_EVENT, handlePanelExpand);
 
     let pendingToggle = false;
     let pendingSignedIn: boolean | undefined;
@@ -388,18 +469,12 @@ export default defineContentScript({
       anchor: document.documentElement,
       append: 'last',
       onMount: (container) => {
-        // Fresh read every time the overlay opens — never cached across
-        // opens, never persisted. Runs in this content-script context, the
-        // only place with host-DOM access; extractPageContext reads the
-        // host page only and excludes this very shadow host from what it
-        // reads (ADR-012). Still captured (and still threaded into the
-        // AI_TURN payload below) even though the overlay no longer renders
-        // an equation-count chip — the tutor still needs the page context.
-        // Sprint 12 (ADR-022): the same read now also yields the equation-
-        // element registry, held here and never sent anywhere.
-        const { context, equationElements } = extractPageContext();
-        capturedPageContext = context;
-        capturedEquationElements = equationElements;
+        // No PageContext capture here (Sprint 14 Task 6 -- the filed Sprint
+        // 13 live-find): building the idle pill is NOT "the tutor is about
+        // to need this page's content" the way expanding the panel is. See
+        // handlePanelExpand and the PANEL_EXPANDED_EVENT listener above --
+        // capturedPageContext/capturedEquationElements stay whatever they
+        // were (undefined, before the first-ever expand) until that fires.
         return mountOverlay(container, {
           onSend: sendAiTurn,
           onTranscribe: sendVoiceStt,
@@ -407,6 +482,7 @@ export default defineContentScript({
           onVoicePlaybackStart: handleVoicePlaybackStart,
           onLoadOverview: loadProfileOverview,
           onEndSession: endSessionFromOverlay,
+          onOpeningScan: requestOpeningScan,
         });
       },
       onRemove: (root) => {

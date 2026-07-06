@@ -2,7 +2,7 @@ import { StrictMode, useEffect, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Button, CalyxaMark, Card, Field, Spinner } from '@calyxa/ui';
 import './main.css';
-import type { CalyxaMessage, SessionStatePayload, SignInPayload, StartSessionPayload } from '../types/messages';
+import type { CalyxaMessage, SessionStatePayload, SignInPayload } from '../types/messages';
 
 // Calyxa popup — Sprint 04 Task 7 launcher (PLAN §2.2 popup scope).
 //
@@ -20,6 +20,17 @@ import type { CalyxaMessage, SessionStatePayload, SignInPayload, StartSessionPay
 // Sprint 10: restyled on @calyxa/ui tokens/primitives + Tailwind — message
 // contract, handlers, and the single shared `busy` gate are unchanged from
 // Sprint 09, only markup/styling moved.
+//
+// Sprint 14 Task 6 (ADR-027 Decision 3): Start/End session controls and
+// their tab-domain derivation are REMOVED -- sessions are now tutor-
+// initiated (the opening scan on panel expand) or auto-started on the
+// student's first sent turn, both handled entirely in the background
+// worker. The tab-domain heuristic moved there too (it now derives the
+// SENDER tab's domain for those two triggers instead of the popup's active
+// tab). The popup is now sign-in + quota display only -- START_SESSION/
+// END_SESSION message handlers stay in background/index.ts (still valid,
+// still used internally by those two triggers), but nothing in this file
+// sends either one anymore.
 
 const FALLBACK_ERROR: SessionStatePayload = {
   signedIn: false,
@@ -36,32 +47,6 @@ function sendMessage(message: CalyxaMessage): Promise<SessionStatePayload> {
       return response.payload as SessionStatePayload;
     })
     .catch(() => FALLBACK_ERROR);
-}
-
-// Two-part public suffixes this heuristic knows about. Not a full Public
-// Suffix List implementation (no PSL dependency is in scope this sprint) --
-// pageDomain is a display/grouping hint stored alongside a session row, not
-// something the server gates access on, so an approximation is acceptable.
-const TWO_LABEL_SUFFIXES = new Set([
-  'co.uk', 'org.uk', 'gov.uk', 'ac.uk',
-  'co.jp', 'co.nz', 'co.za', 'co.in',
-  'com.au', 'com.br', 'com.mx',
-]);
-
-function toETldPlusOne(hostname: string): string {
-  const labels = hostname.split('.');
-  if (labels.length <= 2) return hostname;
-  const lastTwo = labels.slice(-2).join('.');
-  return TWO_LABEL_SUFFIXES.has(lastTwo) ? labels.slice(-3).join('.') : lastTwo;
-}
-
-function deriveActiveTabDomain(url: string | undefined): string | null {
-  if (!url) return null;
-  try {
-    return toETldPlusOne(new URL(url).hostname);
-  } catch {
-    return null;
-  }
 }
 
 function Header() {
@@ -108,30 +93,6 @@ function App() {
     setBusy(true);
     try {
       setState(await sendMessage({ type: 'SIGN_OUT' }));
-    } catch {
-      setState(FALLBACK_ERROR);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleStart() {
-    setBusy(true);
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      const payload: StartSessionPayload = { pageDomain: deriveActiveTabDomain(tab?.url), mode: 'voice' };
-      setState(await sendMessage({ type: 'START_SESSION', payload }));
-    } catch {
-      setState(FALLBACK_ERROR);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleEnd() {
-    setBusy(true);
-    try {
-      setState(await sendMessage({ type: 'END_SESSION' }));
     } catch {
       setState(FALLBACK_ERROR);
     } finally {
@@ -193,15 +154,6 @@ function App() {
           </Card>
         )}
         {state.error && <ErrorBanner message={state.error} />}
-        {activeSession ? (
-          <Button variant="primary" onClick={handleEnd} loading={busy}>
-            End session
-          </Button>
-        ) : (
-          <Button variant="primary" onClick={handleStart} loading={busy}>
-            Start tutor on this page
-          </Button>
-        )}
         <Button variant="secondary" onClick={handleSignOut} loading={busy}>
           Sign out
         </Button>

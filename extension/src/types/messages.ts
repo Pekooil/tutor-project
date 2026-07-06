@@ -67,6 +67,18 @@ import type { ActiveSession, AuthUser } from '../lib/storage';
 //                  content-sent one: SessionEndedPayload ({recap} when the
 //                  ended session had gradable interactions, omitted for a
 //                  no-gradable session — never null/{}). No reply expected.
+//   OPENING_SCAN   (Sprint 14 Task 6, ADR-030) — content -> background:
+//                  OpeningScanPayload ({pageContext}, no messages -- the
+//                  content script only sends this after its own plausible-
+//                  problem gate passes). Reply reuses the same type
+//                  (SESSION_STATE/GET_PROFILE_OVERVIEW's request/reply
+//                  convention): OpeningScanReplyPayload ({reply,
+//                  annotations?, profileTags?} on success -- reply is ""
+//                  when the model found nothing confident to say, passed
+//                  through as-is; {error} on failure). The background calls
+//                  api.startSession BEFORE the AI call (ADR-030 Decision 3)
+//                  and degrades silently -- an empty/whitespace reply here
+//                  is the content script's cue to open with no message.
 //
 //   Binary-over-messaging caveat (ADR-010): chrome.runtime.sendMessage
 //   payloads are structured-cloned/JSON, so a raw ArrayBuffer/Blob is not a
@@ -90,7 +102,8 @@ export type MessageType =
   | 'VOICE_TTS'
   | 'VOICE_TTS_REPLY'
   | 'GET_PROFILE_OVERVIEW'
-  | 'SESSION_ENDED';
+  | 'SESSION_ENDED'
+  | 'OPENING_SCAN';
 
 export interface CalyxaMessage {
   type: MessageType;
@@ -183,14 +196,34 @@ export type ProfileTag = {
   label: string;
 };
 
-// Sprint 12 / ADR-023 + Sprint 13 / ADR-024/025/026: `annotations`,
-// `profileTags`, and `pings` all ride the existing AI_REPLY payload
-// ADDITIVELY -- each present only when the turn actually produced one
-// (never `null`, never an empty array), so a turn with none of the three is
-// byte-identical to Sprint 11's `{ reply }`. None of the three is ever
-// persisted anywhere.
+// Mirrors /web/lib/ai/envelope.ts's SessionCompletionReason/SessionCompletion
+// exactly (Sprint 14, ADR-027/028) -- the same by-convention re-declaration
+// as Annotation/ProfileTag above. `complete` is always literally `true` when
+// present (the server's parse drops a malformed/false completion entirely,
+// so "field absent" IS "still open" -- there is no false-shaped value to
+// mirror here).
+export type SessionCompletionReason = 'solved' | 'follow-up-declined' | 'follow-up-corrected';
+
+export type SessionCompletion = { complete: true; reason: SessionCompletionReason };
+
+// Sprint 12 / ADR-023 + Sprint 13 / ADR-024/025/026 + Sprint 14 / ADR-027/028:
+// `annotations`, `profileTags`, `pings`, `solutionProgress`, and `session`
+// all ride the existing AI_REPLY payload ADDITIVELY -- each present only
+// when the turn actually produced one (never `null`, never an empty array/
+// default), so a turn with none of the five is byte-identical to Sprint
+// 11's `{ reply }`. None of the five is ever persisted anywhere. Consuming
+// solutionProgress/session (the progress bar, the close choreography) is
+// Sprint 14 Task 7 -- this task only gets them onto the wire and lets the
+// background act on `session.complete` to end the session server-side.
 export type AiReplyPayload =
-  | { reply: string; annotations?: Annotation[]; profileTags?: ProfileTag[]; pings?: TurnPing[] }
+  | {
+      reply: string;
+      annotations?: Annotation[];
+      profileTags?: ProfileTag[];
+      pings?: TurnPing[];
+      solutionProgress?: number;
+      session?: SessionCompletion;
+    }
   | { error: string };
 
 // Mirrors /web/app/api/profile/overview/route.ts's response shape exactly
@@ -209,11 +242,13 @@ export type ProfileOverview = {
 export type GetProfileOverviewReplyPayload = { overview: ProfileOverview } | { error: string };
 
 // Mirrors /web/lib/learning/events.ts's TurnPing/TurnPingKind exactly
-// (Sprint 13, ADR-026). Computed by the model's own math, never the LLM --
-// no grounding gate applies to this one. `label` is the full, qualitative,
-// server-rendered toast copy (never a number, ADR-026) -- the extension
-// only renders it. Shown once and discarded; never persisted.
-export type TurnPingKind = 'mastery-up' | 'misconception-resolved';
+// (Sprint 13, ADR-026; widened Sprint 14 Task 5/6, the ADR-026 amendment --
+// mastery-progress and streak-progress join the original two kinds).
+// Computed by the model's own math, never the LLM -- no grounding gate
+// applies to this one. `label` is the full, qualitative, server-rendered
+// toast copy (never a number, ADR-026) -- the extension only renders it.
+// Shown once and discarded; never persisted.
+export type TurnPingKind = 'mastery-up' | 'mastery-progress' | 'misconception-resolved' | 'streak-progress';
 
 export type TurnPing = {
   kind: TurnPingKind;
@@ -271,6 +306,21 @@ export type SessionRecap = {
 // (Task 8), same additive-omission discipline as annotations/profileTags/
 // pings above.
 export type SessionEndedPayload = { recap?: SessionRecap };
+
+// The proactive opening scan (Sprint 14 Task 6, ADR-030): content ->
+// background, no `messages` at all -- the content script only sends this
+// after its own plausible-problem gate (content/index.ts's
+// isPlausibleProblem) passes on the freshly captured PageContext.
+export type OpeningScanPayload = { pageContext: PageContext };
+
+// Mirrors the web route's opening-scan response shape exactly (ADR-030):
+// `reply` may be an empty string -- the model's own "I'm not confident"
+// signal, passed through as-is; the content script (not this type) decides
+// what an empty reply means. NEVER carries assessment/pings/solutionProgress/
+// session -- there is nothing yet to grade, score, or close.
+export type OpeningScanReplyPayload =
+  | { reply: string; annotations?: Annotation[]; profileTags?: ProfileTag[] }
+  | { error: string };
 
 export type VoiceSttPayload = {
   audio: string; // base64-encoded utterance bytes -- see the binary-over-messaging note above

@@ -28,6 +28,18 @@ import { startRecording, type RecordingHandle, type Utterance } from './VoiceCon
 // bridge pattern; this event only ever flows Overlay -> content, never back.
 export const PANEL_CLOSED_EVENT = 'calyxa:panel-closed';
 
+// The panel-EXPAND signal (Sprint 14 Task 6, the filed Sprint 13 live-find):
+// dispatched below whenever `expanded` transitions to true, regardless of
+// how it got there -- a direct pill click never reaches content/index.ts
+// any other way (unlike the keyboard shortcut, which content itself
+// dispatches 'calyxa:toggle-panel' for). content/index.ts listens for this
+// to re-run extractPageContext() + the equation-registry refresh fresh on
+// every real open (first time AND every re-expand after a minimize), fixing
+// the Sprint 13 mount-time capture bug on SPA pages, and to run the
+// opening-scan plausible-problem gate. Mirrors PANEL_CLOSED_EVENT's bridge
+// pattern, reversed direction.
+export const PANEL_EXPANDED_EVENT = 'calyxa:panel-expanded';
+
 // The session-recap signal (Sprint 13, ADR-025): content/index.ts forwards
 // the background's SESSION_ENDED broadcast as this window CustomEvent (the
 // 'calyxa:toggle-panel' bridge pattern, reversed direction), detail
@@ -155,6 +167,7 @@ export function Overlay({
   onVoicePlaybackStart,
   onLoadOverview,
   onEndSession,
+  onOpeningScan,
 }: {
   onSend: (messages: TurnMessage[], onChunk?: (chunk: string) => void) => Promise<TurnResult>;
   onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
@@ -176,6 +189,15 @@ export function Overlay({
   // recap does not come back through this promise -- it arrives via the
   // SESSION_ENDED broadcast so a popup-triggered end renders identically.
   onEndSession: () => Promise<void>;
+  // Sprint 14 Task 6 (ADR-030): the proactive opening scan. Called on panel
+  // expand under the SAME guard as onLoadOverview (no messages yet) --
+  // content/index.ts runs its own plausible-problem gate first and resolves
+  // null when there's nothing to scan, the call failed, or the model found
+  // nothing confident to say; a non-null result renders as the first
+  // assistant bubble, no preceding student message. chrome.*-free, like
+  // every prop here -- content/index.ts owns the OPENING_SCAN message and
+  // drawing any annotations it carries.
+  onOpeningScan: () => Promise<{ reply: string; tags?: ProfileTag[] } | null>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -310,6 +332,19 @@ export function Overlay({
     }
   }
 
+  // The panel-EXPAND signal (Sprint 14 Task 6): fires on EVERY transition to
+  // expanded, regardless of message count -- content/index.ts's listener
+  // re-captures PageContext fresh (first open AND every re-expand after a
+  // minimize) so annotation targeting never runs against a stale capture.
+  // Declared BEFORE the effects below so React runs it first within this
+  // same commit: onOpeningScan (below) reads content/index.ts's freshly
+  // captured PageContext, and that capture happens synchronously inside
+  // this event's listener.
+  useEffect(() => {
+    if (!expanded) return;
+    window.dispatchEvent(new CustomEvent(PANEL_EXPANDED_EVENT));
+  }, [expanded]);
+
   // Overview fetch: on every panel expand while the conversation is still
   // empty ("before the first question"). Fresh per open, never cached
   // (the capturedPageContext discipline applied to profile data, ADR-024);
@@ -333,6 +368,41 @@ export function Overlay({
     };
     // Deliberately keyed to `expanded` alone: "fresh on each panel open",
     // not on every message-list change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
+
+  // The proactive opening scan (Sprint 14 Task 6, ADR-030): fires under the
+  // EXACT same guard as the overview fetch above -- "expanded, and no
+  // conversation yet" -- since it is itself the session start and must
+  // never fire a second time once a conversation exists. A null result (the
+  // content script's plausible-problem gate found nothing, the call
+  // failed, or the model declined to name a problem) renders nothing, the
+  // empty state, same as a failed overview fetch. A real result appends the
+  // FIRST assistant bubble with no preceding student message -- the
+  // opening scan's whole point.
+  useEffect(() => {
+    if (!expanded) return;
+    if (messages.length > 0) return;
+    let cancelled = false;
+    onOpeningScan()
+      .then((result) => {
+        if (cancelled || !result) return;
+        setMessages((current) => [
+          ...current,
+          {
+            role: 'assistant',
+            content: result.reply,
+            ...(result.tags && result.tags.length > 0 ? { tags: capTags(result.tags) } : {}),
+          },
+        ]);
+      })
+      .catch((error) => {
+        console.debug('Calyxa overlay: opening scan unavailable, opening empty', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Deliberately keyed to `expanded` alone, matching the overview effect above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded]);
 

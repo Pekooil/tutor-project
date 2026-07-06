@@ -14,6 +14,7 @@ import type {
   PageContext,
   ProfileOverview,
   ProfileTag,
+  SessionCompletion,
   SessionRecap,
   TurnMessage,
   TurnPing,
@@ -229,13 +230,22 @@ export async function getProfileOverview(): Promise<ProfileOverview> {
  * validated/grounded/computed them before ever putting them on the wire,
  * and each is OMITTED (never included, not `undefined`) from the returned
  * object when the response didn't carry any, matching the route's own
- * additive-omission contract.
+ * additive-omission contract. `solutionProgress`/`session` (Sprint 14,
+ * ADR-027/028) follow the exact same discipline -- the route already
+ * clamped/validated both (envelope.ts), so this is thread-through only.
  */
 export async function aiTurn(
   messages: TurnMessage[],
   pageContext?: PageContext,
   turnContext?: { sessionId?: string; responseLatencyMs?: number },
-): Promise<{ reply: string; annotations?: Annotation[]; profileTags?: ProfileTag[]; pings?: TurnPing[] }> {
+): Promise<{
+  reply: string;
+  annotations?: Annotation[];
+  profileTags?: ProfileTag[];
+  pings?: TurnPing[];
+  solutionProgress?: number;
+  session?: SessionCompletion;
+}> {
   const res = await authorizedFetch('/api/ai/turn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -263,6 +273,51 @@ export async function aiTurn(
       ? { profileTags: body.profileTags as ProfileTag[] }
       : {}),
     ...(Array.isArray(body.pings) && body.pings.length > 0 ? { pings: body.pings as TurnPing[] } : {}),
+    ...(typeof body.solutionProgress === 'number' ? { solutionProgress: body.solutionProgress } : {}),
+    ...(body.session ? { session: body.session as SessionCompletion } : {}),
+  };
+}
+
+/**
+ * The proactive opening scan (Sprint 14 Task 6, ADR-030): a real AI turn
+ * with no student message, requested by the content script only after its
+ * own plausible-problem gate passes on the freshly captured `pageContext`.
+ * Reuses `/api/ai/turn` (the `opening: true` branch, Task 4) rather than a
+ * new endpoint -- same auth, same entitlement checks. `sessionId` is the
+ * one `startSession` (called by the background BEFORE this, ADR-030
+ * Decision 3) just returned, so the opening scan's own turn is that
+ * session's row #1. Never carries `assessment`/`pings`/`solutionProgress`/
+ * `session` -- there is nothing yet to grade, score, or close; `reply` may
+ * be an empty string (the model's own "not confident" signal), passed
+ * through as-is, same discipline as aiTurn() above.
+ */
+export async function openingScan(
+  pageContext: PageContext,
+  sessionId: string | undefined,
+): Promise<{ reply: string; annotations?: Annotation[]; profileTags?: ProfileTag[] }> {
+  const res = await authorizedFetch('/api/ai/turn', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      opening: true,
+      pageContext,
+      ...(sessionId ? { sessionId } : {}),
+    }),
+  });
+
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body.error ?? `opening_scan failed: ${res.status}`);
+  }
+
+  return {
+    reply: body.reply,
+    ...(Array.isArray(body.annotations) && body.annotations.length > 0
+      ? { annotations: body.annotations as Annotation[] }
+      : {}),
+    ...(Array.isArray(body.profileTags) && body.profileTags.length > 0
+      ? { profileTags: body.profileTags as ProfileTag[] }
+      : {}),
   };
 }
 

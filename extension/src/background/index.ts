@@ -2,6 +2,7 @@ import { defineBackground } from '#imports';
 import type {
   AiTurnPayload,
   CalyxaMessage,
+  OpeningScanPayload,
   PageContext,
   SessionStatePayload,
   SignInPayload,
@@ -68,7 +69,7 @@ export default defineBackground(() => {
   // logging path. Every handler re-reads chrome.storage.session itself
   // (directly, or via lib/api.ts) rather than trusting any in-memory value,
   // since the worker can have been killed and woken between messages.
-  chrome.runtime.onMessage.addListener((message: CalyxaMessage, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((message: CalyxaMessage, sender, sendResponse) => {
     switch (message.type) {
       case 'GET_STATE':
         void buildSessionState().then(sendResponse);
@@ -89,7 +90,7 @@ export default defineBackground(() => {
         return true;
       case 'AI_TURN': {
         const { messages, pageContext } = message.payload as AiTurnPayload;
-        void handleAiTurn(messages, pageContext).then(sendResponse);
+        void handleAiTurn(messages, pageContext, deriveTabDomain(sender.tab?.url)).then(sendResponse);
         return true;
       }
       case 'VOICE_STT':
@@ -101,6 +102,11 @@ export default defineBackground(() => {
       case 'GET_PROFILE_OVERVIEW':
         void handleGetProfileOverview().then(sendResponse);
         return true;
+      case 'OPENING_SCAN': {
+        const payload = message.payload as OpeningScanPayload;
+        void handleOpeningScan(payload, deriveTabDomain(sender.tab?.url)).then(sendResponse);
+        return true;
+      }
       default:
         return false;
     }
@@ -126,12 +132,20 @@ export default defineBackground(() => {
   // turn with none, so a no-annotation `done` message is byte-identical to
   // Sprint 11's `{ type: 'done', reply }`. Sprint 13 (ADR-024/025/026)
   // threads `profileTags` and `pings` the same way, alongside annotations.
+  // Sprint 14 (ADR-027/028) threads `solutionProgress`/`session` the same
+  // additive way; Overlay.tsx doesn't consume either yet (Task 7), but the
+  // wire already carries them so Task 7 needs no transport change.
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== 'AI_STREAM') return;
+    // Captured once per port (one port per sendAiTurn call, i.e. per turn) --
+    // the fallback auto-start trigger (ADR-027 Decision 1, amended) needs the
+    // SAME pageDomain derivation the opening scan and the old popup used.
+    const pageDomain = deriveTabDomain(port.sender?.tab?.url);
     port.onMessage.addListener(async (msg: AiTurnPayload) => {
       try {
+        await ensureSessionStarted(pageDomain, 'text');
         const turnContext = await getTurnContext();
-        const { reply, annotations, profileTags, pings } = await api.aiTurn(
+        const { reply, annotations, profileTags, pings, solutionProgress, session } = await api.aiTurn(
           msg.messages,
           msg.pageContext,
           turnContext,
@@ -144,6 +158,14 @@ export default defineBackground(() => {
         }
         await setRunningTranscript(msg.messages);
         await stampTurnAnchor(turnContext.sessionId);
+        // ADR-027 Decision 2: AI-signaled, client-confirmed end. The signal
+        // itself (session.complete) is enough to end it server-side right
+        // away; the VISIBLE close choreography (recap wait -> ring ->
+        // collapse) is Task 7's job once solutionProgress/session reach the
+        // overlay. Unawaited, like every other broadcast in this file — the
+        // reply is not held up waiting for /api/session/end, and Task 7's
+        // own design already tolerates the recap arriving asynchronously.
+        if (session?.complete) void handleEndSession();
         try {
           port.postMessage({
             type: 'done',
@@ -151,6 +173,8 @@ export default defineBackground(() => {
             ...(annotations ? { annotations } : {}),
             ...(profileTags ? { profileTags } : {}),
             ...(pings ? { pings } : {}),
+            ...(solutionProgress !== undefined ? { solutionProgress } : {}),
+            ...(session ? { session } : {}),
           });
         } catch {
           // Port already disconnected — all chunks were sent, no action needed.
@@ -257,6 +281,37 @@ async function buildSessionState(error?: string): Promise<CalyxaMessage> {
 function toErrorMessage(error: unknown): string {
   if (error instanceof api.SignedOutError) return 'not signed in';
   return error instanceof Error ? error.message : 'unknown error';
+}
+
+// Two-part public suffixes this heuristic knows about. Not a full Public
+// Suffix List implementation -- pageDomain is a display/grouping hint
+// stored alongside a session row, not something the server gates access
+// on, so an approximation is acceptable. Moved here from popup/main.tsx
+// (Sprint 14 Task 6): the popup no longer starts sessions, but the
+// background now does on the student's behalf (the opening scan and the
+// auto-start-on-send fallback both need the SAME sender-tab derivation the
+// popup's Start button used to do itself).
+const TWO_LABEL_SUFFIXES = new Set([
+  'co.uk', 'org.uk', 'gov.uk', 'ac.uk',
+  'co.jp', 'co.nz', 'co.za', 'co.in',
+  'com.au', 'com.br', 'com.mx',
+]);
+
+function toETldPlusOne(hostname: string): string {
+  const labels = hostname.split('.');
+  if (labels.length <= 2) return hostname;
+  const lastTwo = labels.slice(-2).join('.');
+  return TWO_LABEL_SUFFIXES.has(lastTwo) ? labels.slice(-3).join('.') : lastTwo;
+}
+
+/** Derives a display-hint domain from a sender tab's URL; null on any parse failure or a tab-less sender. */
+function deriveTabDomain(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return toETldPlusOne(new URL(url).hostname);
+  } catch {
+    return null;
+  }
 }
 
 // Turn timing (Sprint 11 / ADR-019): response_latency_ms is the think-time
@@ -416,6 +471,28 @@ async function handleGetProfileOverview(): Promise<CalyxaMessage> {
 }
 
 /**
+ * The fallback auto-start trigger (ADR-027 Decision 1, amended by ADR-030's
+ * Decision 3): session start now happens FIRST at the opening scan (when
+ * panel-expand found a plausible problem), so by the time a turn is sent,
+ * an ActiveSession usually already exists. This is the widened fallback --
+ * "first-sent-turn, if the scan found nothing (or degraded)" -- checked at
+ * turn-send time exactly as ADR-027 originally specified, lazily and
+ * idempotently: a no-op if a session is already active, otherwise the same
+ * api.startSession the popup used to call directly. A start failure is
+ * swallowed here (not rethrown) so it degrades to a SESSIONLESS turn --
+ * today's behavior -- rather than blocking the turn the student is waiting
+ * on; the turn's own try/catch is reserved for the AI call itself.
+ */
+async function ensureSessionStarted(pageDomain: string | null, mode: 'voice' | 'text'): Promise<void> {
+  if (await getActiveSession()) return;
+  try {
+    await api.startSession({ pageDomain, mode });
+  } catch (error) {
+    console.warn('Calyxa SW: auto-start-on-send failed, continuing sessionless', toErrorMessage(error));
+  }
+}
+
+/**
  * Relays one AI_TURN to the Claude proxy. Reads nothing token-ish itself --
  * api.aiTurn() -> authorizedFetch() re-reads chrome.storage.session fresh,
  * per the ephemeral-worker discipline used throughout this file. On
@@ -445,13 +522,31 @@ async function handleGetProfileOverview(): Promise<CalyxaMessage> {
  * `{ reply }`. Sprint 13 (ADR-024/025/026) threads `profileTags` and
  * `pings` the same way. Voice turns get all of this for free too, since
  * they relay through this same handler.
+ *
+ * Sprint 14 (ADR-027, amended by ADR-030): `pageDomain` feeds the fallback
+ * auto-start (ensureSessionStarted, `mode: 'voice'` -- AI_TURN is
+ * exclusively the voice/non-streaming path, text turns use the AI_STREAM
+ * port above). `solutionProgress`/`session` ride the reply the same
+ * additive way as annotations/profileTags/pings; a `session.complete: true`
+ * ends the session server-side right away (mirrors the AI_STREAM port's own
+ * handling above) -- the visible close choreography is Task 7's.
  */
-async function handleAiTurn(messages: TurnMessage[], pageContext?: PageContext): Promise<CalyxaMessage> {
+async function handleAiTurn(
+  messages: TurnMessage[],
+  pageContext: PageContext | undefined,
+  pageDomain: string | null,
+): Promise<CalyxaMessage> {
   try {
+    await ensureSessionStarted(pageDomain, 'voice');
     const turnContext = await getTurnContext();
-    const { reply, annotations, profileTags, pings } = await api.aiTurn(messages, pageContext, turnContext);
+    const { reply, annotations, profileTags, pings, solutionProgress, session } = await api.aiTurn(
+      messages,
+      pageContext,
+      turnContext,
+    );
     await setRunningTranscript(messages);
     await stampTurnAnchor(turnContext.sessionId);
+    if (session?.complete) void handleEndSession();
     return {
       type: 'AI_REPLY',
       payload: {
@@ -459,10 +554,63 @@ async function handleAiTurn(messages: TurnMessage[], pageContext?: PageContext):
         ...(annotations ? { annotations } : {}),
         ...(profileTags ? { profileTags } : {}),
         ...(pings ? { pings } : {}),
+        ...(solutionProgress !== undefined ? { solutionProgress } : {}),
+        ...(session ? { session } : {}),
       },
     };
   } catch (error) {
     return { type: 'AI_REPLY', payload: { error: toErrorMessage(error) } };
+  }
+}
+
+/**
+ * The proactive opening scan (Sprint 14 Task 6, ADR-030): fired by the
+ * content script's plausible-problem gate on panel expand, BEFORE any
+ * student message. Calls api.startSession FIRST (Decision 3 -- the scan's
+ * own turn must land as that session's row #1), then the opening-scan route
+ * variant; degrades to an empty reply (never an error the caller has to
+ * distinguish) on every failure mode:
+ *   - a session is ALREADY active (this panel already had its one scan/
+ *     start this open, or a turn already started one) -- never a second
+ *     startSession call, never a second scan;
+ *   - startSession itself fails (quota, network) -- a sessionless open,
+ *     same degrade as the fallback trigger above;
+ *   - the AI call fails/times out -- the session started above STAYS
+ *     active (it already counted as quota, ADR-030's explicit call) so the
+ *     fallback first-sent-turn trigger picks it straight up; only the
+ *     OPENING MESSAGE is lost.
+ * Never emits assessment/pings/solutionProgress/session (api.openingScan's
+ * own return shape already excludes them) -- there is nothing yet to grade,
+ * score, or close on a turn with no prior student answer.
+ */
+async function handleOpeningScan(payload: OpeningScanPayload, pageDomain: string | null): Promise<CalyxaMessage> {
+  const EMPTY_REPLY = { reply: '' };
+
+  if (await getActiveSession()) {
+    return { type: 'OPENING_SCAN', payload: EMPTY_REPLY };
+  }
+
+  try {
+    await api.startSession({ pageDomain, mode: 'text' });
+  } catch (error) {
+    console.warn('Calyxa SW: opening scan startSession failed, degrading to a silent open', toErrorMessage(error));
+    return { type: 'OPENING_SCAN', payload: EMPTY_REPLY };
+  }
+
+  try {
+    const active = await getActiveSession();
+    const { reply, annotations, profileTags } = await api.openingScan(payload.pageContext, active?.sessionId);
+    return {
+      type: 'OPENING_SCAN',
+      payload: {
+        reply,
+        ...(annotations ? { annotations } : {}),
+        ...(profileTags ? { profileTags } : {}),
+      },
+    };
+  } catch (error) {
+    console.warn('Calyxa SW: opening scan call failed, degrading to a silent open', toErrorMessage(error));
+    return { type: 'OPENING_SCAN', payload: EMPTY_REPLY };
   }
 }
 
