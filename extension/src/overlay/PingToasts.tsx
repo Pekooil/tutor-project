@@ -1,12 +1,16 @@
 import type { TurnPing } from '../types/messages';
+import { PING_KIND_COLOR_CLASS } from './Overlay';
 
-// Event-ping toasts (Sprint 13, ADR-026): extracted as-is from Overlay.tsx
-// (Sprint 14 Task 2 decomposition -- zero behavior change). Transient
-// frosted-glass pills anchored ABOVE the panel (bottom-full), so they can
-// never block or overlap the input row. Entry animation is motion-safe:
-// gated; auto-dismiss (~4s) and the dedupe gate live in Overlay.tsx
-// (filterPingsForDisplay/showPings) -- this component only renders whatever
-// active ping list it's handed. aria-live polite.
+// Event-ping toasts (Sprint 13, ADR-026; widened Sprint 14 Task 5's ping
+// kinds, colored per kind Task 7). Extracted as-is from Overlay.tsx
+// (Sprint 14 Task 2 decomposition -- zero behavior change at that task).
+// Transient frosted-glass pills anchored ABOVE the panel (bottom-full), so
+// they can never block or overlap the input row. Entry animation is
+// motion-safe: gated; auto-dismiss (~4s) and the per-concept-per-kind
+// dedupe gate live in Overlay.tsx (filterPingsForDisplay/showPings) -- this
+// component only renders whatever active ping list it's handed, now with
+// PING_KIND_COLOR_CLASS's dot/text color instead of one flat green for
+// every kind. aria-live polite.
 export function PingToasts({ pings }: { pings: { id: number; ping: TurnPing }[] }) {
   if (pings.length === 0) return null;
 
@@ -22,9 +26,9 @@ export function PingToasts({ pings }: { pings: { id: number; ping: TurnPing }[] 
         >
           <span
             aria-hidden="true"
-            className="h-2 w-2 flex-none rounded-full bg-accent-glow-strong shadow-[0_0_0_3px_rgba(134,239,172,0.35)]"
+            className={`${PING_KIND_COLOR_CLASS[ping.kind]}-dot h-2 w-2 flex-none rounded-full`}
           />
-          <span className="text-[12px] font-semibold text-accent-emphasis">{ping.label}</span>
+          <span className={`${PING_KIND_COLOR_CLASS[ping.kind]} text-[12px] font-semibold`}>{ping.label}</span>
         </div>
       ))}
     </div>

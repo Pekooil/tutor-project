@@ -1,24 +1,75 @@
+import type { CSSProperties } from 'react';
 import type { ProfileOverview, SessionRecap } from '../types/messages';
-import { DELTA_EPSILON, humanizeDue, masteryDelta } from './Overlay';
+import { DELTA_EPSILON, TAG_KIND_COLOR_CLASS, humanizeDue, masteryDelta } from './Overlay';
 
 // The overview/recap host (Sprint 13 ADR-024/025; Sprint 14 Task 2
-// decomposition). Extracted from Overlay.tsx with zero behavior change --
-// both cards render exactly where Sprint 13 put them (before the first
-// question / once on session end); this task only moves the JSX into this
-// component. Placement (e.g. above the composer as an auto-dismissing
-// strip) is Task 6's job, not this one's.
+// decomposition; Sprint 14 Task 7 auto-dismiss fold + placement move).
+// Extracted from Overlay.tsx with zero behavior change at Task 2. Task 7
+// moves BOTH cards' render site out of the scrollable transcript (recap
+// used to render inside Transcript.tsx, overview inside the same
+// scrollable div) to ABOVE the composer, as a strip that auto-dismisses:
+// shown expanded for ~foldDurationMs (a green sweep bar counts it down),
+// then folds to a compact one-line handle rather than disappearing --
+// hover peeks it back open, a click un-folds it more durably. Overlay.tsx
+// owns the actual fold timer/state; this component is still purely
+// presentational (folded/onExpand/etc. are all props).
 //
 // A single component with a `kind` discriminant rather than two exports:
 // the two cards are mutually exclusive by construction (showOverviewCard
 // requires `!recap`), so one component covers both call sites without
 // duplicating the mutual-exclusion logic that already lives in Overlay.tsx.
-type InsightStripProps =
+type InsightStripCardProps =
   | { kind: 'overview'; overview: ProfileOverview }
   | { kind: 'recap'; recap: SessionRecap; baseline: ProfileOverview | null };
 
+type InsightStripProps = InsightStripCardProps & {
+  folded: boolean;
+  foldDurationMs: number;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+  onExpand: () => void;
+};
+
 export function InsightStrip(props: InsightStripProps) {
-  if (props.kind === 'overview') return <OverviewCard overview={props.overview} />;
-  return <RecapCard recap={props.recap} baseline={props.baseline} />;
+  const { folded, foldDurationMs, onMouseEnter, onMouseLeave, onExpand } = props;
+  const label = props.kind === 'recap' ? 'Session recap' : 'Where you are';
+
+  if (folded) {
+    return (
+      <button
+        type="button"
+        onClick={onExpand}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        className="flex w-full items-center justify-between rounded-lg border border-border bg-surface px-3.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground"
+      >
+        {label}
+        <span aria-hidden="true" className="text-[13px] leading-none">
+          ⌃
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <div
+      className="cx-strip relative"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      style={{ '--cx-strip-fold-duration': `${foldDurationMs}ms` } as CSSProperties}
+    >
+      {props.kind === 'overview' ? <OverviewCard overview={props.overview} /> : <RecapCard recap={props.recap} baseline={props.baseline} />}
+      {/* The green auto-dismiss sweep (Sprint 14 Task 7): brighter/more
+          transient than the composer's own progress bar by design (that
+          one is thin/low-saturation and persistent; this one is meant to
+          be noticed and counts down to the fold). Purely decorative --
+          Overlay.tsx's real setTimeout is the actual fold trigger, this
+          just visualizes the same duration via foldDurationMs. */}
+      <div aria-hidden="true" className="cx-strip-sweep-track">
+        <div className="cx-strip-sweep-bar" />
+      </div>
+    </div>
+  );
 }
 
 // "sign_error.distribution" -> "sign error distribution" for recap
@@ -70,13 +121,18 @@ function OverviewCard({ overview }: { overview: ProfileOverview }) {
           </div>
         ))}
       </div>
+      {/* Sprint 14 Task 7: colored per the SAME kind->color mapping the
+          transcript's tag pills use ("shared with the strip") -- a weak
+          spot reads as the known-gap red, a due item reads as the
+          due-review blue, so the color vocabulary means the same thing
+          everywhere it appears in the overlay, not just on pills. */}
       {weakSpots.length > 0 && (
         <div className="flex flex-col gap-1">
           <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             Working through
           </p>
           {weakSpots.map((spot, index) => (
-            <p key={index} className="m-0 text-[12px] leading-relaxed text-muted-foreground">
+            <p key={index} className={`${TAG_KIND_COLOR_CLASS['known-gap']} m-0 text-[12px] leading-relaxed`}>
               {spot.title} — {humanizeCategory(spot.category)}
             </p>
           ))}
@@ -88,7 +144,7 @@ function OverviewCard({ overview }: { overview: ProfileOverview }) {
             Due for review
           </p>
           {due.map((item, index) => (
-            <p key={index} className="m-0 text-[12px] leading-relaxed text-muted-foreground">
+            <p key={index} className={`${TAG_KIND_COLOR_CLASS['due-review']} m-0 text-[12px] leading-relaxed`}>
               {item.title} — {item.reason}
             </p>
           ))}

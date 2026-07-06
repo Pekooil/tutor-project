@@ -337,3 +337,194 @@
     transform: scale(1);
   }
 }
+
+/* ── TitleBar: the close-choreography ring (Sprint 14 Task 7, ADR-027) ──
+ * A conic-gradient sweep around the ✕ button, ~CLOSE_RING_MS (Overlay.tsx's
+ * constant, threaded in as --cx-ring-duration so the CSS animation can
+ * never drift from the real timer driving the actual close). @property
+ * registers the custom property as an animatable <percentage> -- without
+ * it, browsers can't smoothly interpolate a custom property used inside a
+ * gradient function (it would jump in one step instead of sweeping). Safe
+ * to rely on unconditionally here: this is a Chrome-only surface (a
+ * Chrome extension), and @property has shipped in Chrome since 85. */
+@property --cx-ring-pct {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+
+.cx-close-ring {
+  position: relative;
+  display: inline-flex;
+}
+
+.cx-close-ring::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  background: conic-gradient(var(--color-accent-emphasis) var(--cx-ring-pct), transparent var(--cx-ring-pct));
+  /* Punches the fill into a thin ring (a donut, not a pie slice) -- the
+     inner circle is fully masked away, leaving only a ~2px stroke visible
+     around the button's edge. */
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cx-close-ring::before {
+    animation: cx-ring-sweep var(--cx-ring-duration, 4000ms) linear forwards;
+  }
+}
+
+/* Reduced motion: the ring reads as already-fully-drawn rather than static
+ * at zero -- "closing is in progress" is still communicated instantly,
+ * consistent with this file's "end-state applied instantly" convention
+ * (the JS timer driving the actual close is completely unaffected either
+ * way -- this is a visual-only fallback). */
+@media (prefers-reduced-motion: reduce) {
+  .cx-close-ring::before {
+    --cx-ring-pct: 100%;
+  }
+}
+
+@keyframes cx-ring-sweep {
+  from {
+    --cx-ring-pct: 0%;
+  }
+  to {
+    --cx-ring-pct: 100%;
+  }
+}
+
+/* ── Composer: the solution-progress bar fill (Sprint 14 Task 7, ADR-028) ──
+ * Thin, low-saturation, PERSISTENT -- deliberately distinct from the
+ * strip's brighter, transient auto-dismiss sweep below (this bar sticks
+ * around for the whole problem; that one counts down and folds). */
+.cx-progress-fill {
+  background-color: var(--calyxa-progress);
+}
+
+/* ── InsightStrip: the overview/recap auto-dismiss sweep (Sprint 14 Task 7) ──
+ * A brighter green bar that visibly shrinks over ~foldDurationMs (Overlay.tsx's
+ * STRIP_FOLD_MS, threaded in as --cx-strip-fold-duration -- the same
+ * shared-duration technique as the close ring above) before the strip
+ * folds to its one-line handle. Purely decorative -- Overlay.tsx's real
+ * setTimeout is what actually triggers the fold. */
+.cx-strip-sweep-track {
+  height: 3px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--color-border);
+  margin-top: 8px;
+}
+
+.cx-strip-sweep-bar {
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  background: var(--color-accent-glow-strong);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cx-strip-sweep-bar {
+    animation: cx-strip-sweep var(--cx-strip-fold-duration, 6000ms) linear forwards;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cx-strip-sweep-bar {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes cx-strip-sweep {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* ── Transcript + InsightStrip: tag-kind colors (Sprint 14 Task 7) ──
+ * theme.css's --calyxa-tag-* aliases (ADR-018 discipline -- see that
+ * file's own comment for the AA-contrast reasoning behind which kind gets
+ * which hue). Applied to both the transcript's tag pills (with a border)
+ * and InsightStrip's plain weak-spot/due-review text lines (no border,
+ * harmless unused property) -- "kind->color mapping shared with the
+ * strip" from the sprint plan. */
+.cx-tag-reviewing {
+  color: var(--calyxa-tag-reviewing);
+  border-color: var(--calyxa-tag-reviewing);
+}
+.cx-tag-gap {
+  color: var(--calyxa-tag-gap);
+  border-color: var(--calyxa-tag-gap);
+}
+.cx-tag-due {
+  color: var(--calyxa-tag-due);
+  border-color: var(--calyxa-tag-due);
+}
+.cx-tag-callback {
+  color: var(--calyxa-tag-callback);
+  border-color: var(--calyxa-tag-callback);
+}
+
+/* ── Transcript: color-linked annotation highlighting (Sprint 14 Task 7,
+ * ADR-029 amendment) ── theme.css's --calyxa-annot-1..4 aliases, the SAME
+ * per-turn assignment (Overlay.tsx's assignAnnotationColors) that will
+ * color the annotation box's stroke once Task 8 wires AnnotationLayer.tsx
+ * up to read it -- one source of truth for "which color is this turn's
+ * Nth annotation," referenced from two different components. Underline +
+ * a tinted text color, NOT a background block -- a solid highlight fill
+ * would fight the assistant bubble's own (transparent) background and read
+ * as a second, competing surface. */
+.cx-annot-text-annot-1 {
+  color: var(--calyxa-annot-1);
+  text-decoration-line: underline;
+  text-decoration-color: var(--calyxa-annot-1);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+.cx-annot-text-annot-2 {
+  color: var(--calyxa-annot-2);
+  text-decoration-line: underline;
+  text-decoration-color: var(--calyxa-annot-2);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+.cx-annot-text-annot-3 {
+  color: var(--calyxa-annot-3);
+  text-decoration-line: underline;
+  text-decoration-color: var(--calyxa-annot-3);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+.cx-annot-text-annot-4 {
+  color: var(--calyxa-annot-4);
+  text-decoration-line: underline;
+  text-decoration-color: var(--calyxa-annot-4);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+
+/* ── PingToasts: ping-kind colors (Sprint 14 Task 7) ── PING_KIND_COLOR_CLASS
+ * maps a kind to one of these two base names; `-dot` is the small leading
+ * indicator's fill, the bare name is the toast's text color. */
+.cx-ping-green {
+  color: var(--color-accent-emphasis);
+}
+.cx-ping-green-dot {
+  background-color: var(--color-accent-glow-strong);
+  box-shadow: 0 0 0 3px rgba(134, 239, 172, 0.35);
+}
+.cx-ping-blue {
+  color: #2563eb;
+}
+.cx-ping-blue-dot {
+  background-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+}

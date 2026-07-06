@@ -78,7 +78,7 @@ describe(`filterPingsForDisplay — ≤${MAX_PINGS_PER_TURN} per turn, one maste
     const result = filterPingsForDisplay([ping('mastery-up', 'algebra.quadratics.factoring')], shown);
 
     expect(result).toEqual([ping('mastery-up', 'algebra.quadratics.factoring')]);
-    expect(shown.has('algebra.quadratics.factoring')).toBe(true);
+    expect(shown.has('mastery-up:algebra.quadratics.factoring')).toBe(true);
   });
 
   it(`caps at ${MAX_PINGS_PER_TURN} pings in a single turn`, () => {
@@ -93,15 +93,21 @@ describe(`filterPingsForDisplay — ≤${MAX_PINGS_PER_TURN} per turn, one maste
   });
 
   it('a mastery-up for a concept already shown THIS SESSION is suppressed a second time', () => {
-    const shown = new Set<string>(['algebra.quadratics.factoring']);
+    const shown = new Set<string>(['mastery-up:algebra.quadratics.factoring']);
     const result = filterPingsForDisplay([ping('mastery-up', 'algebra.quadratics.factoring')], shown);
     expect(result).toEqual([]);
   });
 
   it('a mastery-up for a DIFFERENT concept is never suppressed by another concept\'s dedupe entry', () => {
-    const shown = new Set<string>(['concept-a']);
+    const shown = new Set<string>(['mastery-up:concept-a']);
     const result = filterPingsForDisplay([ping('mastery-up', 'concept-b')], shown);
     expect(result).toEqual([ping('mastery-up', 'concept-b')]);
+  });
+
+  it('a mastery-progress for a concept whose mastery-up was already shown is NOT suppressed -- different kinds dedupe independently', () => {
+    const shown = new Set<string>(['mastery-up:algebra.quadratics.factoring']);
+    const result = filterPingsForDisplay([ping('mastery-progress', 'algebra.quadratics.factoring')], shown);
+    expect(result).toEqual([ping('mastery-progress', 'algebra.quadratics.factoring')]);
   });
 
   it('misconception-resolved pings are never deduped -- each completed streak is a distinct real event', () => {

@@ -2,6 +2,16 @@
 
 exports[`@calyxa/ui theme tokens > exposes a stable named token set (snapshot guards renames/removals) 1`] = `
 [
+  "--calyxa-annot-1",
+  "--calyxa-annot-2",
+  "--calyxa-annot-3",
+  "--calyxa-annot-4",
+  "--calyxa-progress",
+  "--calyxa-tag-callback",
+  "--calyxa-tag-due",
+  "--calyxa-tag-gap",
+  "--calyxa-tag-reviewing",
+  "--calyxa-tag-strength",
   "--color-accent",
   "--color-accent-emphasis",
   "--color-accent-fill",

@@ -1,17 +1,23 @@
 import type { CSSProperties, RefObject } from 'react';
 import { VisuallyHidden } from '@calyxa/ui';
 
-// The input row (Sprint 10 Task 6; Sprint 14 Task 2 decomposition).
-// Extracted from Overlay.tsx with zero behavior change: text input + caret
-// measurement, mic button + level waveform, send control. Owns no session
-// state -- every value and handler here is a prop from Overlay.tsx, which
-// keeps the input/recording/caret state and the submit/mic handlers.
+// The input row (Sprint 10 Task 6; Sprint 14 Task 2 decomposition; Sprint
+// 14 Task 7 progress bar + icon Send, ADR-028). Extracted from Overlay.tsx
+// with zero behavior change at Task 2; Task 7 adds the solution-progress
+// bar (a thin track along the frame's top edge, filled by Overlay.tsx's
+// already-eased/clamped `solutionProgress` -- this component does no
+// clamping itself, it only renders the number it's handed) and turns Send
+// into an icon-only button. Owns no session state -- every value and
+// handler here is a prop from Overlay.tsx, which keeps the input/recording/
+// caret state and the submit/mic handlers.
 export function Composer({
   hasContent,
   recording,
   level,
   input,
   busy,
+  closing,
+  solutionProgress,
   inputFocused,
   caretLeft,
   inputElRef,
@@ -28,6 +34,13 @@ export function Composer({
   level: number;
   input: string;
   busy: boolean;
+  // Disables the whole composer during the close choreography (Sprint 14
+  // Task 7 spec) -- a turn can't be sent while the panel is already on its
+  // way to closing.
+  closing: boolean;
+  // 0-1, already eased/clamped by Overlay.tsx (easeProgress, ADR-028) --
+  // this component just renders the bar width, no math of its own.
+  solutionProgress: number;
   inputFocused: boolean;
   caretLeft: number;
   inputElRef: RefObject<HTMLInputElement | null>;
@@ -39,8 +52,26 @@ export function Composer({
   onInputBlur: () => void;
   onMicClick: () => void;
 }) {
+  const disabled = busy || closing;
+
   return (
     <div className={`${hasContent ? 'border-t border-border' : ''} px-[18px] pb-[14px] pt-3`}>
+      {/* The solution-progress bar (Sprint 14 Task 7, ADR-028): thin,
+          low-saturation, persistent -- visually distinct from the strip's
+          brighter, transient auto-dismiss bar (InsightStrip.tsx). Hidden
+          entirely at 0 so an unstarted problem shows no track at all. */}
+      {solutionProgress > 0 && (
+        <div
+          role="img"
+          aria-label={`Progress on this problem: ${Math.round(solutionProgress * 100)} percent`}
+          className="mb-2 h-[3px] w-full overflow-hidden rounded-full bg-border"
+        >
+          <div
+            className="cx-progress-fill h-full rounded-full transition-[width] duration-300 ease-out"
+            style={{ width: `${Math.round(Math.max(0, Math.min(1, solutionProgress)) * 100)}%` }}
+          />
+        </div>
+      )}
       <form
         onSubmit={onSubmit}
         className="flex items-center gap-2 rounded-full border border-border bg-background py-[7px] pr-[7px] pl-[18px] shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
@@ -75,9 +106,9 @@ export function Composer({
               onFocus={onInputFocus}
               onBlur={onInputBlur}
               placeholder="Ask a math question…"
-              disabled={busy}
+              disabled={disabled}
             />
-            {inputFocused && !busy && (
+            {inputFocused && !disabled && (
               <span
                 aria-hidden="true"
                 className="pointer-events-none absolute top-1/2 w-[2px] -translate-y-1/2 bg-accent-glow-strong"
@@ -89,7 +120,7 @@ export function Composer({
         <button
           type="button"
           onClick={onMicClick}
-          disabled={busy && !recording}
+          disabled={disabled && !recording}
           aria-label={recording ? 'Stop recording and send' : 'Switch to voice'}
           title={recording ? 'Stop and send' : 'Switch to voice'}
           className="flex h-[34px] w-[34px] flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
@@ -100,12 +131,19 @@ export function Composer({
             <span aria-hidden="true" className="block h-[13px] w-[7px] rounded-full bg-muted-foreground" />
           )}
         </button>
+        {/* Send is an icon-only ↵ enter-arrow button (Sprint 14 Task 7 spec)
+            -- was a "Send" text button through Sprint 13. */}
         <button
           type="submit"
-          disabled={!input.trim() || recording || busy}
-          className="h-[34px] flex-none cursor-pointer rounded-full border-0 bg-accent px-[17px] text-[13px] font-semibold text-accent-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!input.trim() || recording || disabled}
+          aria-label="Send"
+          title="Send"
+          className="flex h-[34px] w-[34px] flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-accent p-0 text-accent-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Send
+          <svg aria-hidden="true" width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <path d="M11 4V9H4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M7 6.5L4.5 9L7 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </button>
       </form>
     </div>

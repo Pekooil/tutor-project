@@ -112,7 +112,13 @@ export function isPlausibleProblem(context: PageContext | undefined): boolean {
 // confident" signal, ADR-030 Decision 5). Overlay.tsx appends the result as
 // the first assistant bubble; a null result renders nothing, same as a
 // failed overview fetch.
-async function requestOpeningScan(): Promise<{ reply: string; tags?: ProfileTag[] } | null> {
+//
+// Sprint 14 Task 7: also surfaces `annotations` (in addition to drawing
+// them, unchanged) so Overlay.tsx's color-linked highlighting can apply to
+// the opening scan's own bubble too -- the model is held to the same
+// exact-target.text-reuse discipline there (system-prompt.ts's OPENING SCAN
+// MODE block), so there's no reason the first bubble should be exempt.
+async function requestOpeningScan(): Promise<{ reply: string; tags?: ProfileTag[]; annotations?: Annotation[] } | null> {
   if (!isPlausibleProblem(capturedPageContext)) return null;
 
   const registry = currentEquationRegistry();
@@ -138,6 +144,7 @@ async function requestOpeningScan(): Promise<{ reply: string; tags?: ProfileTag[
   return {
     reply: payload.reply,
     ...(payload.profileTags && payload.profileTags.length > 0 ? { tags: payload.profileTags } : {}),
+    ...(payload.annotations && payload.annotations.length > 0 ? { annotations: payload.annotations } : {}),
   };
 }
 
@@ -154,6 +161,16 @@ async function requestOpeningScan(): Promise<{ reply: string; tags?: ProfileTag[
 // message and the AI_REPLY payload) additively, each key present only when
 // the wire carried entries, so the overlay's omission checks mirror the
 // route's own. Annotation handling on both paths is unchanged.
+//
+// Sprint 14 Task 7 (ADR-027/028/029): also surfaces `annotations`,
+// `solutionProgress`, and `session` on the resolved TurnResult -- Task 6
+// already put all three on the wire, but nothing downstream read them until
+// now (the close choreography and the progress bar need session/
+// solutionProgress; the color-linked highlighting needs the raw
+// annotations, which the resolved DrawInstruction[] the layer draws from
+// has already lost target.text by the time it's dispatched). Additive only
+// -- the existing showTurnAnnotations draw call and pendingVoiceAnnotations
+// sequencing are unchanged; this just ALSO hands the same array to Overlay.tsx.
 async function sendAiTurn(
   messages: TurnMessage[],
   onChunk?: (text: string) => void,
@@ -177,6 +194,8 @@ async function sendAiTurn(
           annotations?: Annotation[];
           profileTags?: ProfileTag[];
           pings?: TurnPing[];
+          solutionProgress?: number;
+          session?: TurnResult['session'];
           error?: string;
         }) => {
           if (msg.type === 'chunk' && msg.text) {
@@ -191,6 +210,9 @@ async function sendAiTurn(
               reply: msg.reply ?? '',
               ...(msg.profileTags && msg.profileTags.length > 0 ? { tags: msg.profileTags } : {}),
               ...(msg.pings && msg.pings.length > 0 ? { pings: msg.pings } : {}),
+              ...(msg.annotations && msg.annotations.length > 0 ? { annotations: msg.annotations } : {}),
+              ...(msg.solutionProgress !== undefined ? { solutionProgress: msg.solutionProgress } : {}),
+              ...(msg.session ? { session: msg.session } : {}),
             });
           } else if (msg.type === 'error' && !settled) {
             settled = true;
@@ -233,6 +255,9 @@ async function sendAiTurn(
     reply: payload.reply,
     ...(payload.profileTags && payload.profileTags.length > 0 ? { tags: payload.profileTags } : {}),
     ...(payload.pings && payload.pings.length > 0 ? { pings: payload.pings } : {}),
+    ...(payload.annotations && payload.annotations.length > 0 ? { annotations: payload.annotations } : {}),
+    ...(payload.solutionProgress !== undefined ? { solutionProgress: payload.solutionProgress } : {}),
+    ...(payload.session ? { session: payload.session } : {}),
   };
 }
 

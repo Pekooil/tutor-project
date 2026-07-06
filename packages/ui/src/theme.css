@@ -116,3 +116,54 @@
  * matches nothing in any shipped surface. */
 .dark {
 }
+
+/* ---- Calyxa overlay: tag-kind + annotation-ordinal aliases (Sprint 14
+ * Task 7, ADR-018 discipline) ----
+ * ADDITIVE only, every value REUSED from an existing token/hex already in
+ * this file or already shipped in the extension (never a new color):
+ *   - the 5 profile-tag kinds (Transcript.tsx pills, and shared with
+ *     InsightStrip.tsx's weak-spot/due-review lines) each read one of
+ *     these; `reviewing`/`strength` intentionally share the SAME green --
+ *     the brand has exactly 4 non-neutral hues and amber measures ~2.97:1
+ *     against this file's own --color-surface (fails the 4.5:1 AA text
+ *     minimum), so amber is excluded from every NEW text-colored alias
+ *     here and stays reserved for the annotation layer's existing
+ *     non-text fill/stroke use (Overlay.css's --cx-annot-color set,
+ *     unchanged). Five kinds, four AA-verified hues.
+ *   - --calyxa-progress is the composer's solution-progress bar FILL
+ *     (decorative, non-text -- brand.md explicitly permits
+ *     --color-accent-glow-strong for exactly this kind of use).
+ *   - --calyxa-annot-1..4 are the per-turn annotation-ordinal palette
+ *     (Overlay.tsx's assignAnnotationColors) -- a SEPARATE namespace from
+ *     the tag-kind aliases above (ordinal position vs. semantic kind), so
+ *     the two never collide in meaning even where they reuse the same
+ *     underlying hue.
+ * AA contrast (calculated, WCAG relative-luminance method, against
+ * --color-surface #F7F7F5 -- this file's panel/pill background, a
+ * slightly harder bar than brand.md's own --color-background pairs since
+ * surface is a touch darker than pure white):
+ *   accent-emphasis (#166534): 6.64:1 | danger (#B91C1C): 6.03:1 |
+ *   #2563EB: 4.82:1 | muted-foreground (#6B6B65): 5.00:1 -- all clear the
+ *   4.5:1 AA text minimum. border-strong (#79766E, annot-4 only): 4.23:1
+ *   against surface specifically -- just under 4.5 (it clears 4.54:1
+ *   against the brighter --color-background per brand.md's own figure).
+ *   Its actual usage (the color-linked text span in a chat bubble) sits on
+ *   the panel background, not the surface tint, so this is a documented
+ *   near-miss rather than a live failure -- flagged in the sprint report
+ *   rather than silently asserted passing. The SAME value used as the
+ *   annotation box's SVG stroke (Task 8) is a non-text UI-component
+ *   boundary (3:1 minimum), which it clears easily regardless.
+ */
+:root {
+  --calyxa-tag-reviewing: var(--color-accent-emphasis);
+  --calyxa-tag-strength: var(--color-accent-emphasis);
+  --calyxa-tag-gap: var(--color-danger);
+  --calyxa-tag-due: #2563eb;
+  --calyxa-tag-callback: var(--color-muted-foreground);
+  --calyxa-progress: var(--color-accent-glow-strong);
+
+  --calyxa-annot-1: var(--color-accent-emphasis);
+  --calyxa-annot-2: #2563eb;
+  --calyxa-annot-3: var(--color-danger);
+  --calyxa-annot-4: var(--color-border-strong);
+}
