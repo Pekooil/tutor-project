@@ -105,6 +105,14 @@ const TAG_UNGROUNDED_CONCEPT = 'algebra.polynomials.expanding'
 // persistInteraction actually scheduled the apply (a real, owned session).
 let userPings: { id: string }
 let tokenPings: string
+// A SECOND pings user (Sprint 14 Task 5/9): the base 8-concept curriculum
+// means every `it()` above already claims one concept key each against
+// userPings, so the four Task 5 widening tests (the two stored-"unseen"
+// transitions + the two mastery-progress threshold cases) need their OWN
+// user to seed fresh knowledge_nodes rows without colliding with an
+// earlier test's fixture for the same concept.
+let userPingsWide: { id: string }
+let tokenPingsWide: string
 
 // --- Fake Anthropic backend ---
 // We spawn a REAL `next dev` below (not a direct route-function call) for the
@@ -527,6 +535,28 @@ beforeAll(async () => {
   })
   if (signInPingsErr || !signInPings.session) throw new Error(`sign-in failed (pings user): ${signInPingsErr?.message}`)
   tokenPings = signInPings.session.access_token
+
+  // --- userPingsWide fixture (Sprint 14 Task 5/9 -- see the declaration's comment) ---
+  const pingsWideEmail = `darcy20080911+calyxaaiturnpingswide${Date.now()}@gmail.com`
+  const { data: createdPingsWide, error: pingsWideErr } = await admin.auth.admin.createUser({
+    email: pingsWideEmail,
+    password: PASSWORD,
+    email_confirm: true,
+  })
+  if (pingsWideErr || !createdPingsWide.user) {
+    throw new Error(`fixture setup failed (pings-wide user): ${pingsWideErr?.message}`)
+  }
+  userPingsWide = { id: createdPingsWide.user.id }
+
+  const pingsWideClient = createClient(url, anonKey)
+  const { data: signInPingsWide, error: signInPingsWideErr } = await pingsWideClient.auth.signInWithPassword({
+    email: pingsWideEmail,
+    password: PASSWORD,
+  })
+  if (signInPingsWideErr || !signInPingsWide.session) {
+    throw new Error(`sign-in failed (pings-wide user): ${signInPingsWideErr?.message}`)
+  }
+  tokenPingsWide = signInPingsWide.session.access_token
 }, 45000)
 
 afterAll(async () => {
@@ -537,7 +567,7 @@ afterAll(async () => {
   // -> users -> auth user. `user` needs this too as of Sprint 11: the
   // ADR-019 positive-path test drives a real session + interaction + apply
   // for it (before Sprint 11 that user owned no rows at all).
-  for (const fixture of [userPings, userTags, userDue, userDecayed, userWithProfile, user]) {
+  for (const fixture of [userPingsWide, userPings, userTags, userDue, userDecayed, userWithProfile, user]) {
     if (!fixture) continue
     await admin.from('session_interactions').delete().eq('user_id', fixture.id)
     await admin.from('sessions').delete().eq('user_id', fixture.id)
@@ -1212,6 +1242,116 @@ describe('/api/ai/turn', () => {
   })
 })
 
+// --- Sprint 14 Task 3 (ADR-027/028): solutionProgress + session thread
+// through the wire additively -- envelope.test.ts already pins the PARSE
+// contract (clamping, malformed-drops-the-whole-field); these assert the
+// SEPARATE thread-through-only behaviour at the route: present when the
+// envelope carried it, OMITTED (not null) when it didn't, and -- per
+// ADR-028 -- never persisted (session_interactions keeps its Sprint 11
+// shape regardless of either field).
+describe('/api/ai/turn: solutionProgress + session (Sprint 14, ADR-027/028)', () => {
+  it('threads solutionProgress + session onto the response when the envelope carries both', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Now closing tutoring session.',
+          assessment: {
+            concept_key: SEEDED_CONCEPT_KEY,
+            outcome: 'correct',
+            reasoning_quality: 'sound',
+            self_confidence: 'high',
+            misconception_category: null,
+            confidence: 'high',
+          },
+          solution_progress: 1,
+          session: { complete: true, reason: 'solved' },
+        })
+      ),
+    }
+
+    const started = await start(token, { mode: 'text' })
+    const { status, json } = await turn(token, {
+      sessionId: started.json.sessionId,
+      messages: [{ role: 'user', content: 'x^2 - 4 = 0 -> x = 2 or x = -2' }],
+    })
+
+    expect(status).toBe(200)
+    expect(json.solutionProgress).toBe(1)
+    expect(json.session).toEqual({ complete: true, reason: 'solved' })
+  })
+
+  it('omits both fields entirely (not null, not present) when the envelope carries neither -- byte-identical to Sprint 13', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'What do you get when you expand that?',
+          assessment: {
+            concept_key: SEEDED_CONCEPT_KEY,
+            outcome: 'correct',
+            reasoning_quality: 'sound',
+            self_confidence: 'high',
+            misconception_category: null,
+            confidence: 'high',
+          },
+        })
+      ),
+    }
+
+    const started = await start(token, { mode: 'text' })
+    const { status, json } = await turn(token, {
+      sessionId: started.json.sessionId,
+      messages: [{ role: 'user', content: 'still working on it' }],
+    })
+
+    expect(status).toBe(200)
+    expect(json.solutionProgress).toBeUndefined()
+    expect(json.session).toBeUndefined()
+    expect(Object.prototype.hasOwnProperty.call(json, 'solutionProgress')).toBe(false)
+    expect(Object.prototype.hasOwnProperty.call(json, 'session')).toBe(false)
+  })
+
+  it('neither field is persisted -- session_interactions keeps its Sprint 11 shape regardless of progress/completion', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Now closing tutoring session.',
+          assessment: {
+            concept_key: SEEDED_CONCEPT_KEY,
+            outcome: 'correct',
+            reasoning_quality: 'sound',
+            self_confidence: 'high',
+            misconception_category: null,
+            confidence: 'high',
+          },
+          solution_progress: 1,
+          session: { complete: true, reason: 'solved' },
+        })
+      ),
+    }
+
+    const started = await start(token, { mode: 'text' })
+    const { sessionId } = started.json
+    const { status } = await turn(token, {
+      sessionId,
+      messages: [{ role: 'user', content: 'x^2 - 4 = 0 -> x = 2 or x = -2' }],
+    })
+    expect(status).toBe(200)
+
+    const { data, count } = await admin
+      .from('session_interactions')
+      .select('*', { count: 'exact' })
+      .eq('session_id', sessionId)
+
+    expect(count).toBe(1)
+    expect(Object.keys(data![0]).sort()).toEqual(EXPECTED_SESSION_INTERACTIONS_COLUMNS)
+    expect(JSON.stringify(data![0])).not.toContain('solution_progress')
+    expect(JSON.stringify(data![0])).not.toContain('"session"')
+  })
+})
+
 // --- Sprint 13 Task 9: the tag + callback grounding gate (ADR-024/026) ---
 // envelope.test.ts already pins parseProfileTag's own structural contract;
 // these assert the SEPARATE, decisive authority -- turn/route.ts's
@@ -1418,10 +1558,11 @@ describe('/api/ai/turn: event pings', () => {
       state: string
       confidenceBand: string
       observationCount: number
-    }
+    },
+    userId: string = userPings.id
   ) {
     const { error } = await admin.from('knowledge_nodes').insert({
-      user_id: userPings.id,
+      user_id: userId,
       concept_key: conceptKey,
       mastery: row.mastery,
       stability: row.stability,
@@ -1434,9 +1575,9 @@ describe('/api/ai/turn: event pings', () => {
     if (error) throw new Error(`ping fixture seed failed for ${conceptKey}: ${error.message}`)
   }
 
-  async function seedMisconception(conceptKey: string, consecutiveCorrect: number) {
+  async function seedMisconception(conceptKey: string, consecutiveCorrect: number, userId: string = userPings.id) {
     const { error } = await admin.from('misconceptions').insert({
-      user_id: userPings.id,
+      user_id: userId,
       concept_key: conceptKey,
       category: 'sign-errors',
       description: 'drops the negative sign when distributing',
@@ -1447,8 +1588,12 @@ describe('/api/ai/turn: event pings', () => {
     if (error) throw new Error(`ping fixture misconception seed failed for ${conceptKey}: ${error.message}`)
   }
 
-  async function soundCorrectTurn(conceptKey: string, misconceptionCategory: string | null = null) {
-    const started = await start(tokenPings, { mode: 'text' })
+  async function soundCorrectTurn(
+    conceptKey: string,
+    misconceptionCategory: string | null = null,
+    bearer: string = tokenPings
+  ) {
+    const started = await start(bearer, { mode: 'text' })
     expect(started.status).toBe(200)
 
     nextResponse = {
@@ -1468,7 +1613,7 @@ describe('/api/ai/turn: event pings', () => {
       ),
     }
 
-    return turn(tokenPings, { sessionId: started.json.sessionId, messages: [{ role: 'user', content: 'my attempt' }] })
+    return turn(bearer, { sessionId: started.json.sessionId, messages: [{ role: 'user', content: 'my attempt' }] })
   }
 
   it('a state-crossing update (weak -> learning) fires exactly one mastery-up ping', async () => {
@@ -1522,7 +1667,12 @@ describe('/api/ai/turn: event pings', () => {
     // ~0.3 on one observation (BASE_K=0.3, confidenceWeight(0)=1), which
     // deriveState reads as 'weak', not 'learning' -- 'unseen->weak' isn't a
     // named upward transition either, so this also pins the exclusion at
-    // the only value first contact can actually produce.
+    // the only value first contact can actually produce. The ~0.3 delta
+    // comfortably clears MASTERY_PROGRESS_THRESHOLD (0.1) too, so this ALSO
+    // pins mastery-progress's "(and not from unseen)" exclusion (Sprint 14
+    // Task 5/9) -- a big single-turn gain from a truly unseen concept still
+    // produces no ping of either kind, since 'unseen' is never a member of
+    // MASTERY_PROGRESS_STATES regardless of the transition it lands on.
     const conceptKey = 'algebra.linear-equations.two-variable'
 
     const { status, json } = await soundCorrectTurn(conceptKey)
@@ -1531,10 +1681,97 @@ describe('/api/ai/turn: event pings', () => {
     expect(json.pings).toBeUndefined()
   })
 
-  it('a correct/sound answer that completes the 3-correct resolution streak fires exactly one misconception-resolved ping', async () => {
+  it('a stored "unseen" row that jumps straight to "learning" on one turn fires mastery-up (Sprint 14 Task 5\'s first-contact widening)', async () => {
+    // Unlike the no-seed-row case above, an EXISTING row can be explicitly
+    // stored with state 'unseen' (priorState reads the stored column
+    // verbatim, apply.ts) at a mastery high enough that one sound-correct
+    // crosses straight into 'learning' -- exactly ADR-026's amendment: first
+    // contact that lands at a real level now celebrates, where Sprint 13
+    // kept ALL first contact silent. Same mastery/stability/observationCount
+    // as the 'weak->learning' fixture above (proven to land at 0.505,
+    // still 'learning') -- only the STORED prior state label differs. Runs
+    // against userPingsWide: every base-curriculum concept is already
+    // claimed once against userPings by the tests above.
+    const conceptKey = 'algebra.polynomials.expanding'
+    await seedNode(
+      conceptKey,
+      { mastery: 0.45, stability: 5, state: 'unseen', confidenceBand: 'low', observationCount: 2 },
+      userPingsWide.id
+    )
+
+    const { status, json } = await soundCorrectTurn(conceptKey, null, tokenPingsWide)
+
+    expect(status).toBe(200)
+    expect(json.pings).toEqual([
+      { kind: 'mastery-up', conceptKey, title: 'Expanding polynomials', label: 'Leveled up: Expanding polynomials' },
+    ])
+  })
+
+  it('a stored "unseen" row that jumps straight to "mastered" on one turn fires mastery-up (Sprint 14 Task 5\'s first-contact widening)', async () => {
+    // Same mastery/stability/observationCount as the mastered-crossing
+    // fixture above (0.84 -> clears MASTERED_THRESHOLD), stored state
+    // 'unseen' instead of 'learning'. userPingsWide again (fresh user).
+    const conceptKey = 'algebra.quadratics.formula'
+    await seedNode(
+      conceptKey,
+      { mastery: 0.84, stability: 20, state: 'unseen', confidenceBand: 'medium', observationCount: 3 },
+      userPingsWide.id
+    )
+
+    const { status, json } = await soundCorrectTurn(conceptKey, null, tokenPingsWide)
+
+    expect(status).toBe(200)
+    expect(json.pings).toEqual([
+      { kind: 'mastery-up', conceptKey, title: 'The quadratic formula', label: 'Mastered: The quadratic formula' },
+    ])
+  })
+
+  it('an in-state gain >= MASTERY_PROGRESS_THRESHOLD (0.10) fires exactly one mastery-progress ping (Sprint 14 Task 5)', async () => {
+    // observationCount 0 -> K = BASE_K(0.3) * confidenceWeight(0)(=1) = 0.3;
+    // mastery 0.5 -> 0.5 + 0.3*(1-0.5) = 0.65, a 0.15 delta, comfortably
+    // over the 0.10 threshold, both ends inside 'learning' (no crossing --
+    // mastery-up's exclusive branch never fires, so this is the ONLY ping).
+    // userPingsWide again (fresh user).
+    const conceptKey = 'algebra.quadratics.factoring'
+    await seedNode(
+      conceptKey,
+      { mastery: 0.5, stability: 20, state: 'learning', confidenceBand: 'medium', observationCount: 0 },
+      userPingsWide.id
+    )
+
+    const { status, json } = await soundCorrectTurn(conceptKey, null, tokenPingsWide)
+
+    expect(status).toBe(200)
+    expect(json.pings).toEqual([
+      { kind: 'mastery-progress', conceptKey, title: 'Factoring quadratics', label: 'Progress: Factoring quadratics' },
+    ])
+  })
+
+  it('an in-state gain BELOW MASTERY_PROGRESS_THRESHOLD fires no ping (a routine tick, not a celebration-worthy jump)', async () => {
+    // observationCount 1 -> K = 0.3 * confidenceWeight(1)(=0.5) = 0.15;
+    // mastery 0.7 -> 0.7 + 0.15*(1-0.7) = 0.745, a 0.045 delta -- well under
+    // 0.10, both ends inside 'learning' (no crossing). userPingsWide again.
+    const conceptKey = 'algebra.linear-equations.one-variable'
+    await seedNode(
+      conceptKey,
+      { mastery: 0.7, stability: 20, state: 'learning', confidenceBand: 'medium', observationCount: 1 },
+      userPingsWide.id
+    )
+
+    const { status, json } = await soundCorrectTurn(conceptKey, null, tokenPingsWide)
+
+    expect(status).toBe(200)
+    expect(json.pings).toBeUndefined()
+  })
+
+  it('a correct/sound answer that completes the 3-correct resolution streak fires exactly one misconception-resolved ping, NEVER also streak-progress on the same (completing) turn (Sprint 14 Task 5\'s superseding rule)', async () => {
     const conceptKey = 'algebra.exponents.product-rule'
     // Mastery stays inside 'learning' before and after (no crossing), so the
-    // resolved ping is the ONLY ping this turn produces.
+    // resolved ping is the ONLY ping this turn produces. Structural, not a
+    // runtime special-case (events.ts): the resolving/almostResolving checks
+    // are mutually exclusive (RESOLUTION_STREAK vs. RESOLUTION_STREAK - 1
+    // can never both match one row's post-turn consecutive_correct), so the
+    // exact-array assertion below is what actually pins "never both."
     await seedNode(conceptKey, { mastery: 0.8, stability: 20, state: 'learning', confidenceBand: 'medium', observationCount: 6 })
     await seedMisconception(conceptKey, 2)
 
@@ -1585,5 +1822,113 @@ describe('/api/ai/turn: event pings', () => {
     expect(count).toBe(1)
     expect(Object.keys(data![0]).sort()).toEqual(EXPECTED_SESSION_INTERACTIONS_COLUMNS)
     expect(JSON.stringify(data![0])).not.toContain('mastery-up')
+  })
+})
+
+// --- Sprint 14 Task 4/9: the opening-scan request shape (ADR-030) ---
+// Detected by `{ opening: true }` alone (no `messages`) -- same auth, same
+// topic-biased loadProfile read, same grounding gate as an ordinary turn;
+// only the response shape and the never-relayed assessment/progress/
+// completion fields are unique to this branch.
+describe('/api/ai/turn: the opening scan (Sprint 14 Task 4, ADR-030)', () => {
+  const minimalPageContext = { title: 'Practice problem', text: 'Solve x^2 - 4 = 0', equations: [] }
+
+  it('returns { reply, annotations?, profileTags? } with assessment, solutionProgress, and session ALWAYS absent -- even when the model smuggles them', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: "Looks like you're working on factoring a quadratic. Is that what you need help with?",
+          annotations: [{ id: 'a1', type: 'highlight', target: { kind: 'textMatch', text: 'x^2 - 4 = 0' } }],
+          // None of these should ever survive to the opening-scan response --
+          // the route builds `{ reply, annotations?, profileTags? }` from the
+          // envelope explicitly, never spreading assessment/solutionProgress/
+          // session through, regardless of what parseEnvelope happened to
+          // parse off a non-conforming model output.
+          assessment: {
+            concept_key: SEEDED_CONCEPT_KEY,
+            outcome: 'correct',
+            reasoning_quality: 'sound',
+            self_confidence: 'high',
+            misconception_category: null,
+            confidence: 'high',
+          },
+          solution_progress: 0.5,
+          session: { complete: true, reason: 'solved' },
+        })
+      ),
+    }
+
+    const { status, json } = await turn(token, { opening: true, pageContext: minimalPageContext })
+
+    expect(status).toBe(200)
+    expect(json.reply).toBe("Looks like you're working on factoring a quadratic. Is that what you need help with?")
+    expect(json.annotations).toHaveLength(1)
+    expect(json.assessment).toBeUndefined()
+    expect(json.solutionProgress).toBeUndefined()
+    expect(json.session).toBeUndefined()
+    expect(Object.keys(json).sort()).toEqual(['annotations', 'reply'])
+  })
+
+  it('requires a pageContext -- 400s without one, and never calls the model', async () => {
+    nextResponse = { status: 200, body: fakeTextMessage('should never be reached') }
+
+    const { status, json } = await turn(token, { opening: true })
+
+    expect(status).toBe(400)
+    expect(json.error).toContain('pageContext')
+  })
+
+  it('still 401s with no bearer for the opening-scan request shape too', async () => {
+    const { status } = await turn(null, { opening: true, pageContext: minimalPageContext })
+    expect(status).toBe(401)
+  })
+
+  it('degrades to an empty reply when the model finds nothing confident to say', async () => {
+    nextResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ say: '' })) }
+
+    const { status, json } = await turn(token, { opening: true, pageContext: minimalPageContext })
+
+    expect(status).toBe(200)
+    expect(json.reply).toBe('')
+    expect(json.annotations).toBeUndefined()
+    expect(json.profileTags).toBeUndefined()
+  })
+
+  it('persistOpeningInteraction writes an assessment-less session_interactions row in BOTH the found-something and found-nothing cases -- never skips the row', async () => {
+    const started = await start(token, { mode: 'text' })
+    expect(started.status).toBe(200)
+    const { sessionId } = started.json
+
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({ say: "Looks like you're working on a quadratic. Is that the one?" })
+      ),
+    }
+    const found = await turn(token, { opening: true, pageContext: minimalPageContext, sessionId })
+    expect(found.status).toBe(200)
+
+    nextResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ say: '' })) }
+    const foundNothing = await turn(token, { opening: true, pageContext: minimalPageContext, sessionId })
+    expect(foundNothing.status).toBe(200)
+
+    const { data, count } = await admin
+      .from('session_interactions')
+      .select('*', { count: 'exact' })
+      .eq('session_id', sessionId)
+      .order('turn_index', { ascending: true })
+
+    expect(count).toBe(2)
+    for (const row of data!) {
+      expect(row.concept_key).toBeNull()
+      expect(row.student_transcript).toBeNull()
+      expect(row.outcome).toBe('none')
+      expect(row.self_confidence).toBe('unknown')
+      expect(row.reasoning_quality).toBe('none')
+      expect(row.applied_to_profile).toBe(false)
+    }
+    expect(data![0].tutor_response).toBe("Looks like you're working on a quadratic. Is that the one?")
+    expect(data![1].tutor_response).toBe('')
   })
 })

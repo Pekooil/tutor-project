@@ -297,3 +297,76 @@ describe('parseEnvelope: profile_tags (all five kinds structurally validated, al
     expect(envelope.profileTags).toBeUndefined()
   })
 })
+
+// Sprint 14 Task 3 (ADR-027/028): the two additive fields solution_progress
+// and session. Both are absent-tolerant like every other optional field
+// above -- a turn that carries neither is byte-identical to a Sprint 13
+// envelope (pinned explicitly below, not just implied).
+describe('parseEnvelope: solution_progress (Sprint 14, ADR-028 -- model-emitted, client-clamped)', () => {
+  it('parses an in-range value through unchanged', () => {
+    expect(parseEnvelope(validEnvelopeJson({ solution_progress: 0.6 })).solutionProgress).toBe(0.6)
+    expect(parseEnvelope(validEnvelopeJson({ solution_progress: 0 })).solutionProgress).toBe(0)
+    expect(parseEnvelope(validEnvelopeJson({ solution_progress: 1 })).solutionProgress).toBe(1)
+  })
+
+  it('clamps an out-of-range value to [0, 1] rather than dropping it', () => {
+    expect(parseEnvelope(validEnvelopeJson({ solution_progress: 1.4 })).solutionProgress).toBe(1)
+    expect(parseEnvelope(validEnvelopeJson({ solution_progress: -0.3 })).solutionProgress).toBe(0)
+  })
+
+  it('drops (never defaults to 0) a non-numeric value -- "no signal" is not "no progress"', () => {
+    expect(parseEnvelope(validEnvelopeJson({ solution_progress: '0.5' })).solutionProgress).toBeUndefined()
+    expect(parseEnvelope(validEnvelopeJson({ solution_progress: null })).solutionProgress).toBeUndefined()
+    expect(parseEnvelope(validEnvelopeJson({ solution_progress: true })).solutionProgress).toBeUndefined()
+    expect(parseEnvelope(validEnvelopeJson({ solution_progress: Number.NaN })).solutionProgress).toBeUndefined()
+  })
+
+  it('is omitted entirely (not present as an own key) when the model sends none', () => {
+    const envelope = parseEnvelope(validEnvelopeJson())
+    expect(envelope.solutionProgress).toBeUndefined()
+    expect(Object.prototype.hasOwnProperty.call(envelope, 'solutionProgress')).toBe(false)
+  })
+})
+
+describe('parseEnvelope: session completion (Sprint 14, ADR-027 -- AI-signaled, client-confirmed)', () => {
+  it('parses all three named completion reasons', () => {
+    for (const reason of ['solved', 'follow-up-declined', 'follow-up-corrected'] as const) {
+      const envelope = parseEnvelope(validEnvelopeJson({ session: { complete: true, reason } }))
+      expect(envelope.session).toEqual({ complete: true, reason })
+    }
+  })
+
+  it('drops the whole field on complete: false -- a bad completion NEVER closes a session', () => {
+    const envelope = parseEnvelope(validEnvelopeJson({ session: { complete: false, reason: 'solved' } }))
+    expect(envelope.session).toBeUndefined()
+  })
+
+  it('drops the whole field on a missing or unrecognised reason, never guessing one', () => {
+    expect(parseEnvelope(validEnvelopeJson({ session: { complete: true } })).session).toBeUndefined()
+    expect(
+      parseEnvelope(validEnvelopeJson({ session: { complete: true, reason: 'done' } })).session
+    ).toBeUndefined()
+    expect(
+      parseEnvelope(validEnvelopeJson({ session: { complete: true, reason: 123 } })).session
+    ).toBeUndefined()
+  })
+
+  it('drops a non-object session value rather than throwing', () => {
+    expect(parseEnvelope(validEnvelopeJson({ session: 'solved' })).session).toBeUndefined()
+    expect(parseEnvelope(validEnvelopeJson({ session: null })).session).toBeUndefined()
+    expect(parseEnvelope(validEnvelopeJson({ session: 42 })).session).toBeUndefined()
+  })
+
+  it('is omitted entirely (not present as an own key) when the model sends none', () => {
+    const envelope = parseEnvelope(validEnvelopeJson())
+    expect(envelope.session).toBeUndefined()
+    expect(Object.prototype.hasOwnProperty.call(envelope, 'session')).toBe(false)
+  })
+})
+
+describe('parseEnvelope: absent-fields back-compat (solution_progress + session both omitted)', () => {
+  it('is byte-identical to a Sprint 13 envelope -- the wire shape gains no keys when the model carries neither field', () => {
+    const envelope = parseEnvelope(validEnvelopeJson())
+    expect(Object.keys(envelope).sort()).toEqual(['assessment', 'mode', 'say'].sort())
+  })
+})

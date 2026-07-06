@@ -24,6 +24,13 @@ import {
   type EquationRegistry,
 } from '../src/content/annotations';
 import type { Annotation, AnnotationTarget } from '../src/types/messages';
+import {
+  LABEL_HEIGHT,
+  estimateLabelWidth,
+  layoutLabels,
+  type LabelBox,
+} from '../src/overlay/AnnotationLayer';
+import { assignAnnotationColors } from '../src/overlay/Overlay';
 
 function fakeDomRect(rect: { x: number; y: number; w: number; h: number }): DOMRect {
   return {
@@ -538,5 +545,129 @@ describe('showTurnAnnotationsSequenced — voice-mode even time-split reveal', (
     expect(capture.latest()?.map((d) => d.id)).toEqual(['next-turn']);
 
     capture.stop();
+  });
+});
+
+// Sprint 14 Task 8/9: the deterministic label collision layout
+// (AnnotationLayer.tsx's layoutLabels). Pure over rects -- no DOM, no jsdom
+// stubbing needed, same "pure helper" precedent as clampRectToViewport
+// above -- so these run with plain fixture rects, not withRect().
+describe('layoutLabels — deterministic label collision layout (Sprint 14 Task 8, ADR-029)', () => {
+  function box(id: string, anchorRect: { x: number; y: number; w: number; h: number }, width = 60): LabelBox {
+    return { id, anchorRect, width, height: LABEL_HEIGHT };
+  }
+
+  it('leaves non-overlapping inputs at their natural position, with no leader line', () => {
+    const boxes = [box('a', { x: 100, y: 300, w: 20, h: 20 }), box('b', { x: 500, y: 300, w: 20, h: 20 })];
+    const placements = layoutLabels(boxes, 1280, 800);
+
+    expect(placements).toHaveLength(2);
+    for (const placement of placements) {
+      expect(placement.leader).toBeUndefined();
+    }
+    // Both anchors sit well below the label height + 6px gap, so both
+    // labels fit ABOVE their anchor at its natural x.
+    expect(placements[0]).toMatchObject({ x: 100, y: 300 - LABEL_HEIGHT - 6 });
+    expect(placements[1]).toMatchObject({ x: 500, y: 300 - LABEL_HEIGHT - 6 });
+  });
+
+  it('a same-anchor stack (three boxes at the identical rect, as "annotate each component of x^2+5x+6" would produce) resolves with zero intersections', () => {
+    const rect = { x: 200, y: 300, w: 20, h: 20 };
+    const boxes = [box('a', rect), box('b', rect), box('c', rect)];
+    const placements = layoutLabels(boxes, 1280, 800);
+
+    expect(placements).toHaveLength(3);
+    // The first keeps its natural spot; the second and third had to move.
+    expect(placements[0].leader).toBeUndefined();
+    expect(placements[1].leader).toBeDefined();
+    expect(placements[2].leader).toBeDefined();
+
+    for (let i = 0; i < placements.length; i++) {
+      for (let j = i + 1; j < placements.length; j++) {
+        const a = { x: placements[i].x, y: placements[i].y, width: boxes[i].width, height: boxes[i].height };
+        const b = { x: placements[j].x, y: placements[j].y, width: boxes[j].width, height: boxes[j].height };
+        const overlaps = a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+        expect(overlaps).toBe(false);
+      }
+    }
+  });
+
+  it('a leader line, when present, points from the label back toward its own anchor box', () => {
+    const rect = { x: 200, y: 300, w: 20, h: 20 };
+    const placements = layoutLabels([box('a', rect), box('b', rect)], 1280, 800);
+    const leader = placements[1].leader!;
+
+    expect(leader).toBeDefined();
+    // The anchor end sits at the anchor rect's own top edge (both labels
+    // fit above it, per the "fitsAbove" branch) -- the anchor x/y this
+    // fixture's rect actually has.
+    expect(leader.x2).toBe(rect.x + rect.w / 2);
+    expect(leader.y2).toBe(rect.y);
+  });
+
+  it('clamps a too-close-to-the-top natural position down to the viewport margin, not a negative y', () => {
+    // rect.y = 28 is the EXACT boundary where "fits above" first becomes
+    // true (28 - LABEL_HEIGHT(22) - 6 == 0) -- so the natural (pre-clamp) y
+    // is 0, one px inside the top edge but still under the 4px margin this
+    // module enforces everywhere else (VIEWPORT_MARGIN_PX). This is a
+    // single, un-stacked label: nothing here is about collision, purely the
+    // viewport floor.
+    const rect = { x: 100, y: 28, w: 10, h: 10 };
+    const [placement] = layoutLabels([box('a', rect)], 1280, 800);
+
+    expect(placement.y).toBe(4);
+  });
+
+  it('clamps a too-close-to-the-right natural position back inside the viewport, not off the right edge', () => {
+    const rect = { x: 1275, y: 300, w: 10, h: 10 };
+    const [placement] = layoutLabels([box('a', rect, 60)], 1280, 800);
+
+    expect(placement.x).toBe(1280 - 60 - 4);
+  });
+
+  it('is deterministic: the same input (same rects, same order) always produces the same output', () => {
+    const rect = { x: 340, y: 220, w: 30, h: 24 };
+    const boxes = [box('a', rect), box('b', rect), box('c', rect)];
+
+    expect(layoutLabels(boxes, 1280, 800)).toEqual(layoutLabels(boxes, 1280, 800));
+  });
+
+  it('estimateLabelWidth grows with text length but never below the floor', () => {
+    expect(estimateLabelWidth('')).toBe(28);
+    expect(estimateLabelWidth('x')).toBeGreaterThanOrEqual(28);
+    expect(estimateLabelWidth('a rather long label here')).toBeGreaterThan(estimateLabelWidth('short'));
+  });
+});
+
+// Sprint 14 Task 7/9: the per-turn annotation-color assignment
+// (Overlay.tsx's assignAnnotationColors) -- Transcript.tsx's color-linked
+// text highlight and AnnotationLayer.tsx's box stroke (Task 8) both read
+// this SAME map, so its determinism/stability is pinned here once rather
+// than re-proven in each consumer's own spec.
+describe('assignAnnotationColors — deterministic per-turn ordinal color assignment (Sprint 14 Task 7, ADR-029 amendment)', () => {
+  function annotation(id: string): Annotation {
+    return { id, type: 'highlight', target: { kind: 'textMatch', text: id } };
+  }
+
+  it('assigns distinct slots, in order, to distinct annotations in one turn', () => {
+    const map = assignAnnotationColors([annotation('a'), annotation('b'), annotation('c')]);
+    expect(map).toEqual({ a: 'annot-1', b: 'annot-2', c: 'annot-3' });
+  });
+
+  it('cycles back to the first slot if a turn somehow exceeds the 4-slot palette (defensive -- the envelope caps at 3 per turn)', () => {
+    const map = assignAnnotationColors([annotation('a'), annotation('b'), annotation('c'), annotation('d'), annotation('e')]);
+    expect(map.a).toBe('annot-1');
+    expect(map.e).toBe('annot-1');
+  });
+
+  it('is deterministic and stable across re-renders of the same turn: the same annotations array (by value) always maps to the same slots', () => {
+    const first = assignAnnotationColors([annotation('x'), annotation('y')]);
+    const second = assignAnnotationColors([annotation('x'), annotation('y')]);
+    expect(first).toEqual(second);
+  });
+
+  it('returns an empty map for no annotations, never throwing on undefined', () => {
+    expect(assignAnnotationColors(undefined)).toEqual({});
+    expect(assignAnnotationColors([])).toEqual({});
   });
 });
