@@ -79,7 +79,20 @@ misconceptions, next reinforcement due dates — and broadcasts it to all tabs a
 overlay End-session control (which reuses the existing `END_SESSION` handler) ended the
 session. Mastery deltas shown in the recap are computed client-side against the
 overview snapshot already held from panel open — no baseline is fetched or stored.
-See ADR-024, ADR-025.
+
+The scope extension (same sprint) adds the loop's live voice: **event pings** — a
+transient toast for exactly two events, a named upward `MasteryState` transition or a
+completed misconception-resolution streak — computed at turn time by the same extracted
+FSRS core (`computeNodeUpdate`) the off-critical-path apply runs, so the prospective
+result cannot drift from the eventual write; routine ticks, band upticks, first-contact
+transitions, and newly *detected* misconceptions are all deliberately silent (new gaps
+surface only in the recap). **Cross-session callbacks** — the tutor referencing a real
+prior session, at most once per conversation — draw on a new additive `priorWork` leg of
+`loadProfile` (≤3 digest entries with mechanically derived outcome lines) and extend the
+grounding gate with a `callback` tag kind. The **recap** deepens with a conservative
+trend rollup (≥3 consecutive strictly-improving sessions only) and the FSRS forward look
+(due dates straight from `reinforcement_schedule`). The confidence-vs-correctness
+mismatch feature is deferred pending its proxy decision. See ADR-024, ADR-025, ADR-026.
 
 ## Architecture decision records
 See `/docs/adr/`. Notably:
@@ -116,6 +129,11 @@ See `/docs/adr/`. Notably:
   `profile_tags` + the recap ride existing responses additively; the overlay's
   End-session control reuses the existing `END_SESSION` path; deltas computed
   client-side against the panel-open overview snapshot
+- ADR-026 — Turn-time event pings computed by the shared FSRS core (never the
+  LLM; two event kinds only, the silences a recorded contract), cross-session
+  callbacks from the `priorWork` digest with the grounding gate extended,
+  recap trend rollup + forward look; the confidence-mismatch proxy decision
+  deferred with candidates recorded
 
 ## To be documented
 - System context diagram

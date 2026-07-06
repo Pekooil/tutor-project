@@ -946,35 +946,66 @@ unpacked-extension pass (folds into Task 10, per Task 8's own note). Verified:
 `turbo run typecheck lint build test` 19/19 across every workspace (root + web +
 extension + `@calyxa/curriculum` + `@calyxa/learning-model` + `@calyxa/ui`); web
 135/135, extension 46/46; no live Anthropic call anywhere in the new tests (the
-fake-Anthropic-backend convention throughout). Task 10 not started.** (Update this
-line as tasks land, per the Sprint 09–12 convention.)
+fake-Anthropic-backend convention throughout). Task 10 run 2026-07-05 (live `next dev`
++ real ANTHROPIC_API_KEY + the unpacked extension; Darcy drove the browser on Khan
+Academy, Claude staged fixtures via service role — factoring node to 0.49/weak/fresh,
+`expansion_error.foil` promoted active at streak 2, an overdue formula
+reinforcement row, free_session_count reset — and verified server/DB-side).
+**Observed live:** overview renders before the first question in all three sessions
+(GET 200 pre-first-turn in the server log, card confirmed visually); the grounding
+gate dropped ALL five ungrounded `reviewing` tags the model emitted for a concept the
+profile didn't list (item 5's no-invented-memory check — drops, zero fabrications,
+across ~13 live turns); a first-contact FSRS write (unseen→weak on
+`algebra.polynomials.expanding`) correctly fired NO ping; the recap was built and
+rendered for the session with a gradable turn and correctly OMITTED for the empty
+ones; real client think-time latencies (41s/33s) persisted; free-tier accounting
+exact (one count per start, 2→5 over three starts); `session_interactions` rows
+byte-identical to the Sprint 11 column set with no tag/ping/recap/overview data in
+any column; annotations, Socratic flow, and the no-page-context degrade all behaved
+as Sprint 12 (back-compat). **NOT observed live (each covered by Task 9's automated
+suite, flagged not skipped):** a POSITIVE grounded tag pill render, the two ping
+toasts (fixtures remain staged: one sound-correct factoring answer crosses
+weak→learning AND completes the foil streak — both toasts in one turn), a live
+callback render (real `priorWork` material now exists from the ended Khan session),
+recap delta arrows vs a baseline containing the touched concept, popup-end recap
+parity, cold start in-browser, the voice-path tag/ping timing (no mic available),
+and a live MutationObserver run. **Found during acceptance (pre-existing, not a
+Sprint 13 regression):** page context is captured at overlay MOUNT
+(content/index.ts onMount), not panel expand — on an SPA reload (Khan Academy) the
+pill mounts before the exercise re-renders, the capture sees an empty page, and the
+panel never re-captures, so the tutor honestly reports it can't see the screen;
+filed as a follow-up fix. ADR-026 — owed since before Task 2 and still missing at
+Task 9's close — was written during Task 10's bookkeeping, with the matching
+architecture.md Sprint-13 section extension + index entry. Task 9/10 commits pending
+Darcy's approval.** (Update this line as tasks land, per the Sprint 09–12
+convention.)
 
-- [ ] `turbo run typecheck lint build test` passes from root; `cd web && next build`
+- [x] `turbo run typecheck lint build test` passes from root; `cd web && next build`
       and `cd extension && wxt build` both exit 0
-- [ ] `@calyxa/curriculum` concepts carry `title` + `strandLabel` (audit gap #1 closed);
+- [x] `@calyxa/curriculum` concepts carry `title` + `strandLabel` (audit gap #1 closed);
       keys/edges/accessors unchanged
-- [ ] `GET /api/profile/overview` exists: read-only, bearer-auth'd, display-ready
+- [x] `GET /api/profile/overview` exists: read-only, bearer-auth'd, display-ready
       (titles server-side), calibrating for fresh users, no free-tier interaction
-- [ ] the envelope carries `profile_tags` additively (five kinds incl. `callback`);
+- [x] the envelope carries `profile_tags` additively (five kinds incl. `callback`);
       tags pass all three gates (schema parse, route grounding against the injected
       profile — callbacks against `priorWork`, client ≤2 cap) and are **never
       invented** — an ungrounded tag is dropped, never rendered
-- [ ] cross-session callbacks pull from **real** session history via the additive
+- [x] cross-session callbacks pull from **real** session history via the additive
       `priorWork` digest (mechanical outcome lines, ≤3 entries), surface **at most once
       per session**, and read as specific ("a few sessions ago you…"), never templated;
       cold start gets none
-- [ ] **pings fire for exactly two event types** — a named upward `MasteryState`
+- [x] **pings fire for exactly two event types** — a named upward `MasteryState`
       transition, a completed misconception-resolution streak — and for **nothing
       else**: routine mastery ticks, band upticks, first-contact transitions, and
       newly detected misconceptions are all silent (new misconceptions surface only in
       the recap); the prospective compute is the apply's own shared core, and Task 9
       pins prospective == actual
-- [ ] `/api/ai/turn` returns `profileTags` and `pings` additively (fields omitted when
+- [x] `/api/ai/turn` returns `profileTags` and `pings` additively (fields omitted when
       none — such turns are byte-identical to Sprint 12); neither is **ever persisted**
-- [ ] `apply.ts`'s write-path behaviour is **byte-identical** after the shared-core
+- [x] `apply.ts`'s write-path behaviour is **byte-identical** after the shared-core
       extraction (existing apply tests green untouched); the FSRS math, scheduler, and
       state/band thresholds in `@calyxa/learning-model` are consumed, never changed
-- [ ] `/api/session/end` returns the recap additively, built AFTER the reconcile from
+- [x] `/api/session/end` returns the recap additively, built AFTER the reconcile from
       the post-apply tables — the recap **cannot** disagree with the real mastery write;
       it now includes the **trend rollup** (≥3 consecutive improving sessions only —
       most recaps have none) and the **forward look** (dates straight from
@@ -986,15 +1017,15 @@ line as tasks land, per the Sprint 09–12 convention.)
       session, reduced-motion-safe, `aria-live` polite); the recap renders on session
       end from either the overlay's new End-session control or the popup
       (`SESSION_ENDED` broadcast) — all on Sprint 10 tokens, inside the shadow root, AA
-- [ ] deltas are computed client-side against the panel-open overview snapshot; no
+- [x] deltas are computed client-side against the panel-open overview snapshot; no
       baseline, tag, ping, overview, or recap data is persisted anywhere (**no
       migration**)
-- [ ] the **confidence-vs-correctness mismatch** feature has an explicit recorded
+- [x] the **confidence-vs-correctness mismatch** feature has an explicit recorded
       decision status: either Darcy decided the confidence proxy (and the ADR-recorded
       extension shipped under Tasks 5/6), or the decision + options rolled forward to
       the next sprint's planning input — it was **not** implemented without the
       decision, and **not** silently dropped
-- [ ] the scheduler, topic bias, annotation layer, voice internals,
+- [x] the scheduler, topic bias, annotation layer, voice internals,
       auth/freemium/session logic, `/supabase`, and `/packages/ui` are untouched;
       `loadProfile`'s existing legs are unchanged (the `priorWork` leg is additive)
 - [x] the web suite covers tag parse/grounding/omission/non-persistence, ping
@@ -1156,3 +1187,11 @@ new table, no migration, nothing persisted. What attaches next:
 - **The overview endpoint is dashboard-shaped**: `GET /api/profile/overview` is the
   overlay-sized read; the dashboard will want richer variants (full history, per-strand
   grouping) — extend or sibling it, don't overload it silently.
+- **Found live in Task 10 (pre-existing, needs its own fix):** page context is captured
+  at overlay MOUNT (`content/index.ts` onMount → `extractPageContext()`), which for a
+  signed-in user is page load — on an SPA reload (Khan Academy) the pill mounts before
+  the exercise re-renders, the capture sees an empty page, and the panel never
+  re-captures, so the whole session's turns carry no page context and the tutor reports
+  it can't see the screen. The intended discipline was "fresh per open"; the fix is to
+  (re-)capture on panel EXPAND (and refresh the Sprint 12 equation registry in the same
+  read). Filed as a follow-up task; not a Sprint 13 change.
