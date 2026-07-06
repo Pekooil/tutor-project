@@ -162,6 +162,35 @@ The tutor's replies also get shorter by prompt contract (default ≤3 sentences 
 idea per turn, full explanations only on explicit request) — a pure prompt change,
 no new wire field, banked by Sprint 15's voice-latency work.
 
+## Marketing site (Sprint 20)
+`/web/app/page.tsx` becomes the public landing page, built as a **parallel
+track** alongside the product-roadmap sprints (15–19) — it shares no files
+with them except `/web/package.json`. Structurally it borrows Cluely's
+layout (full-bleed hero, product demo center stage, scroll-driven feature
+reveals), rendered in Calyxa's existing light `@calyxa/ui` palette and voice
+(ADR-018, `/docs/brand.md`) rather than a dark, hype-forward skin.
+
+The product demo is a **recreation, never an import**: components under
+`/web/components/marketing/demo/` rebuild the overlay's visual vocabulary
+(panel chrome, transcript bubbles, color-linked annotations, the profile
+tags/insight strip, pings, the solution-progress bar, the voice waveform)
+from `@calyxa/ui` tokens, driven by a pure scene-script + step-reducer engine
+rather than by the real WXT/shadow-DOM runtime. `/extension` is never
+imported into `/web`; fidelity is instead checked by eyeball against a real
+dev build. `motion` (framer-motion) is added to `/web`, scoped by ADR-031 to
+the marketing component tree only — product surfaces (dashboard, account,
+the overlay) keep ADR-018's CSS-only, reduced-motion-safe transitions
+unchanged.
+
+A new `waitlist` table (RLS enabled, zero policies — service-role write only
+via `POST /api/waitlist`) replaces account signup as the page's promoted
+action; `/signup` and `/login` remain reachable but de-emphasized. The page
+also markets a "study loop" (per-session notes/practice problems/flashcards)
+that does not exist as a shipped product feature — a deliberate, recorded
+marketing-ahead-of-product call (ADR-031) with a named fuse: real artifact
+generation must ship, or the section's copy must be softened, before the
+waitlist converts to beta invitations. See ADR-031.
+
 ## Architecture decision records
 See `/docs/adr/`. Notably:
 - ADR-001 — Extension framework (WXT)
@@ -225,6 +254,11 @@ See `/docs/adr/`. Notably:
   makes open-with-a-detected-problem the session start (amends ADR-027),
   degrades to silence (never a wrong guess) on failure or an unidentifiable
   problem; explicitly forecloses a free/uncounted scan mode
+- ADR-031 — Marketing landing page: Cluely's structure in Calyxa's skin; the
+  demo is a token-driven recreation that never imports `/extension`; `motion`
+  scoped to the marketing component tree only; the study loop marketed as
+  live with a recorded pre-invite fuse; a server-write-only `waitlist` table
+  (RLS enabled, zero policies) as the page's promoted action over signup
 
 ## To be documented
 - System context diagram

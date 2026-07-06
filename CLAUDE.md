@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 14 — Session lifecycle, overlay UX cleanup, and tutor behavior tuning
+Sprint 20 — Marketing landing page: the extension, on stage
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions

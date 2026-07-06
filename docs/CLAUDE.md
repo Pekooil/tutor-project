@@ -17,7 +17,7 @@
 - TTS: ElevenLabs streaming API
 
 ## Current phase
-Phase 2, Sprint 14
+Phase 2, Sprint 20 (parallel marketing track — Sprint 14's product work remains the sprint pointer for extension/backend scope)
 
 ## File structure reference
 See /docs/architecture.md
