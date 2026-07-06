@@ -372,6 +372,41 @@ to whoever is driving that session, not this one.
 /web/tests/scene.test.ts    ← new — the step-reducer: state at t=0 is empty; steps activate in order at their timestamps; scrub progress maps to the same states as elapsed time; final state includes every step (the reduced-motion frame); loop reset returns to empty; scripts.ts type-checks against the action union and every script's steps are time-ordered (a data lint, cheap and load-bearing).
 ```
 
+**Addendum (Task 10, as built).** `scene.test.ts` was already written in Task
+4 (its addendum said "Task 10 formalizes") — audited line-by-line against
+this task's spec list and every required case is present (t=0 empty,
+in-order activation, scrub↔clock equivalence, composed final frame, loop
+reset, and the data lint over `allScripts`, which also discharges the
+"scripts.ts type-checks" item since the suite imports it under the
+`SceneScript` type); the file was NOT edited this task. `waitlist.test.ts`
+is new: 9 specs importing the route module directly with the service-role
+client `vi.mock`'d at the `@/lib/supabase/admin` boundary (per this task's
+own "service-role client mocked" — and necessarily so, since the real
+module's `server-only` import throws outside Next). Beyond the five
+spec'd cases it pins three adjacent contracts already in the route: unknown
+`source` → stored as null, a DB failure → 500 that does not leak the
+underlying error text, and no GET export. **Out-of-scope edit, recorded per
+the Task 2 `proxy.ts` precedent:** `web/vitest.config.ts` gained a
+`resolve.alias` mapping `@` → the web root (mirroring tsconfig's `@/*`) —
+this is the first test to import an app-route module directly, and without
+the alias neither the route's own `@/` import nor the `vi.mock` specifier
+resolves under vitest; rollup's alias rule (`@` matches only `@/...`)
+leaves `@supabase/*` and `@calyxa/*` untouched. Gate evidence: both suites
+27/27 green; mutation spot-checks all caught — one `scripts.ts` timestamp
+reverted (5300→300) → the data lint failed naming heroSession's exact step;
+`.toLowerCase()` removed from the route → the normalization spec failed;
+`ignoreDuplicates` flipped to false → four specs failed including the
+idempotency one; every mutation restored byte-identical (empty `git diff`)
+and 27/27 re-verified. Full `npm run test`: 4 files pass (envelope, rls,
+scene, waitlist — 79 tests), 7 fail on the identical environmental
+collision — each spawns its own `next dev` (ports 3100–3110) and Next 16
+refuses while the externally-running dev server (the one this session has
+deliberately not killed since Task 7) holds the project directory, so those
+105 tests skip at setup. Zero non-environmental failures; same 7 suites
+Task 6's addendum already named as environment-blocked. **The full-suite
+green run must be repeated with the external dev server stopped — named
+here as a Task 11 item.**
+
 ### Files explicitly out of scope
 ```
 /extension/**                       (nothing on the product side changes, and demo components NEVER import from here — ADR-031)

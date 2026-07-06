@@ -1,6 +1,16 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  resolve: {
+    // Mirror tsconfig's "@/*" → "./*" so modules that import through the
+    // alias resolve under vitest. Added in Sprint 20 Task 10: waitlist.test.ts
+    // is the first test to import an app route module directly (the route's
+    // service-role client is vi.mock'd, so it can't go over HTTP like the
+    // dev-server suites). Rollup alias rules only rewrite "@/..." — scoped
+    // packages like @supabase/* and @calyxa/* are untouched.
+    alias: { '@': fileURLToPath(new URL('.', import.meta.url)) },
+  },
   test: {
     // session.test.ts and ai-turn.test.ts each spawn their own `next dev`
     // (Next.js 16 allows only one dev server per project directory,
