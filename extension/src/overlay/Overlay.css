@@ -312,6 +312,46 @@
   user-select: none;
 }
 
+/* ── The primary box's per-turn ordinal color (Sprint 14 Task 8, ADR-029
+ * amendment) ── set --cx-annot-color to theme.css's --calyxa-annot-1..4
+ * aliases (the SAME per-turn assignment Transcript.tsx's color-linked text
+ * highlight reads, Overlay.tsx's assignAnnotationColors) so .cx-annot-outline
+ * above resolves its stroke from these instead of the amber/blue/green/red
+ * set when the model left style.color unset (AnnotationLayer.tsx's
+ * boxColorClass -- the explicit-color field still wins outright when
+ * present, this is purely the fallback path). A deliberately SEPARATE
+ * namespace from cx-annot-amber/blue/green/red above: ordinal position
+ * (which annotation in this turn) vs. the model's own semantic color
+ * choice, never combined into one class. */
+.cx-annot-box-annot-1 {
+  --cx-annot-color: var(--calyxa-annot-1);
+}
+.cx-annot-box-annot-2 {
+  --cx-annot-color: var(--calyxa-annot-2);
+}
+.cx-annot-box-annot-3 {
+  --cx-annot-color: var(--calyxa-annot-3);
+}
+.cx-annot-box-annot-4 {
+  --cx-annot-color: var(--calyxa-annot-4);
+}
+
+/* The label collision pass's leader line (Sprint 14 Task 8): a short,
+ * subtle stroke from a stacked label back to the box it belongs to --
+ * distinct from cx-annot-stroke's heavier, opaque arrow line (that one
+ * IS the annotation; this one is just a wayfinding hint for a label that
+ * had to move), so it's thinner and semi-transparent rather than a second
+ * bold line competing with the arrow/box for attention. Shares whichever
+ * color class (amber/blue/green/red OR the ordinal box-annot-N set above)
+ * the label itself renders in, so a stacked label still reads as
+ * "belonging to" its own box at a glance. */
+.cx-annot-leader {
+  stroke: var(--cx-annot-color);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.6;
+}
+
 /* Light draw-in transition (Task 6): each newly dispatched shape scales up
  * from 92% while fading in. One-shot per mount — the layer's whole
  * annotation set replaces on every dispatch, so React's key={id} only

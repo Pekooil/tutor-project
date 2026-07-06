@@ -462,6 +462,20 @@ export function Overlay({
   // finishes (finishCloseChoreography below), same lifetime as the
   // transcript it describes.
   const [solutionProgress, setSolutionProgress] = useState(0);
+  // The CURRENT turn's annotation-color assignment (Sprint 14 Task 8): the
+  // same map assignAnnotationColors computed for the just-committed
+  // DisplayMessage (assistantMessageExtras), held separately so it can be
+  // handed to AnnotationLayer as a prop -- content/annotations.ts's active
+  // draw list can be a REORDERED SUBSET of the turn's raw annotations (an
+  // unresolvable target is dropped, per ADR-022's drop-don't-guess), so
+  // AnnotationLayer recomputing its own order-based assignment from its own
+  // (possibly-reduced) draw list would risk a DIFFERENT slot than the one
+  // Transcript already committed for the same id. Passing the one map
+  // computed here keyed by annotation id sidesteps that entirely -- one
+  // source of truth, exactly as Task 7's own comment on
+  // assignAnnotationColors anticipated ("AnnotationLayer reads it too once
+  // Task 8 gives that component a prop for it").
+  const [annotationColors, setAnnotationColors] = useState<AnnotationColorMap>({});
   // The close-choreography state machine (nextCloseState above) + the
   // pending grace/ring timers driving it, so they can be cleared on unmount
   // or if a fresh minimize/expand races them.
@@ -597,6 +611,7 @@ export function Overlay({
     setExpanded(false);
     setMessages([]);
     setSolutionProgress(0);
+    setAnnotationColors({});
     setRecap(null);
     setOverview(null);
     setDragPos(null);
@@ -685,6 +700,8 @@ export function Overlay({
           ...current,
           { role: 'assistant', content: result.reply, ...assistantMessageExtras(result) },
         ]);
+        // Task 8: AnnotationLayer's box-stroke lookup reads the SAME map.
+        setAnnotationColors(assignAnnotationColors(result.annotations));
       })
       .catch((error) => {
         console.debug('Calyxa overlay: opening scan unavailable, opening empty', error);
@@ -791,6 +808,8 @@ export function Overlay({
         ...current,
         { role: 'assistant', content: result.reply, ...assistantMessageExtras(result) },
       ]);
+      // Task 8: AnnotationLayer's box-stroke lookup reads the SAME map.
+      setAnnotationColors(assignAnnotationColors(result.annotations));
       showPings(result.pings);
       applyProgressAndCompletion(result);
     } catch (error) {
@@ -894,6 +913,8 @@ export function Overlay({
         ...current,
         { role: 'assistant', content: result.reply, ...assistantMessageExtras(result) },
       ]);
+      // Task 8: AnnotationLayer's box-stroke lookup reads the SAME map.
+      setAnnotationColors(assignAnnotationColors(result.annotations));
       applyProgressAndCompletion(result);
     } catch (error) {
       setLiveTranscript('');
@@ -1003,7 +1024,7 @@ export function Overlay({
   if (!expanded) {
     return (
       <>
-        <AnnotationLayer />
+        <AnnotationLayer annotationColors={annotationColors} />
         <div className="fixed bottom-6 left-1/2 z-[2147483647] -translate-x-1/2 font-sans motion-safe:animate-[cx-rise_0.42s_cubic-bezier(0.2,0.8,0.2,1)_both]">
           <div className="relative">
             <div
@@ -1043,7 +1064,7 @@ export function Overlay({
 
   return (
     <>
-      <AnnotationLayer />
+      <AnnotationLayer annotationColors={annotationColors} />
       <div
         ref={panelRef}
         className={`fixed z-[2147483647] w-[420px] font-sans text-base text-foreground${isDragging ? ' select-none' : ''}${!dragPos ? ' bottom-7 left-1/2 -translate-x-1/2' : ''}`}
