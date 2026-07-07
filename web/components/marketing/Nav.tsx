@@ -29,8 +29,8 @@ export function Nav() {
           <img src="/logo.svg" alt="Calyxa" className="h-6 w-auto" />
         </Link>
         <div className="hidden items-center gap-8 text-sm font-medium text-muted-foreground sm:flex">
-          <a href="#how-it-works" className="hover:text-foreground">
-            How it works
+          <a href="#session-showcase" className="hover:text-foreground">
+            See it work
           </a>
           <a href="#pricing" className="hover:text-foreground">
             Pricing

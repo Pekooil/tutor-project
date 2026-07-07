@@ -4,7 +4,6 @@ import { Hero } from '@/components/marketing/Hero'
 import { SessionShowcase } from '@/components/marketing/SessionShowcase'
 import { ProfileSection } from '@/components/marketing/ProfileSection'
 import { StudyLoopSection } from '@/components/marketing/StudyLoopSection'
-import { HowItWorks } from '@/components/marketing/HowItWorks'
 import { Pricing } from '@/components/marketing/Pricing'
 import { SocialProof } from '@/components/marketing/SocialProof'
 import { FinalCta } from '@/components/marketing/FinalCta'
@@ -32,10 +31,6 @@ export default function Home() {
 
         <Reveal>
           <StudyLoopSection />
-        </Reveal>
-
-        <Reveal>
-          <HowItWorks />
         </Reveal>
 
         <Reveal>

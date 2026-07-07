@@ -56,19 +56,9 @@
   color: var(--color-accent-emphasis);
 }
 
-/* Oversized decorative step numeral (HowItWorks) — aria-hidden in markup;
- * the <ol> carries the real order. Low-alpha accent-emphasis, non-text
- * decoration, exempt from text-contrast rules. */
-.mkt-ghost-numeral {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 3.5rem;
-  line-height: 1;
-  letter-spacing: -0.02em;
-  color: rgba(22, 101, 52, 0.22);
-}
-
-/* ---- Gradient grounds (decorative only) ---- */
+/* ---- Gradient grounds (decorative only) ----
+ * Applied by ParallaxGround as a section's static base layer, with the
+ * .mkt-blob-* layers drifting over it on scroll (transform-only). */
 
 .mkt-ground-hero {
   background:
@@ -101,6 +91,17 @@
       rgba(255, 255, 255, 0) 75%
     ),
     linear-gradient(180deg, var(--color-background), var(--color-accent-subtle));
+}
+
+/* Parallax blob layers (ParallaxGround) — accent-glow #BBF7D0 and
+ * accent-glow-strong #4ADE80 at low alpha, fading to transparent well
+ * inside their box so a drifting layer never shows an edge. */
+.mkt-blob-glow {
+  background: radial-gradient(closest-side, rgba(187, 247, 208, 0.55), rgba(187, 247, 208, 0) 72%);
+}
+
+.mkt-blob-mint {
+  background: radial-gradient(closest-side, rgba(74, 222, 128, 0.13), rgba(74, 222, 128, 0) 72%);
 }
 
 /* ---- Elevation surfaces ---- */

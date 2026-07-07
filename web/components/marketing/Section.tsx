@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+import { ParallaxGround } from '@/components/marketing/ParallaxGround'
 
 type SectionProps = {
   id?: string
@@ -18,8 +19,9 @@ type SectionProps = {
 // hero (full-bleed, centered) and FinalCta (full-bleed band) don't use this.
 export function Section({ id, kicker, heading, sub, children, className, tone = 'plain' }: SectionProps) {
   return (
-    <section id={id} className={cn(tone === 'wash' && 'mkt-ground-wash', className)}>
-      <div className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
+    <section id={id} className={cn(tone === 'wash' && 'relative overflow-hidden', className)}>
+      {tone === 'wash' && <ParallaxGround variant="wash" />}
+      <div className="relative mx-auto max-w-6xl px-6 py-24 sm:py-32">
         {kicker ? <p className="mkt-kicker">{kicker}</p> : null}
         <h2 className="mkt-display mkt-h2 mt-4 max-w-3xl text-balance text-foreground">{heading}</h2>
         {sub ? (

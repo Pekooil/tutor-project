@@ -49,6 +49,10 @@ export const heroSession: SceneScript = {
     },
     { at: 3300, do: { kind: 'waveform', active: false } },
     { at: 3900, do: { kind: 'bubble', role: 'student', text: "Yeah — I don't know where to start." } },
+    // The overview strip auto-dismisses a few seconds in, exactly like the
+    // real InsightStrip (Sprint 14) — it's a session-open glance, not a
+    // fixture. The recap strip at the end is the other bookend.
+    { at: 4300, do: { kind: 'strip', strip: null } },
     { at: 4900, do: { kind: 'waveform', active: true } },
     {
       at: 4900,

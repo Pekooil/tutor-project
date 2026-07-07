@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { DemoAnnotations, type TargetRect } from './DemoAnnotations'
 import { DemoPanel } from './DemoPanel'
 import { useSceneTimeline } from './useSceneTimeline'
@@ -21,12 +21,38 @@ import type { SceneScript } from './scene'
 const DESIGN_W = 980
 const DESIGN_H = 612
 
+// The floating panel, bottom-center by default — the real overlay's resting
+// spot. Fixed WIDTH only, like the real overlay's w-[420px]: height is
+// intrinsic (the panel itself starts small — title bar + composer, no
+// transcript, no strip — and grows upward as content streams in, since the
+// box is anchored by `bottom` rather than `top`/a fixed `height`). Drag
+// bounds keep it on the page and below the browser chrome; PANEL_H_ESTIMATE
+// is only a rough cap on the FULLY-GROWN panel (transcript + strip window),
+// used to keep a drag from pushing even the tallest state off the top.
+const PANEL_W = 330
+const PANEL_H_ESTIMATE = 460
+const PANEL_DEFAULT = { x: (DESIGN_W - PANEL_W) / 2, bottom: 20 }
+const PANEL_BOUNDS = {
+  minX: 8,
+  maxX: DESIGN_W - PANEL_W - 8,
+  minBottom: 8,
+  maxBottom: DESIGN_H - 48 - PANEL_H_ESTIMATE,
+}
+
+function clampPanel(x: number, bottom: number) {
+  return {
+    x: Math.max(PANEL_BOUNDS.minX, Math.min(PANEL_BOUNDS.maxX, x)),
+    bottom: Math.max(PANEL_BOUNDS.minBottom, Math.min(PANEL_BOUNDS.maxBottom, bottom)),
+  }
+}
+
 export function DemoStage({
   script,
   scrub,
   frameMs,
   alt,
   className,
+  draggable = false,
 }: {
   script: SceneScript
   /** 0..1 scroll progress for scrub mode (Task 6); omit for looping clock mode. */
@@ -35,12 +61,56 @@ export function DemoStage({
   frameMs?: number | null
   alt: string
   className?: string
+  /**
+   * Lets the visitor drag the panel recreation around the fake page (the
+   * hero only) — pointer-driven and mouse/trackpad-gated, so it never
+   * hijacks touch scrolling and adds nothing focusable to the aria-hidden
+   * stage. Same "prove it's not a video" spirit as the selectable page text.
+   */
+  draggable?: boolean
 }) {
   const { ref: timelineRef, state } = useSceneTimeline(script, { scrub, frameMs })
   const outerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const [scale, setScale] = useState(1)
   const rects = useTargetRects(outerRef, canvasRef, state.annotations)
+
+  const [panelPos, setPanelPos] = useState(PANEL_DEFAULT)
+  const [hasDragged, setHasDragged] = useState(false)
+  const [finePointer, setFinePointer] = useState(false)
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; baseX: number; baseBottom: number } | null>(null)
+
+  useEffect(() => {
+    if (!draggable) return
+    const mq = window.matchMedia('(pointer: fine)')
+    const update = () => setFinePointer(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [draggable])
+
+  const canDrag = draggable && finePointer
+
+  const onPanelPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    dragRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, baseX: panelPos.x, baseBottom: panelPos.bottom }
+    e.currentTarget.setPointerCapture(e.pointerId)
+    e.preventDefault()
+  }
+
+  const onPanelPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== e.pointerId || scale <= 0) return
+    // bottom moves OPPOSITE the pointer's vertical delta: dragging up
+    // (negative dy) increases the distance from the stage's bottom edge.
+    const next = clampPanel(drag.baseX + (e.clientX - drag.startX) / scale, drag.baseBottom - (e.clientY - drag.startY) / scale)
+    setPanelPos(next)
+    if (!hasDragged) setHasDragged(true)
+  }
+
+  const onPanelPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId === e.pointerId) dragRef.current = null
+  }
 
   const setOuterRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -93,7 +163,30 @@ export function DemoStage({
           <BrowserChrome />
           <FakeMathPage />
           <DemoAnnotations annotations={state.annotations} rects={rects} width={DESIGN_W} height={DESIGN_H} />
-          <div className="absolute bottom-5 right-5 top-[64px] z-20 w-[330px]">
+          <div
+            className={`absolute z-20 select-none ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''}`}
+            style={{
+              left: panelPos.x,
+              bottom: panelPos.bottom,
+              width: PANEL_W,
+              // No fixed height/top: like the real overlay's w-[420px] panel,
+              // height is intrinsic — the panel starts small (title bar +
+              // composer only) and grows UPWARD as the strip window and
+              // transcript mount, since `bottom` stays anchored.
+              touchAction: canDrag ? 'none' : undefined,
+            }}
+            onPointerDown={canDrag ? onPanelPointerDown : undefined}
+            onPointerMove={canDrag ? onPanelPointerMove : undefined}
+            onPointerUp={canDrag ? onPanelPointerEnd : undefined}
+            onPointerCancel={canDrag ? onPanelPointerEnd : undefined}
+          >
+            {/* The drag cue: gone after the first drag, and yields the
+                above-panel spot whenever a ping toast is up. */}
+            {canDrag && !hasDragged && !state.ping && (
+              <div className="pointer-events-none absolute -top-9 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-(--cx-demo-hairline) bg-background/85 px-3 py-1 shadow-panel backdrop-blur-[18px]">
+                <span className="whitespace-nowrap text-[11.5px] font-medium text-muted-foreground">Drag me</span>
+              </div>
+            )}
             <DemoPanel state={state} />
           </div>
         </div>
@@ -108,6 +201,37 @@ export function DemoStage({
         @media (prefers-reduced-motion: no-preference) {
           .cx-demo-bar { animation-name: cx-demo-bar; animation-timing-function: ease-in-out; animation-iteration-count: infinite; }
           .cx-demo-caret { animation: cx-demo-caret 1s step-end infinite; }
+        }
+        /* The solution-progress bar's glowing knob (Composer.tsx's
+            cx-progress-knob, mirrored exactly): a small circle riding the
+            fill's leading edge, softly glowing, easing along with the bar. */
+        .cx-demo-progress-knob {
+          position: absolute;
+          top: 50%;
+          height: 8px;
+          width: 8px;
+          border-radius: 9999px;
+          background: var(--color-accent-glow-strong);
+          transform: translate(-50%, -50%);
+          box-shadow:
+            0 0 4px 1px var(--color-accent-glow-strong),
+            0 0 8px 2px color-mix(in srgb, var(--color-accent-glow-strong) 55%, transparent);
+          transition: left 0.3s ease-out;
+        }
+        @media (prefers-reduced-motion: no-preference) {
+          .cx-demo-progress-knob { animation: cx-demo-progress-knob-glow 2s ease-in-out infinite; }
+        }
+        @keyframes cx-demo-progress-knob-glow {
+          0%, 100% {
+            box-shadow:
+              0 0 3px 1px var(--color-accent-glow-strong),
+              0 0 6px 2px color-mix(in srgb, var(--color-accent-glow-strong) 45%, transparent);
+          }
+          50% {
+            box-shadow:
+              0 0 5px 1.5px var(--color-accent-glow-strong),
+              0 0 11px 3px color-mix(in srgb, var(--color-accent-glow-strong) 65%, transparent);
+          }
         }
       `}</style>
     </div>

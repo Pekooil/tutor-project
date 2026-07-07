@@ -12,8 +12,8 @@ export function Footer() {
           <div className="flex gap-16 text-sm">
             <div className="flex flex-col gap-2">
               <span className="font-medium text-foreground">Product</span>
-              <a href="#how-it-works" className="text-muted-foreground hover:text-foreground">
-                How it works
+              <a href="#session-showcase" className="text-muted-foreground hover:text-foreground">
+                See it work
               </a>
               <a href="#pricing" className="text-muted-foreground hover:text-foreground">
                 Pricing

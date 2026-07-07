@@ -1,5 +1,6 @@
 import { WaitlistForm } from '@/components/marketing/WaitlistForm'
 import { Reveal } from '@/components/marketing/Reveal'
+import { ParallaxGround } from '@/components/marketing/ParallaxGround'
 import { DemoStage } from '@/components/marketing/demo/DemoStage'
 import { heroSession } from '@/components/marketing/demo/scripts'
 
@@ -12,7 +13,8 @@ import { heroSession } from '@/components/marketing/demo/scripts'
 // CLS stays at zero).
 export function Hero() {
   return (
-    <section id="hero" className="mkt-ground-hero overflow-hidden px-6 pb-24 pt-14 sm:pt-20 lg:pb-28">
+    <section id="hero" className="relative overflow-hidden px-6 pb-24 pt-14 sm:pt-20 lg:pb-28">
+      <ParallaxGround variant="hero" />
       <div className="relative z-10 mx-auto flex max-w-4xl flex-col items-center text-center">
         <p className="mkt-chip">Chrome extension · Waitlist open</p>
         <h1 className="mkt-display mkt-h1 mt-7 text-balance text-foreground">
@@ -30,6 +32,7 @@ export function Hero() {
         <Reveal delay={0.15}>
           <div className="mkt-stage">
             <DemoStage
+              draggable
               script={heroSession}
               alt="A live demo of a Calyxa tutoring session: the tutor annotates the equation x² + 5x + 6 = 0 on a practice page, asks guiding questions while a solution progress bar fills, flags a sign-error weak spot, fires a 'Gap closed: sign errors' ping when the student self-corrects, and closes with a session recap."
             />

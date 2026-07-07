@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { motion, useReducedMotion } from 'motion/react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { CalyxaMark } from '@calyxa/ui'
 import { CornerDownLeft } from 'lucide-react'
 import { segmentText, type SceneBubble, type SceneState, type StripState, type TagKind } from './scene'
@@ -26,24 +26,46 @@ const TAG_KIND_PREFIX: Record<TagKind, string> = {
 }
 
 export function DemoPanel({ state }: { state: SceneState }) {
+  const hasContent = state.bubbles.length > 0
   return (
-    <div className="relative h-full">
+    <div className="relative flex flex-col items-stretch">
       <DemoPing label={state.ping?.label ?? null} />
-      <div className="flex h-full flex-col overflow-hidden rounded-[16px] border border-(--cx-demo-hairline) bg-background shadow-panel">
-        <PanelTitleBar speaking={state.waveform} />
-        <PanelTranscript state={state} />
+      {/* The pre/post-session summary (InsightStrip.tsx's Sprint 14 fix
+          pass): a small floating WINDOW that sits ABOVE the whole panel —
+          not a card wedged inside it. It slides + fades in when it first
+          appears and back out when it auto-dismisses (scripts.ts's `strip:
+          null` step), exactly like the real cx-strip-window. Because the
+          panel below is anchored by `bottom` (DemoStage), this window
+          stacking above it pushes the WHOLE composition upward — the panel
+          never moves, the stack just grows, same as the product. */}
+      <AnimatePresence initial={false}>
         {state.strip && (
           <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2, ease: [0, 0, 0.2, 1] }}
-            className="px-4 pb-1"
+            key={state.strip.variant}
+            initial={{ opacity: 0, y: 10, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.97 }}
+            transition={{ duration: 0.28, ease: [0, 0, 0.2, 1] }}
+            style={{ transformOrigin: 'bottom center' }}
+            className="mb-2"
           >
             <StripCard strip={state.strip} />
           </motion.div>
         )}
-        <PanelComposer progress={state.progress} recording={false} />
-      </div>
+      </AnimatePresence>
+      <motion.div
+        layout
+        transition={{ duration: 0.25, ease: [0, 0, 0.2, 1] }}
+        className="flex flex-col overflow-hidden rounded-[16px] border border-(--cx-demo-hairline) bg-background shadow-panel"
+      >
+        <PanelTitleBar speaking={state.waveform} />
+        {/* The chat area only renders once there's something to show — the
+            real overlay's `hasContent` gate (Overlay.tsx) — so the panel
+            starts as just the title bar + composer, no gap, and grows as
+            the transcript fills in. */}
+        {hasContent && <PanelTranscript state={state} />}
+        <PanelComposer progress={state.progress} hasContent={hasContent} recording={false} />
+      </motion.div>
     </div>
   )
 }
@@ -94,7 +116,12 @@ function PanelTranscript({ state }: { state: SceneState }) {
   return (
     <div
       ref={scrollRef}
-      className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      // max-h-[214px] mirrors the real overlay's max-h-[272px] chat area,
+      // scaled to this panel's 330px width (real panel is 420px wide) — the
+      // panel's HEIGHT is intrinsic now (DemoStage anchors by `bottom`), so
+      // this cap is what keeps a long conversation scrolling instead of
+      // growing the panel without bound.
+      className="flex max-h-[214px] flex-col gap-2.5 overflow-y-auto px-4 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {state.bubbles.map((bubble, index) => (
         <Bubble key={index} bubble={bubble} />
@@ -219,12 +246,14 @@ function TypingIndicator() {
   )
 }
 
-// InsightStrip.tsx's overview/recap cards, compacted to the Sprint 14
-// above-the-composer placement.
+// InsightStrip.tsx's overview/recap cards — the same glassy floating-window
+// surface as the real thing (bg-background/90 + shadow-panel + backdrop-blur)
+// now that this renders in DemoPanel as a window ABOVE the panel, not a flat
+// card wedged inside it.
 function StripCard({ strip }: { strip: StripState }) {
   if (strip.variant === 'overview') {
     return (
-      <div className="flex flex-col gap-2 rounded-lg border border-(--cx-demo-hairline) bg-surface px-3.5 py-2.5">
+      <div className="flex flex-col gap-2 rounded-lg border border-(--cx-demo-hairline) bg-background/90 px-3.5 py-3 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
         <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Where you are</p>
         <div className="flex flex-col gap-1.5">
           {strip.mastery.map((node) => (
@@ -248,7 +277,7 @@ function StripCard({ strip }: { strip: StripState }) {
   }
 
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-(--cx-demo-hairline) bg-surface px-3.5 py-2.5">
+    <div className="flex flex-col gap-1.5 rounded-lg border border-(--cx-demo-hairline) bg-background/90 px-3.5 py-3 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
       <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Session recap</p>
       {strip.concepts.map((concept) => (
         <div key={concept.title} className="flex items-center justify-between gap-2">
@@ -279,15 +308,25 @@ function StripCard({ strip }: { strip: StripState }) {
 // Composer.tsx's input row plus Sprint 14's two target additions: the thin,
 // low-saturation solution-progress bar inside the composer frame (ADR-028)
 // and the ↵ send icon.
-function PanelComposer({ progress, recording }: { progress: number; recording: boolean }) {
+function PanelComposer({ progress, hasContent, recording }: { progress: number; hasContent: boolean; recording: boolean }) {
   return (
-    <div className="flex-none border-t border-(--cx-demo-hairline) px-[18px] pb-[14px] pt-2.5">
-      <div className="mb-2.5 h-[3px] w-full overflow-hidden rounded-full bg-(--cx-demo-hairline)">
-        <div
-          className="h-full rounded-full bg-accent-glow-strong transition-[width] duration-500 ease-out"
-          style={{ width: `${Math.round(progress * 100)}%` }}
-        />
-      </div>
+    <div className={`px-[18px] pb-[14px] pt-2.5 ${hasContent ? 'border-t border-(--cx-demo-hairline)' : ''}`}>
+      {/* Hidden entirely at 0 — an unstarted problem shows no track at all,
+          same as Composer.tsx — so the demo panel's very first frame is just
+          the title bar and the input row, nothing else. */}
+      {progress > 0 && (
+        <div className="relative mb-2.5 h-[3px] w-full">
+          <div className="h-full w-full overflow-hidden rounded-full bg-(--cx-demo-hairline)">
+            <div
+              className="h-full rounded-full bg-accent-glow-strong transition-[width] duration-500 ease-out"
+              style={{ width: `${Math.round(progress * 100)}%` }}
+            />
+          </div>
+          {/* The glowing knob riding the fill's leading edge (Composer.tsx's
+              cx-progress-knob, mirrored via DemoStage's scoped styles). */}
+          <span aria-hidden="true" className="cx-demo-progress-knob" style={{ left: `${Math.round(progress * 100)}%` }} />
+        </div>
+      )}
       <div className="flex items-center gap-2 rounded-full border border-(--cx-demo-hairline) bg-background py-[7px] pl-[18px] pr-[7px] shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
         {recording ? (
           <div className="flex h-[34px] flex-1 items-center justify-center">
