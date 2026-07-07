@@ -120,7 +120,43 @@ live use and are launch-gating for beta:
 
 ### Amendment box — wrong-voice root cause (Task 7)
 
-*Not yet filled in — Task 7 has not run. Per this ADR's Decision 3, whatever
-Task 7 finds (env drift, an unpinned parameter, an ElevenLabs-side behavior,
-or no reproduction at all) gets recorded here honestly once that task
-executes.*
+**Not reproduced this session — pinned defensively.** The two candidate
+causes named in this ADR's Decision 3 were checked, not just assumed:
+
+- **Env drift between environments.** This requires a SECOND environment
+  (a deployed backend) to compare `ELEVENLABS_VOICE_ID` against the local
+  dev value. None exists yet — the project has not been deployed to
+  production at the time this task ran (no `NEXT_PUBLIC_SITE_URL` beyond
+  the localhost fallback, per the Sprint 20 marketing-launch notes). There
+  is nothing to diff against, so this cause class is neither confirmed nor
+  ruled out — only closed defensively by the boot-time assertion below,
+  which will now fail loud the moment a deployed environment's env var is
+  ever unset or malformed, instead of silently shipping a wrong/empty id.
+- **Unpinned synthesis parameters.** Confirmed as a real gap: the request
+  body only ever set `model_id`, never `voice_settings` — every request
+  rode ElevenLabs' provider-side default stability/similarity/style values.
+  Whether this specific gap ever caused the LIVE symptom is unverified (no
+  live ElevenLabs account was exercised this session), but it is a genuine,
+  fixed drift-risk regardless of whether it was the actual cause.
+
+**Fixed regardless of root-cause confirmation** (`web/lib/voice/elevenlabs.ts`):
+`model_id` and a new `voice_settings` object (`stability: 0.5,
+similarity_boost: 0.75, style: 0, use_speaker_boost: true` — ElevenLabs' own
+documented defaults, pinned as constants rather than left to provider-side
+defaults that can shift) now ride every request explicitly; a module-load
+assertion fails loud at import time if `ELEVENLABS_VOICE_ID` is unset, too
+short, or contains whitespace (deliberately lenient about exact ID shape —
+see the function's own comment); a per-request `console.debug` logs the
+exact `voiceId`/`modelId` sent (ids only, never turn text) as the
+reproduction aid for whenever a deployed environment exists to compare
+against. `web/tests/voice.test.ts` gained a test asserting the fake
+provider actually receives both pinned fields — verified to fail when the
+pin is reverted (checked by hand this session, then restored).
+
+**Still open, Darcy's manual gate (same class as Tasks 5/6's real-device
+items):** 10 consecutive live voice turns confirming the configured voice,
+and — once a second (deployed) environment exists — an actual env-parity
+diff of `ELEVENLABS_VOICE_ID` across environments. If the defect recurs
+after this fix, it is something this ADR's two named suspects didn't
+cover (e.g. an ElevenLabs-side behavior) and needs a fresh investigation,
+not a re-application of this task's pin.

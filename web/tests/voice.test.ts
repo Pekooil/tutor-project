@@ -67,6 +67,11 @@ let whisperResponse: FakeJsonResponse = { status: 200, body: { text: 'a known tr
 let ttsResponse: FakeAudioResponse = { status: 200, bytes: Buffer.from('a known audio payload') }
 let whisperCalls = 0
 let ttsCalls = 0
+// Captures the JSON body of the MOST RECENT /text-to-speech/*/stream
+// request the fake provider received (Sprint 15 Task 7) -- lets tests
+// assert on exactly what elevenlabs.ts actually sent, the same way the
+// existing *Calls counters assert on whether it was called at all.
+let lastTtsRequestBody: Record<string, unknown> | null = null
 
 function startFakeProviders(): Promise<Server> {
   return new Promise((resolveServer) => {
@@ -84,6 +89,11 @@ function startFakeProviders(): Promise<Server> {
 
         if (req.url?.startsWith('/text-to-speech/') && req.url.endsWith('/stream')) {
           ttsCalls++
+          try {
+            lastTtsRequestBody = JSON.parse(Buffer.concat(chunks).toString('utf-8'))
+          } catch {
+            lastTtsRequestBody = null
+          }
           const { status, bytes, headers } = ttsResponse
           res.writeHead(status, { 'Content-Type': 'audio/mpeg', ...headers })
           res.end(bytes ?? Buffer.alloc(0))
@@ -201,6 +211,7 @@ beforeEach(() => {
   ttsCalls = 0
   whisperResponse = { status: 200, body: { text: 'a known transcript' } }
   ttsResponse = { status: 200, bytes: Buffer.from('a known audio payload') }
+  lastTtsRequestBody = null
 })
 
 describe('/api/voice/stt', () => {
@@ -302,6 +313,25 @@ describe('/api/voice/tts', () => {
     const bytes = Buffer.from(await res.arrayBuffer())
     expect(bytes.toString()).toBe('a known audio payload')
     expect(ttsCalls).toBe(1)
+  })
+
+  it('pins model_id and voice_settings explicitly on every request (Sprint 15 Task 7, ADR-033)', async () => {
+    const res = await tts(token, { text: 'How do I factor this?' })
+
+    expect(res.status).toBe(200)
+    // Must match web/lib/voice/elevenlabs.ts's MODEL_ID/VOICE_SETTINGS
+    // constants exactly -- this test fails the moment either pin is
+    // dropped from the request body (verified by reverting one, Task 7's
+    // own acceptance gate), which is the whole point: a request that
+    // silently falls back to ElevenLabs' provider-side defaults is exactly
+    // the drift class ADR-033 closes.
+    expect(lastTtsRequestBody?.model_id).toBe('eleven_flash_v2_5')
+    expect(lastTtsRequestBody?.voice_settings).toEqual({
+      stability: 0.5,
+      similarity_boost: 0.75,
+      style: 0,
+      use_speaker_boost: true,
+    })
   })
 
   it('rejects empty text with 400 and never calls ElevenLabs', async () => {

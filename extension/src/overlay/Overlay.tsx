@@ -1471,27 +1471,60 @@ async function playAudioStreamWithTextReveal(
   }
   audio.addEventListener('timeupdate', onTimeUpdate);
 
+  // Every failure mode below funnels through failNow instead of being
+  // handled locally. A prior version of this function only listened for
+  // 'error' on the MediaSource itself -- a SourceBuffer append/decode
+  // failure (the far more common real-world failure) fires 'error' on the
+  // SourceBuffer instead, which was NOT listened for: `appending` stayed
+  // true forever, `updateend` never came, and the drain loop further down
+  // spun waiting on an event that would never fire -- a multi-second (or
+  // indefinite) stall that looked like "it's just slow" rather than a
+  // clean, fast fallback. Likewise a mid-stream `audio` 'error' used to
+  // just quietly resolve `playbackEnded`, silently truncating the reply
+  // with no fallback attempted. Routing all three through one rejecting
+  // promise means every failure path now hits the SAME catch block below
+  // and falls back the SAME way, instead of three different degraded
+  // behaviors.
+  let failNow: (error: Error) => void = () => {};
+  const failed = new Promise<never>((_, reject) => {
+    failNow = reject;
+  });
+  mediaSource.addEventListener('error', () => failNow(new Error('MediaSource failed to open')), { once: true });
+  audio.addEventListener('error', () => failNow(new Error('Audio element playback failed')), { once: true });
+
   const playbackEnded = new Promise<void>((resolve) => {
     audio.addEventListener('ended', () => resolve(), { once: true });
-    audio.addEventListener('error', () => resolve(), { once: true });
     audio.addEventListener('pause', () => resolve(), { once: true });
   });
 
+  // Bounds the SETUP phase only (call -> first playable audio), not total
+  // playback -- a long reply legitimately takes a while to finish
+  // streaming, but time-to-FIRST-audio is exactly the metric this task is
+  // supposed to hit a ≤2.5s p50 on, so setup itself must never be allowed
+  // to hang past a fixed budget waiting on a browser/network condition
+  // that isn't coming. Cleared the moment audio.play() actually fires.
+  const setupTimeout = setTimeout(() => {
+    failNow(new Error('TTS streaming setup timed out'));
+  }, 4000);
+
   try {
-    const sourceBuffer = await new Promise<SourceBuffer>((resolve, reject) => {
-      mediaSource.addEventListener(
-        'sourceopen',
-        () => {
-          try {
-            resolve(mediaSource.addSourceBuffer(TTS_STREAM_MIME_TYPE));
-          } catch (error) {
-            reject(error instanceof Error ? error : new Error('addSourceBuffer failed'));
-          }
-        },
-        { once: true },
-      );
-      mediaSource.addEventListener('error', () => reject(new Error('MediaSource failed to open')), { once: true });
-    });
+    const sourceBuffer = await Promise.race([
+      new Promise<SourceBuffer>((resolve, reject) => {
+        mediaSource.addEventListener(
+          'sourceopen',
+          () => {
+            try {
+              resolve(mediaSource.addSourceBuffer(TTS_STREAM_MIME_TYPE));
+            } catch (error) {
+              reject(error instanceof Error ? error : new Error('addSourceBuffer failed'));
+            }
+          },
+          { once: true },
+        );
+      }),
+      failed,
+    ]);
+    sourceBuffer.addEventListener('error', () => failNow(new Error('SourceBuffer append failed')));
 
     // A SourceBuffer accepts exactly one appendBuffer at a time -- a second
     // call before 'updateend' fires for the first throws. Chunks queue here
@@ -1511,40 +1544,36 @@ async function playAudioStreamWithTextReveal(
       appending = false;
       if (!playCalled) {
         playCalled = true;
-        void audio.play().catch(() => {
-          // A play() rejection (autoplay policy, decode failure) surfaces
-          // via the 'error'/'pause' listeners above, which resolve
-          // playbackEnded -- nothing further to do here.
-        });
+        clearTimeout(setupTimeout);
+        audio.play().catch((error) => failNow(error instanceof Error ? error : new Error('audio.play() rejected')));
       }
       pump();
     });
 
-    const streamDone = synthesizeStream(text, (chunk) => {
-      pending.push(chunk);
-      pump();
-    });
-
-    const { ttsMs } = await streamDone;
+    const { ttsMs } = await Promise.race([
+      synthesizeStream(text, (chunk) => {
+        pending.push(chunk);
+        pump();
+      }),
+      failed,
+    ]);
     void ttsMs; // surfaced for future latency telemetry; the route's x-tts-ms header is the source of truth today
 
     // Don't close the stream while a chunk is still mid-append or queued --
     // endOfStream() throws if called during an in-flight update.
     while (appending || pending.length > 0) {
-      await new Promise<void>((resolve) => sourceBuffer.addEventListener('updateend', () => resolve(), { once: true }));
+      await Promise.race([
+        new Promise<void>((resolve) => sourceBuffer.addEventListener('updateend', () => resolve(), { once: true })),
+        failed,
+      ]);
     }
     if (mediaSource.readyState === 'open') mediaSource.endOfStream();
-  } catch (error) {
-    setPlaying(false);
-    audioRef.current = null;
-    URL.revokeObjectURL(url);
-    audio.removeEventListener('timeupdate', onTimeUpdate);
-    throw error instanceof Error ? error : new Error('TTS streaming failed');
-  }
 
-  try {
-    await playbackEnded;
+    await Promise.race([playbackEnded, failed]);
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('TTS streaming failed');
   } finally {
+    clearTimeout(setupTimeout);
     setPlaying(false);
     audioRef.current = null;
     URL.revokeObjectURL(url);
