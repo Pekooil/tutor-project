@@ -109,6 +109,65 @@ describe('parseEnvelope: degrade-to-say (the tutor is never blanked)', () => {
   })
 })
 
+describe('parseEnvelope: NEW curriculum keys parse and validate (ADR-032, Sprint 15 Task 8)', () => {
+  // The positive-path counterpart to the "nulls a bogus key" tests below --
+  // assessments carrying a real key from the launch-scale curriculum (not
+  // one of the frozen eight) must parse straight through against the FULL
+  // CONCEPT_KEYS list, not just the prompt's bounded subset (ADR-032's
+  // Task 4 note: a correct key outside the injected subset is kept, never
+  // dropped, since envelope.ts always validates against the full list).
+  const NEW_CALCULUS_KEY = 'calculus.differentiation.chain-rule'
+  const NEW_GEOMETRY_KEY = 'geometry.trig.right-triangle'
+
+  it('a calculus key added in Task 2 validates against the full list', () => {
+    expect(CONCEPT_KEYS).toContain(NEW_CALCULUS_KEY)
+
+    const envelope = parseEnvelope(
+      validEnvelopeJson({
+        assessment: {
+          concept_key: NEW_CALCULUS_KEY,
+          outcome: 'correct',
+          reasoning_quality: 'sound',
+          self_confidence: 'high',
+          confidence: 'high',
+        },
+      })
+    )
+
+    expect(envelope.assessment?.conceptKey).toBe(NEW_CALCULUS_KEY)
+  })
+
+  it('a geometry key added in Task 2 validates against the full list', () => {
+    expect(CONCEPT_KEYS).toContain(NEW_GEOMETRY_KEY)
+
+    const envelope = parseEnvelope(
+      validEnvelopeJson({
+        assessment: {
+          concept_key: NEW_GEOMETRY_KEY,
+          outcome: 'correct',
+          reasoning_quality: 'sound',
+          self_confidence: 'high',
+          confidence: 'high',
+        },
+      })
+    )
+
+    expect(envelope.assessment?.conceptKey).toBe(NEW_GEOMETRY_KEY)
+  })
+
+  it('a NEW curriculum key also validates in a profile_tag (known-gap), not just assessment', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({
+        profile_tags: [{ kind: 'known-gap', concept_key: NEW_CALCULUS_KEY, label: 'sign errors on the inner derivative' }],
+      })
+    )
+
+    expect(envelope.profileTags).toEqual([
+      { kind: 'known-gap', conceptKey: NEW_CALCULUS_KEY, label: 'sign errors on the inner derivative' },
+    ])
+  })
+})
+
 describe('parseEnvelope: field-level validation', () => {
   it('nulls an assessment.concept_key outside CONCEPT_KEYS instead of letting it leak', () => {
     const envelope = parseEnvelope(

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useReducer,
   useRef,
   useState,
   type FormEvent,
@@ -24,6 +25,7 @@ import { PingToasts } from './PingToasts';
 import { TitleBar } from './TitleBar';
 import { Transcript } from './Transcript';
 import { startRecording, type RecordingHandle, type Utterance } from './VoiceController';
+import { micStateReducer, wordsDueByTime } from './voice-timing';
 
 // The panel-close signal (Sprint 12 Task 6): dispatched from handleClose
 // below so the annotation controller (content/annotations.ts, Task 7) can
@@ -416,13 +418,16 @@ export function Overlay({
   // never re-trigger the cx-word-in entry animation.
   const [streamingTokens, setStreamingTokens] = useState<{ text: string; id: number }[]>([]);
   const tokenIdRef = useRef(0);
-  const [recording, setRecording] = useState(false);
-  // Task 5 (ADR-033): flips true SYNCHRONOUSLY on mic click (the UI-ack
-  // budget, ≤100ms -- trivially met since it's a plain setState in the same
-  // handler tick), false again once `recording` goes true OR on any error.
-  // Never true at the same time as `recording` -- the composer renders one
-  // honest state at a time: idle -> connecting -> listening.
-  const [connecting, setConnecting] = useState(false);
+  // idle -> connecting -> recording, and back to idle on stop or capture
+  // failure (ADR-033 Task 5; the reducer itself is pure and pinned by
+  // voice-timing.test.ts, Task 8). `connecting` flips true SYNCHRONOUSLY on
+  // mic click (the UI-ack budget, ≤100ms -- trivially met since dispatch is
+  // a plain state update in the same handler tick); `recording` and
+  // `connecting` are never true at once -- the composer renders one honest
+  // state at a time: idle -> connecting -> listening.
+  const [micState, dispatchMic] = useReducer(micStateReducer, 'idle' as const);
+  const recording = micState === 'recording';
+  const connecting = micState === 'connecting';
   const [playing, setPlaying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [level, setLevel] = useState(0);
@@ -894,7 +899,7 @@ export function Overlay({
     // Task 5 (ADR-033): the UI acknowledges the click IMMEDIATELY, before any
     // async work -- never the fake "recording" state, but never silence
     // either. `recording` itself only flips once capture is actually live.
-    setConnecting(true);
+    dispatchMic('click');
     const clickAt = performance.now();
 
     // Parallelized with startRecording() below (Task 5) -- both do their own
@@ -908,14 +913,13 @@ export function Overlay({
         console.debug(`[calyxa voice] click→capturing (outer): ${Math.round(performance.now() - clickAt)}ms`);
       }
       recordingRef.current = handle;
-      setRecording(true);
-      setConnecting(false);
+      dispatchMic('capture-started');
       startLevelMeter();
     } catch (error) {
       speechRecRef.current?.stop();
       speechRecRef.current = null;
       setLiveTranscript('');
-      setConnecting(false);
+      dispatchMic('capture-failed');
       const message = error instanceof Error ? error.message : 'Microphone is unavailable.';
       setNotice(`${message} Use the text input instead.`);
     } finally {
@@ -927,7 +931,7 @@ export function Overlay({
     const handle = recordingRef.current;
     if (!handle) return;
     recordingRef.current = null;
-    setRecording(false);
+    dispatchMic('stop');
     stopLevelMeter();
     // Stop SR updates but keep liveTranscript visible so there is no gap
     // between "user stopped speaking" and "Whisper result appears".
@@ -1444,10 +1448,7 @@ async function playAudioStreamWithTextReveal(
   let playbackStarted = false;
 
   function revealDueWords() {
-    const dueCount = Math.min(
-      words.length,
-      Math.floor((audio.currentTime * 1000) / STREAM_REVEAL_MS_PER_WORD) + 1,
-    );
+    const dueCount = wordsDueByTime(audio.currentTime * 1000, STREAM_REVEAL_MS_PER_WORD, words.length);
     while (wordIndex < dueCount) {
       // Space prefix on all words after the first, same reconstruction
       // contract as the buffered path's reveal loop above.

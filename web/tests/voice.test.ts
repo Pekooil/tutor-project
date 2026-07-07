@@ -72,6 +72,13 @@ let ttsCalls = 0
 // assert on exactly what elevenlabs.ts actually sent, the same way the
 // existing *Calls counters assert on whether it was called at all.
 let lastTtsRequestBody: Record<string, unknown> | null = null
+// When set, the fake TTS endpoint writes each chunk with a delay in between
+// instead of a single res.end() (Sprint 15 Task 8) -- this is what lets the
+// streaming test below tell a genuine server-side pass-through (Task 6)
+// apart from a route that still buffers the whole reply before responding:
+// only a real pass-through can deliver the FIRST chunk well before the LAST
+// one has even been produced by the (fake) provider.
+let ttsChunkPlan: { chunks: Buffer[]; delayMs: number } | null = null
 
 function startFakeProviders(): Promise<Server> {
   return new Promise((resolveServer) => {
@@ -94,6 +101,24 @@ function startFakeProviders(): Promise<Server> {
           } catch {
             lastTtsRequestBody = null
           }
+
+          if (ttsChunkPlan) {
+            const { chunks: planChunks, delayMs } = ttsChunkPlan
+            res.writeHead(200, { 'Content-Type': 'audio/mpeg' })
+            let index = 0
+            const writeNext = () => {
+              if (index >= planChunks.length) {
+                res.end()
+                return
+              }
+              res.write(planChunks[index])
+              index++
+              setTimeout(writeNext, delayMs)
+            }
+            writeNext()
+            return
+          }
+
           const { status, bytes, headers } = ttsResponse
           res.writeHead(status, { 'Content-Type': 'audio/mpeg', ...headers })
           res.end(bytes ?? Buffer.alloc(0))
@@ -212,6 +237,7 @@ beforeEach(() => {
   whisperResponse = { status: 200, body: { text: 'a known transcript' } }
   ttsResponse = { status: 200, bytes: Buffer.from('a known audio payload') }
   lastTtsRequestBody = null
+  ttsChunkPlan = null
 })
 
 describe('/api/voice/stt', () => {
@@ -332,6 +358,44 @@ describe('/api/voice/tts', () => {
       style: 0,
       use_speaker_boost: true,
     })
+  })
+
+  it('streams the response body through as it arrives, rather than buffering server-side (Sprint 15 Task 6, ADR-033)', async () => {
+    // Three chunks, 250ms apart -- if the route buffered the whole reply
+    // before responding (the pre-Task-6 behavior), the client would only
+    // ever observe one read resolving with everything at once, ~750ms+
+    // after the request; a real pass-through delivers the first chunk
+    // almost immediately and the rest as they land.
+    ttsChunkPlan = {
+      chunks: [Buffer.from('chunk-one-'), Buffer.from('chunk-two-'), Buffer.from('chunk-three')],
+      delayMs: 250,
+    }
+
+    const startedAt = Date.now()
+    const res = await tts(token, { text: 'stream this reply' })
+    expect(res.status).toBe(200)
+    expect(res.body).not.toBeNull()
+
+    const reader = res.body!.getReader()
+    const { value: firstChunk, done: firstDone } = await reader.read()
+    const firstChunkAt = Date.now() - startedAt
+    expect(firstDone).toBe(false)
+    expect(firstChunk).toBeDefined()
+
+    // Drain the rest.
+    let allDone = false
+    while (!allDone) {
+      const { done } = await reader.read()
+      allDone = done
+    }
+    const totalAt = Date.now() - startedAt
+
+    // The first chunk arrives well before the full 500ms (2 delays) it takes
+    // the fake provider to produce the LAST one -- proof this is a genuine
+    // pass-through, not a buffer-then-relay that would make firstChunkAt and
+    // totalAt roughly equal.
+    expect(firstChunkAt).toBeLessThan(400)
+    expect(totalAt - firstChunkAt).toBeGreaterThanOrEqual(400)
   })
 
   it('rejects empty text with 400 and never calls ElevenLabs', async () => {
