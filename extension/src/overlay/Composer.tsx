@@ -59,16 +59,30 @@ export function Composer({
       {/* The solution-progress bar (Sprint 14 Task 7, ADR-028): thin,
           low-saturation, persistent -- visually distinct from the strip's
           brighter, transient auto-dismiss bar (InsightStrip.tsx). Hidden
-          entirely at 0 so an unstarted problem shows no track at all. */}
+          entirely at 0 so an unstarted problem shows no track at all. The
+          outer container is NOT clipped so the glowing knob (Sprint 14 fix
+          pass) can spill its soft glow past the thin track; the fill itself
+          keeps its own rounded clip. */}
       {solutionProgress > 0 && (
         <div
           role="img"
           aria-label={`Progress on this problem: ${Math.round(solutionProgress * 100)} percent`}
-          className="mb-2 h-[3px] w-full overflow-hidden rounded-full bg-border"
+          className="relative mb-2 h-[3px] w-full"
         >
-          <div
-            className="cx-progress-fill h-full rounded-full transition-[width] duration-300 ease-out"
-            style={{ width: `${Math.round(Math.max(0, Math.min(1, solutionProgress)) * 100)}%` }}
+          <div className="h-full w-full overflow-hidden rounded-full bg-border">
+            <div
+              className="cx-progress-fill h-full rounded-full transition-[width] duration-300 ease-out"
+              style={{ width: `${Math.round(Math.max(0, Math.min(1, solutionProgress)) * 100)}%` }}
+            />
+          </div>
+          {/* The glowing knob (Sprint 14 fix pass): a small circle riding the
+              head of the fill, with a soft glow. Positioned by the same
+              clamped percent the fill uses, so it always sits at the fill's
+              leading edge and eases along with it. */}
+          <span
+            aria-hidden="true"
+            className="cx-progress-knob"
+            style={{ left: `${Math.round(Math.max(0, Math.min(1, solutionProgress)) * 100)}%` }}
           />
         </div>
       )}

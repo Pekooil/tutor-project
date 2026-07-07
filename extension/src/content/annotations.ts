@@ -163,6 +163,43 @@ export function normalizeMatchText(value: string): string {
   return foldMatchSymbols(value).replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+// Unicode superscript digits -> their ASCII equivalents, folded together with
+// the exponent-notation stripping below. A model that writes "5t²" and a
+// KaTeX render whose textContent reads "5t2" mean the same term.
+const SUPERSCRIPT_DIGITS: Readonly<Record<string, string>> = {
+  '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4',
+  '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9',
+};
+
+// The DEEPER, notation-folding normalisation used ONLY by the last-resort
+// registry tier (matchRegistryEntries) and the sub-term leaf walk
+// (findLeafRun) below -- deliberately NOT part of normalizeMatchText, whose
+// caret-PRESERVING contract the exact/substring tiers and the Sprint 12 specs
+// depend on. Real-world miss, found on Khan Academy: it renders math with
+// KaTeX in html-only mode, so the extractor captures each equation's `text`
+// as the KaTeX wrapper's textContent -- and an exponent like "5t^2" renders
+// there as the bare characters "5t2" (superscript is a plain "2", the caret
+// never appears as a glyph). The model, meanwhile, naturally writes the
+// exponent form "5t^2" (or "5t²", or the LaTeX "5t^{2}") into target.text --
+// which is why the chat bubble's color-link (a literal substring match
+// against `say`) lights up while the on-page box silently drops: "5t^2" is
+// not a substring of "5t2". Folding out the structural exponent notation
+// (caret, LaTeX grouping braces, unicode superscripts -- none of which are
+// ever a visible glyph in the rendered math) unifies the two forms so the
+// box resolves too. Narrow by design: it removes only notation that carries
+// no glyph of its own, never a semantic rewrite.
+export function foldNotation(value: string): string {
+  return normalizeMatchText(value)
+    .replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, (digit) => SUPERSCRIPT_DIGITS[digit])
+    .replace(/[\^{}]/g, '')
+    // Whitespace stripped, not just collapsed: KaTeX html textContent runs
+    // terms together with no spaces ("8t2-8t"), while the model writes them
+    // spaced ("8t^2 - 8t"). Applied to both sides in this tier, so alignment
+    // holds; safe here because this fold is only ever a whole-string
+    // containment test, never an offset-sensitive one.
+    .replace(/\s+/g, '');
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -239,7 +276,28 @@ export function matchRegistryEntries(
       ? substringCandidates
       : [];
 
-  return [...exact, ...substring];
+  // Last-resort tier (Sprint 14 fix -- Khan Academy KaTeX): try again with
+  // the exponent-notation fold, so "5t^2"/"5t²"/"5t^{2}" match a KaTeX
+  // textContent field that reads "5t2". Only entries the two tiers above did
+  // NOT already claim, and only when the folded target is unambiguous by the
+  // SAME rule the substring tier uses (>= MIN chars OR unique to one entry) --
+  // a short, generic folded fragment must not guess which equation it belongs
+  // to, exactly as MIN_SUBSTRING_MATCH_CHARS protects the plain substring tier.
+  const foldedTarget = foldNotation(targetText);
+  const claimed = new Set([...exact, ...substring]);
+  const notationCandidates = foldedTarget
+    ? registry.filter(
+        (entry) =>
+          !claimed.has(entry) &&
+          fieldsOf(entry.equation).some((field) => foldNotation(field).includes(foldedTarget)),
+      )
+    : [];
+  const notation =
+    foldedTarget.length >= MIN_SUBSTRING_MATCH_CHARS || notationCandidates.length === 1
+      ? notationCandidates
+      : [];
+
+  return [...exact, ...substring, ...notation];
 }
 
 // Sanity-clamps a bbox to the viewport. Non-finite or non-positive
@@ -362,7 +420,19 @@ export function findLeafRun(
   leafTexts: readonly string[],
   targetText: string,
 ): { start: number; end: number } | undefined {
-  const fold = (value: string) => foldMatchSymbols(value).toLowerCase().replace(/\s+/g, '');
+  // Folds the SAME structural exponent notation foldNotation strips (caret,
+  // LaTeX braces, unicode superscripts -- none render as a glyph, so removing
+  // them keeps the leaf-offset alignment intact) so a target like "5t^2"
+  // locates precisely within KaTeX leaves whose textContent reads "5","t","2"
+  // -- otherwise the caret fails the leaf walk and the box falls back to the
+  // whole equation. Whitespace is STRIPPED, not collapsed, per this
+  // function's offset-alignment contract (see the header comment).
+  const fold = (value: string) =>
+    foldMatchSymbols(value)
+      .toLowerCase()
+      .replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, (digit) => SUPERSCRIPT_DIGITS[digit])
+      .replace(/[\^{}]/g, '')
+      .replace(/\s+/g, '');
   const target = fold(targetText);
   if (!target) return undefined;
 
@@ -683,6 +753,7 @@ function resolveCappedAnnotations(
         id: annotation.id,
         type: annotation.type,
         kind: annotation.target.kind,
+        text: annotation.target.text,
       });
       continue;
     }

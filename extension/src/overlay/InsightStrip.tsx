@@ -3,16 +3,17 @@ import type { ProfileOverview, SessionRecap } from '../types/messages';
 import { DELTA_EPSILON, TAG_KIND_COLOR_CLASS, humanizeDue, masteryDelta } from './Overlay';
 
 // The overview/recap host (Sprint 13 ADR-024/025; Sprint 14 Task 2
-// decomposition; Sprint 14 Task 7 auto-dismiss fold + placement move).
-// Extracted from Overlay.tsx with zero behavior change at Task 2. Task 7
-// moves BOTH cards' render site out of the scrollable transcript (recap
-// used to render inside Transcript.tsx, overview inside the same
-// scrollable div) to ABOVE the composer, as a strip that auto-dismisses:
-// shown expanded for ~foldDurationMs (a green sweep bar counts it down),
-// then folds to a compact one-line handle rather than disappearing --
-// hover peeks it back open, a click un-folds it more durably. Overlay.tsx
-// owns the actual fold timer/state; this component is still purely
-// presentational (folded/onExpand/etc. are all props).
+// decomposition; Sprint 14 Task 7 placement move; Sprint 14 fix pass —
+// floating window). Task 7 moved BOTH cards' render site out of the
+// scrollable transcript to ABOVE the composer. The Sprint 14 fix pass takes
+// that one step further per live feedback: instead of a strip wedged inside
+// the panel that folds to a one-line handle, the summary now renders as a
+// small floating WINDOW above the whole extension (Overlay.tsx positions the
+// wrapper and owns the appear/disappear animation + auto-dismiss timer). This
+// component is purely the card's contents + the green countdown sweep; the
+// glassy surface below matches the panel's own card (bg-background/85 +
+// shadow-panel + backdrop-blur) so the window reads as part of Calyxa, not a
+// foreign box.
 //
 // A single component with a `kind` discriminant rather than two exports:
 // the two cards are mutually exclusive by construction (showOverviewCard
@@ -23,33 +24,13 @@ type InsightStripCardProps =
   | { kind: 'recap'; recap: SessionRecap; baseline: ProfileOverview | null };
 
 type InsightStripProps = InsightStripCardProps & {
-  folded: boolean;
   foldDurationMs: number;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
-  onExpand: () => void;
 };
 
 export function InsightStrip(props: InsightStripProps) {
-  const { folded, foldDurationMs, onMouseEnter, onMouseLeave, onExpand } = props;
-  const label = props.kind === 'recap' ? 'Session recap' : 'Where you are';
-
-  if (folded) {
-    return (
-      <button
-        type="button"
-        onClick={onExpand}
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
-        className="flex w-full items-center justify-between rounded-lg border border-border bg-surface px-3.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground"
-      >
-        {label}
-        <span aria-hidden="true" className="text-[13px] leading-none">
-          ⌃
-        </span>
-      </button>
-    );
-  }
+  const { foldDurationMs, onMouseEnter, onMouseLeave } = props;
 
   return (
     <div
@@ -87,7 +68,7 @@ function humanizeCategory(category: string): string {
 function OverviewCard({ overview }: { overview: ProfileOverview }) {
   if (overview.calibrating) {
     return (
-      <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
+      <div className="rounded-lg border border-border bg-background/90 px-3.5 py-3 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
         <p className="m-0 text-[12.5px] leading-relaxed text-muted-foreground">
           I&rsquo;m still getting to know you — ask your first question.
         </p>
@@ -100,7 +81,7 @@ function OverviewCard({ overview }: { overview: ProfileOverview }) {
   const due = overview.dueForReview.slice(0, 3);
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-3.5 py-3">
+    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-background/90 px-3.5 py-3 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
       <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
         Where you are
       </p>
@@ -160,7 +141,7 @@ function OverviewCard({ overview }: { overview: ProfileOverview }) {
 // earned (most sessions have none, by design), and the FSRS forward look.
 function RecapCard({ recap, baseline }: { recap: SessionRecap; baseline: ProfileOverview | null }) {
   return (
-    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-3.5 py-3">
+    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-background/90 px-3.5 py-3 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
       <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
         Session recap
       </p>

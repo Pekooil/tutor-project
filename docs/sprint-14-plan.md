@@ -358,9 +358,26 @@ changes).
 /web/app/api/{auth,voice,session}/**    (start/end routes reused as-is; voice is Sprint 15)
 /extension/src/overlay/VoiceController.ts (mic cold-start is Sprint 15)
 /extension/src/content/{annotations,pageExtractor}.ts (resolver + registry unchanged; layout lives in the layer; the capture-timing fix + the opening-scan gate are content/index.ts only)
-/web/lib/ai/{claude,page-context,profile}.ts (unchanged)
+/web/lib/ai/{page-context,profile}.ts (unchanged)
 /packages/{curriculum,learning-model}/** (Sprint 15 / untouched)
 ```
+**Scope amendment (2026-07-06, Task 10 follow-up) — `claude.ts` un-frozen:**
+`/web/lib/ai/claude.ts` was listed above through the Task 10 live-find. The
+live acceptance session (documented under Task 10 below) traced the missing-
+progress-bar bug to the model satisficing with a bare `{"say": "..."}` on
+non-opening turns — a real live-model-compliance gap, not a wiring bug — and
+a prompt-only mitigation (a "BEFORE YOU ANSWER" checklist in
+`system-prompt.ts`) only partially closed it (~50% compliance in
+reproduction). The reliable fix required forcing the schema at the API
+level (Anthropic tool-use with `strict: true`) rather than asking for it in
+prose, and that call lives in `claude.ts` — so this file is unfrozen for
+this one change, same convention as the ADR-029/030 scope extension earlier
+in this sprint. `runTutorTurn` now calls a forced `submit_tutor_turn` tool;
+`envelope.ts` gained `parseEnvelopeObject` (the shared field-by-field
+validator, reused by both the tool-input path and the legacy freeform-JSON
+path) — no change to `page-context.ts` or `profile.ts`, which stay
+genuinely out of scope. `runOpeningScanTurn` (route.ts) and
+`runTutorTurnStream` (unused by the shipped extension) are untouched.
 Also out of scope (no pre-empting later roadmap sprints):
 - **Retuning FREE_SESSION_LIMIT for problem-sized sessions** — Sprint 16's cost
   work owns the number, with real spend data (ADR-027 flags it loudly, now
@@ -614,6 +631,94 @@ signed in as a real dev user:
 
 Record the median-reply-length before/after numbers and any prompt-tuning residue
 in the plan's checklist notes.
+
+**Task 10 run 2026-07-06** (live `next dev` + real `ANTHROPIC_API_KEY`, unpacked
+extension; Darcy drove the browser on Khan Academy's "Add polynomials (intro)"
+exercise as `test@gmail.com`, an existing dev account with real prior mastery/
+misconception history on `algebra.polynomials.expanding` and
+`algebra.quadratics.factoring` — no fixture staging needed).
+
+**Observed live, working:** the session row was created immediately on panel
+expand, before any message was sent (item 1); the session auto-closed on its own
+— "Now closing tutoring session." → green ring → panel closed with the
+transcript cleared (item 5) — confirming `session.complete` fires reliably on
+the turn that actually resolves the problem, even though (see below) it is
+unreliable on intermediate turns.
+
+**Bug found and root-caused:** the solution-progress bar never appeared, and no
+ping toast ever appeared, across the whole session (items 3/7 of the full
+checklist, both blocked by the same cause). Live server logs showed
+`persistInteraction skipped: envelope carried no assessment` on effectively
+every turn; a direct reproduction against the running dev server (a throwaway
+Supabase test user, the same conversation shape replayed straight to
+`/api/ai/turn`) confirmed the model was returning a **valid but minimal**
+envelope — `{"say": "..."}` and nothing else — on non-opening turns in a long,
+scaffolded Socratic exchange. This is a live model-compliance gap, not a wiring
+bug: the full chain (`system-prompt.ts` → `claude.ts` → `envelope.ts` →
+`route.ts` → `api.ts` → `background/index.ts` → `content/index.ts` →
+`Overlay.tsx` → `Composer.tsx`) was traced end to end and is correct; annotating
+was also confirmed inconsistent for the same reason (didn't fire on every turn
+that referenced on-screen content, per Darcy's live observation).
+
+**Mitigation applied:** `system-prompt.ts` gained a new `BEFORE YOU ANSWER`
+block (appended last, envelope-format non-opening turns only) — a short
+checklist restating that `assessment`/`solution_progress` are not optional,
+plus a worked example of a compliant mid-conversation turn. Reproduced ~10
+more live calls after the change: compliance improved from ~0% to roughly 50%
+on turns with an unambiguous numeric student answer, but stayed at 0% in
+testing for turns where the student's answer was a short confirmation ("no").
+**This is a partial mitigation, not a fix** — Haiku's adherence to a large
+optional-field JSON schema over an extended conversation is inherently
+unreliable, and no further prompt wording closed the gap in testing. Recorded
+here rather than in "what the next sprint needs to know" alone since it
+directly blocks re-running Task 10 items 3 and 7 to a clean pass.
+
+**Not yet exercised live:** item 2 (blank/non-math page no-op), item 4
+(annotate-each-component, no-overlap check), item 6 (reopen + decline-follow-up
+close), item 7 (minimize/resume), item 8 (popup quota-only), item 9 (voice
+smoke). Median-reply-length before/after was not separately measured this run
+— the replies observed were already short (1–2 sentences), consistent with the
+Task 3 conciseness rule, but no baseline comparison was captured.
+
+**Follow-up fix (2026-07-06, same day): structural, not prompt-only.**
+Per the scope amendment above, `claude.ts`'s `runTutorTurn` now forces
+`assessment`/`solution_progress`/`annotations`/`profile_tags` via an
+Anthropic tool call with `strict: true` (guaranteed schema validation) —
+`session` and `mode` are the only other top-level keys, `session` stays
+genuinely optional (forcing a complete/not-complete decision every turn
+risked nudging false closes; ADR-027 Decision 1's safe-failure discipline
+holds). Two schema constraints Anthropic's `strict` mode doesn't support
+were discovered and worked around empirically against the live API:
+`minimum`/`maximum` on numbers and `maxItems` on arrays are both rejected
+("not supported" errors) — those bounds are prompt-guidance-only now,
+enforced as before by `envelope.ts`'s existing clamp/slice logic, not by the
+schema. A nullable string-enum (`concept_key`) also had to be expressed as
+`anyOf: [{type, enum}, {type: 'null'}]` — a bare `type: ['string','null']` +
+`enum` combination is rejected outright.
+
+**Verified after the fix:** reproduced the exact conversation shape that
+previously failed 100% of the time (the short "no" confirmation turn) —
+9/9 calls across two conversation shapes now carry `solution_progress`
+(previously 0/4 even with the prompt-only mitigation). `turbo run typecheck
+lint build test` reruns clean, 19/19 tasks, 175/175 web tests (Darcy's
+`next dev` was stopped for this run and restarted after — no code depends
+on the earlier scratch reproduction scripts, which were deleted). Annotation
+*frequency* (whether the model chooses to annotate on a given turn) remains
+a softer, judgment-based residue even after strengthening the tool's
+worked example — unlike assessment/solution_progress, this isn't a
+missing-key compliance gap the schema can force, since an empty
+`annotations: []` is a structurally valid (if sometimes under-eager)
+answer. Recorded as prompt-tuning residue, not a blocker.
+
+**Sprint status: code-level fix complete; live re-verification still
+needed.** The structural cause of the progress-bar/ping gap is fixed and
+verified by direct reproduction + the full automated suite, but Task 10's
+own acceptance is a MANUAL, live pass (items 1–9) — re-running the full
+checklist end-to-end in a real browser, including the five items never
+exercised in the first run (2, 4, 6, 7, 8, 9) and re-confirming items 3/7
+now show a live progress bar and at least one ping, is still required
+before this sprint can be marked complete. That pass needs a human driving
+a real signed-in browser and cannot be done from here.
 
 ## Acceptance criteria (full checklist)
 

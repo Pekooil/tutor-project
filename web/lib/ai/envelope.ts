@@ -346,6 +346,75 @@ function parseProfileTag(candidate: unknown): ProfileTag | undefined {
   return { kind, conceptKey, label: label.trim() }
 }
 
+// The shared field-by-field extraction, factored out (Sprint 14 Task 10
+// live-find) so both parse entry points below run the exact same defensive
+// logic: parseEnvelope's candidate-JSON-in-text path (the ADR-019 degrade
+// discipline, kept for back-compat and for runTutorTurnStream's plain-text
+// callers) and claude.ts's tool-use path (Anthropic's `strict` tool
+// validation already guarantees required keys exist and enum values are
+// valid, but this defensive pass -- concept_key allowlisting, bbox shape,
+// array caps -- still applies identically either way; a schema guarantees
+// SHAPE, not the same semantic checks this file already does). Returns
+// undefined only when `say` isn't a string -- the one hard requirement.
+export function parseEnvelopeObject(parsed: Record<string, unknown>): TurnEnvelope | undefined {
+  if (typeof parsed.say !== 'string') {
+    return undefined
+  }
+
+  const envelopeSource = parsed as {
+    say: string
+    mode?: unknown
+    assessment?: unknown
+    annotations?: unknown
+    profile_tags?: unknown
+    solution_progress?: unknown
+    session?: unknown
+  }
+  const envelope: TurnEnvelope = { say: envelopeSource.say }
+
+  if (isValidMode(envelopeSource.mode)) {
+    envelope.mode = envelopeSource.mode
+  }
+
+  const assessment = parseAssessment(envelopeSource.assessment)
+  if (assessment) {
+    envelope.assessment = assessment
+  }
+
+  const solutionProgress = parseSolutionProgress(envelopeSource.solution_progress)
+  if (solutionProgress !== undefined) {
+    envelope.solutionProgress = solutionProgress
+  }
+
+  const session = parseSessionCompletion(envelopeSource.session)
+  if (session) {
+    envelope.session = session
+  }
+
+  if (Array.isArray(envelopeSource.annotations)) {
+    const annotations = (envelopeSource.annotations as unknown[])
+      .map(parseAnnotation)
+      .filter((a): a is Annotation => a !== undefined)
+
+    if (annotations.length > 0) {
+      envelope.annotations = annotations
+    }
+  }
+
+  if (Array.isArray(envelopeSource.profile_tags)) {
+    const profileTags = (envelopeSource.profile_tags as unknown[])
+      .map(parseProfileTag)
+      .filter((t): t is ProfileTag => t !== undefined)
+      .slice(0, MAX_PROFILE_TAGS)
+
+    if (profileTags.length > 0) {
+      envelope.profileTags = profileTags
+    }
+  }
+
+  return envelope
+}
+
 // Defensive parse of the model's raw turn output into a TurnEnvelope. The
 // one hard requirement is a string "say" -- everything else (mode,
 // assessment, annotations) degrades field-by-field. Each candidate slice
@@ -365,62 +434,14 @@ export function parseEnvelope(raw: string): TurnEnvelope {
       continue
     }
 
-    if (typeof parsed !== 'object' || parsed === null || typeof (parsed as { say?: unknown }).say !== 'string') {
+    if (typeof parsed !== 'object' || parsed === null) {
       continue
     }
 
-    const envelopeSource = parsed as {
-      say: string
-      mode?: unknown
-      assessment?: unknown
-      annotations?: unknown
-      profile_tags?: unknown
-      solution_progress?: unknown
-      session?: unknown
+    const envelope = parseEnvelopeObject(parsed as Record<string, unknown>)
+    if (envelope) {
+      return envelope
     }
-    const envelope: TurnEnvelope = { say: envelopeSource.say }
-
-    if (isValidMode(envelopeSource.mode)) {
-      envelope.mode = envelopeSource.mode
-    }
-
-    const assessment = parseAssessment(envelopeSource.assessment)
-    if (assessment) {
-      envelope.assessment = assessment
-    }
-
-    const solutionProgress = parseSolutionProgress(envelopeSource.solution_progress)
-    if (solutionProgress !== undefined) {
-      envelope.solutionProgress = solutionProgress
-    }
-
-    const session = parseSessionCompletion(envelopeSource.session)
-    if (session) {
-      envelope.session = session
-    }
-
-    if (Array.isArray(envelopeSource.annotations)) {
-      const annotations = (envelopeSource.annotations as unknown[])
-        .map(parseAnnotation)
-        .filter((a): a is Annotation => a !== undefined)
-
-      if (annotations.length > 0) {
-        envelope.annotations = annotations
-      }
-    }
-
-    if (Array.isArray(envelopeSource.profile_tags)) {
-      const profileTags = (envelopeSource.profile_tags as unknown[])
-        .map(parseProfileTag)
-        .filter((t): t is ProfileTag => t !== undefined)
-        .slice(0, MAX_PROFILE_TAGS)
-
-      if (profileTags.length > 0) {
-        envelope.profileTags = profileTags
-      }
-    }
-
-    return envelope
   }
 
   return { say: raw }

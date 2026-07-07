@@ -295,6 +295,19 @@
   stroke: var(--cx-annot-color);
   stroke-width: 2.5;
 }
+/* The primary "highlight" box (Sprint 14 fix): a colored coat (translucent
+ * fill) UNDER the outlined stroke -- restoring the color-coded highlight look
+ * ("colorcoats") the box lost when Task 8 first made it outline-only, while
+ * keeping the clean rounded outline the layout engine relies on. fill-opacity
+ * derives the coat straight from whatever --cx-annot-color the box resolved to
+ * (the model's explicit style.color OR the per-turn ordinal slot), so the coat
+ * and the stroke are always the same hue with no extra token. */
+.cx-annot-box {
+  fill: var(--cx-annot-color);
+  fill-opacity: 0.15;
+  stroke: var(--cx-annot-color);
+  stroke-width: 2.5;
+}
 .cx-annot-stroke {
   stroke: var(--cx-annot-color);
   stroke-width: 2.5;
@@ -446,6 +459,47 @@
   background-color: var(--calyxa-progress);
 }
 
+/* The progress bar's glowing knob (Sprint 14 fix pass): a small circle at the
+ * head of the fill that glows softly, so the eye is drawn to exactly how far
+ * along this problem is. `left` is the fill percent; the translate re-centers
+ * the circle on that point and lifts it onto the track's midline. The glow is
+ * a layered box-shadow in the progress color; a gentle, slow pulse under
+ * prefers-reduced-motion: no-preference keeps "glow slightly" alive without
+ * being distracting. It eases horizontally in lockstep with the fill width. */
+.cx-progress-knob {
+  position: absolute;
+  top: 50%;
+  height: 8px;
+  width: 8px;
+  border-radius: 9999px;
+  background: var(--calyxa-progress);
+  transform: translate(-50%, -50%);
+  box-shadow:
+    0 0 4px 1px var(--calyxa-progress),
+    0 0 8px 2px color-mix(in srgb, var(--calyxa-progress) 55%, transparent);
+  transition: left 0.3s ease-out;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cx-progress-knob {
+    animation: cx-progress-knob-glow 2s ease-in-out infinite;
+  }
+}
+
+@keyframes cx-progress-knob-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 3px 1px var(--calyxa-progress),
+      0 0 6px 2px color-mix(in srgb, var(--calyxa-progress) 45%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 5px 1.5px var(--calyxa-progress),
+      0 0 11px 3px color-mix(in srgb, var(--calyxa-progress) 65%, transparent);
+  }
+}
+
 /* ── InsightStrip: the overview/recap auto-dismiss sweep (Sprint 14 Task 7) ──
  * A brighter green bar that visibly shrinks over ~foldDurationMs (Overlay.tsx's
  * STRIP_FOLD_MS, threaded in as --cx-strip-fold-duration -- the same
@@ -486,6 +540,50 @@
   }
   to {
     transform: scaleX(0);
+  }
+}
+
+/* ── InsightStrip: the floating summary WINDOW (Sprint 14 fix pass) ──
+ * The pre/post-session summary is a small window that sits ABOVE the whole
+ * extension. It slides + fades IN when it first appears, and slides + fades
+ * OUT (the --hidden modifier) when it auto-dismisses or the pointer leaves a
+ * dismissed window -- "appears and disappears with smooth animations". The
+ * exit is a transition (toggled by the class) so it plays whether or not the
+ * element unmounts afterward; the entrance is a one-shot keyframe on mount.
+ * transform-origin is the bottom edge (nearest the panel) so it grows out of
+ * the extension rather than floating in from nowhere. */
+.cx-strip-window {
+  transform-origin: bottom center;
+  transition:
+    opacity 0.32s var(--motion-ease-out, ease-out),
+    transform 0.32s var(--motion-ease-out, ease-out);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cx-strip-window {
+    /* No fill-mode on purpose: a persisted (both/forwards) entrance would
+       pin opacity:1 and outrank the --hidden exit transition below, so the
+       window could never fade back out. With no fill-mode the animation
+       reverts to the element's own styles once it ends, leaving the exit
+       transition free to run. */
+    animation: cx-strip-window-in 0.34s var(--motion-ease-out, ease-out);
+  }
+}
+
+.cx-strip-window--hidden {
+  opacity: 0;
+  transform: translateY(8px) scale(0.97);
+  pointer-events: none;
+}
+
+@keyframes cx-strip-window-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 

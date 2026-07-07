@@ -481,6 +481,12 @@ export function Overlay({
   // or if a fresh minimize/expand races them.
   const [closeState, setCloseState] = useState<CloseChoreographyState>('idle');
   const closeTimersRef = useRef<number[]>([]);
+  // The manual-end confirm dialog (Sprint 14 fix pass): clicking ✕ opens this
+  // instead of ending immediately -- ending discards the live session, so it
+  // asks first. Distinct from the automatic close: a confirmed manual end
+  // skips the ring entirely (the ring is only for Calyxa's own "session over"
+  // detection).
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
 
   function clearCloseTimers() {
     for (const timer of closeTimersRef.current) window.clearTimeout(timer);
@@ -608,6 +614,21 @@ export function Overlay({
   // old handleClose.
   useEffect(() => {
     if (closeState !== 'closed') return;
+    performClose();
+    setCloseState((prev) => nextCloseState(prev, 'reset'));
+    // performClose is a stable in-component helper (only calls setters +
+    // dispatches an event); intentionally not a dep, same convention as the
+    // other effects here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closeState]);
+
+  // The panel teardown itself (Sprint 14 Task 7 + fix pass): collapse to the
+  // pill, clear the transcript, reset the progress bar, drop the
+  // recap/overview, and dispatch PANEL_CLOSED_EVENT for the annotation
+  // controller. Shared by TWO paths: the automatic close choreography's final
+  // step (after the green ring sweep) AND a confirmed manual ✕ end, which
+  // runs this DIRECTLY with no ring (handleEndSessionConfirmed below).
+  function performClose() {
     setExpanded(false);
     setMessages([]);
     setSolutionProgress(0);
@@ -618,8 +639,7 @@ export function Overlay({
     setIsDragging(false);
     dragOriginRef.current = null;
     window.dispatchEvent(new CustomEvent(PANEL_CLOSED_EVENT));
-    setCloseState((prev) => nextCloseState(prev, 'reset'));
-  }, [closeState]);
+  }
 
   // The panel-EXPAND signal (Sprint 14 Task 6): fires on EVERY transition to
   // expanded, regardless of message count -- content/index.ts's listener
@@ -958,22 +978,32 @@ export function Overlay({
     window.dispatchEvent(new CustomEvent(PANEL_CLOSED_EVENT));
   }
 
-  // The ✕ (end session) control (Sprint 14 Task 7 -- this is the exact old
-  // "End session" button's handler, now wired to ✕ instead of a standalone
-  // text button, and followed by the SAME visible choreography an
-  // automatic session.complete triggers): reuses the popup's END_SESSION
-  // path verbatim via the onEndSession callback. The recap does not come
-  // back through this promise -- it arrives via the SESSION_ENDED broadcast
-  // so a popup-triggered end still renders identically; beginCloseChoreography
-  // only runs on SUCCESS, so a "no active session" error still surfaces as
-  // a notice instead of animating a close with nothing to close.
-  async function handleEndSessionClick() {
+  // The ✕ (end session) control (Sprint 14 fix pass): clicking ✕ NO LONGER
+  // ends the session outright and NO LONGER kicks off the green ring
+  // countdown. The ring is reserved for Calyxa's OWN automatic "the session
+  // is over" detection (applyProgressAndCompletion -> beginCloseChoreography);
+  // a manual ✕ is a deliberate, destructive user action, so it opens a
+  // confirmation first (the live session and transcript will be lost).
+  function handleEndSessionClick() {
     if (busy || ending || recording || closeState !== 'idle') return;
+    setShowEndConfirm(true);
+  }
+
+  // Confirmed manual end (Sprint 14 fix pass): reuses the popup's END_SESSION
+  // path verbatim via onEndSession, then closes the panel DIRECTLY with
+  // performClose -- NO ring choreography (the student asked to end; there is
+  // nothing to count down). The recap still arrives via the SESSION_ENDED
+  // broadcast, but the panel has already collapsed by then, matching the
+  // "session will be lost" confirmation. A "no active session" error surfaces
+  // as a notice and leaves the panel open, instead of collapsing on nothing.
+  async function handleEndSessionConfirmed() {
+    setShowEndConfirm(false);
+    if (busy || ending || recording) return;
     setEnding(true);
     setNotice(null);
     try {
       await onEndSession();
-      beginCloseChoreography();
+      performClose();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown error';
       setNotice(
@@ -1071,7 +1101,29 @@ export function Overlay({
         style={dragPos ? { top: `${dragPos.y}px`, left: `${dragPos.x}px` } : undefined}
       >
       <PingToasts pings={activePings} />
-      <div className="overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
+
+      {/* ── Overview/recap summary (Sprint 14 fix pass) — a small floating
+          WINDOW ABOVE the whole extension, not a strip wedged inside the
+          panel. It animates in on session start (overview) and session end
+          (recap), and auto-dismisses with a smooth exit after STRIP_FOLD_MS
+          (held open while hovered, and held through the close ring). Renders
+          alongside the opening scan's own bubble, not instead of it. */}
+      {(showOverviewCard || recap) && (
+        <div
+          className={`cx-strip-window mb-2${stripFolded && !stripHovered ? ' cx-strip-window--hidden' : ''}`}
+          onMouseEnter={() => setStripHovered(true)}
+          onMouseLeave={() => setStripHovered(false)}
+        >
+          <InsightStrip
+            {...(recap ? { kind: 'recap', recap, baseline: baselineRef.current } : { kind: 'overview', overview: overview! })}
+            foldDurationMs={STRIP_FOLD_MS}
+            onMouseEnter={() => setStripHovered(true)}
+            onMouseLeave={() => setStripHovered(false)}
+          />
+        </div>
+      )}
+
+      <div className="relative overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
 
         <TitleBar
           playing={playing}
@@ -1107,22 +1159,6 @@ export function Overlay({
           </div>
         )}
 
-        {/* ── Overview/recap strip (Sprint 14 Task 7) — ABOVE the composer,
-            never inside the scrollable transcript, so it never competes
-            for scroll with the conversation. Renders alongside the opening
-            scan's own bubble (showOverviewCard no longer excludes on it),
-            not instead of it. */}
-        {(showOverviewCard || recap) && (
-          <InsightStrip
-            {...(recap ? { kind: 'recap', recap, baseline: baselineRef.current } : { kind: 'overview', overview: overview! })}
-            folded={stripFolded && !stripHovered}
-            foldDurationMs={STRIP_FOLD_MS}
-            onMouseEnter={() => setStripHovered(true)}
-            onMouseLeave={() => setStripHovered(false)}
-            onExpand={() => setStripFolded(false)}
-          />
-        )}
-
         {/* ── Input row — border-t only when chat area is present above ── */}
         <Composer
           hasContent={hasContent}
@@ -1149,6 +1185,38 @@ export function Overlay({
           onInputBlur={() => setInputFocused(false)}
           onMicClick={handleMicClick}
         />
+
+        {/* ── End-session confirmation (Sprint 14 fix pass) — a small dialog
+            over the panel, matching the panel's own surface. Only a manual ✕
+            reaches here; the automatic close never asks. Confirming ends the
+            session and closes directly (no ring); cancelling resumes. */}
+        {showEndConfirm && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/70 p-4 backdrop-blur-sm motion-safe:animate-[cx-annot-in_0.16s_ease-out_both]">
+            <div className="w-full rounded-lg border border-border bg-background p-4 shadow-panel">
+              <p className="m-0 text-[13.5px] font-semibold text-foreground">End this tutoring session?</p>
+              <p className="mb-3.5 mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+                Your current session will be lost and the conversation cleared.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEndConfirm(false)}
+                  className="cursor-pointer rounded-full border border-border bg-background px-3.5 py-1.5 text-[12.5px] font-medium text-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                >
+                  Keep working
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleEndSessionConfirmed()}
+                  disabled={ending}
+                  className="cursor-pointer rounded-full border-0 bg-danger px-3.5 py-1.5 text-[12.5px] font-semibold text-white outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  End session
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
       </div>

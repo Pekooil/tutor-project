@@ -335,12 +335,13 @@ function AnnotationShape({
   }
 }
 
-// The primary annotation shape (Task 8, ADR-029 amendment): a clean
-// outlined rounded-rect (stroke, transparent fill via the existing
-// cx-annot-outline structural class, unchanged from the 'circle' shape's
-// own use of it above) rather than the old translucent block fill --
-// "the outlined box is the primary annotation, circle/arrow are special
-// cases". `weight: 'thin'` (the §2.5 style hint) is UNCHANGED: still reads
+// The primary annotation shape (Task 8, ADR-029 amendment): a rounded-rect
+// with a colored coat (translucent fill) under a clean outlined stroke
+// (cx-annot-box) -- "the outlined box is the primary annotation, circle/arrow
+// are special cases". The coat was restored in the Sprint 14 fix pass after
+// live feedback that the outline-only box read as less present than the
+// earlier color-coated highlight; the outline still carries the layout
+// engine's box geometry. `weight: 'thin'` (the §2.5 style hint) is UNCHANGED: still reads
 // as an underline hugging the bottom edge, still uses the model's own
 // explicit-or-default color (colorClass) rather than the per-turn ordinal
 // one -- a filled bar has no "stroke" for the box-stroke rule to apply to.
@@ -374,7 +375,7 @@ function Highlight({
       width={rect.w + 8}
       height={rect.h + 8}
       rx={6}
-      className={`cx-annot-outline ${boxColorClass}`}
+      className={`cx-annot-box ${boxColorClass}`}
     />
   );
 }

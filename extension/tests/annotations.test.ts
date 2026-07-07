@@ -124,6 +124,35 @@ describe('normalizeMatchText / matchRegistryEntries / clampRectToViewport (pure 
     expect(matchRegistryEntries('4', registry)).toEqual([registry[1]]);
   });
 
+  it('notation-folded tier (Khan Academy KaTeX): an exponent-form target matches a caret-less KaTeX-text field', () => {
+    // Khan renders KaTeX html-only, so the captured field is the wrapper's
+    // textContent -- "5t^2" reads back as "5t2". The model writes the
+    // exponent form into target.text (and echoes it into `say`, which is why
+    // the chat color-link lights up), so the box must still resolve.
+    const registry: EquationRegistry = [
+      { equation: { text: '5t2-6t+8t2-8t' }, element: null },
+      { equation: { text: 'x=4' }, element: null },
+    ];
+
+    // Caret, LaTeX braces, and unicode superscript forms all unify with "5t2".
+    expect(matchRegistryEntries('5t^2', registry)).toEqual([registry[0]]);
+    expect(matchRegistryEntries('5t^{2}', registry)).toEqual([registry[0]]);
+    expect(matchRegistryEntries('5t²', registry)).toEqual([registry[0]]);
+    // And the whole exponent expression, too.
+    expect(matchRegistryEntries('8t^2 - 8t', registry)).toEqual([registry[0]]);
+  });
+
+  it('the notation fold does NOT relax the ambiguity guard: a short folded fragment in two entries is still refused', () => {
+    const registry: EquationRegistry = [
+      { equation: { text: '5t2-6t' }, element: null },
+      { equation: { text: '8t2-8t' }, element: null },
+    ];
+    // "t^2" folds to "t2", which appears in BOTH -- genuinely ambiguous,
+    // still dropped (same protection MIN_SUBSTRING_MATCH_CHARS gives the
+    // plain substring tier).
+    expect(matchRegistryEntries('t^2', registry)).toEqual([]);
+  });
+
   it('clamps a bbox to the viewport and refuses one that clamps to nothing', () => {
     expect(clampRectToViewport({ x: -10, y: -10, w: 50, h: 50 }, 1024, 768)).toEqual({
       x: 0,
@@ -337,6 +366,34 @@ describe('sub-term rect resolution — precise boxes for a piece of an equation,
     // "2" first occurs as the exponent, glyph index 1 -> x = 10..20 -- a
     // rect narrower than (and inside) the whole equation's 0..80.
     expect(resolved?.rect).toEqual({ x: 10, y: 0, w: 10, h: 20 });
+  });
+
+  it('KaTeX (Khan Academy): an exponent-form target resolves to the precise term inside caret-less leaves', () => {
+    // KaTeX html-only leaves carry the bare glyphs "5","t","2",... (no caret);
+    // the model's target is the exponent form "5t^2". The notation fold in
+    // findLeafRun unifies them so the box hugs just the "5t2" run, not the
+    // whole equation.
+    const glyphs = ['5', 't', '2', '-', '6', 't'];
+    const katexEl = document.createElement('span');
+    katexEl.classList.add('katex');
+    const html = document.createElement('span');
+    html.classList.add('katex-html');
+    glyphs.forEach((text, i) => {
+      const glyph = document.createElement('span');
+      glyph.textContent = text;
+      withRect(glyph, { x: i * 10, y: 0, w: 10, h: 20 });
+      html.appendChild(glyph);
+    });
+    katexEl.appendChild(html);
+    document.body.appendChild(katexEl);
+    withRect(katexEl, { x: 0, y: 0, w: glyphs.length * 10, h: 20 });
+
+    const registry: EquationRegistry = [{ equation: { text: '5t2-6t' }, element: katexEl }];
+    const resolved = resolveTarget({ kind: 'textMatch', text: '5t^2' }, registry);
+
+    expect(resolved?.anchor).toEqual({ kind: 'sub-term', element: katexEl, targetText: '5t^2' });
+    // "5t2" spans glyphs 0..2 -> x 0..30, a rect inside the whole 0..60.
+    expect(resolved?.rect).toEqual({ x: 0, y: 0, w: 30, h: 20 });
   });
 
   it('MathJax: correlates the (textless) visible token tree with the assistive-MathML text positionally', () => {

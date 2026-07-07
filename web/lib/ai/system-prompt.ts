@@ -365,7 +365,39 @@ scaffolding step:
 2. "solution_progress" -- did the student's last message move them forward, backward, or
    nowhere on THIS problem? If forward or backward, set the number. Only leave it out when
    truly nothing changed (e.g. you just asked a question with no prior student step to score).
-Also re-check: does "say" name anything currently visible in PAGE CONTEXT? If so, annotate it.`
+3. "annotations" -- does "say" name, point at, or reason about ANYTHING that appears in PAGE
+   CONTEXT (an equation, a term, an exponent, a number, a step)? If yes, you MUST add an
+   annotation for it THIS turn -- this is the EXPECTED default, not an occasional flourish.
+   Copy the exact text into "target.text" and reuse that same exact substring in "say" so
+   the box and the phrase share a color. An empty "annotations": [] is only correct when your
+   reply genuinely points at nothing on screen (pure encouragement, or a question with no
+   on-screen referent). If you are talking about the math, annotate the math.
+
+WORKED EXAMPLE of a correct MID-conversation turn (this is turn 3+ of a real exchange, NOT
+the opening turn -- note it still carries "assessment" and "solution_progress" even though
+the student's answer was a short, already-scaffolded step, not the problem's final answer):
+Student's last message: "13t^2"  (PAGE CONTEXT includes the equation "5t^2 - 6t + 8t^2 - 8t")
+{
+  "say": "Excellent! So you have 13t^2 so far. Now what about the t terms -- what is -6t plus -8t?",
+  "solution_progress": 0.4,
+  "assessment": {
+    "concept_key": "algebra.polynomials.expanding",
+    "outcome": "correct",
+    "reasoning_quality": "sound",
+    "self_confidence": "med",
+    "misconception_category": null,
+    "misconception_description": null,
+    "confidence": "high"
+  },
+  "annotations": [
+    { "id": "a1", "type": "highlight", "target": { "kind": "textMatch", "text": "-6t" } },
+    { "id": "a2", "type": "highlight", "target": { "kind": "textMatch", "text": "-8t" }, "style": { "color": "blue" } }
+  ]
+}
+Note this turn annotates the "-6t" and "-8t" terms it just asked about -- because "say" names
+them and they appear in PAGE CONTEXT, annotating is REQUIRED, not optional. A bare
+{ "say": "..." } for a turn shaped like this one -- a short correct step mid-problem naming
+on-screen terms, not your opening turn -- is exactly the mistake this checklist exists to catch.`
 
 // The fifth additive block (Sprint 14 Task 4, ADR-030): appended only for the
 // proactive opening scan, the one turn kind fired with no student message at
@@ -410,8 +442,12 @@ such downstream. Do NOT invent a plausible-sounding problem just to have somethi
 // (ADR-012/013) and falls back to the empty-slot wording otherwise; OUTPUT
 // FORMAT switches on `opts.format` (ADR-019) -- 'envelope' restores the
 // §2.5 JSON contract for the live turn path, 'text' (the default) keeps the
-// ADR-008 plain-text block the streaming path still uses unchanged. OPENING
-// SCAN MODE (ADR-030) is appended only when `opts.opening` is set.
+// ADR-008 plain-text block the streaming path still uses unchanged. The
+// BEFORE YOU ANSWER checklist (Sprint 14 Task 10 live-find) is appended for
+// every envelope-format, non-opening turn -- straight after OUTPUT FORMAT,
+// nothing else after it, so it's the last thing read before generation.
+// OPENING SCAN MODE (ADR-030) is appended only when `opts.opening` is set,
+// and is mutually exclusive with the checklist (opposite instructions).
 export function buildSystemPrompt(
   profile: LearningProfile,
   pageContext?: PageContext,
@@ -462,5 +498,7 @@ ${renderPageContextBlock(pageContext)}
 - NEVER invent page or context content you cannot see.
 - NEVER shame mistakes. Treat every error as information.
 
-${outputFormat}${opts?.opening ? `\n\n${OPENING_SCAN_MODE}` : ''}`
+${outputFormat}${
+    format === 'envelope' && !opts?.opening ? `\n\n${ENVELOPE_COMPLIANCE_CHECK}` : ''
+  }${opts?.opening ? `\n\n${OPENING_SCAN_MODE}` : ''}`
 }
