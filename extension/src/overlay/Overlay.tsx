@@ -25,7 +25,7 @@ import { PingToasts } from './PingToasts';
 import { TitleBar } from './TitleBar';
 import { Transcript } from './Transcript';
 import { startRecording, type RecordingHandle, type Utterance } from './VoiceController';
-import { micStateReducer, wordsDueByTime } from './voice-timing';
+import { createSentenceAccumulator, micStateReducer, wordsDueByTime } from './voice-timing';
 
 // The panel-close signal (Sprint 12 Task 6): dispatched from handleClose
 // below so the annotation controller (content/annotations.ts, Task 7) can
@@ -361,6 +361,7 @@ export function humanizeDue(dueAt: string, now: Date = new Date()): string {
 // to `messages` only after playback ends (or is interrupted).
 export function Overlay({
   onSend,
+  onSendVoiceStreaming,
   onTranscribe,
   onSynthesize,
   onSynthesizeStream,
@@ -370,6 +371,13 @@ export function Overlay({
   onOpeningScan,
 }: {
   onSend: (messages: TurnMessage[], onChunk?: (chunk: string) => void) => Promise<TurnResult>;
+  // Streamed-envelope VOICE turn (Sprint 15 voice follow-on, ADR-033
+  // amendment): relays each spoken-text delta to `onSayDelta` as it streams,
+  // so handleMicStop can start per-sentence TTS before the full reply is
+  // generated (the ~4-5s turn leg the latency probe found). Resolves the SAME
+  // TurnResult as onSend. onSend (buffered) is KEPT as the fallback the voice
+  // path drops to on any streaming failure.
+  onSendVoiceStreaming: (messages: TurnMessage[], onSayDelta: (text: string) => void) => Promise<TurnResult>;
   onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
   onSynthesize: (text: string) => Promise<{ audio: ArrayBuffer; ttsMs: number }>;
   // Task 6 (ADR-033): the streaming sibling of onSynthesize. handleMicStop
@@ -950,49 +958,54 @@ export function Overlay({
       setMessages((current) => [...current, { role: 'user', content: transcript }]);
       setRecap(null); // shown once -- a new conversation replaces it
 
-      // Voice path: no onChunk because TTS needs the full reply before synthesis.
-      const result = await onSend(outbound);
-      if (!result.reply.trim()) throw new Error('The tutor returned an empty reply.');
-
-      // Voice pings show at PLAYBACK START (ADR-026's delivery moment for
-      // voice turns) -- piggybacked on the same playback-start signal the
-      // annotation sequencing already uses, on WHICHEVER path below actually
-      // plays the audio.
+      // Voice pings + annotation sequencing fire at REPLY-DELIVERED (ADR-026).
+      // On the streamed path that is turn-done, which lands DURING playback
+      // (text generates faster than it is spoken); on the buffered fallback it
+      // is playback start, as before.
       const ttsRequestAt = performance.now();
-      const onPlaybackStart = (label: string) => (durationMs: number) => {
+      const markFirstAudio = (label: string) => () => {
         if (import.meta.env.DEV) {
           console.debug(`[calyxa voice] tts request→first audio (${label}): ${Math.round(performance.now() - ttsRequestAt)}ms`);
         }
-        showPings(result.pings);
+      };
+      const deliverEnvelope = (delivered: TurnResult, durationMs: number) => {
+        showPings(delivered.pings);
         onVoicePlaybackStart(durationMs);
       };
 
-      // Task 6 (ADR-033): try the streamed path first -- audio starts at the
-      // first buffered chunk instead of waiting for the whole reply. A
-      // MediaSource/codec failure for THIS utterance (unsupported mime type,
-      // addSourceBuffer throwing, a decode error) falls back to the
-      // buffered path below, seamlessly -- the reply text hasn't finished
-      // revealing yet either way, so restarting from word one reads the
-      // same to the student as the buffered path always has.
+      // Streamed-envelope path first (Sprint 15 voice follow-on, ADR-033
+      // amendment): stream the turn and synthesize TTS per sentence, so audio
+      // starts after sentence 1 instead of the whole ~4-5s reply. On ANY
+      // streaming/MediaSource/codec failure, fall back to the pre-follow-on
+      // buffered turn + buffered playback -- byte-identical to the old path,
+      // never a partial commit.
+      let result: TurnResult;
       try {
-        await playAudioStreamWithTextReveal(
+        result = await playVoiceTurnStreamedEnvelope(
+          (onSayDelta) => onSendVoiceStreaming(outbound, onSayDelta),
           onSynthesizeStream,
-          result.reply,
           appendStreamToken,
           setPlaying,
           audioRef,
-          onPlaybackStart('streamed'),
+          // Turn-done, during playback: reveal duration estimated from the
+          // final word count (real duration is unknown mid-stream, ADR-033).
+          (delivered) => deliverEnvelope(delivered, delivered.reply.trim().split(/\s+/).length * STREAM_REVEAL_MS_PER_WORD),
+          markFirstAudio('streamed'),
         );
       } catch (streamError) {
         if (import.meta.env.DEV) {
-          console.debug('[calyxa voice] streaming TTS unavailable, falling back to buffered playback', streamError);
+          console.debug('[calyxa voice] streamed voice turn unavailable, falling back to buffered turn + playback', streamError);
         }
         clearStreamTokens();
+        result = await onSend(outbound);
+        if (!result.reply.trim()) throw new Error('The tutor returned an empty reply.');
         const { audio } = await onSynthesize(result.reply);
-        // Play audio and reveal the reply word-by-word in sync with speech.
-        // Each word is appended as a new token so it gets the cx-word-in
-        // entry animation. The reply commits to messages after playback ends.
-        await playAudioWithTextReveal(audio, result.reply, appendStreamToken, setPlaying, audioRef, onPlaybackStart('buffered fallback'));
+        // Buffered playback: onPlaybackStart fires showPings + onVoicePlaybackStart
+        // at playback start with the real duration, exactly as the old path did.
+        await playAudioWithTextReveal(audio, result.reply, appendStreamToken, setPlaying, audioRef, (durationMs) => {
+          markFirstAudio('buffered fallback')();
+          deliverEnvelope(result, durationMs);
+        });
       }
 
       clearStreamTokens();
@@ -1573,6 +1586,238 @@ async function playAudioStreamWithTextReveal(
     await Promise.race([playbackEnded, failed]);
   } catch (error) {
     throw error instanceof Error ? error : new Error('TTS streaming failed');
+  } finally {
+    clearTimeout(setupTimeout);
+    setPlaying(false);
+    audioRef.current = null;
+    URL.revokeObjectURL(url);
+    audio.removeEventListener('timeupdate', onTimeUpdate);
+  }
+}
+
+// The words of `sayText` that are DEFINITELY complete: if the accumulated
+// streamed text does not end in whitespace, its last token may still be
+// growing (a delta can split mid-word), so it is excluded until a following
+// space confirms it. This keeps already-revealed word indices stable as the
+// say text streams in -- a word only becomes revealable once it can no longer
+// change (Sprint 15 voice follow-on).
+function completedWords(sayText: string): string[] {
+  const leading = sayText.replace(/^\s+/, '');
+  if (leading.length === 0) return [];
+  const endsWithSpace = /\s$/.test(sayText);
+  const tokens = leading.split(/\s+/);
+  if (!endsWithSpace) tokens.pop();
+  return tokens;
+}
+
+/**
+ * Streamed-envelope voice turn with per-sentence TTS and gapless playback
+ * (Sprint 15 voice follow-on, ADR-033 amendment). Drives `runTurn` (which
+ * streams the spoken text delta-by-delta) and, as each SENTENCE completes,
+ * synthesizes it via `synthesizeStream` and appends its MP3 chunks into ONE
+ * MediaSource SourceBuffer -- so audio starts after sentence 1 instead of the
+ * whole reply (the ~4-5s turn leg the latency probe found), and consecutive
+ * sentences play back-to-back with no gap (MP3 frames concatenate). Word
+ * reveal paces off `audio.currentTime` against the completed words known so
+ * far, so the text tracks the speech exactly as the Task 6 streamed path did.
+ *
+ * `onEnvelopeReady` fires at turn-done (the full validated envelope) -- which
+ * lands DURING playback, since text generates faster than it is spoken -- so
+ * the caller can fire pings/annotation-sequencing against the audio.
+ * `onFirstAudio` fires once, at the first playable audio (the DEV latency
+ * mark). Throws on any MediaSource/codec/stream failure so the caller can fall
+ * back to the buffered turn+playback path; it never partially commits.
+ */
+async function playVoiceTurnStreamedEnvelope(
+  runTurn: (onSayDelta: (text: string) => void) => Promise<TurnResult>,
+  synthesizeStream: (text: string, onChunk: (chunk: Uint8Array) => void) => Promise<{ ttsMs: number }>,
+  appendToken: (text: string) => void,
+  setPlaying: (playing: boolean) => void,
+  audioRef: { current: HTMLAudioElement | null },
+  onEnvelopeReady: (result: TurnResult) => void,
+  onFirstAudio: () => void,
+): Promise<TurnResult> {
+  if (!isTtsStreamingSupported()) {
+    throw new Error('MediaSource streaming for audio/mpeg is not supported in this browser.');
+  }
+
+  const mediaSource = new MediaSource();
+  const audio = new Audio();
+  const url = URL.createObjectURL(mediaSource);
+  audio.src = url;
+  audioRef.current = audio;
+
+  // Reveal state: the full accumulated say text, and how many words we've
+  // already revealed. Reveal is capped by BOTH audio.currentTime and the
+  // completed-word count, so it never reveals a still-growing final token.
+  let sayText = '';
+  let revealedCount = 0;
+  let playbackStarted = false;
+
+  function revealDue() {
+    const words = completedWords(sayText);
+    const due = wordsDueByTime(audio.currentTime * 1000, STREAM_REVEAL_MS_PER_WORD, words.length);
+    while (revealedCount < due) {
+      appendToken(revealedCount === 0 ? words[revealedCount] : ' ' + words[revealedCount]);
+      revealedCount++;
+    }
+  }
+
+  function onTimeUpdate() {
+    if (!playbackStarted) {
+      playbackStarted = true;
+      setPlaying(true);
+      onFirstAudio();
+    }
+    revealDue();
+  }
+  audio.addEventListener('timeupdate', onTimeUpdate);
+
+  // Single rejecting funnel for every failure mode (same discipline as
+  // playAudioStreamWithTextReveal): a SourceBuffer append error, a MediaSource
+  // error, an audio-element error, or the setup timeout all reject `failed`,
+  // so the caller falls back the SAME way regardless of which fired.
+  let failNow: (error: Error) => void = () => {};
+  const failed = new Promise<never>((_, reject) => {
+    failNow = reject;
+  });
+  mediaSource.addEventListener('error', () => failNow(new Error('MediaSource failed to open')), { once: true });
+  audio.addEventListener('error', () => failNow(new Error('Audio element playback failed')), { once: true });
+
+  const playbackEnded = new Promise<void>((resolve) => {
+    audio.addEventListener('ended', () => resolve(), { once: true });
+    audio.addEventListener('pause', () => resolve(), { once: true });
+  });
+
+  // Bounds SETUP only (call -> first playable audio); a long reply legitimately
+  // takes a while to finish speaking. Cleared once audio.play() fires.
+  const setupTimeout = setTimeout(() => {
+    failNow(new Error('TTS streaming setup timed out'));
+  }, 6000);
+
+  try {
+    const sourceBuffer = await Promise.race([
+      new Promise<SourceBuffer>((resolve, reject) => {
+        mediaSource.addEventListener(
+          'sourceopen',
+          () => {
+            try {
+              resolve(mediaSource.addSourceBuffer(TTS_STREAM_MIME_TYPE));
+            } catch (error) {
+              reject(error instanceof Error ? error : new Error('addSourceBuffer failed'));
+            }
+          },
+          { once: true },
+        );
+      }),
+      failed,
+    ]);
+    sourceBuffer.addEventListener('error', () => failNow(new Error('SourceBuffer append failed')));
+
+    // Append queue -- a SourceBuffer accepts one appendBuffer at a time; chunks
+    // from every sentence's synthesis funnel through here in arrival order, so
+    // the sentences concatenate seamlessly. play() starts after the FIRST chunk.
+    const pending: Uint8Array[] = [];
+    let appending = false;
+    let playCalled = false;
+
+    function pump() {
+      if (appending || pending.length === 0 || sourceBuffer.updating) return;
+      appending = true;
+      sourceBuffer.appendBuffer(pending.shift()! as BufferSource);
+    }
+
+    sourceBuffer.addEventListener('updateend', () => {
+      appending = false;
+      if (!playCalled) {
+        playCalled = true;
+        clearTimeout(setupTimeout);
+        audio.play().catch((error) => failNow(error instanceof Error ? error : new Error('audio.play() rejected')));
+      }
+      pump();
+    });
+
+    // Sentence queue: the turn stream pushes complete sentences; a single
+    // worker synthesizes them one at a time (awaiting each so their chunks stay
+    // contiguous in the SourceBuffer) and stops once the turn is done and the
+    // queue is drained.
+    const sentenceQueue: string[] = [];
+    let turnDone = false;
+    let wake: (() => void) | null = null;
+    function signalSentence() {
+      const w = wake;
+      wake = null;
+      if (w) w();
+    }
+    async function ttsWorker(): Promise<void> {
+      for (;;) {
+        if (sentenceQueue.length === 0) {
+          if (turnDone) return;
+          await Promise.race([new Promise<void>((r) => (wake = r)), failed]);
+          continue;
+        }
+        const sentence = sentenceQueue.shift()!;
+        await Promise.race([
+          synthesizeStream(sentence, (chunk) => {
+            pending.push(chunk);
+            pump();
+          }),
+          failed,
+        ]);
+      }
+    }
+
+    const accumulator = createSentenceAccumulator();
+    const worker = ttsWorker();
+
+    const result = await Promise.race([
+      runTurn((delta) => {
+        sayText += delta;
+        for (const sentence of accumulator.push(delta)) {
+          sentenceQueue.push(sentence);
+          signalSentence();
+        }
+      }),
+      failed,
+    ]);
+
+    if (!result.reply.trim()) {
+      throw new Error('The tutor returned an empty reply.');
+    }
+
+    // Turn done: flush the trailing sentence, let the caller fire pings/
+    // annotation sequencing against the (already-playing) audio, and release
+    // the worker to drain and finish.
+    const tail = accumulator.flush();
+    if (tail) sentenceQueue.push(tail);
+    turnDone = true;
+    signalSentence();
+    onEnvelopeReady(result);
+
+    await Promise.race([worker, failed]);
+
+    // Drain any in-flight/queued appends before closing the stream --
+    // endOfStream() throws if called mid-update.
+    while (appending || pending.length > 0) {
+      await Promise.race([
+        new Promise<void>((resolve) => sourceBuffer.addEventListener('updateend', () => resolve(), { once: true })),
+        failed,
+      ]);
+    }
+    if (mediaSource.readyState === 'open') mediaSource.endOfStream();
+
+    await Promise.race([playbackEnded, failed]);
+
+    // Reveal any words the audio finished before the reveal ladder reached
+    // (short audio vs. the fixed per-word rate) so the transcript is whole
+    // before it commits.
+    const finalWords = result.reply.trim().split(/\s+/);
+    while (revealedCount < finalWords.length) {
+      appendToken(revealedCount === 0 ? finalWords[revealedCount] : ' ' + finalWords[revealedCount]);
+      revealedCount++;
+    }
+
+    return result;
   } finally {
     clearTimeout(setupTimeout);
     setPlaying(false);

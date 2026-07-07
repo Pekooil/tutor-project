@@ -277,6 +277,146 @@ export async function runTutorTurn({
   return parseEnvelope(raw)
 }
 
+// --- Streamed-envelope turn (Sprint 15 voice follow-on, ADR-033 amendment) ---
+// The voice path needs BOTH the spoken text incrementally (to start per-
+// sentence TTS before the turn finishes -- the ~4-5s leg the latency probe
+// found) AND the full validated envelope (assessment/annotations/tags for
+// persistence). We get both from ONE forced-tool call by streaming its
+// `input_json_delta`: because `say` is the FIRST property in
+// ENVELOPE_TOOL.input_schema, its value streams before the structured fields,
+// so we can extract the growing `say` string as it arrives and hand the
+// COMPLETE tool input (via finalMessage()) to parseEnvelopeObject at the end.
+// This is the "streaming envelope" the plan repeatedly deferred; it does NOT
+// revert to freeform text (Sprint 14 Task 10 proved that drops the
+// assessment) -- the strict tool schema still guarantees the shape.
+
+/**
+ * Incrementally extracts the value of the FIRST-emitted `say` string field
+ * from a forced-tool call's streamed `input_json_delta` fragments. Pure and
+ * escape-aware: `push(fragment)` returns the NEWLY-decoded characters of `say`
+ * (a possibly-empty delta), never re-emitting what a prior call already
+ * returned. An incomplete trailing escape (`\` or a half-written `\uXXXX`) at a
+ * fragment boundary yields '' and is completed on the next fragment rather than
+ * corrupting the output. Returns '' forever once the closing quote is seen.
+ *
+ * Exported for unit testing (voice follow-on) against recorded fragment
+ * sequences; not exported as a class so the test pins behavior, not shape.
+ */
+export function createSayExtractor(): { push: (fragment: string) => string } {
+  let buffer = ''
+  let started = false
+  let valueStart = -1
+  let emitted = ''
+  let complete = false
+
+  return {
+    push(fragment: string): string {
+      buffer += fragment
+      if (complete) return ''
+
+      if (!started) {
+        const match = buffer.match(/"say"\s*:\s*"/)
+        if (!match || match.index === undefined) return ''
+        started = true
+        valueStart = match.index + match[0].length
+      }
+
+      let raw = ''
+      let closed = false
+      for (let i = valueStart; i < buffer.length; i++) {
+        const ch = buffer[i]
+        if (ch === '\\') {
+          if (i + 1 < buffer.length) {
+            raw += ch + buffer[i + 1]
+            i++
+            continue
+          }
+          break // lone trailing backslash -- wait for the escaped char
+        }
+        if (ch === '"') {
+          closed = true
+          break
+        }
+        raw += ch
+      }
+
+      let decoded: string
+      try {
+        decoded = JSON.parse('"' + raw + '"') as string
+      } catch {
+        return '' // trailing incomplete \uXXXX etc -- wait for the next fragment
+      }
+
+      if (closed) complete = true
+      if (decoded.length <= emitted.length) return ''
+      const delta = decoded.slice(emitted.length)
+      emitted = decoded
+      return delta
+    },
+  }
+}
+
+export type EnvelopeStreamEvent =
+  | { type: 'sayDelta'; text: string }
+  | { type: 'envelope'; envelope: TurnEnvelope }
+
+/**
+ * Streaming sibling of runTutorTurn: same forced-tool ENVELOPE_TOOL call, but
+ * via messages.stream(). Yields `sayDelta` events as the spoken text streams,
+ * then exactly one terminal `envelope` event carrying the full validated
+ * TurnEnvelope assembled from the complete tool input (parseEnvelopeObject on
+ * finalMessage()). Falls back to the legacy text degrade (parseEnvelope) if the
+ * tool block is absent/unparseable, so a turn is never blanked (ADR-019). The
+ * caller (the /api/ai/turn/stream route) reuses completeTurn on the terminal
+ * envelope, so persistence/pings/grounding are identical to /api/ai/turn.
+ */
+export async function* runTutorTurnEnvelopeStream({
+  messages,
+  pageContext,
+  profile,
+}: {
+  messages: TurnMessage[]
+  pageContext?: PageContext
+  profile: LearningProfile
+}): AsyncGenerator<EnvelopeStreamEvent> {
+  const stream = createClient().messages.stream({
+    model: MODEL,
+    max_tokens: MAX_TOKENS,
+    system: buildSystemPrompt(profile, pageContext, { format: 'envelope' }),
+    messages,
+    tools: [ENVELOPE_TOOL],
+    tool_choice: { type: 'tool', name: ENVELOPE_TOOL_NAME },
+  })
+
+  const extractor = createSayExtractor()
+
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'input_json_delta') {
+      const delta = extractor.push(event.delta.partial_json)
+      if (delta) yield { type: 'sayDelta', text: delta }
+    }
+  }
+
+  const final = await stream.finalMessage()
+
+  const toolUse = final.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use' && block.name === ENVELOPE_TOOL_NAME
+  )
+
+  let envelope: TurnEnvelope | null = null
+  if (toolUse && typeof toolUse.input === 'object' && toolUse.input !== null) {
+    envelope = parseEnvelopeObject(toolUse.input as Record<string, unknown>) ?? null
+  }
+
+  if (!envelope) {
+    const textBlock = final.content.find((block) => block.type === 'text')
+    const raw = textBlock?.type === 'text' ? textBlock.text : ''
+    envelope = parseEnvelope(raw)
+  }
+
+  yield { type: 'envelope', envelope }
+}
+
 // Streaming turn — used by /api/ai/stream. Yields text deltas as they
 // arrive from the Anthropic streaming API so the client can render
 // word-by-word. The full reply is assembled by the caller.

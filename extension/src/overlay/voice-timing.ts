@@ -35,6 +35,47 @@ export function micStateReducer(state: MicState, action: MicAction): MicState {
   }
 }
 
+// Streamed-say sentence accumulator (Sprint 15 voice follow-on, ADR-033
+// amendment): the voice turn now streams the spoken text delta-by-delta, and
+// we want to fire TTS one SENTENCE at a time so audio can start before the
+// whole reply is generated. `push(delta)` returns any sentences COMPLETED by
+// that delta (usually zero or one); `flush()` returns the trailing remainder
+// once the turn stream ends (the last sentence rarely ends in punctuation +
+// whitespace). Pure and synchronous so it can be unit-tested without a turn.
+//
+// Boundary rule is deliberately conservative: a sentence ends only at one or
+// more of . ? ! FOLLOWED BY whitespace. That leaves "3.14" or "x.y" intact
+// (no whitespace after the dot) at the cost of occasionally merging two
+// sentences into one TTS segment -- which only makes a segment longer, never
+// breaks playback. The tutor's `say` is natural-language prose (the schema
+// asks it to verbalize math, e.g. "x squared"), so digit-dot-digit is rare.
+export function createSentenceAccumulator(): {
+  push: (delta: string) => string[];
+  flush: () => string | null;
+} {
+  let buffer = '';
+  const boundary = /^([\s\S]*?[.?!]+)(\s+)/;
+
+  return {
+    push(delta: string): string[] {
+      buffer += delta;
+      const out: string[] = [];
+      let match: RegExpMatchArray | null;
+      while ((match = buffer.match(boundary))) {
+        const sentence = match[1].trim();
+        if (sentence) out.push(sentence);
+        buffer = buffer.slice(match[0].length);
+      }
+      return out;
+    },
+    flush(): string | null {
+      const rest = buffer.trim();
+      buffer = '';
+      return rest.length > 0 ? rest : null;
+    },
+  };
+}
+
 // Timeupdate-driven reveal pacing (ADR-033 Task 6): how many of the reply's
 // words should be visible given how far playback has actually gotten.
 // currentTime stops advancing during a stall (waiting on the next chunk),

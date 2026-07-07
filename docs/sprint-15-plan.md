@@ -393,6 +393,135 @@ Record all measured numbers (cold-start attribution, p50/p95 first-audio, key-
 block token count) in the checklist notes — Sprint 16's cost work and the beta
 comms both consume them.
 
+**Task 9 run 2026-07-07** (live `next dev`, real `ANTHROPIC_API_KEY`/
+`OPENAI_API_KEY`/`ELEVENLABS_API_KEY`, a throwaway dev account —
+`darcy20080911+sprint15task9...@gmail.com` — with no fixture staging; driven
+via direct signed-in calls to `/api/session/start` → `/api/ai/turn` →
+`/api/profile/overview` → `/api/session/end`, the same real pipeline the
+extension's Composer drives, text mode instead of voice per this run's split).
+
+**Item 1 (derivative problem) — PASS.** Turn 1 (opening probe) carried no
+assessment as expected; turn 2, after the student supplied the outer/inner
+derivatives, assessed `calculus.differentiation.chain-rule` (`outcome:
+correct` was withheld — the student's answer was actually incomplete, missing
+the inner derivative's full chain-through, and the model correctly caught it
+and logged a `known-gap` misconception `incomplete_chain_rule_application`).
+`profile/overview` showed the node at `mastery 0.15, state weak` immediately
+after, and the session recap scheduled a next review. Topic-bias-surfaces-it-
+next-turn is covered by `system-prompt.test.ts`'s `assembleKeySubset` suite
+(Task 8) rather than re-verified live here — no runtime dev-log of the
+assembled prompt exists to observe live (Task 4 never added one; out of
+Task 9's own scope to add).
+
+**Item 2 (geometry problem) — PASS, with one plan/reality gap found.** A
+right-triangle-trig problem assessed `geometry.trig.right-triangle` correctly,
+including a clean `session.complete: true, reason: "solved"` on the turn the
+student got it right. `profile/overview` showed both the calculus and
+geometry nodes together. **The "prerequisite edges show up in the overview"
+half of this item does not exist to verify**: `/api/profile/overview`
+(`app/api/profile/overview/route.ts`) returns `calibrating`/`mastery`/
+`weakSpots`/`dueForReview` only — no field derived from `prerequisitesOf`
+anywhere in its response, and no prior sprint ever built one (prereq edges are
+consumed internally by the scheduler/topic-bias, never surfaced for display).
+This looks like the plan describing a feature that was never scoped or built,
+not a regression — flagged here rather than silently marked done.
+
+**Item 3 (frozen 8) — PASS.** A `algebra.quadratics.factoring` session wrote
+`mastery 0.30`; a SECOND, separate session on the same key read back a
+grounded `reviewing` profile tag (proving the read found the first session's
+write) and updated the SAME node to `mastery 0.405` — a continuous FSRS
+update across two sessions, not a duplicate/orphaned row. Verified through the
+real RLS-gated API path (not a direct DB query — the more faithful check of
+the two).
+
+**Item 7 (full pipeline) — PASS**, with one process note: the first
+`turbo run typecheck lint build test` attempt failed `web#test` (7 of 13 files)
+because this session's own `web-dev` preview server was still holding the
+`next dev` directory-level lock (the same failure class as the stray-process
+issue from Task 8) — stopping that preview server before the run fixed it.
+19/19 tasks, 212/212 web tests, clean on rerun.
+
+**Item 5 (voice time-to-first-audio) — FAIL on the felt-latency bar.**
+Darcy ran voice live and reported ~6-7s mouth-to-ear on average. A direct
+per-leg probe against the real backend (real Whisper/Claude/ElevenLabs, the
+throwaway account, 3-4 samples each) decomposes it:
+
+| Leg | Measured | Sprint 15 scope? |
+| --- | --- | --- |
+| STT (gpt-4o-mini-transcribe) | ~1.0-1.6s | No (ADR-010 amendment) |
+| Claude turn (Haiku 4.5, forced-tool envelope) | ~4.0-5.1s | No (pipeline stays sequential) |
+| TTS first-audio (streamed) | ~0.25-0.34s | **Yes — the ≤2.5s budget** |
+| TTS full-drain (buffered fallback) | ~0.52-0.65s | Yes |
+
+**The TTS leg — the thing Sprint 15 actually built — PASSES cleanly** at
+~0.25-0.34s first-audio (an order of magnitude under ≤2.5s; the
+`tts request→first audio` mark starts its clock after the turn returns, so
+that console number is ~0.25s, not 6-7s). `MediaSource.isTypeSupported(
+'audio/mpeg')` is `true` in Chrome 148, so streaming engages; even the buffered
+fallback is ~0.55s because replies are short. **The felt 6-7s is ~75% the
+Claude turn leg**, which this sprint explicitly kept out of scope (SSE envelope
+streaming deferred as "its own sprint"; ADR-003 sequential pipeline stands).
+Turn times *decreased* 5145→4663→3968ms across three calls — some is
+dev-server route cold-compile; production is lower but the Anthropic generation
+time is the floor. **No cheap in-scope lever exists**: MODEL is already
+`claude-haiku-4-5` (fastest Claude), `MAX_TOKENS` is a modest 600, and the
+curriculum-scale prompt bloat regression is ruled out (Task 4's ≤24-key
+bounded-subset bound is tested and holding).
+
+**Per Darcy's call (2026-07-07), felt end-to-end latency is the acceptance
+bar, so item 5 FAILS** and the turn-leg (plus STT + mic) work is pulled into
+scope — a genuine expansion, since cutting voice time-to-first-audio requires
+streaming the turn text AND synthesizing TTS per-sentence (today the voice
+path waits for the COMPLETE reply before any TTS: see handleMicStop's "no
+onChunk because TTS needs the full reply before synthesis"). That is the
+deferred streamed-envelope architecture, not a patch.
+
+**Item 4 (mic cold-start) — FAIL, attribution pending.** Darcy reported ~2s
+click→capturing (budget ≤500ms). Not yet attributed stage-by-stage: the
+`[calyxa voice] getUserMedia resolved / recorder.start / meter wired` marks
+are dev-only (`import.meta.env.DEV`) and a production `wxt build` compiles
+them out, so a dev build (`wxt` dev) + one mic click is needed to read them.
+`getUserMedia` device acquisition is the prime suspect (if it owns the ~2s,
+the ≤500ms budget may be hardware-bound, not a code defect).
+
+**Item 6 (voice identity) — not yet reported.**
+
+**Sprint 15 is NOT complete.** Voice-latency acceptance (items 4 and 5) fails
+on the felt-latency bar; the fix is out-of-scope turn-leg + mic work now being
+pulled in per Darcy's call.
+
+**Voice follow-on (streamed-envelope turn + per-sentence TTS) — implemented
+2026-07-07.** Plan: `~/.claude/plans/snazzy-leaping-jellyfish.md`. Reconciles
+streaming with the envelope by streaming the forced-tool `say` field (it is the
+first schema property, so it emits first) and assembling the full validated
+envelope at stream end; the voice path now fires TTS per sentence into one
+gapless MediaSource so audio starts after sentence 1 instead of the whole reply.
+
+- **V1 (server)** — `runTutorTurnEnvelopeStream` + `/api/ai/turn/stream` (SSE);
+  shared `completeTurn`/parsers factored out of `/api/ai/turn` so streamed and
+  buffered turns can't drift. Live-verified: sayDeltas reconstruct the reply
+  exactly, terminal payload matches the buffered route, **turn→first-token
+  ~2.8s cold (~1.5-2s warm) vs ~6.4-8.4s full reply**. 9/9 say-extractor unit
+  tests; `ai-turn.test.ts` (52) still green → refactor is behavior-preserving.
+- **V2 (transport)** — `aiTurnEnvelopeStream` + `VOICE_TURN_STREAM` port +
+  content sender + mount prop; `AI_TURN`/`aiTurn` kept as the fallback.
+- **V3 (overlay)** — per-sentence TTS into one MediaSource, reveal paced off
+  audio, envelope side-effects (pings/annotations) at turn-done during
+  playback; **first-class fallback** to the buffered turn+playback on any
+  streaming/MediaSource failure. 7 new sentence-accumulator unit tests.
+- Gate: `turbo run typecheck lint build test` green (19/19; 221 web + 108
+  extension tests).
+
+**Still pending (hardware-bound):** live voice acceptance (does audio start
+~3-4s? gapless? reveal tracks speech?); the V4 mic-cold-start attribution
+(needs the dev-build `[calyxa voice]` marks); and the final ADR-033 amendment
+with the measured end-to-end numbers once the live pass is recorded.
+
+**Housekeeping:** the throwaway dev account's Supabase Auth `deleteUser` call
+failed with a retryable 500 on three attempts; the account
+(`af45ef3b-7d32-4b28-afd8-84853e788e19`) is still live in the `calyxa`
+Supabase project and needs manual cleanup.
+
 ## Acceptance criteria (full checklist)
 
 - [ ] ADR-032 (with the concept inventory appendix) + ADR-033 (with budgets + the root-cause amendment box) written; pointers + architecture.md updated

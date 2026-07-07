@@ -16,6 +16,18 @@ export type OverlayTransports = {
    * and pings when the wire carried any (Sprint 13, ADR-024/026).
    */
   onSend: (messages: TurnMessage[], onChunk?: (chunk: string) => void) => Promise<TurnResult>;
+  /**
+   * Streamed-envelope VOICE turn (Sprint 15 voice follow-on, ADR-033
+   * amendment): relays each spoken-text delta to `onSayDelta` as it streams
+   * from /api/ai/turn/stream, so Overlay.tsx can start per-sentence TTS before
+   * the full reply is generated (the ~4-5s turn leg the latency probe found).
+   * Resolves the SAME TurnResult as onSend's voice path. onSend (buffered) is
+   * KEPT as the fallback the voice path drops to on any streaming failure.
+   */
+  onSendVoiceStreaming: (
+    messages: TurnMessage[],
+    onSayDelta: (text: string) => void,
+  ) => Promise<TurnResult>;
   onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
   onSynthesize: (text: string) => Promise<{ audio: ArrayBuffer; ttsMs: number }>;
   /**

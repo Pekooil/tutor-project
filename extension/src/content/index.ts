@@ -28,6 +28,7 @@ import type {
   VoiceSttReplyPayload,
   VoiceTtsReplyPayload,
   VoiceTtsStreamMessage,
+  VoiceTurnStreamMessage,
 } from '../types/messages';
 
 // Overlay UI handle, created once per page in main(). Held at module scope
@@ -260,6 +261,59 @@ async function sendAiTurn(
     ...(payload.solutionProgress !== undefined ? { solutionProgress: payload.solutionProgress } : {}),
     ...(payload.session ? { session: payload.session } : {}),
   };
+}
+
+// The overlay's STREAMED-ENVELOPE voice transport (Sprint 15 voice follow-on,
+// ADR-033 amendment): opens the VOICE_TURN_STREAM port (same chrome.runtime.
+// connect pattern as sendAiTurn's AI_STREAM branch) and relays each spoken-
+// text delta to `onSayDelta` as it arrives, so Overlay.tsx can start
+// per-sentence TTS before the whole reply is generated. Resolves the SAME
+// TurnResult sendAiTurn's voice path does. Like that path, annotations are
+// NOT drawn here -- they are held in pendingVoiceAnnotations and drawn at
+// playback start (handleVoicePlaybackStart). sendAiTurn (non-streaming) stays
+// the buffered fallback the overlay drops to on any streaming failure.
+async function sendVoiceTurnStreaming(
+  messages: TurnMessage[],
+  onSayDelta: (text: string) => void,
+): Promise<TurnResult> {
+  const registry = currentEquationRegistry();
+  return new Promise<TurnResult>((resolve, reject) => {
+    const port = chrome.runtime.connect({ name: 'VOICE_TURN_STREAM' });
+    let settled = false;
+
+    port.onMessage.addListener((msg: VoiceTurnStreamMessage) => {
+      if (msg.type === 'say') {
+        onSayDelta(msg.text);
+      } else if (msg.type === 'done' && !settled) {
+        settled = true;
+        port.disconnect();
+        // Voice: annotations draw at PLAYBACK START, not here -- same as the
+        // non-streaming voice branch in sendAiTurn.
+        pendingVoiceAnnotations = { annotations: msg.annotations ?? [], registry };
+        resolve({
+          reply: msg.reply,
+          ...(msg.profileTags && msg.profileTags.length > 0 ? { tags: msg.profileTags } : {}),
+          ...(msg.pings && msg.pings.length > 0 ? { pings: msg.pings } : {}),
+          ...(msg.annotations && msg.annotations.length > 0 ? { annotations: msg.annotations } : {}),
+          ...(msg.solutionProgress !== undefined ? { solutionProgress: msg.solutionProgress } : {}),
+          ...(msg.session ? { session: msg.session } : {}),
+        });
+      } else if (msg.type === 'error' && !settled) {
+        settled = true;
+        port.disconnect();
+        reject(new Error(msg.error));
+      }
+    });
+
+    port.onDisconnect.addListener(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error('Background disconnected unexpectedly during voice turn streaming.'));
+      }
+    });
+
+    port.postMessage({ messages, pageContext: capturedPageContext });
+  });
 }
 
 // The overlay's overview transport (Sprint 13, ADR-024/025): relays
@@ -551,6 +605,7 @@ export default defineContentScript({
         // were (undefined, before the first-ever expand) until that fires.
         return mountOverlay(container, {
           onSend: sendAiTurn,
+          onSendVoiceStreaming: sendVoiceTurnStreaming,
           onTranscribe: sendVoiceStt,
           onSynthesize: sendVoiceTts,
           onSynthesizeStream: sendVoiceTtsStream,

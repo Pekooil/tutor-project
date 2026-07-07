@@ -376,6 +376,104 @@ export async function aiTurnStream(
 }
 
 /**
+ * Streamed-envelope turn (Sprint 15 voice follow-on, ADR-033 amendment) --
+ * the voice path's replacement for aiTurn() that starts per-sentence TTS
+ * before the whole reply is generated. Calls /api/ai/turn/stream (SSE),
+ * invokes `onSayDelta` for each spoken-text delta as it arrives, and resolves
+ * with the SAME shape aiTurn() returns (the terminal `envelope` event's
+ * payload) once the stream ends. aiTurn() above is KEPT verbatim as the
+ * buffered fallback the voice path drops to on any streaming failure.
+ *
+ * Reuses authorizedFetch, so a dead refresh token surfaces SignedOutError
+ * exactly as every other helper does.
+ */
+type StreamEnvelopePayload = {
+  reply: string;
+  annotations?: Annotation[];
+  profileTags?: ProfileTag[];
+  pings?: TurnPing[];
+  solutionProgress?: number;
+  session?: SessionCompletion;
+};
+
+export async function aiTurnEnvelopeStream(
+  messages: TurnMessage[],
+  pageContext: PageContext | undefined,
+  turnContext: { sessionId?: string; responseLatencyMs?: number } | undefined,
+  onSayDelta: (text: string) => void,
+): Promise<StreamEnvelopePayload> {
+  const res = await authorizedFetch('/api/ai/turn/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messages,
+      pageContext,
+      ...(turnContext?.sessionId ? { sessionId: turnContext.sessionId } : {}),
+      ...(turnContext?.responseLatencyMs !== undefined
+        ? { responseLatencyMs: turnContext.responseLatencyMs }
+        : {}),
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error((errBody as { error?: string }).error ?? `ai_turn_stream failed: ${res.status}`);
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let envelope: StreamEnvelopePayload | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6);
+      if (data === '[DONE]') continue;
+      let parsed: {
+        sayDelta?: string;
+        envelope?: StreamEnvelopePayload;
+        error?: string;
+      };
+      try {
+        parsed = JSON.parse(data);
+      } catch (err) {
+        if (err instanceof SyntaxError) continue;
+        throw err;
+      }
+      if (parsed.error) throw new Error(parsed.error);
+      if (typeof parsed.sayDelta === 'string') {
+        onSayDelta(parsed.sayDelta);
+      } else if (parsed.envelope) {
+        envelope = parsed.envelope;
+      }
+    }
+  }
+
+  if (!envelope) {
+    throw new Error('ai_turn_stream ended without an envelope');
+  }
+
+  return {
+    reply: envelope.reply,
+    ...(Array.isArray(envelope.annotations) && envelope.annotations.length > 0
+      ? { annotations: envelope.annotations }
+      : {}),
+    ...(Array.isArray(envelope.profileTags) && envelope.profileTags.length > 0
+      ? { profileTags: envelope.profileTags }
+      : {}),
+    ...(Array.isArray(envelope.pings) && envelope.pings.length > 0 ? { pings: envelope.pings } : {}),
+    ...(typeof envelope.solutionProgress === 'number' ? { solutionProgress: envelope.solutionProgress } : {}),
+    ...(envelope.session ? { session: envelope.session } : {}),
+  };
+}
+
+/**
  * Sends one push-to-talk utterance to the Whisper proxy (Task 3 / ADR-010)
  * as a raw body + Content-Type header (matching the route's accepted shape)
  * and returns the transcript. Audio is held only in memory on both legs --

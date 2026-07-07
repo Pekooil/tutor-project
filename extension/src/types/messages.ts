@@ -355,6 +355,33 @@ export type VoiceTtsStreamMessage =
   | VoiceTtsStreamDoneMessage
   | VoiceTtsStreamErrorMessage;
 
+// VOICE_TURN_STREAM (Sprint 15 voice follow-on, ADR-033 amendment) -- a
+// dedicated port (the AI_STREAM/VOICE_TTS_STREAM pattern), content ->
+// background, opened per voice turn. content/index.ts posts one AiTurnPayload
+// to start it; the background streams the spoken text back as a sequence of
+// VoiceTurnStreamSayMessage (one per say-delta from /api/ai/turn/stream) so
+// the overlay can start per-sentence TTS before the reply finishes, then
+// exactly one VoiceTurnStreamDoneMessage carrying the FULL envelope (the same
+// additive fields as AiReplyPayload's success shape) or a
+// VoiceTurnStreamErrorMessage. The one-shot AI_TURN/AI_REPLY path is KEPT as
+// the buffered fallback the overlay drops to on any streaming failure. No
+// audio crosses this port -- it is text only (TTS still rides VOICE_TTS_STREAM).
+export type VoiceTurnStreamSayMessage = { type: 'say'; text: string };
+export type VoiceTurnStreamDoneMessage = {
+  type: 'done';
+  reply: string;
+  annotations?: Annotation[];
+  profileTags?: ProfileTag[];
+  pings?: TurnPing[];
+  solutionProgress?: number;
+  session?: SessionCompletion;
+};
+export type VoiceTurnStreamErrorMessage = { type: 'error'; error: string };
+export type VoiceTurnStreamMessage =
+  | VoiceTurnStreamSayMessage
+  | VoiceTurnStreamDoneMessage
+  | VoiceTurnStreamErrorMessage;
+
 // Mirrors /web/lib/voice/latency.ts exactly -- that file is the source of
 // truth; this is a by-convention re-declaration for the client side (no
 // shared module spans the extension/web boundary).

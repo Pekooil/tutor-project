@@ -225,6 +225,58 @@ export default defineBackground(() => {
     });
   });
 
+  // (4e) Streamed-envelope VOICE turn via a dedicated persistent port (Sprint
+  // 15 voice follow-on, ADR-033 amendment) -- the AI_STREAM pattern, but for
+  // the VOICE path and carrying the FORCED-TOOL envelope. content/index.ts
+  // opens 'VOICE_TURN_STREAM', posts one AiTurnPayload, and receives one 'say'
+  // message per spoken-text delta (so the overlay can start per-sentence TTS
+  // before the reply finishes -- the ~4-5s leg the latency probe found),
+  // followed by exactly one 'done' (the full envelope) or 'error'. The one-shot
+  // AI_TURN/handleAiTurn path above is UNTOUCHED and stays the buffered
+  // fallback the overlay drops to on any streaming failure. Same session +
+  // think-time bookkeeping as handleAiTurn (voice mode, ADR-019/027).
+  chrome.runtime.onConnect.addListener((port) => {
+    if (port.name !== 'VOICE_TURN_STREAM') return;
+    const pageDomain = deriveTabDomain(port.sender?.tab?.url);
+    port.onMessage.addListener(async (msg: AiTurnPayload) => {
+      try {
+        await ensureSessionStarted(pageDomain, 'voice');
+        const turnContext = await getTurnContext();
+        const { reply, annotations, profileTags, pings, solutionProgress, session } =
+          await api.aiTurnEnvelopeStream(msg.messages, msg.pageContext, turnContext, (text) => {
+            try {
+              port.postMessage({ type: 'say', text });
+            } catch {
+              // Port already disconnected -- the stream keeps draining so the
+              // final envelope still lands (or is dropped on the done post).
+            }
+          });
+        await setRunningTranscript(msg.messages);
+        await stampTurnAnchor(turnContext.sessionId);
+        if (session?.complete) void handleEndSession();
+        try {
+          port.postMessage({
+            type: 'done',
+            reply,
+            ...(annotations ? { annotations } : {}),
+            ...(profileTags ? { profileTags } : {}),
+            ...(pings ? { pings } : {}),
+            ...(solutionProgress !== undefined ? { solutionProgress } : {}),
+            ...(session ? { session } : {}),
+          });
+        } catch {
+          // Port already disconnected.
+        }
+      } catch (error) {
+        try {
+          port.postMessage({ type: 'error', error: toErrorMessage(error) });
+        } catch {
+          // Port already disconnected.
+        }
+      }
+    });
+  });
+
   // (2) Every wake: read → increment → persist → log the wake counter.
   void recordWake();
 
