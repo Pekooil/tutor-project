@@ -1,6 +1,7 @@
-import { CONCEPT_KEYS } from '@calyxa/curriculum'
+import { CONCEPT_KEYS, getConcept } from '@calyxa/curriculum'
 import type { LearningProfile } from './profile'
 import { renderPageContext, type PageContext } from './page-context'
+import { detectTopicKeys } from '@/lib/learning/topic'
 
 // ADR-019: the turn can be prompted for either the restored §2.5 JSON
 // envelope (the live, non-streaming /api/ai/turn path) or the plain-text
@@ -31,6 +32,66 @@ const MAX_MASTERY_NODES = 12
 const MAX_ACTIVE_MISCONCEPTIONS = 8
 const MAX_DUE_FOR_REVIEW = 6
 const MAX_PRIOR_WORK = 3
+
+// ADR-032: at curriculum scale (~70 concepts) the prompt can no longer
+// afford to enumerate every known key every turn (Sprint 13's 8-key block
+// growing ~9x). The key vocabulary below is capped to this bounded relevant
+// subset instead — envelope.ts still validates assessments against the FULL
+// CONCEPT_KEYS list (unchanged), so a correct key outside this subset is
+// kept, never dropped; this cap only bounds what's SHOWN, not what's valid.
+const MAX_PROMPT_CONCEPT_KEYS = 24
+
+// Adds a stable-order, deduplicated key to `into` if not already present.
+function addKey(into: string[], seen: Set<string>, key: string): void {
+  if (seen.has(key)) return
+  seen.add(key)
+  into.push(key)
+}
+
+// The bounded relevant subset (ADR-032 Task 4): profile-surfaced nodes ∪
+// topic-detected keys ∪ due keys, then strand neighbors of those, capped to
+// MAX_PROMPT_CONCEPT_KEYS. Deterministic given deterministic inputs — each
+// component is already ordered by its own source (masteryNodes: topic-first
+// then weakest; dueForReview: priority desc then due-date asc; topicKeys:
+// hit-count desc then curriculum order) — so the same profile+pageContext
+// always assembles the same subset in the same order.
+//
+// `route.ts`/`claude.ts` are frozen this sprint (the key budget is
+// prompt-side only), and LearningProfile's shape does not change — so
+// topic-detected keys are re-derived here from `pageContext` alone (the one
+// signal buildSystemPrompt already receives directly), the same way the
+// opening scan already calls `detectTopicKeys(pageContext, [])` with no
+// transcript. This means a turn's PROMPT subset can miss a topic mentioned
+// only in the chat transcript (not on the page) — the profile READ (loadProfile,
+// route.ts) already saw the transcript-aware topicKeys for its own bias, so
+// this is a narrower, page-only re-derivation for the subset alone, not a
+// second attempt at the same signal.
+export function assembleKeySubset(profile: LearningProfile, pageContext: PageContext | undefined): string[] {
+  const subset: string[] = []
+  const seen = new Set<string>()
+
+  for (const node of profile.masteryNodes) addKey(subset, seen, node.conceptKey)
+  for (const key of detectTopicKeys(pageContext, [])) addKey(subset, seen, key)
+  for (const due of profile.dueForReview ?? []) addKey(subset, seen, due.conceptKey)
+
+  // Strand neighbors: for each key already in the subset, pull in other
+  // concepts sharing the same curriculum strand (e.g. alongside "factoring
+  // quadratics", the quadratic formula) — in canonical CONCEPT_KEYS order,
+  // stopping the moment the cap is hit.
+  const coreStrands = new Set(
+    subset.map((key) => getConcept(key)?.strand).filter((strand): strand is string => strand !== undefined)
+  )
+
+  if (coreStrands.size > 0) {
+    for (const key of CONCEPT_KEYS) {
+      if (subset.length >= MAX_PROMPT_CONCEPT_KEYS) break
+      const strand = getConcept(key)?.strand
+      if (strand !== undefined && coreStrands.has(strand)) addKey(subset, seen, key)
+    }
+  }
+
+  return subset.slice(0, MAX_PROMPT_CONCEPT_KEYS)
+}
 
 // Renders one prior-work digest line, e.g.
 // "- algebra.quadratics.factoring: last session (2d ago) — struggled early, finished strong".
@@ -143,14 +204,14 @@ above; longer only when the student explicitly asked for the full explanation.`
 // curriculum keys the summariser already enforces (summarise.ts), so a
 // tagged turn is always bindable to a real knowledge_nodes row; envelope.ts
 // nulls anything else defensively even if the model doesn't comply.
-function buildEnvelopeOutputFormat(): string {
+function buildEnvelopeOutputFormat(keySubset: readonly string[]): string {
   return `═══════════════════ OUTPUT FORMAT ═══════════════════
 Return a single JSON object and NOTHING else -- on EVERY turn, with NO exception. This
 requirement does not depend on the topic, on whether the topic matches one of the concept
 keys below, or on whether the assessment has a concept_key to tag: even a turn about a
-concept you have no key for (geometry, calculus, statistics, anything outside the algebra
-list below) still gets the full JSON object, never plain prose, never markdown, never a
-reply that starts talking before the JSON begins.
+concept outside the list below (the list is a bounded subset, not the whole curriculum --
+see the note under "known keys" below) still gets the full JSON object, never plain prose,
+never markdown, never a reply that starts talking before the JSON begins.
 {
   "say": "<the spoken/written response — plain, natural sentences, no markdown, no LaTeX
            read-aloud gibberish; verbalize math naturally e.g. 'x squared plus three x'>",
@@ -169,15 +230,18 @@ reply that starts talking before the JSON begins.
                                     // turn of the conversation, when there is nothing yet to
                                     // assess -- that is the ONLY turn that omits it. None of
                                     // these are reasons to omit it instead: a topic outside
-                                    // the concept-key list below (set "concept_key" to null
-                                    // and still grade normally); the student's last message
-                                    // being a question, a hint request, or an attempt with no
-                                    // clear final answer yet (set "outcome" to "none", still
-                                    // include the object); or your reply itself both praising
-                                    // an earlier correct step AND asking a new question (grade
-                                    // the step you just praised -- do not drop the assessment
-                                    // just because the turn also moves the conversation on).
-     "concept_key": "<one of the known keys below, or null if no single concept fits>",
+                                    // the concept-key list below but still a real math concept
+                                    // (use the correct canonical key -- see the note under
+                                    // "known keys" below; null is only for when NOTHING fits,
+                                    // listed or not); the student's last message being a
+                                    // question, a hint request, or an attempt with no clear
+                                    // final answer yet (set "outcome" to "none", still include
+                                    // the object); or your reply itself both praising an
+                                    // earlier correct step AND asking a new question (grade the
+                                    // step you just praised -- do not drop the assessment just
+                                    // because the turn also moves the conversation on).
+     "concept_key": "<the correct key for this concept -- from the list below when it's there,
+                       otherwise the canonical key if you know one -- or null if nothing fits>",
      "outcome": "correct" | "incorrect" | "partial" | "none",
      "reasoning_quality": "sound" | "shallow" | "none",
      "self_confidence": "low" | "med" | "high" | "unknown",  // the STUDENT's apparent certainty
@@ -323,12 +387,17 @@ If nothing about the student's progress on this problem changed this turn (e.g. 
 clarifying question), you may omit "solution_progress" or repeat your last value -- never
 invent movement that didn't happen.
 
-"assessment.concept_key" MUST be exactly one of these known keys (use null if nothing matches
-clearly — never invent a key):
-${CONCEPT_KEYS.map((key) => `  - ${key}`).join('\n')}
+"assessment.concept_key" — the known keys below are the subset most relevant to THIS student
+and THIS page right now (their profile, what's on screen, and nearby topics), NOT the entire
+curriculum. Prefer one of these when it fits:
+${keySubset.map((key) => `  - ${key}`).join('\n')}
 
-These are the same keys the STUDENT PROFILE block uses. Ground each turn in that profile: when
-the student works a concept listed there (mastery, misconceptions, or "Fading / due for
+If the concept this turn is actually about is clearly a DIFFERENT one than anything listed
+above (the student's problem is on a topic not shown here), still set "concept_key" to the
+correct canonical key for that concept if you know one -- do not leave it null or force-fit a
+listed key just because it's the one shown. Use null only when nothing fits clearly, listed or
+not. These are the same keys the STUDENT PROFILE block uses. Ground each turn in that profile:
+when the student works a concept listed there (mastery, misconceptions, or "Fading / due for
 review"), tag your assessment with that exact key so their record keeps building on itself.
 
 Earlier assistant turns in this conversation appear as plain text — that is how your past
@@ -454,11 +523,13 @@ export function buildSystemPrompt(
   opts?: PromptOpts
 ): string {
   const format = opts?.format ?? 'text'
-  const outputFormat = format === 'envelope' ? buildEnvelopeOutputFormat() : TEXT_OUTPUT_FORMAT
+  const outputFormat =
+    format === 'envelope' ? buildEnvelopeOutputFormat(assembleKeySubset(profile, pageContext)) : TEXT_OUTPUT_FORMAT
 
   return `You are Calyxa, a patient, encouraging math tutor for an independent high-school or
-college student. You teach MATH ONLY. This turn happens over text chat, so write the way a
-great tutor talks: warm, concise, one idea at a time.
+college student. You teach MATH ONLY -- high-school math (algebra, geometry, trigonometry/
+precalculus, intro probability & statistics) through a first college calculus course. This turn
+happens over text chat, so write the way a great tutor talks: warm, concise, one idea at a time.
 
 ═══════════════════ PEDAGOGY ═══════════════════
 DEFAULT MODE IS SOCRATIC. Your job is to make the student do the thinking.
