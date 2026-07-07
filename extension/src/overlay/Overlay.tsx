@@ -409,6 +409,12 @@ export function Overlay({
   const [streamingTokens, setStreamingTokens] = useState<{ text: string; id: number }[]>([]);
   const tokenIdRef = useRef(0);
   const [recording, setRecording] = useState(false);
+  // Task 5 (ADR-033): flips true SYNCHRONOUSLY on mic click (the UI-ack
+  // budget, ≤100ms -- trivially met since it's a plain setState in the same
+  // handler tick), false again once `recording` goes true OR on any error.
+  // Never true at the same time as `recording` -- the composer renders one
+  // honest state at a time: idle -> connecting -> listening.
+  const [connecting, setConnecting] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [level, setLevel] = useState(0);
@@ -840,44 +846,68 @@ export function Overlay({
     }
   }
 
+  // Best-effort live transcript (unchanged behavior/contract from before Task
+  // 5): SpeechRecognition's interim results are intentionally low-accuracy;
+  // Whisper's final transcript is the source of truth (see handleMicStop).
+  // Extracted to its own function and called BEFORE `startRecording()` is
+  // awaited (Task 5, ADR-033) -- previously this ran strictly AFTER
+  // `startRecording()` resolved despite a comment claiming otherwise, so
+  // SpeechRecognition's own async startup was serialized behind
+  // getUserMedia/MediaRecorder setup instead of overlapping it.
+  function startLiveTranscript() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sr: any = new SR();
+      sr.continuous = true;
+      sr.interimResults = true;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sr.onresult = (event: any) => {
+        let text = '';
+        for (let i = 0; i < event.results.length; i++) {
+          text += event.results[i][0].transcript;
+        }
+        setLiveTranscript((text as string).trim());
+      };
+      sr.onerror = () => {};
+      sr.start();
+      speechRecRef.current = sr as { stop: () => void };
+    } catch {
+      // SpeechRecognition unavailable in this context — no live preview.
+    }
+  }
+
   async function handleMicStart() {
     if (busy || recording || startingRef.current) return;
     setNotice(null);
     startingRef.current = true;
+    // Task 5 (ADR-033): the UI acknowledges the click IMMEDIATELY, before any
+    // async work -- never the fake "recording" state, but never silence
+    // either. `recording` itself only flips once capture is actually live.
+    setConnecting(true);
+    const clickAt = performance.now();
+
+    // Parallelized with startRecording() below (Task 5) -- both do their own
+    // async mic-related setup; sequencing them was one of the ~5s cold
+    // start's contributors.
+    startLiveTranscript();
+
     try {
       const handle = await startRecording();
+      if (import.meta.env.DEV) {
+        console.debug(`[calyxa voice] click→capturing (outer): ${Math.round(performance.now() - clickAt)}ms`);
+      }
       recordingRef.current = handle;
       setRecording(true);
+      setConnecting(false);
       startLevelMeter();
-
-      // Best-effort live transcript: run SpeechRecognition in parallel with
-      // MediaRecorder so words appear in the bubble as the user speaks.
-      // SpeechRecognition's interim results are intentionally low-accuracy;
-      // Whisper's final transcript is the source of truth (see handleMicStop).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
-      if (SR) {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const sr: any = new SR();
-          sr.continuous = true;
-          sr.interimResults = true;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          sr.onresult = (event: any) => {
-            let text = '';
-            for (let i = 0; i < event.results.length; i++) {
-              text += event.results[i][0].transcript;
-            }
-            setLiveTranscript((text as string).trim());
-          };
-          sr.onerror = () => {};
-          sr.start();
-          speechRecRef.current = sr as { stop: () => void };
-        } catch {
-          // SpeechRecognition unavailable in this context — no live preview.
-        }
-      }
     } catch (error) {
+      speechRecRef.current?.stop();
+      speechRecRef.current = null;
+      setLiveTranscript('');
+      setConnecting(false);
       const message = error instanceof Error ? error.message : 'Microphone is unavailable.';
       setNotice(`${message} Use the text input instead.`);
     } finally {
@@ -1163,6 +1193,7 @@ export function Overlay({
         <Composer
           hasContent={hasContent}
           recording={recording}
+          connecting={connecting}
           level={level}
           input={input}
           busy={busy}

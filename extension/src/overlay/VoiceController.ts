@@ -111,12 +111,49 @@ function encodeWav(channels: Float32Array[], sampleRate: number): ArrayBuffer {
   return buffer;
 }
 
+// ADR-032/033: construct-once AudioContext for the level meter, module-level
+// so repeat mic presses in the same tab reuse it instead of paying
+// AudioContext construction cost on every utterance -- one of the ~5s cold
+// start's measured contributors (Task 5's instrument-first pass). It never
+// holds a stream between turns (ADR-011 unchanged): only the MediaStreamSource
+// node is rewired to the CURRENT utterance's stream each call, and the
+// stream's own tracks are still stopped in release() below exactly as
+// before. Lazily constructed on first use (not at module load, before any
+// user gesture) and resumed on later calls if the browser auto-suspended it.
+let sharedMeterCtx: AudioContext | null = null;
+
+function getMeterAudioContext(): AudioContext | null {
+  const AudioCtx =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) return null;
+
+  if (!sharedMeterCtx) {
+    sharedMeterCtx = new AudioCtx();
+  } else if (sharedMeterCtx.state === 'suspended') {
+    void sharedMeterCtx.resume();
+  }
+
+  return sharedMeterCtx;
+}
+
+// Dev-only stage timing (Task 5: instrument first, then fix). Marks stay in
+// after the fix so a future regression in the click→capturing budget
+// (≤500ms) is visible in the console rather than silently creeping back.
+// Vite/WXT's standard `import.meta.env.DEV` (false in a production build).
+function markStage(t0: number, stage: string): void {
+  if (!import.meta.env.DEV) return;
+  console.debug(`[calyxa voice] ${stage}: ${Math.round(performance.now() - t0)}ms`);
+}
+
 /**
  * Requests the microphone and starts recording immediately. Throws a
  * caller-friendly error -- distinguishing "no API" from "permission denied"
  * -- so the overlay can surface a clear notice and fall back to text.
  */
 export async function startRecording(): Promise<RecordingHandle> {
+  const t0 = performance.now();
+
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
     throw new Error('Microphone is not available in this browser.');
   }
@@ -127,6 +164,7 @@ export async function startRecording(): Promise<RecordingHandle> {
   } catch {
     throw new Error('Microphone permission was denied.');
   }
+  markStage(t0, 'getUserMedia resolved');
 
   const chunks: BlobPart[] = [];
   const mimeType = pickMimeType();
@@ -136,15 +174,24 @@ export async function startRecording(): Promise<RecordingHandle> {
     if (event.data.size > 0) chunks.push(event.data);
   });
 
+  function release(): void {
+    stream.getTracks().forEach((track) => track.stop());
+  }
+
+  // Start capturing FIRST -- this is the "actually capturing" moment the
+  // ≤500ms budget is measured against. Live level metering (below) is a
+  // cosmetic add-on and must never delay real capture start.
+  recorder.start();
+  markStage(t0, 'recorder.start (actually capturing)');
+
   // Live level metering, separate from the MediaRecorder pipeline above: an
   // AnalyserNode tapped off the same stream, read on demand (no persistence,
   // ADR-011 — this never touches the recorded bytes). RMS of the time-domain
   // samples is a cheap, good-enough loudness proxy for a waveform; the 4x
-  // gain compensates for speech RMS normally sitting well under 1.
-  const AudioCtx =
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  const meterCtx = AudioCtx ? new AudioCtx() : null;
+  // gain compensates for speech RMS normally sitting well under 1. Wired
+  // AFTER recorder.start() (Task 5) so a slow/suspended shared AudioContext
+  // can never hold up the capture budget above.
+  const meterCtx = getMeterAudioContext();
   let getLevel: () => number = () => 0;
   if (meterCtx) {
     const source = meterCtx.createMediaStreamSource(stream);
@@ -164,13 +211,7 @@ export async function startRecording(): Promise<RecordingHandle> {
       return Math.min(1, rms * 4);
     };
   }
-
-  function release(): void {
-    stream.getTracks().forEach((track) => track.stop());
-    void meterCtx?.close();
-  }
-
-  recorder.start();
+  markStage(t0, 'meter wired');
 
   return {
     stop: () =>

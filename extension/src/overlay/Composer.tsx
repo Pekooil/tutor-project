@@ -13,6 +13,7 @@ import { VisuallyHidden } from '@calyxa/ui';
 export function Composer({
   hasContent,
   recording,
+  connecting,
   level,
   input,
   busy,
@@ -31,6 +32,12 @@ export function Composer({
 }: {
   hasContent: boolean;
   recording: boolean;
+  // Task 5 (ADR-033): true from the moment the mic button is clicked until
+  // capture is actually live -- an honest "connecting…" state distinct from
+  // `recording` (never faked as already-listening before the stream is
+  // real). Mutually exclusive with `recording` in practice (Overlay.tsx
+  // flips one off exactly as the other flips on).
+  connecting: boolean;
   level: number;
   input: string;
   busy: boolean;
@@ -53,6 +60,7 @@ export function Composer({
   onMicClick: () => void;
 }) {
   const disabled = busy || closing;
+  const micBusy = connecting || (disabled && !recording);
 
   return (
     <div className={`${hasContent ? 'border-t border-border' : ''} px-[18px] pb-[14px] pt-3`}>
@@ -90,7 +98,13 @@ export function Composer({
         onSubmit={onSubmit}
         className="flex items-center gap-2 rounded-full border border-border bg-background py-[7px] pr-[7px] pl-[18px] shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
       >
-        {recording ? (
+        {connecting ? (
+          <div className="flex h-[34px] flex-1 items-center justify-center gap-2 text-[13px] text-muted-foreground">
+            <VisuallyHidden>Connecting to the microphone…</VisuallyHidden>
+            <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground" />
+            <span aria-hidden="true">Connecting…</span>
+          </div>
+        ) : recording ? (
           <div className="flex h-[34px] flex-1 items-center justify-center">
             <VisuallyHidden>Recording — click the square button to stop and send</VisuallyHidden>
             <WaveformBars count={24} barWidth={3} gap={3} gradientFrom="#4ade80" gradientTo="#86efac" durationBase={0.9} level={level} />
@@ -134,9 +148,9 @@ export function Composer({
         <button
           type="button"
           onClick={onMicClick}
-          disabled={disabled && !recording}
-          aria-label={recording ? 'Stop recording and send' : 'Switch to voice'}
-          title={recording ? 'Stop and send' : 'Switch to voice'}
+          disabled={micBusy}
+          aria-label={connecting ? 'Connecting to microphone…' : recording ? 'Stop recording and send' : 'Switch to voice'}
+          title={connecting ? 'Connecting…' : recording ? 'Stop and send' : 'Switch to voice'}
           className="flex h-[34px] w-[34px] flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
           {recording ? (
@@ -149,7 +163,7 @@ export function Composer({
             -- was a "Send" text button through Sprint 13. */}
         <button
           type="submit"
-          disabled={!input.trim() || recording || disabled}
+          disabled={!input.trim() || recording || connecting || disabled}
           aria-label="Send"
           title="Send"
           className="flex h-[34px] w-[34px] flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-accent p-0 text-accent-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
