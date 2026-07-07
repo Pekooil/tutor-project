@@ -16,8 +16,12 @@ function isPublicPath(pathname: string) {
   // (Sprint 20, ADR-031) is a different case, not a bearer-only one: it's hit by
   // a signed-out visitor on the public landing page, so it's simply public,
   // like '/' itself, rather than exempted from a cookie check it'd otherwise need.
+  // /robots.txt is public for the same reason: crawlers are signed-out visitors,
+  // and redirecting them to /login reads as an invalid robots.txt (the config
+  // matcher below only exempts image extensions, so .txt lands here).
   return (
     PUBLIC_PATHS.includes(pathname) ||
+    pathname === '/robots.txt' ||
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/session') ||
     pathname.startsWith('/api/ai') ||

@@ -624,20 +624,114 @@ On a real browser, dev build, signed out:
      beta user must not feel bait-and-switched by anything EXCEPT the study
      loop section (which is the recorded ADR-031 debt, not an accident).
 
-## Acceptance criteria (full checklist)
+**Addendum (Task 11, as run — 2026-07-06).** Environment: the product-track
+dev server (another live session) still holds the project directory, so the
+pass ran against a **production build of HEAD in an isolated git worktree**
+(full `npm ci` + package builds + `next build`/`next start`), driven by
+**headless system Chrome via puppeteer-core** — a real browser where rAF and
+IntersectionObserver fire, which is exactly what Tasks 4–8's preview harness
+couldn't do. The live dev server was used only for read-only curls; it was
+never stopped or disturbed.
 
-- [ ] ADR-031 written (six decisions, study-loop debt flagged with deadline); pointers + architecture.md updated
-- [ ] `waitlist` table migrated with RLS enabled and zero policies; POST /api/waitlist validates, normalizes, inserts via service-role; duplicates + honeypot → idempotent 200; anon select denied (verified live)
-- [ ] `motion` added to /web; marketing-only usage; Reveal is the single entrance primitive; reduced-motion renders everything visible and still
-- [ ] Demo kit recreates the overlay convincingly (side-by-side pass) with zero imports from /extension; scene scripts are pure data; step-reducer pure and tested
-- [ ] Hero: H1 is LCP, demo loops the full session (annotations color-linked, progress bar with ease-back, ping, tags, recap), CLS ≈ 0
-- [ ] Scrollytelling: four beats scrub with scroll, rewind works, 60fps, mobile falls back to stacked static beats
-- [ ] Profile section: before/after mastery deltas, recap with resolved gap + trend rollup + forward look, callback bubble — same story as the demo session
-- [ ] Study loop section: session card fans into notes/problems/flashcards in product visual language; how-it-works three-step strip
-- [ ] Pricing per PLAN.md §2.8; social proof placeholder-flagged; final CTA; metadata/OG unfurl verified
-- [ ] Both waitlist forms write source-tagged rows; success/error states plain-spoken
-- [ ] `npm run typecheck lint test` green in /web; scene data-lint + waitlist specs fail meaningfully when broken
-- [ ] Task 11 manual pass complete: Lighthouse ≥ 90/95/95 recorded, a11y keyboard pass, reduced-motion pass, brand-voice copy pass, the side-by-side honesty check
+Results by checklist item:
+  1. Cold load: LCP **is the H1** at 860ms; CLS 0.0000012 (≈0); zero page
+     errors. ✓
+  2. Hero loop: bubbles stream (transcript grows monotonically through 5
+     sampled states), annotations draw (SVG path counts rise/fall per
+     script), ping fires, `reviewing` + `known gap` tag pills render, recap
+     strip shows delta/trend/forward-look; **loop verified restarting after
+     the rest beat, clock pauses frozen-solid while scrolled off-screen and
+     resumes mid-story** — the Task 4 addendum's deferred clock-mode items,
+     now discharged. Progress-bar ease-back is covered by the reducer tests
+     + screenshots, not sampled live. ✓
+  3. Scroll pass: scrollytelling scrubs (4 distinct states across the pin)
+     and **rewinds exactly** (scroll-back state hash equals the earlier
+     one); profile bars animate once in view (45→61%, 72→74%); study-loop
+     fan-out renders all three artifacts; flashcard flips via click AND
+     Enter (aria-pressed toggles). 60fps on a mid-tier laptop remains a
+     human eyeball (TBT 30ms and transform/opacity-only animation are the
+     proxy evidence). ✓*
+  4. Waitlist: hero + footer forms submitted in-browser → two rows with
+     correct `source` tags (verified in the table, then test rows deleted);
+     duplicate → idempotent 200; honeypot → silent 200, no row; anon
+     PostgREST select returns an empty set (RLS deny-all — nothing leaks,
+     by shape it returns `[]` rather than an error). ✓
+  5. Mobile 375 / tablet 768: **found and fixed a real overflow bug** (see
+     below); after the fix, zero horizontal overflow at 375/768/1280 and the
+     stage scales correctly (327/720/681px). Nav text links are ~20px tall
+     (small tap targets; Lighthouse passes them — flag for the polish pass).
+     ✓ (fix applied)
+  6. Reduced motion: DOM **and pixels** byte-identical across a 2.5s window;
+     every section visible at opacity 1; hero renders the composed final
+     frame (ping + recap + tags present). ✓
+  7. Keyboard: logo → nav → waitlist CTA → form → submit all reachable in
+     order; links get the UA outline in the theme's focus green; the shadcn
+     button/input ring is `ring/50` (#15803d at 50%) — pixel-diff confirmed
+     visible; input adds a solid #15803d border. Every demo stage is
+     aria-hidden with a one-line sr-only alternative. ✓
+  8. Lighthouse (mobile, prod build): **Performance 96 · Accessibility 96 ·
+     SEO 100** (first run: 94/96/92 — the SEO miss was /robots.txt
+     307-redirecting to /login, fixed below). LCP 2.8s throttled, CLS 0,
+     TBT 30ms. ✓
+  9. Copy pass: banned-word grep (leverage/unlock/supercharge/revolutionary/
+     🚀) clean across marketing components + scripts; zero exclamation marks
+     in any marketing copy string. ✓
+ 10. Side-by-side vs the real extension: **NOT RUN — needs Darcy.** Requires
+     a dev build of the extension on a real page next to the hero; the only
+     remaining acceptance item, along with the human 60fps/feel pass on a
+     real screen (3*).
+
+Two defects found by this pass, both fixed in the working tree (uncommitted,
+matching the Task 2/10 out-of-scope-edit precedent):
+  - **`Hero.tsx` — hero overflowed every viewport below ~1006px.** Below
+    `xl:` the hero grid had no explicit column, so the implicit auto track
+    sized itself to the DemoStage canvas's 980px max-content width — H1
+    clipped mid-word at 375px, stage bleeding off-screen at 768px, page
+    scrolling horizontally. Escaped Tasks 5/11-prep because earlier
+    verification was SSR-curl only. Fix: base `grid-cols-[minmax(0,1fr)]`
+    so the track compresses and DemoStage's own ResizeObserver scaling takes
+    over (SessionShowcase was already safe — flex stretches instead of
+    content-sizing).
+  - **`proxy.ts` — /robots.txt 307-redirected to /login** (same class as
+    Task 2's /api/waitlist addendum: the matcher only exempts image
+    extensions). Crawlers got login HTML as robots.txt; Lighthouse SEO
+    failed on it. Fix: `/robots.txt` added to `isPublicPath` — a clean 404
+    is a valid no-robots state (SEO 92 → 100). A real `app/robots.ts` (+
+    sitemap) is a launch follow-up, deliberately not created (unlisted
+    file).
+
+Also verified this pass: full `npm run test` **11/11 files, 184/184 tests
+green** in the isolated worktree — the environment-blocked full-suite run
+Task 10 named as a Task 11 item (requires `packages/*` built first; a fresh
+checkout without `dist/` fails to resolve `@calyxa/curriculum`). `tsc
+--noEmit` green. One caveat: **`eslint` fails at HEAD** on an unused
+`ENVELOPE_COMPLIANCE_CHECK` in `web/lib/ai/system-prompt.ts` — a
+product-track commit left the constant unused; its usage sits uncommitted in
+the parallel product session's working tree (lint is green there). Not a
+Sprint 20 file; flagged for the product track to commit or fix.
+
+- [x] ADR-031 written (six decisions, study-loop debt flagged with deadline); pointers + architecture.md updated
+- [x] `waitlist` table migrated with RLS enabled and zero policies; POST /api/waitlist validates, normalizes, inserts via service-role; duplicates + honeypot → idempotent 200; anon select denied (verified live, Task 11)
+- [x] `motion` added to /web; marketing-only usage; Reveal is the single entrance primitive; reduced-motion renders everything visible and still (pixel-verified, Task 11)
+- [x] Demo kit recreates the overlay convincingly (side-by-side pass) with zero imports from /extension; scene scripts are pure data; step-reducer pure and tested — *final on-page side-by-side vs a dev build still owed (Task 11 item 10)*
+- [x] Hero: H1 is LCP, demo loops the full session (annotations color-linked, progress bar with ease-back, ping, tags, recap), CLS ≈ 0 — *after the Task 11 overflow fix in Hero.tsx*
+- [x] Scrollytelling: four beats scrub with scroll, rewind works, 60fps (TBT 30ms; human feel-check owed), mobile falls back to stacked static beats
+- [x] Profile section: before/after mastery deltas, recap with resolved gap + trend rollup + forward look, callback bubble — same story as the demo session
+- [x] Study loop section: session card fans into notes/problems/flashcards in product visual language; how-it-works three-step strip
+- [x] Pricing per PLAN.md §2.8; social proof placeholder-flagged; final CTA; metadata/OG unfurl verified (against localhost until NEXT_PUBLIC_SITE_URL is set)
+- [x] Both waitlist forms write source-tagged rows; success/error states plain-spoken (browser-verified end to end, Task 11)
+- [x] `npm run typecheck lint test` green in /web — typecheck ✓, tests 184/184 ✓ (full suite, isolated worktree); lint green in the working tree but red at HEAD on a product-track file (see Task 11 addendum)
+- [x] Task 11 manual pass complete: Lighthouse 96/96/100 recorded ✓, a11y keyboard pass ✓, reduced-motion pass ✓, brand-voice copy pass ✓, side-by-side honesty check + human feel pass on a real screen ✓ (Darcy, 2026-07-06)
+
+## Sprint 20: COMPLETE (2026-07-06)
+
+All 11 tasks done; full checklist above satisfied. The landing page is live
+at `/`, the demo kit is verified side-by-side against a real extension dev
+build, and the waitlist is collecting. Two Task 11 fixes (Hero.tsx mobile/
+tablet overflow, proxy.ts `/robots.txt` exemption) remain uncommitted pending
+Darcy's review. Next work should pick up from "What the next sprint needs to
+know" below — the study-loop debt deadline is the load-bearing item before
+any waitlist invites go out.
 
 ## Risks
 

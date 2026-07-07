@@ -12,7 +12,7 @@ import { heroSession } from '@/components/marketing/demo/scripts'
 export function Hero() {
   return (
     <section id="hero" className="mx-auto max-w-7xl px-6 pb-24 pt-16 sm:pt-24 lg:pb-32">
-      <div className="grid items-center gap-14 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] xl:gap-16">
+      <div className="grid grid-cols-[minmax(0,1fr)] items-center gap-14 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] xl:gap-16">
         <div>
           <h1 className="text-balance text-5xl font-semibold tracking-tight text-foreground sm:text-6xl">
             The math tutor that lives on your screen.
