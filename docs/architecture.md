@@ -162,6 +162,46 @@ The tutor's replies also get shorter by prompt contract (default ≤3 sentences 
 idea per turn, full explanations only on explicit request) — a pure prompt change,
 no new wire field, banked by Sprint 15's voice-latency work.
 
+## Curriculum at launch scale + voice latency (Sprint 15)
+The knowledge graph grows from the Sprint 09 stopgap (eight `algebra.*`
+concepts, one strand) to launch scale: ≈70 concepts across six strands —
+`algebra1`, `geometry`, `algebra2`, `trig-precalc`, `calculus`, `prob-stats` —
+one module per strand under `/packages/curriculum/src/concepts/`,
+concatenated into the existing `CONCEPTS`/`CONCEPT_KEYS` exports (import sites
+unchanged). The eight Sprint 13 keys are frozen byte-identical (a test pins
+them); every addition is additive, with no migration anywhere — concept keys
+stay strings by design (ADR-009/ADR-014). `Concept` gains
+`aliases: readonly string[]`, closing the Sprint 11 audit's alias-drift flag
+structurally: `topic.ts`'s hand-maintained alias table is deleted and its
+detection table derives from the curriculum at import time, and
+`KNOWN_CONCEPT_KEYS` (`web/lib/learning/types.ts`) becomes a re-export of
+`CONCEPT_KEYS` — one source of truth for concept keys, titles, and aliases.
+The turn prompt's key vocabulary switches from "all known keys" to a bounded
+relevant subset (profile nodes ∪ topic-detected keys ∪ due keys ∪ strand
+neighbors, capped ~24); `envelope.ts` keeps validating assessments against the
+full key list, so a correct key outside the injected subset is kept, not
+dropped. See ADR-032.
+
+Three voice-pipeline defects from live use are fixed without reopening the
+sequential STT → turn → TTS shape (ADR-003/PLAN §2.5 stands): the mic's
+~5s cold start is instrumented (dev-only timing marks around `getUserMedia` /
+`recorder.start()` / meter wiring) before being fixed with a construct-once
+`AudioContext` (module-level, `resume()` per use, never holding a stream
+between turns — ADR-011 upheld) and a parallelized `SpeechRecognition`
+startup, budgeted at click→capturing ≤500ms with a ≤100ms UI acknowledgment;
+the TTS leg streams end-to-end — the route's existing server-side
+pass-through is joined by a chunked `VOICE_TTS_STREAM` background port (the
+`AI_STREAM` pattern) and a `MediaSource`-fed overlay player so playback starts
+at the first buffered chunk instead of the full clip, word-reveal pacing
+moving to `timeupdate`, with today's one-shot buffered path kept alive as a
+first-class per-utterance fallback, targeting p50 time-to-first-audio ≤2.5s;
+and the ElevenLabs voice is pinned — explicit `model_id` + `voice_settings`,
+per-request id logging, and a boot-time (not call-time) assertion that
+`ELEVENLABS_VOICE_ID` is present and well-formed, failing loud on env drift
+rather than silently degrading to the wrong voice. Audio is still never
+persisted anywhere in this pipeline (ADR-011); the STT leg is untouched. See
+ADR-033.
+
 ## Marketing site (Sprint 20)
 `/web/app/page.tsx` becomes the public landing page, built as a **parallel
 track** alongside the product-roadmap sprints (15–19) — it shares no files
@@ -259,6 +299,18 @@ See `/docs/adr/`. Notably:
   scoped to the marketing component tree only; the study loop marketed as
   live with a recorded pre-invite fuse; a server-write-only `waitlist` table
   (RLS enabled, zero policies) as the page's promoted action over signup
+- ADR-032 — Curriculum expansion to launch scale: six strands (~70 concepts),
+  the eight Sprint 13 keys frozen byte-identical, `aliases` moved onto the
+  concept (closes the Sprint 11 audit's alias-drift flag), `KNOWN_CONCEPT_KEYS`
+  re-exports `CONCEPT_KEYS`, and the turn prompt's key vocabulary capped to a
+  bounded relevant subset (~24) with full-list validation unchanged at parse
+- ADR-033 — Voice pipeline latency: instrumented mic cold start with a
+  construct-once `AudioContext` and parallelized `SpeechRecognition` startup
+  (click→capturing ≤500ms, UI ack ≤100ms); TTS streamed end-to-end via a
+  chunked background port + `MediaSource` playback with the buffered path kept
+  as a first-class fallback (p50 time-to-first-audio ≤2.5s); ElevenLabs voice
+  pinned (explicit `model_id`/`voice_settings`, boot-time fail-loud assertion);
+  wrong-voice root cause recorded in the ADR's amendment box once Task 7 runs
 
 ## To be documented
 - System context diagram

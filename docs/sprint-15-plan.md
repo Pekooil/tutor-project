@@ -60,11 +60,11 @@ seam note stands).
   The prompt's key vocabulary becomes a **bounded relevant subset** (profile
   nodes + topic-detected keys + due keys + their strand neighbors, capped ~24);
   `envelope.ts` still validates against the **full** `CONCEPT_KEYS` list, so a
-  correct key outside the injected subset is kept, not dropped (ADR-031).
+  correct key outside the injected subset is kept, not dropped (ADR-032).
 - **§2.5/ADR-003's voice pipeline stays sequential** — STT → turn → TTS. What
   changes is inside the TTS leg (server pass-through streaming + progressive
   playback) and before the first leg (mic cold start). ADR-003's latency
-  optimisation stub is finally cashed as ADR-032.
+  optimisation stub is finally cashed as ADR-033.
 - **ADR-011 is untouched**: the mic track is still released after every
   utterance; the shared AudioContext holds **no stream** between turns — it is a
   decoder/meter context, not an open mic.
@@ -125,7 +125,7 @@ and **unpinned synthesis parameters** (`model_id`/`voice_settings` omitted →
 provider defaults that can shift and change how the same voice sounds). Task 7
 first reproduces with per-request logging of the exact voice_id/model_id sent,
 then pins all synthesis parameters explicitly, adds a boot-time env assertion
-(fail loud, not fall back), and records the actual root cause found in ADR-032's
+(fail loud, not fall back), and records the actual root cause found in ADR-033's
 amendment box. If the reproduction shows something else (e.g. an ElevenLabs-side
 behavior), the pin + assertion still land and the finding is recorded.
 
@@ -154,8 +154,8 @@ work is consumed as-is), or the session lifecycle.
 
 ### Task 1 (ADRs + sprint pointers) creates or edits:
 ```
-/docs/adr/ADR-031-curriculum-expansion.md ← new — the six strands + concept inventory (≈70) at launch; 8 existing keys frozen; aliases + titles + priors in-concept (single source; build fails on a missing alias/title); the prompt key-budget rule (bounded relevant subset ~24, full-list validation at parse); per-strand module layout. REVISITS the Sprint 09 stopgap; closes the Sprint 11 audit's alias-drift flag.
-/docs/adr/ADR-032-voice-latency.md        ← new — cashes PLAN §2.11's ADR-003 stub: the mic cold-start budget (click→capturing ≤500ms, UI ack ≤100ms) + construct-once AudioContext (no held stream — ADR-011 upheld); TTS pass-through + chunked port relay + MediaSource progressive playback with the buffered fallback as a first-class path; voice pinning (explicit voice_id/model_id/voice_settings, boot env assertion, fail-loud); p50 time-to-first-audio ≤2.5s; root cause of the wrong-voice defect recorded here once found.
+/docs/adr/ADR-032-curriculum-expansion.md ← new — the six strands + concept inventory (≈70) at launch; 8 existing keys frozen; aliases + titles + priors in-concept (single source; build fails on a missing alias/title); the prompt key-budget rule (bounded relevant subset ~24, full-list validation at parse); per-strand module layout. REVISITS the Sprint 09 stopgap; closes the Sprint 11 audit's alias-drift flag.
+/docs/adr/ADR-033-voice-latency.md        ← new — cashes PLAN §2.11's ADR-003 stub: the mic cold-start budget (click→capturing ≤500ms, UI ack ≤100ms) + construct-once AudioContext (no held stream — ADR-011 upheld); TTS pass-through + chunked port relay + MediaSource progressive playback with the buffered fallback as a first-class path; voice pinning (explicit voice_id/model_id/voice_settings, boot env assertion, fail-loud); p50 time-to-first-audio ≤2.5s; root cause of the wrong-voice defect recorded here once found.
 /CLAUDE.md                                 ← edit one line: Current sprint → Sprint 15 — Curriculum expansion + voice pipeline latency
 /docs/CLAUDE.md                            ← edit one line: Current phase → Phase 2, Sprint 15
 /docs/sprint-15-plan.md                    ← this file
@@ -247,9 +247,9 @@ listed, add it to "What the next sprint needs to know" and ask before creating i
 
 ## Task 1 — Curriculum-scale + voice-latency ADRs + sprint pointers (planning / docs)
 
-Write ADR-031 and ADR-032 per the Files-in-scope annotations — ADR-031 carries
+Write ADR-032 and ADR-033 per the Files-in-scope annotations — ADR-032 carries
 the full strand/concept inventory as its appendix (the one place the list lives
-outside the code), ADR-032 carries the budgets and leaves a labeled amendment box
+outside the code), ADR-033 carries the budgets and leaves a labeled amendment box
 for the wrong-voice root cause found in Task 7.
 
 Acceptance gate before Task 2:
@@ -271,7 +271,7 @@ change is the `aliases` field and the per-strand module layout.
   - Difficulty priors set per strand band (existing 8 keep theirs); aliases are
     the student-language phrases topic detection will actually see ("slope",
     "SOH CAH TOA", "chain rule", "u-sub", "log rules", "unit circle").
-  - Target ≈70 concepts; the ADR-031 inventory is the checklist.
+  - Target ≈70 concepts; the ADR-032 inventory is the checklist.
 
 Acceptance gate before Task 3:
   - Package tests green (all invariants); `turbo run typecheck build` green
@@ -349,7 +349,7 @@ Scope: `elevenlabs.ts` + `voice.test.ts`, per the Files-in-scope annotations.
   - Reproduce first with the per-request id logging; check env parity between
     local and the deployed backend for ELEVENLABS_VOICE_ID.
   - Pin model_id + voice_settings; boot assertion fails loud on missing/
-    malformed voice id; record the actual root cause in ADR-032's amendment box.
+    malformed voice id; record the actual root cause in ADR-033's amendment box.
 
 Acceptance gate before Task 8:
   - 10 consecutive voice turns speak in the configured voice; the pinned-fields
@@ -395,7 +395,7 @@ comms both consume them.
 
 ## Acceptance criteria (full checklist)
 
-- [ ] ADR-031 (with the concept inventory appendix) + ADR-032 (with budgets + the root-cause amendment box) written; pointers + architecture.md updated
+- [ ] ADR-032 (with the concept inventory appendix) + ADR-033 (with budgets + the root-cause amendment box) written; pointers + architecture.md updated
 - [ ] Curriculum at ≈70 concepts across algebra1 / geometry / algebra2 / trig-precalc / calculus / prob-stats; per-strand modules; every import site compiles unchanged
 - [ ] The 8 Sprint 13 keys + titles byte-identical (frozen-key test); no migration anywhere
 - [ ] Every concept: unique key, nonempty title, ≥2 aliases, valid prereq keys, acyclic graph, prior in range — enforced by tests that fail the build
@@ -404,7 +404,7 @@ comms both consume them.
 - [ ] Mic: UI ack ≤100ms, click→capturing ≤500ms, measured + attributed; construct-once AudioContext holds no stream (ADR-011 verified via OS indicator)
 - [ ] TTS: server pass-through (no buffering) + chunked port + MediaSource progressive playback; buffered fallback kept + exercised; reveal paced by timeupdate
 - [ ] p50 time-to-first-audio ≤2.5s over 10 turns on a stable connection (numbers recorded)
-- [ ] Voice pinned: explicit voice_id/model_id/voice_settings; boot assertion fails loud; 10/10 turns in the configured voice; root cause recorded in ADR-032
+- [ ] Voice pinned: explicit voice_id/model_id/voice_settings; boot assertion fails loud; 10/10 turns in the configured voice; root cause recorded in ADR-033
 - [ ] Audio still never persisted (ADR-011); STT leg untouched
 - [ ] `turbo run typecheck lint build test` green across workspaces; Task 9 manual pass complete with all numbers recorded
 
@@ -412,7 +412,7 @@ comms both consume them.
 
 **Curriculum quality is a content risk, not a code risk.** A wrong prerequisite
 edge or a missing alias degrades quietly (bad ordering, missed topic bias), not
-loudly. Mitigation: the ADR-031 inventory is reviewed as a document before
+loudly. Mitigation: the ADR-032 inventory is reviewed as a document before
 transcription; the invariant tests catch the structural half; beta telemetry
 (next sprint) is the feedback loop for the content half — the graph is data, so
 fixes are data edits.
@@ -436,7 +436,7 @@ the task cannot "finish" by applying techniques that didn't move the number.
 
 **The wrong-voice defect doesn't reproduce.** Mitigation: the pin + boot
 assertion land regardless (they close the likeliest cause class and make any
-recurrence loud); the ADR-032 amendment box records "not reproduced, pinned
+recurrence loud); the ADR-033 amendment box records "not reproduced, pinned
 defensively" honestly if that is the outcome.
 
 **Two workstreams crowd one sprint.** Curriculum transcription is big but
@@ -464,6 +464,6 @@ a buffered fallback; the voice is pinned and env drift fails loud.
 - **The streaming-envelope sprint (if pursued)** now has both halves of its
   pattern proven separately: chunked port relay (TTS here, AI_STREAM before) —
   reconciling the envelope with SSE remains the only new work.
-- **The concept inventory lives in ADR-031's appendix + the strand modules** —
+- **The concept inventory lives in ADR-032's appendix + the strand modules** —
   curriculum growth is a data edit + alias entry, enforced by tests; no parallel
   tables remain to maintain.

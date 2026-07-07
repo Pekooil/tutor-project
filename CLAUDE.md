@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 20 — Marketing landing page: the extension, on stage — COMPLETE (2026-07-06). Product-track scope pointer remains Sprint 14 (see /docs/sprint-15-plan.md for what's next in that track).
+Sprint 15 — Curriculum expansion + voice pipeline latency (Task 1 of 9 — ADRs + pointers — done). Sprint 20's marketing landing page (parallel track) is COMPLETE (2026-07-06).
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions
