@@ -135,6 +135,42 @@ export default defineBackground(() => {
   // Sprint 14 (ADR-027/028) threads `solutionProgress`/`session` the same
   // additive way; Overlay.tsx doesn't consume either yet (Task 7), but the
   // wire already carries them so Task 7 needs no transport change.
+  // (4d) Streamed TTS via a dedicated persistent port (Sprint 15 Task 6,
+  // ADR-033) -- the AI_STREAM pattern reused for voice. content/index.ts
+  // opens 'VOICE_TTS_STREAM', posts one VoiceTtsPayload ({text}), and
+  // receives base64 chunk messages as the route's ElevenLabs stream arrives,
+  // followed by exactly one 'done' (with ttsMs) or 'error'. The existing
+  // one-shot VOICE_TTS handler above is untouched -- it remains the
+  // per-utterance fallback the overlay uses when MediaSource/codec friction
+  // makes the streamed path unusable.
+  chrome.runtime.onConnect.addListener((port) => {
+    if (port.name !== 'VOICE_TTS_STREAM') return;
+    port.onMessage.addListener(async (msg: VoiceTtsPayload) => {
+      try {
+        const { ttsMs } = await api.ttsSynthesizeStream(msg.text, (chunk) => {
+          try {
+            port.postMessage({ type: 'chunk', audio: uint8ArrayToBase64(chunk) });
+          } catch {
+            // Port already disconnected -- the reader loop in
+            // ttsSynthesizeStream keeps draining, but further chunks are
+            // dropped here too; caught again on the next postMessage.
+          }
+        });
+        try {
+          port.postMessage({ type: 'done', ttsMs });
+        } catch {
+          // Port already disconnected -- all chunks were sent, no action needed.
+        }
+      } catch (error) {
+        try {
+          port.postMessage({ type: 'error', error: toErrorMessage(error) });
+        } catch {
+          // Port already disconnected.
+        }
+      }
+    });
+  });
+
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== 'AI_STREAM') return;
     // Captured once per port (one port per sendAiTurn call, i.e. per turn) --
@@ -657,6 +693,15 @@ async function handleVoiceTts(payload: VoiceTtsPayload): Promise<CalyxaMessage> 
  */
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+/** Same walk as arrayBufferToBase64, operating directly on a chunk view (VOICE_TTS_STREAM) rather than a whole buffer. */
+function uint8ArrayToBase64(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) {
     binary += String.fromCharCode(byte);

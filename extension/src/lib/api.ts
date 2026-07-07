@@ -428,3 +428,49 @@ export async function ttsSynthesize(text: string): Promise<{ audio: ArrayBuffer;
 
   return { audio, ttsMs };
 }
+
+/**
+ * Streaming sibling of ttsSynthesize (Sprint 15 Task 6, ADR-033): reads the
+ * route's response body as it arrives and invokes `onChunk` once per chunk
+ * instead of buffering the whole reply before returning. The route itself
+ * already passes the ElevenLabs stream straight through with no server-side
+ * buffering (web/app/api/voice/tts/route.ts) -- this is the client-side half
+ * of removing the buffering leg the sprint plan flags (§"Task 6" -- the
+ * background used to await res.arrayBuffer() here and relay one base64 blob,
+ * which is exactly the silence-inducing buffering ttsSynthesize above still
+ * does; that function is KEPT verbatim as the fallback for MediaSource/codec
+ * failures per-utterance).
+ *
+ * `ttsMs` is read from the SAME x-tts-ms header as ttsSynthesize -- it
+ * reflects the route's time-to-first-byte (the header arrives with the
+ * response, before the body streams), not the total download time.
+ *
+ * Reuses authorizedFetch verbatim, so a dead refresh token surfaces
+ * SignedOutError exactly as every other helper does.
+ */
+export async function ttsSynthesizeStream(
+  text: string,
+  onChunk: (chunk: Uint8Array) => void,
+): Promise<{ ttsMs: number }> {
+  const res = await authorizedFetch('/api/voice/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json();
+    throw new Error(body.error ?? `tts_synthesize failed: ${res.status}`);
+  }
+
+  const ttsMs = Number(res.headers.get('x-tts-ms') ?? 0);
+  const reader = res.body!.getReader();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) onChunk(value);
+  }
+
+  return { ttsMs };
+}

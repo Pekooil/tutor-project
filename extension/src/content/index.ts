@@ -27,6 +27,7 @@ import type {
   TurnPing,
   VoiceSttReplyPayload,
   VoiceTtsReplyPayload,
+  VoiceTtsStreamMessage,
 } from '../types/messages';
 
 // Overlay UI handle, created once per page in main(). Held at module scope
@@ -337,6 +338,44 @@ async function sendVoiceTts(text: string): Promise<{ audio: ArrayBuffer; ttsMs: 
 }
 
 /**
+ * Streaming sibling of sendVoiceTts (Sprint 15 Task 6, ADR-033): opens the
+ * VOICE_TTS_STREAM port (the same chrome.runtime.connect pattern sendAiTurn
+ * uses for AI_STREAM above) instead of a one-shot sendMessage, so `onChunk`
+ * fires as each base64 chunk arrives rather than waiting for one full-reply
+ * VOICE_TTS_REPLY. sendVoiceTts above is UNTOUCHED and stays the fallback
+ * Overlay.tsx falls back to per-utterance on a MediaSource/codec failure.
+ */
+async function sendVoiceTtsStream(text: string, onChunk: (chunk: Uint8Array) => void): Promise<{ ttsMs: number }> {
+  return new Promise<{ ttsMs: number }>((resolve, reject) => {
+    const port = chrome.runtime.connect({ name: 'VOICE_TTS_STREAM' });
+    let settled = false;
+
+    port.onMessage.addListener((msg: VoiceTtsStreamMessage) => {
+      if (msg.type === 'chunk') {
+        onChunk(base64ToUint8Array(msg.audio));
+      } else if (msg.type === 'done' && !settled) {
+        settled = true;
+        port.disconnect();
+        resolve({ ttsMs: msg.ttsMs });
+      } else if (msg.type === 'error' && !settled) {
+        settled = true;
+        port.disconnect();
+        reject(new Error(msg.error));
+      }
+    });
+
+    port.onDisconnect.addListener(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error('Background disconnected unexpectedly during TTS streaming.'));
+      }
+    });
+
+    port.postMessage({ text });
+  });
+}
+
+/**
  * btoa/atob operate on binary strings, not bytes directly, so a typed-array
  * walk is needed on each side. Fine for a single short push-to-talk
  * utterance (ADR-010) -- this is not a bulk-data path.
@@ -357,6 +396,16 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes.buffer;
+}
+
+/** Same walk as base64ToArrayBuffer, returning a Uint8Array view directly (VOICE_TTS_STREAM chunks feed a SourceBuffer, which wants a typed array, not an ArrayBuffer). */
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
 // Calyxa content script.
@@ -504,6 +553,7 @@ export default defineContentScript({
           onSend: sendAiTurn,
           onTranscribe: sendVoiceStt,
           onSynthesize: sendVoiceTts,
+          onSynthesizeStream: sendVoiceTtsStream,
           onVoicePlaybackStart: handleVoicePlaybackStart,
           onLoadOverview: loadProfileOverview,
           onEndSession: endSessionFromOverlay,

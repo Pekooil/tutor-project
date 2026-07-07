@@ -361,6 +361,7 @@ export function Overlay({
   onSend,
   onTranscribe,
   onSynthesize,
+  onSynthesizeStream,
   onVoicePlaybackStart,
   onLoadOverview,
   onEndSession,
@@ -369,6 +370,13 @@ export function Overlay({
   onSend: (messages: TurnMessage[], onChunk?: (chunk: string) => void) => Promise<TurnResult>;
   onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
   onSynthesize: (text: string) => Promise<{ audio: ArrayBuffer; ttsMs: number }>;
+  // Task 6 (ADR-033): the streaming sibling of onSynthesize. handleMicStop
+  // tries this first (MediaSource progressive playback -- audio starts at
+  // the first buffered chunk instead of waiting for the whole reply); on a
+  // MediaSource/codec failure for THIS utterance it falls back to
+  // onSynthesize's buffered path, seamlessly (the buffered fallback is
+  // first-class, not a degraded mode).
+  onSynthesizeStream: (text: string, onChunk: (chunk: Uint8Array) => void) => Promise<{ ttsMs: number }>;
   // Called once synthesized speech actually starts playing, with its known
   // duration in ms -- content/index.ts uses this to reveal the turn's
   // annotations sequenced to playback instead of all at once (voice-mode
@@ -942,18 +950,46 @@ export function Overlay({
       const result = await onSend(outbound);
       if (!result.reply.trim()) throw new Error('The tutor returned an empty reply.');
 
-      const { audio } = await onSynthesize(result.reply);
-
-      // Play audio and reveal the reply word-by-word in sync with speech.
-      // Each word is appended as a new token so it gets the cx-word-in
-      // entry animation. The reply commits to messages after playback ends.
       // Voice pings show at PLAYBACK START (ADR-026's delivery moment for
       // voice turns) -- piggybacked on the same playback-start signal the
-      // annotation sequencing already uses.
-      await playAudioWithTextReveal(audio, result.reply, appendStreamToken, setPlaying, audioRef, (durationMs) => {
+      // annotation sequencing already uses, on WHICHEVER path below actually
+      // plays the audio.
+      const ttsRequestAt = performance.now();
+      const onPlaybackStart = (label: string) => (durationMs: number) => {
+        if (import.meta.env.DEV) {
+          console.debug(`[calyxa voice] tts request→first audio (${label}): ${Math.round(performance.now() - ttsRequestAt)}ms`);
+        }
         showPings(result.pings);
         onVoicePlaybackStart(durationMs);
-      });
+      };
+
+      // Task 6 (ADR-033): try the streamed path first -- audio starts at the
+      // first buffered chunk instead of waiting for the whole reply. A
+      // MediaSource/codec failure for THIS utterance (unsupported mime type,
+      // addSourceBuffer throwing, a decode error) falls back to the
+      // buffered path below, seamlessly -- the reply text hasn't finished
+      // revealing yet either way, so restarting from word one reads the
+      // same to the student as the buffered path always has.
+      try {
+        await playAudioStreamWithTextReveal(
+          onSynthesizeStream,
+          result.reply,
+          appendStreamToken,
+          setPlaying,
+          audioRef,
+          onPlaybackStart('streamed'),
+        );
+      } catch (streamError) {
+        if (import.meta.env.DEV) {
+          console.debug('[calyxa voice] streaming TTS unavailable, falling back to buffered playback', streamError);
+        }
+        clearStreamTokens();
+        const { audio } = await onSynthesize(result.reply);
+        // Play audio and reveal the reply word-by-word in sync with speech.
+        // Each word is appended as a new token so it gets the cx-word-in
+        // entry animation. The reply commits to messages after playback ends.
+        await playAudioWithTextReveal(audio, result.reply, appendStreamToken, setPlaying, audioRef, onPlaybackStart('buffered fallback'));
+      }
 
       clearStreamTokens();
       // Voice tags/annotations commit with the reply after playback -- they
@@ -1347,5 +1383,171 @@ async function playAudioWithTextReveal(
     setPlaying(false);
     audioRef.current = null;
     URL.revokeObjectURL(url);
+  }
+}
+
+// ElevenLabs streams mp3 (Content-Type: audio/mpeg, matching the route) --
+// this is the one MIME MediaSource actually needs to accept for the
+// streamed path to work at all.
+const TTS_STREAM_MIME_TYPE = 'audio/mpeg';
+
+// Timeupdate-driven reveal pacing target (Task 6, ADR-033): close to the
+// buffered path's FALLBACK_MS_PER_WORD above, so a turn that falls back
+// mid-setup doesn't visibly change reveal speed. Real duration is unknown
+// mid-stream (no Content-Length on a live TTS stream) so, unlike the
+// buffered path, this is a fixed rate rather than one derived from a known
+// duration -- see revealDueWords below for why that still tracks stalls.
+const STREAM_REVEAL_MS_PER_WORD = 320;
+
+function isTtsStreamingSupported(): boolean {
+  return typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(TTS_STREAM_MIME_TYPE);
+}
+
+/**
+ * Streaming sibling of playAudioWithTextReveal (Task 6, ADR-033): feeds
+ * chunks from `synthesizeStream` into a MediaSource SourceBuffer as they
+ * arrive instead of waiting for a full ArrayBuffer, so playback starts at
+ * the first buffered chunk. Throws (synchronously, before any network call,
+ * or from the MediaSource setup) when the browser can't play the format at
+ * all -- the caller's job is to catch that and fall back to
+ * playAudioWithTextReveal with the same text, same as a MediaSource error
+ * fired after playback has (or hasn't yet) started.
+ *
+ * Word reveal is paced by `timeupdate`/`currentTime` (STREAM_REVEAL_MS_PER_WORD)
+ * rather than a duration-derived setInterval: `audio.duration` is Infinity/NaN
+ * until endOfStream() resolves it, and even a setInterval timer would drift
+ * out of sync with real playback if the audio stalls waiting on the next
+ * chunk. currentTime literally stops advancing during a stall, so pacing off
+ * of it self-corrects for free -- exactly the property a wall-clock interval
+ * doesn't have.
+ */
+async function playAudioStreamWithTextReveal(
+  synthesizeStream: (text: string, onChunk: (chunk: Uint8Array) => void) => Promise<{ ttsMs: number }>,
+  text: string,
+  appendToken: (text: string) => void,
+  setPlaying: (playing: boolean) => void,
+  audioRef: { current: HTMLAudioElement | null },
+  onPlaybackStart: (durationMs: number) => void,
+): Promise<void> {
+  if (!isTtsStreamingSupported()) {
+    throw new Error('MediaSource streaming for audio/mpeg is not supported in this browser.');
+  }
+
+  const words = text.trim().split(/\s+/);
+  const mediaSource = new MediaSource();
+  const audio = new Audio();
+  const url = URL.createObjectURL(mediaSource);
+  audio.src = url;
+  audioRef.current = audio;
+
+  let wordIndex = 0;
+  let playbackStarted = false;
+
+  function revealDueWords() {
+    const dueCount = Math.min(
+      words.length,
+      Math.floor((audio.currentTime * 1000) / STREAM_REVEAL_MS_PER_WORD) + 1,
+    );
+    while (wordIndex < dueCount) {
+      // Space prefix on all words after the first, same reconstruction
+      // contract as the buffered path's reveal loop above.
+      appendToken(wordIndex === 0 ? words[wordIndex] : ' ' + words[wordIndex]);
+      wordIndex++;
+    }
+  }
+
+  function onTimeUpdate() {
+    if (!playbackStarted) {
+      playbackStarted = true;
+      setPlaying(true);
+      // Real duration is unknown mid-stream (ADR-033) -- the word-count
+      // estimate is the same honest fallback the buffered path already uses
+      // when ITS duration probe comes back unavailable, so annotation
+      // sequencing (which consumes this ms figure) degrades identically on
+      // both paths rather than gaining a third behavior to reason about.
+      onPlaybackStart(words.length * STREAM_REVEAL_MS_PER_WORD);
+    }
+    revealDueWords();
+  }
+  audio.addEventListener('timeupdate', onTimeUpdate);
+
+  const playbackEnded = new Promise<void>((resolve) => {
+    audio.addEventListener('ended', () => resolve(), { once: true });
+    audio.addEventListener('error', () => resolve(), { once: true });
+    audio.addEventListener('pause', () => resolve(), { once: true });
+  });
+
+  try {
+    const sourceBuffer = await new Promise<SourceBuffer>((resolve, reject) => {
+      mediaSource.addEventListener(
+        'sourceopen',
+        () => {
+          try {
+            resolve(mediaSource.addSourceBuffer(TTS_STREAM_MIME_TYPE));
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error('addSourceBuffer failed'));
+          }
+        },
+        { once: true },
+      );
+      mediaSource.addEventListener('error', () => reject(new Error('MediaSource failed to open')), { once: true });
+    });
+
+    // A SourceBuffer accepts exactly one appendBuffer at a time -- a second
+    // call before 'updateend' fires for the first throws. Chunks queue here
+    // and drain one at a time; play() starts after the FIRST chunk lands so
+    // there is always at least a little buffered before playback begins.
+    const pending: Uint8Array[] = [];
+    let appending = false;
+    let playCalled = false;
+
+    function pump() {
+      if (appending || pending.length === 0 || sourceBuffer.updating) return;
+      appending = true;
+      sourceBuffer.appendBuffer(pending.shift()! as BufferSource);
+    }
+
+    sourceBuffer.addEventListener('updateend', () => {
+      appending = false;
+      if (!playCalled) {
+        playCalled = true;
+        void audio.play().catch(() => {
+          // A play() rejection (autoplay policy, decode failure) surfaces
+          // via the 'error'/'pause' listeners above, which resolve
+          // playbackEnded -- nothing further to do here.
+        });
+      }
+      pump();
+    });
+
+    const streamDone = synthesizeStream(text, (chunk) => {
+      pending.push(chunk);
+      pump();
+    });
+
+    const { ttsMs } = await streamDone;
+    void ttsMs; // surfaced for future latency telemetry; the route's x-tts-ms header is the source of truth today
+
+    // Don't close the stream while a chunk is still mid-append or queued --
+    // endOfStream() throws if called during an in-flight update.
+    while (appending || pending.length > 0) {
+      await new Promise<void>((resolve) => sourceBuffer.addEventListener('updateend', () => resolve(), { once: true }));
+    }
+    if (mediaSource.readyState === 'open') mediaSource.endOfStream();
+  } catch (error) {
+    setPlaying(false);
+    audioRef.current = null;
+    URL.revokeObjectURL(url);
+    audio.removeEventListener('timeupdate', onTimeUpdate);
+    throw error instanceof Error ? error : new Error('TTS streaming failed');
+  }
+
+  try {
+    await playbackEnded;
+  } finally {
+    setPlaying(false);
+    audioRef.current = null;
+    URL.revokeObjectURL(url);
+    audio.removeEventListener('timeupdate', onTimeUpdate);
   }
 }

@@ -335,6 +335,26 @@ export type VoiceTtsPayload = {
 
 export type VoiceTtsReplyPayload = { audio: string; ttsMs: number } | { error: string };
 
+// VOICE_TTS_STREAM (Sprint 15 Task 6, ADR-033) -- a dedicated port (the
+// AI_STREAM pattern, chrome.runtime.connect({name: 'VOICE_TTS_STREAM'})),
+// content -> background, opened per utterance. content/index.ts posts one
+// VoiceTtsPayload to start it; the background streams the route's response
+// back as a sequence of VoiceTtsStreamChunkMessage, ending in exactly one
+// VoiceTtsStreamDoneMessage (success) or VoiceTtsStreamErrorMessage
+// (failure) and then disconnecting. `audio` is base64-encoded audio/mpeg
+// bytes (the same binary-over-messaging caveat as VOICE_TTS_REPLY above --
+// this crosses the SAME background<->content boundary) fed straight into a
+// MediaSource SourceBuffer by the overlay's streaming playback path; never
+// persisted (ADR-011). The existing one-shot VOICE_TTS/VOICE_TTS_REPLY pair
+// above is KEPT as the buffered fallback for MediaSource/codec failures.
+export type VoiceTtsStreamChunkMessage = { type: 'chunk'; audio: string };
+export type VoiceTtsStreamDoneMessage = { type: 'done'; ttsMs: number };
+export type VoiceTtsStreamErrorMessage = { type: 'error'; error: string };
+export type VoiceTtsStreamMessage =
+  | VoiceTtsStreamChunkMessage
+  | VoiceTtsStreamDoneMessage
+  | VoiceTtsStreamErrorMessage;
+
 // Mirrors /web/lib/voice/latency.ts exactly -- that file is the source of
 // truth; this is a by-convention re-declaration for the client side (no
 // shared module spans the extension/web boundary).

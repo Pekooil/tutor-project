@@ -18,6 +18,14 @@ export type OverlayTransports = {
   onSend: (messages: TurnMessage[], onChunk?: (chunk: string) => void) => Promise<TurnResult>;
   onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
   onSynthesize: (text: string) => Promise<{ audio: ArrayBuffer; ttsMs: number }>;
+  /**
+   * Streaming sibling of onSynthesize (Sprint 15 Task 6, ADR-033): invokes
+   * `onChunk` as each audio chunk arrives over the VOICE_TTS_STREAM port,
+   * so Overlay.tsx can start MediaSource playback before the full reply is
+   * synthesized. onSynthesize above is KEPT as the buffered fallback for a
+   * MediaSource/codec failure on a given utterance.
+   */
+  onSynthesizeStream: (text: string, onChunk: (chunk: Uint8Array) => void) => Promise<{ ttsMs: number }>;
   /** Reports when synthesized speech starts playing + its duration (ms) -- see Overlay.tsx's prop comment. */
   onVoicePlaybackStart: (durationMs: number) => void;
   /** Fetches the read-only profile overview (Sprint 13, ADR-024/025) -- see Overlay.tsx's prop comment. */
