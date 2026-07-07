@@ -76,6 +76,7 @@ export function ProfileSection() {
   return (
     <Section
       id="profile"
+      tone="wash"
       kicker="It learns how you learn"
       heading="Every session updates what Calyxa knows about you."
       sub="Mastery levels, weak spots, and what's due for review — visible before and after every session."
@@ -102,7 +103,7 @@ export function ProfileSection() {
             <MasteryDeltaBars deltas={state.masteryDeltas} active={afterActive} reducedMotion={reducedMotion} />
             <div
               className={cn(
-                'mt-5 flex flex-col gap-1.5 rounded-lg border border-border bg-background p-4 text-sm',
+                'mt-5 flex flex-col gap-1.5 rounded-lg border border-(--mkt-border-faint) bg-surface p-4 text-sm',
                 !reducedMotion && 'transition-all duration-500 ease-out',
                 recap ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
               )}
@@ -120,9 +121,11 @@ export function ProfileSection() {
       </div>
 
       <Reveal delay={0.2}>
-        <figure className="mt-14 border-l-2 border-accent pl-4">
-          <blockquote className="m-0 text-lg text-foreground">&ldquo;{CALLBACK_QUOTE}&rdquo;</blockquote>
-          <figcaption className="mt-1 text-sm text-muted-foreground">
+        <figure className="mx-auto mt-20 max-w-3xl text-center">
+          <blockquote className="mkt-display m-0 text-balance text-2xl leading-snug text-foreground sm:text-3xl">
+            &ldquo;{CALLBACK_QUOTE}&rdquo;
+          </blockquote>
+          <figcaption className="mt-4 text-sm text-muted-foreground">
             Calyxa, picking up the thread a few sessions later
           </figcaption>
         </figure>
@@ -142,7 +145,7 @@ const FALLBACK_BEFORE = [
 
 function ProfilePanel({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-6 sm:p-8">
+    <div className="mkt-card-raised p-6 sm:p-8">
       <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
       <div className="mt-5">{children}</div>
     </div>
@@ -155,7 +158,7 @@ function MasteryBars({ rows }: { rows: { title: string; value: number }[] }) {
       {rows.map((row) => (
         <div key={row.title} className="flex items-center gap-3">
           <span className="w-40 flex-none truncate text-sm text-foreground">{row.title}</span>
-          <span className="h-2 flex-1 overflow-hidden rounded-full bg-background">
+          <span className="h-2 flex-1 overflow-hidden rounded-full bg-(--mkt-border-faint)">
             <span
               className="block h-full rounded-full bg-accent-glow-strong"
               style={{ width: `${Math.round(row.value * 100)}%` }}
@@ -189,7 +192,7 @@ function MasteryDeltaBars({
         return (
           <div key={row.title} className="flex items-center gap-3">
             <span className="w-40 flex-none truncate text-sm text-foreground">{row.title}</span>
-            <span className="h-2 flex-1 overflow-hidden rounded-full bg-background">
+            <span className="h-2 flex-1 overflow-hidden rounded-full bg-(--mkt-border-faint)">
               <span
                 className={cn(
                   'block h-full rounded-full bg-accent-glow-strong',

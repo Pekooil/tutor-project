@@ -5,7 +5,10 @@ export function Footer() {
     <footer className="border-t border-border">
       <div className="mx-auto max-w-6xl px-6 py-12">
         <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:justify-between">
-          <img src="/logo.svg" alt="Calyxa" className="h-6 w-auto" />
+          <div className="flex flex-col gap-3">
+            <img src="/logo.svg" alt="Calyxa" className="h-6 w-auto self-start" />
+            <p className="m-0 text-sm text-muted-foreground">The math tutor that lives on your screen.</p>
+          </div>
           <div className="flex gap-16 text-sm">
             <div className="flex flex-col gap-2">
               <span className="font-medium text-foreground">Product</span>

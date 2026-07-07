@@ -1,13 +1,13 @@
 import { WaitlistForm } from '@/components/marketing/WaitlistForm'
 
-// Sprint 20 Task 9: the accent-subtle band that closes the page — one line,
-// one form. Full-bleed background, so this doesn't compose <Section> (its
-// max-width container has no background of its own).
+// The full-bleed gradient band that closes the page — one line, one form.
+// Doesn't compose <Section> (its container has no ground of its own).
 export function FinalCta() {
   return (
-    <section id="final-cta" className="bg-accent-subtle py-20 sm:py-24">
+    <section id="final-cta" className="mkt-ground-finale py-28 sm:py-36">
       <div className="mx-auto flex max-w-2xl flex-col items-center gap-6 px-6 text-center">
-        <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">Join the waitlist.</h2>
+        <h2 className="mkt-display mkt-h2 m-0 text-balance text-foreground">Join the waitlist.</h2>
+        <p className="m-0 text-lg text-muted-foreground">Free for 10 sessions a month · Chrome</p>
         <WaitlistForm source="footer" className="w-full max-w-md" />
       </div>
     </section>

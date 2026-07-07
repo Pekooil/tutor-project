@@ -89,7 +89,9 @@ export function SessionShowcase() {
       >
         <div>
           <div className="sticky top-28">
-            <DemoStage script={sessionBeats} scrub={scrub} alt={PINNED_ALT} />
+            <div className="mkt-stage">
+              <DemoStage script={sessionBeats} scrub={scrub} alt={PINNED_ALT} />
+            </div>
           </div>
         </div>
         <div className="flex flex-col">
@@ -113,7 +115,9 @@ export function SessionShowcase() {
         {BEATS.map((beat, index) => (
           <div key={beat.title} className="flex flex-col gap-6">
             <BeatCopy beat={beat} index={index} />
-            <DemoStage script={sessionBeats} frameMs={sessionBeatTimes[index + 1]} alt={beat.alt} />
+            <div className="mkt-stage">
+              <DemoStage script={sessionBeats} frameMs={sessionBeatTimes[index + 1]} alt={beat.alt} />
+            </div>
           </div>
         ))}
       </div>
@@ -124,13 +128,11 @@ export function SessionShowcase() {
 function BeatCopy({ beat, index }: { beat: Beat; index: number }) {
   return (
     <div>
-      <p className="text-sm font-semibold text-accent-emphasis">{String(index + 1).padStart(2, '0')}</p>
-      <h3 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-        {beat.title}
-      </h3>
-      <p className="mt-3 max-w-xl text-base text-muted-foreground sm:text-lg">{beat.body}</p>
+      <p className="mkt-kicker">{String(index + 1).padStart(2, '0')}</p>
+      <h3 className="mkt-display mt-3 text-3xl text-foreground sm:text-4xl">{beat.title}</h3>
+      <p className="mt-4 max-w-xl text-pretty text-base text-muted-foreground sm:text-lg">{beat.body}</p>
       {beat.spoken && (
-        <figure className="mt-5 border-l-2 border-accent pl-4">
+        <figure className="mkt-quote mt-5">
           <blockquote className="m-0 text-base text-foreground">&ldquo;{beat.spoken.quote}&rdquo;</blockquote>
           <figcaption className="mt-1 text-sm text-muted-foreground">{beat.spoken.note}</figcaption>
         </figure>

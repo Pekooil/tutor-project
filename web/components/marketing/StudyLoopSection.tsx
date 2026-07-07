@@ -72,14 +72,16 @@ export function StudyLoopSection() {
   return (
     <Section
       id="study-loop"
-      kicker="One session in. A study kit out."
+      kicker="The study loop"
       heading="Notes, practice problems, and flashcards from every session."
       sub="Built from the exact steps you worked through — closing the loop back into your next session."
     >
-      <div ref={ref} className="flex flex-col gap-6">
+      <div ref={ref} className="flex flex-col">
         <Reveal>
           <SessionCard />
         </Reveal>
+
+        <div aria-hidden="true" className="mkt-connector my-2" />
 
         <div className="grid gap-6 sm:grid-cols-3">
           <ArtifactCard visible={has('notes')} reducedMotion={reducedMotion} icon={NotebookText} title="Study notes">
@@ -109,7 +111,7 @@ export function StudyLoopSection() {
         </div>
 
         <Reveal delay={0.1}>
-          <p className="m-0 text-center text-sm font-medium text-accent-emphasis">
+          <p className="mt-10 mb-0 text-center text-sm font-medium text-accent-emphasis">
             Session → profile update → study kit → your next session.
           </p>
         </Reveal>
@@ -120,14 +122,9 @@ export function StudyLoopSection() {
 
 function SessionCard() {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface px-5 py-4">
-      <div>
-        <p className="m-0 text-sm font-semibold text-foreground">{SESSION_SUMMARY.title}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{SESSION_SUMMARY.detail}</p>
-      </div>
-      <span aria-hidden="true" className="flex-none text-xl text-muted-foreground">
-        ↓
-      </span>
+    <div className="mkt-card mx-auto w-full max-w-2xl px-6 py-5">
+      <p className="m-0 text-sm font-semibold text-foreground">{SESSION_SUMMARY.title}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{SESSION_SUMMARY.detail}</p>
     </div>
   )
 }
@@ -148,7 +145,7 @@ function ArtifactCard({
   return (
     <div
       className={cn(
-        'flex flex-col gap-3 rounded-lg border border-border bg-surface p-5',
+        'mkt-card flex flex-col gap-3 p-5',
         !reducedMotion && 'transition-all duration-500 ease-out',
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'
       )}
@@ -193,10 +190,10 @@ function Flashcard({ front, back, reducedMotion }: { front: string; back: string
           flipped && '[transform:rotateY(180deg)]'
         )}
       >
-        <div className="absolute inset-0 flex items-center justify-center rounded-md border border-border bg-background p-4 text-center text-sm text-foreground [backface-visibility:hidden]">
+        <div className="absolute inset-0 flex items-center justify-center rounded-md border border-(--mkt-border-faint) bg-surface p-4 text-center text-sm text-foreground [backface-visibility:hidden]">
           {front}
         </div>
-        <div className="absolute inset-0 flex items-center justify-center rounded-md border border-border bg-background p-4 text-center text-sm font-medium text-accent-emphasis [backface-visibility:hidden] [transform:rotateY(180deg)]">
+        <div className="absolute inset-0 flex items-center justify-center rounded-md border border-(--mkt-border-faint) bg-surface p-4 text-center text-sm font-medium text-accent-emphasis [backface-visibility:hidden] [transform:rotateY(180deg)]">
           {back}
         </div>
       </div>

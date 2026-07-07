@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { CalyxaMark } from '@calyxa/ui'
 import { CornerDownLeft } from 'lucide-react'
 import { segmentText, type SceneBubble, type SceneState, type StripState, type TagKind } from './scene'
@@ -176,8 +176,28 @@ function Bubble({ bubble }: { bubble: SceneBubble }) {
 }
 
 // Transcript.tsx's TypingIndicator: the breathing orb + expanding ring shown
-// while a reply is on its way.
+// while a reply is on its way. Reduced motion renders the orb at rest with
+// no ring — the real overlay's pulse is driven by motion tokens that zero
+// out under prefers-reduced-motion, so the static orb IS the faithful frame
+// (ADR-031's every-marketing-animation rule; these infinite pulses
+// previously ran regardless).
 function TypingIndicator() {
+  const reduceMotion = useReducedMotion()
+
+  if (reduceMotion) {
+    return (
+      <div className="flex flex-none items-center py-1">
+        <div className="relative flex h-5 w-5 items-center justify-center">
+          <div
+            aria-hidden="true"
+            className="h-3.5 w-3.5 rounded-full shadow-[0_0_6px_rgba(74,222,128,0.45)]"
+            style={{ background: 'radial-gradient(circle at 38% 32%, #dcfce7 0%, #86efac 45%, #4ade80 100%)' }}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-none items-center py-1">
       <div className="relative flex h-5 w-5 items-center justify-center">

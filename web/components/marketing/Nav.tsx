@@ -19,7 +19,9 @@ export function Nav() {
     <header
       className={cn(
         'sticky top-0 z-50 w-full border-b transition-colors duration-[var(--motion-duration-fast)] ease-[var(--motion-ease-out)]',
-        scrolled ? 'border-border bg-background/80 backdrop-blur-md' : 'border-transparent bg-transparent'
+        scrolled
+          ? 'border-(--mkt-border-faint) bg-background/70 shadow-[var(--mkt-shadow-1)] backdrop-blur-xl'
+          : 'border-transparent bg-transparent'
       )}
     >
       <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">

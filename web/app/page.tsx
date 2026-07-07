@@ -9,12 +9,15 @@ import { Pricing } from '@/components/marketing/Pricing'
 import { SocialProof } from '@/components/marketing/SocialProof'
 import { FinalCta } from '@/components/marketing/FinalCta'
 import { Reveal } from '@/components/marketing/Reveal'
+import { bricolage } from '@/components/marketing/fonts'
+import '@/components/marketing/marketing.css'
 
-// Sprint 20: the full page skeleton, in the plan's section order. Every
-// section is now a real component (Tasks 5-9) — this file only composes.
+// The composed page, in the Sprint 20 plan's section order. The `.mkt`
+// wrapper scopes the marketing token layer (marketing.css) and the display
+// font variable to this page only — product surfaces never inherit either.
 export default function Home() {
   return (
-    <>
+    <div className={`${bricolage.variable} mkt`}>
       <Nav />
       <main>
         <Hero />
@@ -48,6 +51,6 @@ export default function Home() {
         </Reveal>
       </main>
       <Footer />
-    </>
+    </div>
   )
 }

@@ -1,11 +1,11 @@
 import { Section } from '@/components/marketing/Section'
 
-// Sprint 20 Task 9: structure ships, claims don't. Every quote and stat here
-// is a placeholder — attributions say so explicitly rather than reading as
-// a real (if anonymous) testimonial, and every stat is an unfilled dash
-// rather than an invented number. TODO(launch): replace both constants
-// below with real quotes and real numbers before any paid or public traffic
-// — nothing here may go live as-is (see sprint-20-plan.md's handoff).
+// Structure ships, claims don't. Every quote and stat here is a placeholder
+// — attributions say so explicitly rather than reading as a real (if
+// anonymous) testimonial, and every stat is an unfilled dash rather than an
+// invented number. TODO(launch): replace both constants below with real
+// quotes and real numbers before any paid or public traffic — nothing here
+// may go live as-is (see sprint-20-plan.md's handoff).
 const PLACEHOLDER_QUOTES = [
   {
     quote: 'It walks me through the step instead of just giving me the answer.',
@@ -29,20 +29,22 @@ const PLACEHOLDER_STATS = [
 
 export function SocialProof() {
   return (
-    <Section id="social-proof" kicker="Social proof" heading="What students are saying.">
+    <Section id="social-proof" kicker="From the beta" heading="What students are saying.">
       <div className="grid gap-6 sm:grid-cols-3">
         {PLACEHOLDER_QUOTES.map((item) => (
-          <figure key={item.quote} className="rounded-lg border border-border bg-surface p-6">
-            <blockquote className="m-0 text-base text-foreground">&ldquo;{item.quote}&rdquo;</blockquote>
-            <figcaption className="mt-4 text-sm text-muted-foreground">{item.attribution}</figcaption>
+          <figure key={item.quote} className="mkt-card m-0 p-7">
+            <blockquote className="m-0 text-lg leading-relaxed text-foreground">
+              &ldquo;{item.quote}&rdquo;
+            </blockquote>
+            <figcaption className="mt-5 text-sm text-muted-foreground">{item.attribution}</figcaption>
           </figure>
         ))}
       </div>
-      <div className="mt-10 grid gap-6 border-t border-border pt-10 sm:grid-cols-3">
+      <div className="mt-12 grid gap-8 border-t border-(--mkt-border-faint) pt-12 sm:grid-cols-3">
         {PLACEHOLDER_STATS.map((stat) => (
           <div key={stat.label} className="text-center">
-            <p className="m-0 text-3xl font-semibold text-foreground">{stat.value}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{stat.label}</p>
+            <p className="mkt-display m-0 text-4xl text-foreground sm:text-5xl">{stat.value}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{stat.label}</p>
           </div>
         ))}
       </div>

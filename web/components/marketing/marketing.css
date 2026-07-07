@@ -1,0 +1,193 @@
+/* Marketing-layer tokens and primitives — the approved, scoped exception to
+ * the ADR-031/brand.md token lock (Darcy, 2026-07-06): a marketing-only
+ * display face, decorative gradient grounds, elevation tiers, and a display
+ * type scale beyond --text-4xl. Rules that keep the exception honest:
+ *
+ * - Everything here is scoped under `.mkt` (applied by /web/app/page.tsx) —
+ *   product surfaces and the extension never load this layer.
+ * - Every color is an existing @calyxa/ui token value (or that hex at
+ *   reduced alpha): foreground #1C1C1A, accent-emphasis #166534, and the
+ *   accent-family greens. No new hues.
+ * - Gradients are decorative grounds only — never a text/icon color, per
+ *   brand.md §4.1's rule for the glow tokens.
+ * - @calyxa/ui/theme.css is untouched; the demo recreation under demo/
+ *   keeps product type and chrome for the ADR-031 fidelity rule.
+ */
+
+.mkt {
+  --font-display: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+
+  /* Refined border + three elevation tiers (foreground / accent-emphasis at
+   * low alpha — Stripe-style layered soft shadows, no hard edges). */
+  --mkt-border-faint: rgba(28, 28, 26, 0.08);
+  --mkt-shadow-1: 0 1px 2px rgba(28, 28, 26, 0.04), 0 2px 10px rgba(28, 28, 26, 0.05);
+  --mkt-shadow-2:
+    0 1px 2px rgba(28, 28, 26, 0.05), 0 10px 28px -6px rgba(28, 28, 26, 0.09),
+    0 28px 56px -18px rgba(22, 101, 52, 0.08);
+  --mkt-shadow-3:
+    0 2px 4px rgba(28, 28, 26, 0.05), 0 18px 44px -10px rgba(28, 28, 26, 0.13),
+    0 56px 110px -28px rgba(22, 101, 52, 0.16);
+}
+
+/* ---- Display type ---- */
+
+.mkt-display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.mkt-h1 {
+  font-size: clamp(2.75rem, 1.9rem + 4.6vw, 5.75rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+}
+
+.mkt-h2 {
+  font-size: clamp(2.125rem, 1.7rem + 2.2vw, 3.5rem);
+  line-height: 1.06;
+}
+
+.mkt-kicker {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-accent-emphasis);
+}
+
+/* Oversized decorative step numeral (HowItWorks) — aria-hidden in markup;
+ * the <ol> carries the real order. Low-alpha accent-emphasis, non-text
+ * decoration, exempt from text-contrast rules. */
+.mkt-ghost-numeral {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 3.5rem;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: rgba(22, 101, 52, 0.22);
+}
+
+/* ---- Gradient grounds (decorative only) ---- */
+
+.mkt-ground-hero {
+  background:
+    radial-gradient(
+      90rem 44rem at 50% -14rem,
+      rgba(187, 247, 208, 0.55),
+      rgba(240, 253, 244, 0.5) 42%,
+      rgba(255, 255, 255, 0) 72%
+    ),
+    var(--color-background);
+}
+
+.mkt-ground-wash {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(240, 253, 244, 0.55) 16%,
+    rgba(247, 247, 245, 0.75) 52%,
+    rgba(240, 253, 244, 0.35) 86%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.mkt-ground-finale {
+  background:
+    radial-gradient(
+      70rem 32rem at 50% 118%,
+      rgba(134, 239, 172, 0.4),
+      rgba(187, 247, 208, 0.24) 45%,
+      rgba(255, 255, 255, 0) 75%
+    ),
+    linear-gradient(180deg, var(--color-background), var(--color-accent-subtle));
+}
+
+/* ---- Elevation surfaces ---- */
+
+.mkt-card {
+  background: var(--color-background);
+  border: 1px solid var(--mkt-border-faint);
+  border-radius: var(--radius-md);
+  box-shadow: var(--mkt-shadow-1);
+}
+
+.mkt-card-raised {
+  background: var(--color-background);
+  border: 1px solid var(--mkt-border-faint);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--mkt-shadow-2);
+}
+
+/* Featured pricing card: gradient hairline (accent → faint neutral) around a
+ * subtle accent-subtle → white wash. */
+.mkt-card-featured {
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(180deg, var(--color-accent-subtle), var(--color-background) 55%) padding-box,
+    linear-gradient(
+        150deg,
+        var(--color-accent-fill),
+        var(--color-accent-glow) 40%,
+        rgba(28, 28, 26, 0.12)
+      )
+      border-box;
+  box-shadow: var(--mkt-shadow-2);
+}
+
+/* The demo pedestal: tier-3 shadow on a wrapper whose radius matches
+ * DemoStage's rounded-xl frame (0.75rem), so the demo itself stays
+ * untouched. Pair with .mkt-halo inside a `relative` container. */
+.mkt-stage {
+  position: relative;
+  z-index: 1;
+  border-radius: 0.75rem;
+  box-shadow: var(--mkt-shadow-3);
+}
+
+.mkt-halo {
+  position: absolute;
+  inset: -12% -8% -6%;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    closest-side,
+    rgba(187, 247, 208, 0.6),
+    rgba(187, 247, 208, 0.2) 55%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+/* ---- Small primitives ---- */
+
+.mkt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--mkt-border-faint);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(8px);
+  padding: 0.375rem 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-muted-foreground);
+  box-shadow: var(--mkt-shadow-1);
+}
+
+.mkt-quote {
+  border-left: 2px solid var(--color-accent-fill);
+  padding-left: 1rem;
+}
+
+.mkt-connector {
+  width: 1px;
+  height: 2.5rem;
+  margin-inline: auto;
+  background: linear-gradient(
+    180deg,
+    var(--color-accent-glow-strong),
+    rgba(134, 239, 172, 0)
+  );
+}
