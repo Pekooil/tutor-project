@@ -3,7 +3,15 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".output/**", ".wxt/**"]
+      "outputs": ["dist/**", ".output/**", ".wxt/**"],
+      "env": [
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "ELEVENLABS_API_KEY",
+        "ELEVENLABS_VOICE_ID",
+        "ELEVENLABS_API_BASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY"
+      ]
     },
     "lint": {},
     "typecheck": {},
