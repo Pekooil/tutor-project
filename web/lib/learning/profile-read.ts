@@ -199,12 +199,23 @@ export async function loadProfile(
       .is('deleted_at', null)
       .order('mastery', { ascending: true })
       .limit(LIMIT_NODES),
+    // Ordered occurrence_count desc, last_seen_at desc (the check-in's 5b
+    // sticking-point candidates, design handoff feature): predict.ts's
+    // pickStickingCandidates filters this SAME array to one concept and
+    // slices the top 3, so the ranking has to already be "most frequent /
+    // most recent first" by the time it lands here. Previously unordered
+    // (implementation-defined Postgres return order) -- this also sharpens
+    // predictLikelyStruggle's own `misconceptions[0]` fallback branch and
+    // the overview card's weakSpots cap, both strict improvements, not
+    // regressions (no existing test asserted the old, arbitrary order).
     supabase
       .from('misconceptions')
       .select('concept_key, category, description')
       .eq('user_id', userId)
       .eq('status', 'active')
-      .is('deleted_at', null),
+      .is('deleted_at', null)
+      .order('occurrence_count', { ascending: false })
+      .order('last_seen_at', { ascending: false }),
     // Page-relevant nodes (§2.3 query 1's `$2` bias, ADR-021) — may overlap
     // the weakest set (deduped below) or add nodes the weakest-K cut off.
     topicKeys.length > 0

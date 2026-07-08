@@ -684,6 +684,65 @@ stopped); all five states screenshot-verified against the compiled
 `content.css` in a static shadow-root-style harness (real components via
 react-dom/server + vite-node). UNCOMMITTED.
 
+**Personalized 5b sticking-point chips (Darcy's follow-up ask) —
+implemented 2026-07-08, UNCOMMITTED.** "Where does it usually go wrong?"
+no longer shows the same 4 fixed chips every time: the top 3 are now the
+student's own recorded misconceptions for the CONFIRMED topic (grounded,
+never model-generated), ranked most-frequent/most-recent-first, each
+labeled "Top N possible misconception" — personalized ones in green,
+generic-filled ones (when the student has fewer than 3 recorded for this
+topic) in muted gray, so the UI never overclaims personalization it
+doesn't have. Slot 4 is always "Honestly, not sure." A caption ("Ranked
+from mistakes you've made on this topic before") appears above the grid
+only when at least one chip is actually grounded in real history — the
+same never-fabricate discipline every other profile-facing surface in this
+codebase follows (ADR-024).
+
+- `web/lib/learning/profile-read.ts`: the `misconceptions` query now orders
+  `occurrence_count desc, last_seen_at desc` (previously unordered) — a
+  strict improvement for every existing consumer (predictLikelyStruggle's
+  `[0]` fallback, the overview card's weakSpots cap), not a behavior
+  change any test asserted against.
+- `web/lib/learning/predict.ts`: new `pickStickingCandidates(profile,
+  conceptKey, limit=3)` — a straight filter+slice over
+  `activeMisconceptions`, no sorting of its own (trusts the caller's
+  order). 6 new specs in `predict.test.ts`.
+- `web/app/api/ai/turn/route.ts`: `handleOpeningScan` computes
+  `stickingCandidates` from the SAME `topicKeys[0]`/profile read `topic`
+  already uses (never a different concept than what 5a is about to
+  confirm) and adds it additively to the response, `{category,
+  description}` per candidate. New ai-turn.test.ts fixture (`userSticking`,
+  4 seeded misconceptions on one concept, staggered occurrence/recency) +
+  spec asserting the ranked top-3 + the cap + the cold-start-omits case —
+  blocked by the same live `next dev` lock as every other integration spec
+  this sprint, verified by careful manual trace instead (no other fixture
+  in this file ever writes a real 'incorrect'-outcome misconception for the
+  bare `user`/`token` cold-start fixture, confirmed by grep, so the
+  omission assertion holds regardless of test execution order).
+- Wire (additive): `StickingCandidate` type + `stickingCandidates` on
+  `OpeningScanReplyPayload`, threaded route → api.ts → background →
+  content → overlay, mirroring the `topic` field's exact plumbing shape.
+- `extension/src/overlay/session-flow.ts`: `STICKING_CHIPS` (the old fixed
+  array) replaced by `buildStickingChips(candidates)` + exported
+  `humanizeMisconceptionLabel` (same prefer-description-else-category
+  precedent the deleted KickoffCard's humanizePredictionDetail set) +
+  `StickingChip` type (`value`/`label`/`rank`/`personalized`). 9 new specs.
+- `CheckinCard.tsx`: takes a `stickingChips` prop instead of importing a
+  fixed list; renders the rank overline + personalized/generic caption.
+- `Overlay.tsx`: `HeldScan` gains `stickingCandidates`; the check-in only
+  reads them when `checkinTopic === scan.topic.title` (the student
+  actually confirmed the scan's OWN detected topic, not a fallback chip
+  like "Homework set" — otherwise the candidates would belong to a
+  different concept than what was just answered).
+
+Verified: extension 153/153 (9 new session-flow specs); web pure suites
+125 tests passing (6 new predict.test.ts specs) — the same 7
+server-spawning files blocked by the live `next dev` dir lock as every
+other pass this sprint; `turbo run typecheck lint build` 14/14; the
+personalized state screenshot-verified in the same static harness (2 and
+3-candidate cases, confirming the caption/coloring/labeling/fallback-fill
+all render as designed). UNCOMMITTED.
+
 ## Acceptance criteria (full checklist)
 
 - [x] ADR-032 (with the concept inventory appendix) + ADR-033 (with budgets + the root-cause amendment box) written; pointers + architecture.md updated

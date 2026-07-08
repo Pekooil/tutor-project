@@ -9,7 +9,7 @@ import { buildSystemPrompt } from '@/lib/ai/system-prompt'
 import type { LearningProfile } from '@/lib/ai/profile'
 import type { PageContext } from '@/lib/ai/page-context'
 import { loadProfile } from '@/lib/learning/profile-read'
-import { predictLikelyStruggle } from '@/lib/learning/predict'
+import { predictLikelyStruggle, pickStickingCandidates } from '@/lib/learning/predict'
 import { detectTopicKeys } from '@/lib/learning/topic'
 import { parseMessages, parsePageContext, parseSessionId, parseResponseLatencyMs } from '@/lib/ai/turn-request'
 import { completeTurn, groundProfileTags, persistOpeningInteraction } from '@/lib/ai/turn-complete'
@@ -120,6 +120,11 @@ async function handleOpeningScan(
     const annotations = envelope.annotations
     const profileTags = groundProfileTags(envelope.profileTags, profile)
     const prediction = predictLikelyStruggle(profile, topicKeys)
+    // The check-in's 5b sticking-point candidates (design handoff feature):
+    // scoped to the SAME concept `topic` below names -- never a different
+    // one than what the student is about to confirm on 5a. [] (and so
+    // omitted) when the page named no known concept at all.
+    const stickingCandidates = topicKeys.length > 0 ? pickStickingCandidates(profile, topicKeys[0]) : []
 
     return NextResponse.json({
       reply: envelope.say,
@@ -131,6 +136,14 @@ async function handleOpeningScan(
       // involvement, title-resolved with the same stale-key fallback as
       // `prediction`. Additive: absent when the page named no known concept.
       ...(topicKeys.length > 0 ? { topic: { conceptKey: topicKeys[0], title: titleFor(topicKeys[0]) } } : {}),
+      ...(stickingCandidates.length > 0
+        ? {
+            stickingCandidates: stickingCandidates.map((item) => ({
+              category: item.category,
+              description: item.description,
+            })),
+          }
+        : {}),
       ...(prediction
         ? {
             prediction: {

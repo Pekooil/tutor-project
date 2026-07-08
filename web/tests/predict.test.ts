@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from 'vitest'
 // logic behind the marker without spawning a dev server).
 vi.mock('server-only', () => ({}))
 
-import { predictLikelyStruggle } from '../lib/learning/predict'
+import { predictLikelyStruggle, pickStickingCandidates } from '../lib/learning/predict'
 import type { ActiveMisconception, LearningProfile, MasteryNode } from '../lib/ai/profile'
 
 function node(conceptKey: string): MasteryNode {
@@ -77,5 +77,52 @@ describe('predictLikelyStruggle — the grounded session-kickoff prediction', ()
     predictLikelyStruggle(p, ['algebra.linear.slope'])
     expect(p.activeMisconceptions).toBe(misconceptions)
     expect(p.activeMisconceptions).toHaveLength(1)
+  })
+})
+
+describe('pickStickingCandidates — the check-in 5b sticking-point candidates', () => {
+  it('returns [] when the profile carries nothing for this concept (cold start on this topic)', () => {
+    expect(pickStickingCandidates(profile(), 'algebra.quadratics.factoring')).toEqual([])
+    expect(
+      pickStickingCandidates(
+        profile({ activeMisconceptions: [misconception('calculus.limits.continuity')] }),
+        'algebra.quadratics.factoring'
+      )
+    ).toEqual([])
+  })
+
+  it('filters to exactly one concept, dropping every other concept in the profile', () => {
+    const target = misconception('algebra.quadratics.factoring', 'drops the negative sign')
+    const p = profile({
+      activeMisconceptions: [misconception('calculus.limits.continuity'), target, misconception('geometry.trig.right-triangle')],
+    })
+    expect(pickStickingCandidates(p, 'algebra.quadratics.factoring')).toEqual([target])
+  })
+
+  it('preserves the array order it is handed -- ranking is the CALLER\'s job (loadProfile\'s occurrence/recency-ordered read), not this function\'s', () => {
+    const first = misconception('algebra.quadratics.factoring', 'first, most relevant')
+    const second = misconception('algebra.quadratics.factoring', 'second')
+    const third = misconception('algebra.quadratics.factoring', 'third, least relevant')
+    const p = profile({ activeMisconceptions: [first, second, third] })
+    expect(pickStickingCandidates(p, 'algebra.quadratics.factoring')).toEqual([first, second, third])
+  })
+
+  it('caps at the default limit of 3 even when the profile carries more for this concept', () => {
+    const many = ['a', 'b', 'c', 'd', 'e'].map((letter) => misconception('algebra.quadratics.factoring', letter))
+    const p = profile({ activeMisconceptions: many })
+    expect(pickStickingCandidates(p, 'algebra.quadratics.factoring')).toEqual(many.slice(0, 3))
+  })
+
+  it('respects an explicit limit override', () => {
+    const many = ['a', 'b', 'c'].map((letter) => misconception('algebra.quadratics.factoring', letter))
+    const p = profile({ activeMisconceptions: many })
+    expect(pickStickingCandidates(p, 'algebra.quadratics.factoring', 1)).toEqual(many.slice(0, 1))
+  })
+
+  it('is a pure read: never mutates the profile it is handed', () => {
+    const misconceptions = [misconception('algebra.quadratics.factoring')]
+    const p = profile({ activeMisconceptions: misconceptions })
+    pickStickingCandidates(p, 'algebra.quadratics.factoring')
+    expect(p.activeMisconceptions).toBe(misconceptions)
   })
 })
