@@ -97,14 +97,23 @@
  * reference them directly (e.g. transition-duration: var(--motion-duration-base)).
  * Centralising the reduced-motion override HERE means every consumer is safe
  * automatically — no per-component media query required. */
-:root {
+/* `:root, :host` (Sprint 15 fix pass): Tailwind compiles its own @theme
+ * tokens to `:root, :host` so they resolve inside the extension overlay's
+ * shadow root, where `:root` alone matches nothing. These hand-authored
+ * blocks (and the aliases below) were `:root`-only, so every consumer
+ * inside the shadow root silently fell back (inherited color / transparent
+ * fill / no motion token). In /web the extra `:host` matches nothing and
+ * changes nothing. */
+:root,
+:host {
   --motion-duration-fast: 150ms;
   --motion-duration-base: 200ms;
   --motion-ease-out: cubic-bezier(0, 0, 0.2, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root {
+  :root,
+  :host {
     --motion-duration-fast: 0ms;
     --motion-duration-base: 0ms;
   }
@@ -154,7 +163,8 @@
  *   annotation box's SVG stroke (Task 8) is a non-text UI-component
  *   boundary (3:1 minimum), which it clears easily regardless.
  */
-:root {
+:root,
+:host {
   --calyxa-tag-reviewing: var(--color-accent-emphasis);
   --calyxa-tag-strength: var(--color-accent-emphasis);
   --calyxa-tag-gap: var(--color-danger);

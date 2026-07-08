@@ -47,6 +47,9 @@ export async function GET(request: Request) {
       mastery: node.mastery,
       state: node.state,
       confidenceBand: node.confidenceBand,
+      // Sprint 15 fix pass round 2: lets the overlay's overview card sort
+      // by recency ("top 3 recently updated topics") client-side.
+      lastPracticedAt: node.lastPracticedAt ?? null,
     })),
     weakSpots: profile.activeMisconceptions.map((misconception) => ({
       conceptKey: misconception.conceptKey,

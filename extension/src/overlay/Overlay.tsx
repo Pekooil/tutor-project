@@ -215,13 +215,24 @@ export function easeProgress(previous: number, next: number | undefined, solved:
 // ---- Sprint 14 Task 7: the close-choreography state machine (ADR-027
 // Decision 2, ADR-028) ----
 
+// The $$ math-block delimiters (Transcript.tsx's splitMathBlocks, Sprint 15
+// fix pass) are a committed-bubble rendering instruction only -- every
+// surface that consumes the raw `say` text transiently (streaming display
+// tokens, the voice word reveal, the text handed to TTS) strips them first.
+// Single `$`s are stripped too, not just paired `$$`s, so a delimiter split
+// across two stream deltas can't leak half of itself into the reveal or the
+// spoken audio.
+export function stripMathDelimiters(text: string): string {
+  return text.replace(/\$/g, '');
+}
+
 export type CloseChoreographyState = 'idle' | 'completing' | 'ringing' | 'closed';
 export type CloseChoreographyEvent = 'complete' | 'recap-grace-elapsed' | 'ring-elapsed' | 'reset';
 
 /**
  * idle -> completing (a turn's session.complete just arrived, or the
  * student clicked ✕ -- give the SESSION_ENDED recap broadcast a moment to
- * land) -> ringing (the ~4s green ring sweep) -> closed (Overlay.tsx's own
+ * land) -> ringing (the ~10s green ring sweep) -> closed (Overlay.tsx's own
  * effect performs the actual teardown -- collapse, clear transcript, reset
  * the bar -- then fires 'reset' to return here to idle). A pure reducer
  * (Overlay.tsx drives it with real timers) so Task 9's vitest spec can
@@ -244,12 +255,15 @@ export function nextCloseState(
 // A short head start for the SESSION_ENDED recap broadcast (fired
 // unawaited by the background the moment it sees session.complete, Sprint
 // 14 Task 6) to land before the ring starts sweeping -- so the recap card
-// is already visible for the whole ~4s sweep rather than popping in
+// is already visible for the whole ring sweep rather than popping in
 // mid-ring. Not a promise race against the broadcast (there's no promise to
 // await here, it's a separate chrome.runtime message) -- just a fixed,
 // generous buffer.
 export const RECAP_GRACE_MS = 400;
-export const CLOSE_RING_MS = 4000;
+// 10s (Sprint 15 fix pass round 2, was 4s per Darcy's call): the window
+// auto-closes 10 seconds after the ring starts sweeping -- enough time to
+// actually read the recap before the panel collapses.
+export const CLOSE_RING_MS = 10_000;
 
 // ---- Sprint 14 Task 7: per-turn annotation color assignment (ADR-029
 // amendment) ----
@@ -507,6 +521,14 @@ export function Overlay({
   // pending grace/ring timers driving it, so they can be cleared on unmount
   // or if a fresh minimize/expand races them.
   const [closeState, setCloseState] = useState<CloseChoreographyState>('idle');
+  // The solved celebration (Sprint 15 fix pass; round 2 moved the glow to
+  // the whole panel): true from the moment a turn arrives with
+  // session.complete + reason "solved" until the panel actually closes --
+  // the panel card renders the Gemini-style green gradient glow around
+  // itself for exactly that window (the floating summary window stays
+  // outside it). Only the solved close earns it; a follow-up-declined/
+  // corrected close (and a manual ✕) closes plain.
+  const [solvedGlow, setSolvedGlow] = useState(false);
   const closeTimersRef = useRef<number[]>([]);
   // The manual-end confirm dialog (Sprint 14 fix pass): clicking ✕ opens this
   // instead of ending immediately -- ending discards the live session, so it
@@ -543,8 +565,13 @@ export function Overlay({
     messages.length > 0 || busy || !!notice || !!liveTranscript || !!recap;
 
   function appendStreamToken(text: string) {
+    // Strip the $$ math-block delimiters from the transient stream/reveal
+    // tokens -- the committed bubble re-renders from the full reply, where
+    // Transcript.tsx turns them into centered math blocks.
+    const cleaned = stripMathDelimiters(text);
+    if (!cleaned) return;
     const id = tokenIdRef.current++;
-    setStreamingTokens((prev) => [...prev, { text, id }]);
+    setStreamingTokens((prev) => [...prev, { text: cleaned, id }]);
   }
 
   function clearStreamTokens() {
@@ -659,6 +686,7 @@ export function Overlay({
     setExpanded(false);
     setMessages([]);
     setSolutionProgress(0);
+    setSolvedGlow(false);
     setAnnotationColors({});
     setRecap(null);
     setOverview(null);
@@ -780,10 +808,9 @@ export function Overlay({
   // "something new to show"), then folds to the one-line handle after
   // STRIP_FOLD_MS -- unless the close choreography is already running, in
   // which case the recap holds through the ring rather than folding
-  // mid-sweep (the panel closes well before the fold timer would fire
-  // anyway, since CLOSE_RING_MS < STRIP_FOLD_MS, but this is the
-  // defensive, correct-by-construction version of that fact rather than a
-  // lucky timing coincidence).
+  // mid-sweep. This guard is load-bearing now: the ring (10s, fix pass
+  // round 2) outlasts STRIP_FOLD_MS (6s), so without it the recap would
+  // fold away mid-countdown.
   useEffect(() => {
     if (!overview && !recap) return;
     setStripFolded(false);
@@ -824,7 +851,12 @@ export function Overlay({
   // "Now closing tutoring session." bubble is even read.
   function applyProgressAndCompletion(result: TurnResult) {
     setSolutionProgress((prev) => easeProgress(prev, result.solutionProgress, result.session?.reason === 'solved'));
-    if (result.session?.complete) beginCloseChoreography();
+    if (result.session?.complete) {
+      // A correct answer earns the celebration glow around the composer for
+      // the whole close choreography (cleared in performClose).
+      if (result.session.reason === 'solved') setSolvedGlow(true);
+      beginCloseChoreography();
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -999,7 +1031,7 @@ export function Overlay({
         clearStreamTokens();
         result = await onSend(outbound);
         if (!result.reply.trim()) throw new Error('The tutor returned an empty reply.');
-        const { audio } = await onSynthesize(result.reply);
+        const { audio } = await onSynthesize(stripMathDelimiters(result.reply));
         // Buffered playback: onPlaybackStart fires showPings + onVoicePlaybackStart
         // at playback start with the real duration, exactly as the old path did.
         await playAudioWithTextReveal(audio, result.reply, appendStreamToken, setPlaying, audioRef, (durationMs) => {
@@ -1206,6 +1238,21 @@ export function Overlay({
         </div>
       )}
 
+      <div className="relative">
+        {/* The solved celebration (Sprint 15 fix pass; round 2 moved it from
+            the composer's input bar to the WHOLE panel): two stacked conic-
+            gradient layers behind the panel card -- a soft blurred aura and
+            a ring the card's own background punches into a border. Both
+            charge up in a quick burst, then rotate slowly until the session
+            actually closes. The floating summary window above is a SIBLING,
+            deliberately outside the glow. Purely decorative (aria-hidden);
+            static under reduced motion. */}
+        {solvedGlow && (
+          <>
+            <span aria-hidden="true" className="cx-solved-glow cx-solved-glow--panel cx-solved-glow--aura" />
+            <span aria-hidden="true" className="cx-solved-glow cx-solved-glow--panel" />
+          </>
+        )}
       <div className="relative overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
 
         <TitleBar
@@ -1302,6 +1349,7 @@ export function Overlay({
           </div>
         )}
 
+      </div>
       </div>
       </div>
     </>
@@ -1756,7 +1804,12 @@ async function playVoiceTurnStreamedEnvelope(
           await Promise.race([new Promise<void>((r) => (wake = r)), failed]);
           continue;
         }
-        const sentence = sentenceQueue.shift()!;
+        // The spoken text never carries the $$ math-block delimiters (they
+        // are transcript-rendering syntax); a sentence that was ONLY a math
+        // block still has its symbols to speak, but one that strips to
+        // nothing is skipped rather than synthesized as silence.
+        const sentence = stripMathDelimiters(sentenceQueue.shift()!);
+        if (!sentence.trim()) continue;
         await Promise.race([
           synthesizeStream(sentence, (chunk) => {
             pending.push(chunk);

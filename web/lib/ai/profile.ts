@@ -16,6 +16,12 @@ export type MasteryNode = {
   mastery: number // 0–1, decay-adjusted
   state: MasteryState
   confidenceBand: ConfidenceBand
+  // Sprint 15 fix pass round 2: when this node was last practiced (ISO
+  // string, straight from knowledge_nodes.last_practiced_at) -- the overlay
+  // overview card sorts by it to show the most recently updated topics.
+  // Optional so the many test fixtures (and any older construction site)
+  // that build profiles by hand stay valid; the prompt renderer ignores it.
+  lastPracticedAt?: string | null
 }
 
 export type ActiveMisconception = {

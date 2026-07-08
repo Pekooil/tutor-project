@@ -214,7 +214,18 @@ see the note under "known keys" below) still gets the full JSON object, never pl
 never markdown, never a reply that starts talking before the JSON begins.
 {
   "say": "<the spoken/written response — plain, natural sentences, no markdown, no LaTeX
-           read-aloud gibberish; verbalize math naturally e.g. 'x squared plus three x'>",
+           read-aloud gibberish. A passing math reference inside a sentence is verbalized
+           naturally e.g. 'x squared plus three x'. BUT any equation or expression you are
+           actually working -- the step being solved, the expression being simplified, the
+           factored/expanded version, the result -- goes by ITSELF wrapped in $$ ... $$,
+           e.g. 'Nice — combine the t-squared terms first. $$5t^2 + 8t^2 = 13t^2$$ Now what
+           about the t terms?'. Inside $$ use plain calculator-style notation ONLY: x^2,
+           sqrt(x), pi, /, *, <=, >=, != -- NEVER LaTeX commands (no \\frac, \\sqrt, \\cdot,
+           no braces-as-markup), never markdown, never words in place of symbols. The app
+           renders each $$ block as its own centered, highlighted math line (it renders ^
+           as a real superscript and sqrt/pi/<= as real symbols). Keep the prose around the
+           blocks short: explanation in prose, the math work in $$ blocks, never both
+           restating the same thing.>",
   "annotations": [ <zero or more annotation objects — optional, leave [] if none apply> ],
   "profile_tags": [ <zero to TWO profile-tag objects — optional; MOST turns have none> ],
   "solution_progress": <number 0-1 — see SOLUTION PROGRESS below; omit if nothing about the
@@ -406,7 +417,9 @@ including follow-up turns, must be exactly one JSON object with nothing before o
 
 Default "say": at most 3 sentences (~60 words), one idea per turn -- see CONCISENESS in the
 PEDAGOGY section above; it governs "say" exactly as it would a plain-text reply. Longer only
-when the student explicitly asked for the full explanation. One question at a time.`
+when the student explicitly asked for the full explanation. One question at a time. Math you
+are working goes in its own $$ ... $$ block (see the "say" field above), not spelled out
+inside the sentence.`
 }
 
 // Sprint 14 Task 10 live-find: a real acceptance-test session showed the
@@ -424,7 +437,7 @@ when the student explicitly asked for the full explanation. One question at a ti
 // has its own, opposite instruction (never include either field) which
 // must not compete with this one.
 const ENVELOPE_COMPLIANCE_CHECK = `═══════════════════ BEFORE YOU ANSWER ═══════════════════
-Two fields above are NOT optional extras -- check both, every single turn, even a small
+These checks are NOT optional extras -- run ALL of them, every single turn, even a small
 scaffolding step:
 1. "assessment" -- is this your very first turn of the whole conversation? If not, INCLUDE
    "assessment". A short clarifying answer, a partial step, or "yes"/"no" is still something to
@@ -441,13 +454,20 @@ scaffolding step:
    the box and the phrase share a color. An empty "annotations": [] is only correct when your
    reply genuinely points at nothing on screen (pure encouragement, or a question with no
    on-screen referent). If you are talking about the math, annotate the math.
+4. "$$ math blocks" -- does "say" contain an equation or expression you are working (a
+   step, a simplification, the factored/expanded version, a result -- anything that reads
+   better on its own line than buried in a sentence)? Then it MUST be wrapped in $$ ... $$
+   -- e.g. 'Correct! So here's the factored version: $$(x + 2)(x + 3)$$' -- in plain
+   calculator notation (x^2, sqrt(x), pi; NEVER \\frac or any LaTeX command). Spelling the
+   math out in words inside the sentence instead of using a $$ block is a mistake; inline
+   verbalized math is only for passing references.
 
 WORKED EXAMPLE of a correct MID-conversation turn (this is turn 3+ of a real exchange, NOT
 the opening turn -- note it still carries "assessment" and "solution_progress" even though
 the student's answer was a short, already-scaffolded step, not the problem's final answer):
 Student's last message: "13t^2"  (PAGE CONTEXT includes the equation "5t^2 - 6t + 8t^2 - 8t")
 {
-  "say": "Excellent! So you have 13t^2 so far. Now what about the t terms -- what is -6t plus -8t?",
+  "say": "Excellent! The t-squared terms combine: $$5t^2 + 8t^2 = 13t^2$$ Now what about the t terms -- what is -6t plus -8t?",
   "solution_progress": 0.4,
   "assessment": {
     "concept_key": "algebra.polynomials.expanding",

@@ -414,20 +414,23 @@
 .cx-close-ring::before {
   content: '';
   position: absolute;
-  inset: -3px;
+  inset: -4px;
   border-radius: 9999px;
-  background: conic-gradient(var(--color-accent-emphasis) var(--cx-ring-pct), transparent var(--cx-ring-pct));
-  /* Punches the fill into a thin ring (a donut, not a pie slice) -- the
-     inner circle is fully masked away, leaving only a ~2px stroke visible
-     around the button's edge. */
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  /* Lighter green than the old accent-emphasis (Sprint 15 fix pass) -- the
+     glow-strong token is the same bright green the rest of the overlay's
+     positive signals use. */
+  background: conic-gradient(var(--color-accent-glow-strong) var(--cx-ring-pct), transparent var(--cx-ring-pct));
+  /* Punches the fill into a ring (a donut, not a pie slice) -- the inner
+     circle is fully masked away, leaving a ~3.5px stroke (Sprint 15 fix
+     pass: thickened from ~2px) visible around the button's edge. */
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3.5px));
   pointer-events: none;
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .cx-close-ring::before {
-    animation: cx-ring-sweep var(--cx-ring-duration, 4000ms) linear forwards;
+    animation: cx-ring-sweep var(--cx-ring-duration, 10000ms) linear forwards;
   }
 }
 
@@ -512,7 +515,10 @@
   overflow: hidden;
   border-radius: 9999px;
   background: var(--color-border);
-  margin-top: 8px;
+  /* No margin of its own (Sprint 15 fix pass): the track now renders INSIDE
+   * the summary card as its last child, spaced by the card's own flex gap,
+   * so the countdown reads as the bottom edge of the box rather than a
+   * detached bar floating under it. */
 }
 
 .cx-strip-sweep-bar {
@@ -665,4 +671,90 @@
 .cx-ping-blue-dot {
   background-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+}
+
+/* ── Overlay panel: the solved-session celebration glow (Sprint 15 fix
+ * pass; round 2 moved it from the composer's input bar to the whole panel) ──
+ * When a turn lands with session.complete + reason "solved", the panel card
+ * earns a Gemini-style glowing green gradient: a quick charge-up burst, then
+ * a slow rotating conic gradient that surrounds the entire extension box
+ * (the floating summary window excluded -- it renders outside the glow's
+ * wrapper) and stays until the close choreography actually closes the panel
+ * (Overlay.tsx's solvedGlow state, cleared in performClose). Two stacked
+ * layers behind the card's own background: the bare ring reads as an
+ * animated gradient border, the --aura variant is the same gradient blurred
+ * into a soft outer glow; the --panel modifier swaps the pill radius for the
+ * panel's rounded-lg geometry. The light-green literals extend the theme's
+ * green axis the same way the annotation amber/blue literals do
+ * (extension-local, not a token addition). @property registration for the
+ * same reason as --cx-ring-pct above: a custom property inside a gradient
+ * can't interpolate without it. */
+@property --cx-glow-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.cx-solved-glow {
+  position: absolute;
+  inset: -2.5px;
+  border-radius: 9999px;
+  background: conic-gradient(
+    from var(--cx-glow-angle),
+    #4ade80,
+    #bbf7d0,
+    #22c55e,
+    #86efac,
+    #4ade80
+  );
+  pointer-events: none;
+  opacity: var(--cx-glow-opacity, 1);
+}
+
+.cx-solved-glow--aura {
+  inset: -6px;
+  filter: blur(10px);
+  --cx-glow-opacity: 0.7;
+}
+
+/* The panel geometry (rounded-lg = --radius-lg 16px, vs the input bar's
+ * pill): the ring hugs at 16px + its 2.5px inset, the blurred aura a bit
+ * looser. */
+.cx-solved-glow--panel {
+  border-radius: 18px;
+}
+.cx-solved-glow--panel.cx-solved-glow--aura {
+  border-radius: 22px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cx-solved-glow {
+    animation:
+      cx-solved-charge 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both,
+      cx-glow-spin 3s linear 0.55s infinite;
+  }
+}
+
+/* Reduced motion: the glow simply appears fully formed and holds -- the
+ * celebration is still communicated, consistent with this file's
+ * "end-state applied instantly" convention. */
+@keyframes cx-solved-charge {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  60% {
+    opacity: var(--cx-glow-opacity, 1);
+    transform: scale(1.02);
+  }
+  to {
+    opacity: var(--cx-glow-opacity, 1);
+    transform: scale(1);
+  }
+}
+
+@keyframes cx-glow-spin {
+  to {
+    --cx-glow-angle: 360deg;
+  }
 }

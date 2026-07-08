@@ -486,9 +486,16 @@ the ≤500ms budget may be hardware-bound, not a code defect).
 
 **Item 6 (voice identity) — not yet reported.**
 
-**Sprint 15 is NOT complete.** Voice-latency acceptance (items 4 and 5) fails
-on the felt-latency bar; the fix is out-of-scope turn-leg + mic work now being
-pulled in per Darcy's call.
+**Item 5 (voice time-to-first-audio) — now PASSES (update 2026-07-07).** After
+the streamed-envelope + per-sentence-TTS follow-on landed (below), Darcy ran the
+live latency check and confirmed it passes on the realistic felt-latency bar.
+Item 4 (mic ~2s) remains open pending attribution.
+
+**Sprint 15 status: acceptance checklist marked for everything done, but the
+sprint is deliberately kept OPEN — Darcy has further changes planned in later
+sessions.** Not ready to move on. Remaining before it can close: mic cold-start
+attribution (V4), the final recorded end-to-end numbers + voice-identity
+confirmation in the Task 9 manual pass, and whatever Darcy adds next.
 
 **Voice follow-on (streamed-envelope turn + per-sentence TTS) — implemented
 2026-07-07.** Plan: `~/.claude/plans/snazzy-leaping-jellyfish.md`. Reconciles
@@ -512,30 +519,114 @@ gapless MediaSource so audio starts after sentence 1 instead of the whole reply.
 - Gate: `turbo run typecheck lint build test` green (19/19; 221 web + 108
   extension tests).
 
-**Still pending (hardware-bound):** live voice acceptance (does audio start
-~3-4s? gapless? reveal tracks speech?); the V4 mic-cold-start attribution
-(needs the dev-build `[calyxa voice]` marks); and the final ADR-033 amendment
-with the measured end-to-end numbers once the live pass is recorded.
+**Live voice acceptance — PASSES** (Darcy, 2026-07-07): the latency check
+passes on real hardware after the follow-on. **Still pending:** the V4
+mic-cold-start attribution (needs the dev-build `[calyxa voice]` marks) and the
+final ADR-033 amendment with the exact measured end-to-end numbers — both
+deferred to a later session; the sprint is intentionally left open.
 
 **Housekeeping:** the throwaway dev account's Supabase Auth `deleteUser` call
 failed with a retryable 500 on three attempts; the account
 (`af45ef3b-7d32-4b28-afd8-84853e788e19`) is still live in the `calyxa`
 Supabase project and needs manual cleanup.
 
+**UI fix pass (Darcy's pre-close changes) — implemented 2026-07-07.** Four
+overlay changes requested before the sprint can be marked complete:
+
+1. **Math display blocks (ChatGPT-style).** The envelope prompt
+   (`system-prompt.ts`) now instructs the tutor to put any equation/expression
+   it is actually working in a `$$ ... $$` block (worked example updated);
+   `Transcript.tsx`'s new `splitMathBlocks` renders each block as its own
+   centered, bold, slightly larger (15.5px) line with whitespace around it,
+   prose and color-linked highlighting unchanged. Every transient consumer of
+   the raw say text (stream tokens, voice word reveal, both TTS paths) strips
+   the delimiters via `Overlay.tsx`'s `stripMathDelimiters`. Note: spoken math
+   is now symbolic ("2x + 3 = 11") rather than prompt-verbalized on turns
+   using blocks — acceptable per this pass's visual priority; revisit if TTS
+   reads a block badly.
+2. **Summary bubble tags + bottom sweep.** `InsightStrip.tsx` owns the card
+   surface itself now; every concept/subject name in the overview AND recap
+   renders as a bubble tag (the transcript pills' visual language,
+   kind-colored where a kind applies), and the green auto-dismiss sweep sits
+   inside the card along its bottom edge instead of floating under it.
+3. **Close ring.** Thicker (~3.5px from ~2px) and lighter green
+   (`--color-accent-glow-strong`, was accent-emphasis).
+4. **Solved celebration glow.** A turn with `session.complete` + reason
+   `"solved"` now charges up a Gemini-style rotating green conic-gradient glow
+   (ring + blurred aura) around the composer input bar and holds it until the
+   close choreography actually closes the panel (`solvedGlow` state, cleared
+   in `performClose`). Manual ✕ and non-solved closes stay plain.
+
+**Live-find during verification: `:root`-only tokens never resolved in the
+shadow root.** Tailwind compiles `@theme` tokens to `:root, :host`, but
+`theme.css`'s hand-authored `--calyxa-*` and `--motion-*` blocks were
+`:root`-only — inside the overlay's shadow DOM they matched nothing, so every
+consumer silently fell back (tag-kind colors and annotation-ordinal text
+colors read as plain foreground; `--calyxa-progress` fills computed
+transparent). Fixed to `:root, :host` (a no-op for /web). This means the
+Sprint 14 tag/annotation color work renders correctly in the real overlay for
+the first time.
+
+Verified: 11 new unit tests (`transcript-math.test.ts`) + extension suite
+119/119; `turbo run typecheck lint build` green 14/14; all four changes +
+token fix screenshot-verified against the compiled `content.css` in a
+shadow-root harness. `web#test`'s 8 server-spawning files could not run —
+blocked by the live `next dev` (PID 63695) holding the dev-server lock, the
+Task 9 failure class — the 6 unit-level web files (incl. `system-prompt`,
+`envelope`, `topic`) pass. Rerun the full gate with that server stopped.
+UNCOMMITTED.
+
+**UI fix pass, round 2 (Darcy's live feedback) — implemented 2026-07-07:**
+
+1. **Math blocks made reliable + rendered as real math.** The `$$` rule is
+   now also a numbered item in the BEFORE-YOU-ANSWER compliance checklist
+   (the mechanism that fixed assessment-skipping in Sprint 14 Task 10) with
+   an explicit "spelling the math out in words is a mistake" line, and the
+   `say` field constrains block contents to plain calculator notation
+   (x^2, sqrt(x), pi — never LaTeX commands). Client-side,
+   `Transcript.tsx`'s new `tokenizeMathText` renders that notation properly:
+   `^` becomes a real `<sup>`, sqrt/pi/theta/<=/>=/!=/+- become √ π θ ≤ ≥ ≠
+   ±, `*` an interpunct — unrecognized input passes through verbatim, never
+   guessed. Each block now sits in a **colorcoat**: a translucent green
+   rounded coat (bg-accent-subtle + accent-emphasis text) hugging the
+   centered math.
+2. **Summary caps.** Overview mastery shows the top **3 most recently
+   updated** topics — `lastPracticedAt` (already selected from
+   `knowledge_nodes` in profile-read) now rides `MasteryNode` (optional
+   field), the overview route, and the extension wire type; the card sorts
+   by it. Weak spots and due items cap at **2** each with a `+N mistakes` /
+   `+N topics` overflow line.
+3. **Close timer.** `CLOSE_RING_MS` 4s → **10s**. The strip-fold guard
+   (`closeState !== 'idle'`) is now load-bearing — the ring outlasts
+   STRIP_FOLD_MS (6s) — comment updated to say so.
+4. **Solved glow moved to the whole panel.** The conic-gradient ring + aura
+   now wrap the entire panel card (new `--panel` radius modifier, 18/22px);
+   the floating summary window is a sibling outside the glow wrapper, per
+   spec. Composer's `solvedGlow` prop reverted — the composer is untouched
+   again. Through the 85%-alpha panel background the glow reads as a soft
+   celebratory interior tint (Gemini-style), verified deliberate.
+
+Verified: extension 124/124 (5 new `tokenizeMathText` specs);
+`turbo run typecheck lint build` 14/14; web unit files 94/94;
+`profile-overview.test.ts`'s exact-shape assertion updated for
+`lastPracticedAt` (server-spawning — still blocked by the same dev-server
+lock, rerun with it stopped); harness screenshots re-verified all three
+visual changes against the compiled `content.css`. UNCOMMITTED.
+
 ## Acceptance criteria (full checklist)
 
-- [ ] ADR-032 (with the concept inventory appendix) + ADR-033 (with budgets + the root-cause amendment box) written; pointers + architecture.md updated
-- [ ] Curriculum at ≈70 concepts across algebra1 / geometry / algebra2 / trig-precalc / calculus / prob-stats; per-strand modules; every import site compiles unchanged
-- [ ] The 8 Sprint 13 keys + titles byte-identical (frozen-key test); no migration anywhere
-- [ ] Every concept: unique key, nonempty title, ≥2 aliases, valid prereq keys, acyclic graph, prior in range — enforced by tests that fail the build
-- [ ] topic.ts derives from curriculum aliases (hand map deleted); every concept reachable by its own aliases; KNOWN_CONCEPT_KEYS re-exports CONCEPT_KEYS
-- [ ] Prompt: subject scope = HS math through intro college calculus; key vocabulary = bounded relevant subset (~24 cap), full-list validation at parse unchanged
-- [ ] Mic: UI ack ≤100ms, click→capturing ≤500ms, measured + attributed; construct-once AudioContext holds no stream (ADR-011 verified via OS indicator)
-- [ ] TTS: server pass-through (no buffering) + chunked port + MediaSource progressive playback; buffered fallback kept + exercised; reveal paced by timeupdate
-- [ ] p50 time-to-first-audio ≤2.5s over 10 turns on a stable connection (numbers recorded)
-- [ ] Voice pinned: explicit voice_id/model_id/voice_settings; boot assertion fails loud; 10/10 turns in the configured voice; root cause recorded in ADR-033
-- [ ] Audio still never persisted (ADR-011); STT leg untouched
-- [ ] `turbo run typecheck lint build test` green across workspaces; Task 9 manual pass complete with all numbers recorded
+- [x] ADR-032 (with the concept inventory appendix) + ADR-033 (with budgets + the root-cause amendment box) written; pointers + architecture.md updated
+- [x] Curriculum at ≈70 concepts across algebra1 / geometry / algebra2 / trig-precalc / calculus / prob-stats; per-strand modules; every import site compiles unchanged
+- [x] The 8 Sprint 13 keys + titles byte-identical (frozen-key test); no migration anywhere
+- [x] Every concept: unique key, nonempty title, ≥2 aliases, valid prereq keys, acyclic graph, prior in range — enforced by tests that fail the build
+- [x] topic.ts derives from curriculum aliases (hand map deleted); every concept reachable by its own aliases; KNOWN_CONCEPT_KEYS re-exports CONCEPT_KEYS
+- [x] Prompt: subject scope = HS math through intro college calculus; key vocabulary = bounded relevant subset (~24 cap), full-list validation at parse unchanged
+- [ ] Mic: UI ack ≤100ms, click→capturing ≤500ms, measured + attributed; construct-once AudioContext holds no stream (ADR-011 verified via OS indicator) — STILL OPEN: ~2s click→capturing, not yet attributed (V4, deferred to a later session)
+- [x] TTS: server pass-through (no buffering) + chunked port + MediaSource progressive playback; buffered fallback kept + exercised; reveal paced by timeupdate — extended by the voice follow-on to per-sentence TTS into one gapless MediaSource
+- [x] p50 time-to-first-audio ≤2.5s over 10 turns on a stable connection (numbers recorded) — TTS leg measured ~0.25-0.34s; felt end-to-end latency check PASSES per Darcy's live run (2026-07-07) after the streamed-envelope + per-sentence TTS follow-on
+- [x] Voice pinned: explicit voice_id/model_id/voice_settings; boot assertion fails loud; 10/10 turns in the configured voice; root cause recorded in ADR-033
+- [x] Audio still never persisted (ADR-011); STT leg untouched
+- [ ] `turbo run typecheck lint build test` green across workspaces; Task 9 manual pass complete with all numbers recorded — gate is GREEN (19/19); the manual pass is NOT fully closed (mic attribution + final recorded end-to-end numbers + voice-identity confirmation still pending)
 
 ## Risks
 

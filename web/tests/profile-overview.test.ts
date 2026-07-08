@@ -214,6 +214,9 @@ describe('GET /api/profile/overview', () => {
       mastery: expect.closeTo(0.42, 3),
       state: 'learning',
       confidenceBand: 'medium',
+      // Sprint 15 fix pass round 2: recency for the overview card's
+      // "top 3 recently updated" sort -- the seed sets it to "now".
+      lastPracticedAt: expect.any(String),
     })
     expect(json.weakSpots).toEqual([])
     expect(json.dueForReview).toEqual([])

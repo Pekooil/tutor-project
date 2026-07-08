@@ -274,6 +274,7 @@ export async function loadProfile(
     mastery: row.mastery * retrievability(row.stability, daysSince(row.last_practiced_at)),
     state: row.state as MasteryState,
     confidenceBand: row.confidence_band as ConfidenceBand,
+    lastPracticedAt: row.last_practiced_at,
   }))
 
   const activeMisconceptions: ActiveMisconception[] = misconceptionRows.map((row) => ({

@@ -30,6 +30,80 @@ const TAG_KIND_PREFIX: Record<ProfileTagKind, string> = {
 // never a broken/guessed link.
 export type HighlightSegment = { text: string; colorClass: string | null };
 
+// Math display blocks (Sprint 15 fix pass): the prompt asks the tutor to wrap
+// any equation/expression it is actually working in $$ ... $$ delimiters.
+// splitMathBlocks segments a `say` string into prose runs and math blocks so
+// the transcript renders the math ChatGPT-style -- on its own centered line,
+// slightly larger and bold, with breathing room -- while the prose around it
+// renders exactly as before, including the color-linked annotation
+// highlighting (applied to prose runs only; a math block is already its own
+// visual object, so a second highlight treatment inside it would compete).
+// Whitespace adjacent to a block is trimmed (the block supplies its own
+// vertical margin; a stray newline around the delimiters would double it
+// under whitespace-pre-wrap). An unpaired $$ stays in the prose untouched
+// rather than being guessed at.
+export type SayBlock = { kind: 'text' | 'math'; text: string };
+
+// Math prettification (Sprint 15 fix pass, round 2): the prompt constrains
+// $$ blocks to plain calculator notation (x^2, sqrt(x), pi, <=), and this
+// pair of pure functions renders that notation as real math -- ^ becomes a
+// true superscript, sqrt/pi/theta/<=/>=/!=/+- become their symbols, * an
+// interpunct -- so a block never shows caret-and-keyword syntax to the
+// student. Deliberately conservative: anything unrecognized passes through
+// verbatim (never a guessed transformation), and none of this touches prose
+// runs or the spoken/streamed text (which strip the $$ entirely).
+export type MathToken = { kind: 'text' | 'sup'; text: string };
+
+function prettifyMathSymbols(text: string): string {
+  return text
+    .replace(/<=/g, '≤')
+    .replace(/>=/g, '≥')
+    .replace(/!=/g, '≠')
+    .replace(/\+\/-|\+-/g, '±')
+    .replace(/\bsqrt\b/g, '√')
+    .replace(/\bpi\b/g, 'π')
+    .replace(/\btheta\b/g, 'θ')
+    .replace(/\binfinity\b|\binf\b/g, '∞')
+    .replace(/\s*\*\s*/g, ' · ');
+}
+
+// `x^2`, `x^-1`, `x^(2n)`, `x^{2n}` -> a sup token holding "2", "-1", "2n";
+// the wrapping parens/braces are display markup, not math, so they drop.
+export function tokenizeMathText(raw: string): MathToken[] {
+  const text = prettifyMathSymbols(raw);
+  const tokens: MathToken[] = [];
+  const pattern = /\^(\{[^{}]+\}|\([^()]+\)|-?[A-Za-z0-9]+)/g;
+  let cursor = 0;
+  for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
+    if (match.index > cursor) tokens.push({ kind: 'text', text: text.slice(cursor, match.index) });
+    const sup = match[1];
+    tokens.push({ kind: 'sup', text: /^[{(]/.test(sup) ? sup.slice(1, -1) : sup });
+    cursor = pattern.lastIndex;
+  }
+  if (cursor < text.length) tokens.push({ kind: 'text', text: text.slice(cursor) });
+  return tokens;
+}
+
+export function splitMathBlocks(say: string): SayBlock[] {
+  const blocks: SayBlock[] = [];
+  const pattern = /\$\$([^$]+?)\$\$/g;
+  let cursor = 0;
+  let afterMath = false;
+  for (let match = pattern.exec(say); match !== null; match = pattern.exec(say)) {
+    let before = say.slice(cursor, match.index).replace(/\s+$/, '');
+    if (afterMath) before = before.replace(/^\s+/, '');
+    if (before) blocks.push({ kind: 'text', text: before });
+    const math = match[1].trim();
+    if (math) blocks.push({ kind: 'math', text: math });
+    afterMath = true;
+    cursor = pattern.lastIndex;
+  }
+  let tail = say.slice(cursor);
+  if (afterMath) tail = tail.replace(/^\s+/, '');
+  if (tail) blocks.push({ kind: 'text', text: tail });
+  return blocks;
+}
+
 export function highlightAnnotatedPhrases(
   say: string,
   annotations: Annotation[] | undefined,
@@ -112,14 +186,40 @@ export function Transcript({
         ) : (
           <div key={index} className="flex justify-start">
             <div className="flex max-w-[88%] flex-col items-start gap-1.5">
-              <p className="m-0 whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-foreground">
-                {highlightAnnotatedPhrases(msg.content, msg.annotations, msg.annotationColors).map((segment, segIndex) =>
-                  segment.colorClass ? (
-                    <span key={segIndex} className={segment.colorClass}>
-                      {segment.text}
+              <p className="m-0 w-full whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-foreground">
+                {/* ChatGPT-style math layout (Sprint 15 fix pass): prose runs
+                    render as before (color-linked highlighting included);
+                    each $$ block renders by itself -- centered, slightly
+                    larger, bold, with whitespace around it. */}
+                {splitMathBlocks(msg.content).map((block, blockIndex) =>
+                  block.kind === 'math' ? (
+                    // The colorcoat (round 2): the same translucent-tint
+                    // treatment the annotation boxes use, here as a green
+                    // coat hugging the centered math -- plus real
+                    // superscripts/symbols via tokenizeMathText.
+                    <span key={blockIndex} className="my-2 block text-center">
+                      <span className="inline-block max-w-full rounded-lg bg-accent-subtle px-3 py-1 text-[15.5px] font-semibold leading-relaxed text-accent-emphasis">
+                        {tokenizeMathText(block.text).map((token, tokenIndex) =>
+                          token.kind === 'sup' ? (
+                            <sup key={tokenIndex}>{token.text}</sup>
+                          ) : (
+                            <span key={tokenIndex}>{token.text}</span>
+                          ),
+                        )}
+                      </span>
                     </span>
                   ) : (
-                    <span key={segIndex}>{segment.text}</span>
+                    <span key={blockIndex}>
+                      {highlightAnnotatedPhrases(block.text, msg.annotations, msg.annotationColors).map((segment, segIndex) =>
+                        segment.colorClass ? (
+                          <span key={segIndex} className={segment.colorClass}>
+                            {segment.text}
+                          </span>
+                        ) : (
+                          <span key={segIndex}>{segment.text}</span>
+                        ),
+                      )}
+                    </span>
                   ),
                 )}
               </p>

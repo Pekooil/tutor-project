@@ -234,7 +234,9 @@ export type AiReplyPayload =
 // nothing-persisted rules).
 export type ProfileOverview = {
   calibrating: boolean;
-  mastery: Array<{ conceptKey: string; title: string; mastery: number; state: string; confidenceBand: string }>;
+  // lastPracticedAt (Sprint 15 fix pass round 2): recency for the overview
+  // card's "top 3 recently updated" sort; optional for wire back-compat.
+  mastery: Array<{ conceptKey: string; title: string; mastery: number; state: string; confidenceBand: string; lastPracticedAt?: string | null }>;
   weakSpots: Array<{ conceptKey: string; title: string; category: string; description: string }>;
   dueForReview: Array<{ conceptKey: string; title: string; reason: string }>;
 };
