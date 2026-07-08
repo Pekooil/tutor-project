@@ -16,17 +16,15 @@ import type {
   AiReplyPayload,
   Annotation,
   CalyxaMessage,
-  GetProfileOverviewReplyPayload,
   OpeningScanReplyPayload,
   PageContext,
   PageTopic,
-  ProfileOverview,
-  ProfileTag,
   SessionEndedPayload,
   SessionStatePayload,
+  StatusPin,
+  StickingCandidate,
   StrugglePrediction,
   TurnMessage,
-  TurnPing,
   VoiceSttReplyPayload,
   VoiceTtsReplyPayload,
   VoiceTtsStreamMessage,
@@ -122,7 +120,13 @@ export function isPlausibleProblem(context: PageContext | undefined): boolean {
 // the opening scan's own bubble too -- the model is held to the same
 // exact-target.text-reuse discipline there (system-prompt.ts's OPENING SCAN
 // MODE block), so there's no reason the first bubble should be exempt.
-async function requestOpeningScan(): Promise<{ reply: string; tags?: ProfileTag[]; annotations?: Annotation[]; prediction?: StrugglePrediction; topic?: PageTopic } | null> {
+async function requestOpeningScan(): Promise<{
+  reply: string;
+  annotations?: Annotation[];
+  prediction?: StrugglePrediction;
+  topic?: PageTopic;
+  stickingCandidates?: StickingCandidate[];
+} | null> {
   if (!isPlausibleProblem(capturedPageContext)) return null;
 
   const registry = currentEquationRegistry();
@@ -147,13 +151,16 @@ async function requestOpeningScan(): Promise<{ reply: string; tags?: ProfileTag[
   showTurnAnnotations(payload.annotations ?? [], registry);
   return {
     reply: payload.reply,
-    ...(payload.profileTags && payload.profileTags.length > 0 ? { tags: payload.profileTags } : {}),
     ...(payload.annotations && payload.annotations.length > 0 ? { annotations: payload.annotations } : {}),
-    // The session-kickoff struggle prediction and the check-in's
-    // page-detected topic (both grounded server-side): ride through to the
-    // overlay's check-in, same additive discipline.
+    // The session-kickoff struggle prediction, the check-in's page-detected
+    // topic, and its 5b sticking-point candidates (all grounded
+    // server-side): ride through to the overlay's check-in, same additive
+    // discipline.
     ...(payload.prediction ? { prediction: payload.prediction } : {}),
     ...(payload.topic ? { topic: payload.topic } : {}),
+    ...(payload.stickingCandidates && payload.stickingCandidates.length > 0
+      ? { stickingCandidates: payload.stickingCandidates }
+      : {}),
   };
 }
 
@@ -165,11 +172,12 @@ async function requestOpeningScan(): Promise<{ reply: string; tags?: ProfileTag[
 // itself never imports chrome.*, so this function is its sole window onto
 // the extension. pageContext is captured at overlay-open time (see below).
 //
-// Sprint 13 (ADR-024/026): resolves { reply, tags?, pings? } instead of a
-// bare string -- profileTags/pings ride both reply paths (the port's `done`
-// message and the AI_REPLY payload) additively, each key present only when
-// the wire carried entries, so the overlay's omission checks mirror the
-// route's own. Annotation handling on both paths is unchanged.
+// Sprint 15 (ADR-034): resolves { reply, pins? } instead of a bare string --
+// status pins ride both reply paths (the port's `done` message and the
+// AI_REPLY payload) additively, each key present only when the wire carried
+// entries, so the overlay's omission checks mirror the route's own
+// (replacing Sprint 13's profileTags/pings pair). Annotation handling on
+// both paths is unchanged.
 //
 // Sprint 14 Task 7 (ADR-027/028/029): also surfaces `annotations`,
 // `solutionProgress`, and `session` on the resolved TurnResult -- Task 6
@@ -201,8 +209,7 @@ async function sendAiTurn(
           text?: string;
           reply?: string;
           annotations?: Annotation[];
-          profileTags?: ProfileTag[];
-          pings?: TurnPing[];
+          pins?: StatusPin[];
           solutionProgress?: number;
           session?: TurnResult['session'];
           error?: string;
@@ -217,8 +224,7 @@ async function sendAiTurn(
             showTurnAnnotations(msg.annotations ?? [], registry);
             resolve({
               reply: msg.reply ?? '',
-              ...(msg.profileTags && msg.profileTags.length > 0 ? { tags: msg.profileTags } : {}),
-              ...(msg.pings && msg.pings.length > 0 ? { pings: msg.pings } : {}),
+              ...(msg.pins && msg.pins.length > 0 ? { pins: msg.pins } : {}),
               ...(msg.annotations && msg.annotations.length > 0 ? { annotations: msg.annotations } : {}),
               ...(msg.solutionProgress !== undefined ? { solutionProgress: msg.solutionProgress } : {}),
               ...(msg.session ? { session: msg.session } : {}),
@@ -262,8 +268,7 @@ async function sendAiTurn(
   pendingVoiceAnnotations = { annotations: payload.annotations ?? [], registry };
   return {
     reply: payload.reply,
-    ...(payload.profileTags && payload.profileTags.length > 0 ? { tags: payload.profileTags } : {}),
-    ...(payload.pings && payload.pings.length > 0 ? { pings: payload.pings } : {}),
+    ...(payload.pins && payload.pins.length > 0 ? { pins: payload.pins } : {}),
     ...(payload.annotations && payload.annotations.length > 0 ? { annotations: payload.annotations } : {}),
     ...(payload.solutionProgress !== undefined ? { solutionProgress: payload.solutionProgress } : {}),
     ...(payload.session ? { session: payload.session } : {}),
@@ -299,8 +304,7 @@ async function sendVoiceTurnStreaming(
         pendingVoiceAnnotations = { annotations: msg.annotations ?? [], registry };
         resolve({
           reply: msg.reply,
-          ...(msg.profileTags && msg.profileTags.length > 0 ? { tags: msg.profileTags } : {}),
-          ...(msg.pings && msg.pings.length > 0 ? { pings: msg.pings } : {}),
+          ...(msg.pins && msg.pins.length > 0 ? { pins: msg.pins } : {}),
           ...(msg.annotations && msg.annotations.length > 0 ? { annotations: msg.annotations } : {}),
           ...(msg.solutionProgress !== undefined ? { solutionProgress: msg.solutionProgress } : {}),
           ...(msg.session ? { session: msg.session } : {}),
@@ -321,19 +325,6 @@ async function sendVoiceTurnStreaming(
 
     port.postMessage({ messages, pageContext: capturedPageContext });
   });
-}
-
-// The overlay's overview transport (Sprint 13, ADR-024/025): relays
-// GET_PROFILE_OVERVIEW to the background and unwraps the error-shaped
-// reply, same pattern as sendVoiceStt below. A rejection is the overlay's
-// signal to render the plain Sprint 10 empty state.
-async function loadProfileOverview(): Promise<ProfileOverview> {
-  const response: CalyxaMessage = await chrome.runtime.sendMessage({ type: 'GET_PROFILE_OVERVIEW' });
-  const payload = response.payload as GetProfileOverviewReplyPayload;
-  if ('error' in payload) {
-    throw new Error(payload.error);
-  }
-  return payload.overview;
 }
 
 // The overlay's End-session transport (Sprint 13, ADR-025): the EXISTING
@@ -617,7 +608,6 @@ export default defineContentScript({
           onSynthesize: sendVoiceTts,
           onSynthesizeStream: sendVoiceTtsStream,
           onVoicePlaybackStart: handleVoicePlaybackStart,
-          onLoadOverview: loadProfileOverview,
           onEndSession: endSessionFromOverlay,
           onOpeningScan: requestOpeningScan,
         });

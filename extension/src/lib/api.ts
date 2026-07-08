@@ -13,13 +13,12 @@ import type {
   Annotation,
   PageContext,
   PageTopic,
-  ProfileOverview,
-  ProfileTag,
   SessionCompletion,
   SessionRecap,
+  StatusPin,
+  StickingCandidate,
   StrugglePrediction,
   TurnMessage,
-  TurnPing,
 } from '../types/messages';
 
 // Backend HTTP client for the extension (Sprint 04 Task 6 / ADR-006).
@@ -194,30 +193,11 @@ export async function endSession(sessionId: string, transcript?: TurnMessage[]):
 }
 
 /**
- * Fetches the read-only profile overview (Sprint 13 / ADR-024/025) -- the
- * "where you are" panel the overlay renders before the first question.
- * Fresh per call, never cached here: the overlay is responsible for
- * re-fetching on every panel open (ADR-024's nothing-persisted rule). No
- * write, no free-tier interaction; reuses authorizedFetch verbatim, so a
- * dead refresh token surfaces SignedOutError exactly as every other helper.
- */
-export async function getProfileOverview(): Promise<ProfileOverview> {
-  const res = await authorizedFetch('/api/profile/overview', { method: 'GET' });
-
-  const body = await res.json();
-  if (!res.ok) {
-    throw new Error(body.error ?? `profile_overview failed: ${res.status}`);
-  }
-
-  return body as ProfileOverview;
-}
-
-/**
  * Sends the running transcript to the Claude proxy (Sprint 05 / ADR-008) and
  * returns the tutor's reply text (+ optional annotations, Sprint 12 /
- * ADR-023; + optional profileTags/pings, Sprint 13 / ADR-024/025/026).
- * `/api/ai/turn` is stateless -- non-streaming fallback retained for any
- * callers that don't need streaming.
+ * ADR-023; + optional status pins, Sprint 15 / ADR-034 -- replacing Sprint
+ * 13's profileTags/pings pair). `/api/ai/turn` is stateless -- non-streaming
+ * fallback retained for any callers that don't need streaming.
  *
  * `turnContext` (Sprint 11 / ADR-019) threads the active sessionId and the
  * client-measured think-time so the route can persist the turn's
@@ -227,8 +207,8 @@ export async function getProfileOverview(): Promise<ProfileOverview> {
  * absent (older callers keep working unchanged), so nothing is validated
  * on this side -- same discipline as pageContext above.
  *
- * `annotations`, `profileTags`, and `pings` are all parsed straight through
- * from the response body with no re-validation here -- the backend already
+ * `annotations` and `pins` are parsed straight through from the response
+ * body with no re-validation here -- the backend already
  * validated/grounded/computed them before ever putting them on the wire,
  * and each is OMITTED (never included, not `undefined`) from the returned
  * object when the response didn't carry any, matching the route's own
@@ -243,8 +223,7 @@ export async function aiTurn(
 ): Promise<{
   reply: string;
   annotations?: Annotation[];
-  profileTags?: ProfileTag[];
-  pings?: TurnPing[];
+  pins?: StatusPin[];
   solutionProgress?: number;
   session?: SessionCompletion;
 }> {
@@ -271,10 +250,7 @@ export async function aiTurn(
     ...(Array.isArray(body.annotations) && body.annotations.length > 0
       ? { annotations: body.annotations as Annotation[] }
       : {}),
-    ...(Array.isArray(body.profileTags) && body.profileTags.length > 0
-      ? { profileTags: body.profileTags as ProfileTag[] }
-      : {}),
-    ...(Array.isArray(body.pings) && body.pings.length > 0 ? { pings: body.pings as TurnPing[] } : {}),
+    ...(Array.isArray(body.pins) && body.pins.length > 0 ? { pins: body.pins as StatusPin[] } : {}),
     ...(typeof body.solutionProgress === 'number' ? { solutionProgress: body.solutionProgress } : {}),
     ...(body.session ? { session: body.session as SessionCompletion } : {}),
   };
@@ -288,15 +264,23 @@ export async function aiTurn(
  * new endpoint -- same auth, same entitlement checks. `sessionId` is the
  * one `startSession` (called by the background BEFORE this, ADR-030
  * Decision 3) just returned, so the opening scan's own turn is that
- * session's row #1. Never carries `assessment`/`pings`/`solutionProgress`/
+ * session's row #1. Never carries `assessment`/`pins`/`solutionProgress`/
  * `session` -- there is nothing yet to grade, score, or close; `reply` may
  * be an empty string (the model's own "not confident" signal), passed
- * through as-is, same discipline as aiTurn() above.
+ * through as-is, same discipline as aiTurn() above. The route's
+ * `profileTags` field is no longer consumed (the transcript's tag pills
+ * were retired by ADR-034's status pins), so it is not parsed here.
  */
 export async function openingScan(
   pageContext: PageContext,
   sessionId: string | undefined,
-): Promise<{ reply: string; annotations?: Annotation[]; profileTags?: ProfileTag[]; prediction?: StrugglePrediction; topic?: PageTopic }> {
+): Promise<{
+  reply: string;
+  annotations?: Annotation[];
+  prediction?: StrugglePrediction;
+  topic?: PageTopic;
+  stickingCandidates?: StickingCandidate[];
+}> {
   const res = await authorizedFetch('/api/ai/turn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -317,9 +301,6 @@ export async function openingScan(
     ...(Array.isArray(body.annotations) && body.annotations.length > 0
       ? { annotations: body.annotations as Annotation[] }
       : {}),
-    ...(Array.isArray(body.profileTags) && body.profileTags.length > 0
-      ? { profileTags: body.profileTags as ProfileTag[] }
-      : {}),
     // The session-kickoff struggle prediction: shape-checked field by field
     // (the same defensive unwrap discipline as the arrays above) -- a
     // malformed prediction is dropped, never half-passed to the card.
@@ -334,6 +315,14 @@ export async function openingScan(
     // field-by-field unwrap discipline as `prediction` above.
     ...(body.topic && typeof body.topic.conceptKey === 'string' && typeof body.topic.title === 'string'
       ? { topic: body.topic as PageTopic }
+      : {}),
+    // The check-in's 5b sticking-point candidates: same array-shape
+    // discipline as annotations/profileTags above (a per-item field-by-field
+    // unwrap isn't warranted here -- these come straight from a grounded DB
+    // read, not the model, the same trust level as the arrays above rather
+    // than `prediction`/`topic`'s single-object shape).
+    ...(Array.isArray(body.stickingCandidates) && body.stickingCandidates.length > 0
+      ? { stickingCandidates: body.stickingCandidates as StickingCandidate[] }
       : {}),
   };
 }
@@ -407,8 +396,7 @@ export async function aiTurnStream(
 type StreamEnvelopePayload = {
   reply: string;
   annotations?: Annotation[];
-  profileTags?: ProfileTag[];
-  pings?: TurnPing[];
+  pins?: StatusPin[];
   solutionProgress?: number;
   session?: SessionCompletion;
 };
@@ -481,10 +469,7 @@ export async function aiTurnEnvelopeStream(
     ...(Array.isArray(envelope.annotations) && envelope.annotations.length > 0
       ? { annotations: envelope.annotations }
       : {}),
-    ...(Array.isArray(envelope.profileTags) && envelope.profileTags.length > 0
-      ? { profileTags: envelope.profileTags }
-      : {}),
-    ...(Array.isArray(envelope.pings) && envelope.pings.length > 0 ? { pings: envelope.pings } : {}),
+    ...(Array.isArray(envelope.pins) && envelope.pins.length > 0 ? { pins: envelope.pins } : {}),
     ...(typeof envelope.solutionProgress === 'number' ? { solutionProgress: envelope.solutionProgress } : {}),
     ...(envelope.session ? { session: envelope.session } : {}),
   };

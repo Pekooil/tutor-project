@@ -4,37 +4,48 @@
 // annotations.test.ts precedent -- jsdom, no WXT/browser harness). Overlay.tsx
 // exports these helpers specifically so they're testable in isolation from
 // the React component tree (its own header comment, "exported for the Task 9
-// vitest/jsdom spec"): stripHistory (tags never re-enter the outbound wire),
-// capTags (the client-side ≤2 cap), filterPingsForDisplay (the ping dedupe
-// gate), masteryDelta (the client-side recap delta vs the panel-open
-// baseline), and humanizeDue (the forward look's due-date phrasing).
+// vitest/jsdom spec"): stripHistory (display extras never re-enter the
+// outbound wire), filterPinsForDisplay (the status-pin priority/cap/dedupe
+// gate, ADR-034 -- superseding Sprint 13's filterPingsForDisplay + capTags),
+// masteryDelta (the client-side recap delta vs the panel-open baseline), and
+// humanizeDue (the forward look's due-date phrasing).
 import { describe, expect, it } from 'vitest';
 import {
   DELTA_EPSILON,
-  MAX_PINGS_PER_TURN,
-  MAX_TAGS_PER_TURN,
-  capTags,
-  filterPingsForDisplay,
+  MAX_PINS_PER_TURN,
+  PIN_PRIORITY,
+  filterPinsForDisplay,
   humanizeDue,
   masteryDelta,
   stripHistory,
   type DisplayMessage,
 } from '../src/overlay/Overlay';
-import type { ProfileOverview, ProfileTag, TurnPing } from '../src/types/messages';
+import type { ProfileOverview, StatusPin } from '../src/types/messages';
 
-function tag(kind: ProfileTag['kind'], label: string): ProfileTag {
-  return { kind, conceptKey: 'algebra.quadratics.factoring', label };
+function pin(kind: StatusPin['kind'], conceptKey: string | null, label = 'x'): StatusPin {
+  const category: StatusPin['category'] =
+    kind === 'prediction-confirmed'
+      ? 'prediction'
+      : kind === 'callback' || kind === 'due-review'
+        ? 'memory'
+        : kind === 'confidence-up'
+          ? 'confidence'
+          : kind === 'self-caught'
+            ? 'independence'
+            : 'progress';
+  return { category, kind, conceptKey, label };
 }
 
-function ping(kind: TurnPing['kind'], conceptKey: string, label = 'x'): TurnPing {
-  return { kind, conceptKey, title: conceptKey, label };
-}
-
-describe('stripHistory — tags never re-enter the outbound wire', () => {
-  it('keeps only role/content, dropping tags entirely', () => {
+describe('stripHistory — display extras never re-enter the outbound wire', () => {
+  it('keeps only role/content, dropping annotation extras entirely', () => {
     const messages: DisplayMessage[] = [
       { role: 'user', content: 'hi' },
-      { role: 'assistant', content: 'hello', tags: [tag('reviewing', 'Factoring')] },
+      {
+        role: 'assistant',
+        content: 'hello',
+        annotations: [{ id: 'a1', type: 'highlight', target: { kind: 'textMatch', text: '5t^2' } }],
+        annotationColors: { a1: 'annot-1' },
+      },
     ];
 
     expect(stripHistory(messages)).toEqual([
@@ -43,7 +54,7 @@ describe('stripHistory — tags never re-enter the outbound wire', () => {
     ]);
   });
 
-  it('a history with no tags anywhere round-trips unchanged (back-compat)', () => {
+  it('a history with no extras anywhere round-trips unchanged (back-compat)', () => {
     const messages: DisplayMessage[] = [
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: 'hello' },
@@ -56,71 +67,82 @@ describe('stripHistory — tags never re-enter the outbound wire', () => {
   });
 });
 
-describe(`capTags — client-side ≤${MAX_TAGS_PER_TURN} defence in depth`, () => {
-  it('passes through a short list unchanged', () => {
-    const tags = [tag('reviewing', 'a')];
-    expect(capTags(tags)).toEqual(tags);
-  });
-
-  it(`truncates to the first ${MAX_TAGS_PER_TURN} when the server somehow sent more`, () => {
-    const tags = [tag('reviewing', 'a'), tag('strength', 'b'), tag('due-review', 'c')];
-    expect(capTags(tags)).toEqual(tags.slice(0, MAX_TAGS_PER_TURN));
-  });
-
-  it('undefined tags cap to an empty array', () => {
-    expect(capTags(undefined)).toEqual([]);
-  });
-});
-
-describe(`filterPingsForDisplay — ≤${MAX_PINGS_PER_TURN} per turn, one mastery-up per concept per session`, () => {
-  it('passes an ordinary single ping through untouched', () => {
+describe(`filterPinsForDisplay — priority-sorted, ≤${MAX_PINS_PER_TURN} per turn, one kind:concept per session`, () => {
+  it('passes an ordinary single pin through untouched', () => {
     const shown = new Set<string>();
-    const result = filterPingsForDisplay([ping('mastery-up', 'algebra.quadratics.factoring')], shown);
+    const result = filterPinsForDisplay([pin('concept-understood', 'algebra.quadratics.factoring')], shown);
 
-    expect(result).toEqual([ping('mastery-up', 'algebra.quadratics.factoring')]);
-    expect(shown.has('mastery-up:algebra.quadratics.factoring')).toBe(true);
+    expect(result).toEqual([pin('concept-understood', 'algebra.quadratics.factoring')]);
+    expect(shown.has('concept-understood:algebra.quadratics.factoring')).toBe(true);
   });
 
-  it(`caps at ${MAX_PINGS_PER_TURN} pings in a single turn`, () => {
+  it(`caps at ${MAX_PINS_PER_TURN} pins in a single turn`, () => {
     const shown = new Set<string>();
-    const pings = [
-      ping('mastery-up', 'concept-a'),
-      ping('misconception-resolved', 'concept-b'),
-      ping('misconception-resolved', 'concept-c'),
+    const pins = [
+      pin('pattern-broken', 'concept-a'),
+      pin('pattern-broken', 'concept-b'),
+      pin('pattern-broken', 'concept-c'),
     ];
 
-    expect(filterPingsForDisplay(pings, shown)).toEqual(pings.slice(0, MAX_PINGS_PER_TURN));
+    expect(filterPinsForDisplay(pins, shown)).toEqual(pins.slice(0, MAX_PINS_PER_TURN));
   });
 
-  it('a mastery-up for a concept already shown THIS SESSION is suppressed a second time', () => {
-    const shown = new Set<string>(['mastery-up:algebra.quadratics.factoring']);
-    const result = filterPingsForDisplay([ping('mastery-up', 'algebra.quadratics.factoring')], shown);
+  it('the HIGHEST-priority pins win the cap regardless of wire order', () => {
+    const shown = new Set<string>();
+    const dueReview = pin('due-review', 'concept-a');
+    const callback = pin('callback', 'concept-b');
+    const broken = pin('pattern-broken', 'concept-c');
+
+    // Server order: memory pins first, the headline event last -- the gate
+    // must still surface pattern-broken first, not drop it to the cap, and
+    // callback outranks due-review for the second slot.
+    const result = filterPinsForDisplay([dueReview, callback, broken], shown);
+    expect(result).toEqual([broken, callback]);
+  });
+
+  it('equal-priority pins keep the server order (stable sort)', () => {
+    const shown = new Set<string>();
+    const visual = pin('teaching-visual', null);
+    const pace = pin('pace-up', null);
+    expect(PIN_PRIORITY[visual.kind]).toBe(PIN_PRIORITY[pace.kind]);
+    expect(filterPinsForDisplay([visual, pace], shown)).toEqual([visual, pace]);
+  });
+
+  it('a kind already shown for a concept THIS SESSION is suppressed a second time', () => {
+    const shown = new Set<string>(['concept-understood:algebra.quadratics.factoring']);
+    const result = filterPinsForDisplay([pin('concept-understood', 'algebra.quadratics.factoring')], shown);
     expect(result).toEqual([]);
   });
 
-  it('a mastery-up for a DIFFERENT concept is never suppressed by another concept\'s dedupe entry', () => {
-    const shown = new Set<string>(['mastery-up:concept-a']);
-    const result = filterPingsForDisplay([ping('mastery-up', 'concept-b')], shown);
-    expect(result).toEqual([ping('mastery-up', 'concept-b')]);
+  it("the same kind for a DIFFERENT concept is never suppressed by another concept's dedupe entry", () => {
+    const shown = new Set<string>(['concept-understood:concept-a']);
+    const result = filterPinsForDisplay([pin('concept-understood', 'concept-b')], shown);
+    expect(result).toEqual([pin('concept-understood', 'concept-b')]);
   });
 
-  it('a mastery-progress for a concept whose mastery-up was already shown is NOT suppressed -- different kinds dedupe independently', () => {
-    const shown = new Set<string>(['mastery-up:algebra.quadratics.factoring']);
-    const result = filterPingsForDisplay([ping('mastery-progress', 'algebra.quadratics.factoring')], shown);
-    expect(result).toEqual([ping('mastery-progress', 'algebra.quadratics.factoring')]);
+  it('a progress pin for a concept whose concept-understood was already shown is NOT suppressed -- kinds dedupe independently', () => {
+    const shown = new Set<string>(['concept-understood:algebra.quadratics.factoring']);
+    const result = filterPinsForDisplay([pin('progress', 'algebra.quadratics.factoring')], shown);
+    expect(result).toEqual([pin('progress', 'algebra.quadratics.factoring')]);
   });
 
-  it('misconception-resolved pings are never deduped -- each completed streak is a distinct real event', () => {
+  it('a concept-less move pin (conceptKey null) dedupes purely by kind -- once per session', () => {
     const shown = new Set<string>();
-    const result = filterPingsForDisplay(
-      [ping('misconception-resolved', 'concept-a'), ping('misconception-resolved', 'concept-a')],
-      shown,
-    );
-    expect(result).toHaveLength(2);
+    expect(filterPinsForDisplay([pin('guidance-up', null)], shown)).toHaveLength(1);
+    expect(shown.has('guidance-up:')).toBe(true);
+    expect(filterPinsForDisplay([pin('guidance-up', null)], shown)).toEqual([]);
   });
 
-  it('undefined pings filter to an empty array', () => {
-    expect(filterPingsForDisplay(undefined, new Set())).toEqual([]);
+  it('pattern-broken pins are never deduped -- each completed streak is a distinct real event', () => {
+    const shown = new Set<string>();
+    const first = filterPinsForDisplay([pin('pattern-broken', 'concept-a')], shown);
+    const second = filterPinsForDisplay([pin('pattern-broken', 'concept-a')], shown);
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+  });
+
+  it('undefined pins filter to an empty array', () => {
+    expect(filterPinsForDisplay(undefined, new Set())).toEqual([]);
   });
 });
 

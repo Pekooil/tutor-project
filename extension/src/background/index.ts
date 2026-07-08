@@ -99,9 +99,6 @@ export default defineBackground(() => {
       case 'VOICE_TTS':
         void handleVoiceTts(message.payload as VoiceTtsPayload).then(sendResponse);
         return true;
-      case 'GET_PROFILE_OVERVIEW':
-        void handleGetProfileOverview().then(sendResponse);
-        return true;
       case 'OPENING_SCAN': {
         const payload = message.payload as OpeningScanPayload;
         void handleOpeningScan(payload, deriveTabDomain(sender.tab?.url)).then(sendResponse);
@@ -130,11 +127,10 @@ export default defineBackground(() => {
   // Sprint 12 (ADR-023): `done` additionally carries `annotations` when
   // api.aiTurn() returned any — OMITTED (not `undefined`, not `[]`) on a
   // turn with none, so a no-annotation `done` message is byte-identical to
-  // Sprint 11's `{ type: 'done', reply }`. Sprint 13 (ADR-024/025/026)
-  // threads `profileTags` and `pings` the same way, alongside annotations.
-  // Sprint 14 (ADR-027/028) threads `solutionProgress`/`session` the same
-  // additive way; Overlay.tsx doesn't consume either yet (Task 7), but the
-  // wire already carries them so Task 7 needs no transport change.
+  // Sprint 11's `{ type: 'done', reply }`. Sprint 15 (ADR-034) threads
+  // `pins` the same way, alongside annotations (replacing Sprint 13's
+  // profileTags/pings pair). Sprint 14 (ADR-027/028) threads
+  // `solutionProgress`/`session` the same additive way.
   // (4d) Streamed TTS via a dedicated persistent port (Sprint 15 Task 6,
   // ADR-033) -- the AI_STREAM pattern reused for voice. content/index.ts
   // opens 'VOICE_TTS_STREAM', posts one VoiceTtsPayload ({text}), and
@@ -181,7 +177,7 @@ export default defineBackground(() => {
       try {
         await ensureSessionStarted(pageDomain, 'text');
         const turnContext = await getTurnContext();
-        const { reply, annotations, profileTags, pings, solutionProgress, session } = await api.aiTurn(
+        const { reply, annotations, pins, solutionProgress, session } = await api.aiTurn(
           msg.messages,
           msg.pageContext,
           turnContext,
@@ -207,8 +203,7 @@ export default defineBackground(() => {
             type: 'done',
             reply,
             ...(annotations ? { annotations } : {}),
-            ...(profileTags ? { profileTags } : {}),
-            ...(pings ? { pings } : {}),
+            ...(pins ? { pins } : {}),
             ...(solutionProgress !== undefined ? { solutionProgress } : {}),
             ...(session ? { session } : {}),
           });
@@ -242,7 +237,7 @@ export default defineBackground(() => {
       try {
         await ensureSessionStarted(pageDomain, 'voice');
         const turnContext = await getTurnContext();
-        const { reply, annotations, profileTags, pings, solutionProgress, session } =
+        const { reply, annotations, pins, solutionProgress, session } =
           await api.aiTurnEnvelopeStream(msg.messages, msg.pageContext, turnContext, (text) => {
             try {
               port.postMessage({ type: 'say', text });
@@ -259,8 +254,7 @@ export default defineBackground(() => {
             type: 'done',
             reply,
             ...(annotations ? { annotations } : {}),
-            ...(profileTags ? { profileTags } : {}),
-            ...(pings ? { pings } : {}),
+            ...(pins ? { pins } : {}),
             ...(solutionProgress !== undefined ? { solutionProgress } : {}),
             ...(session ? { session } : {}),
           });
@@ -543,22 +537,6 @@ async function handleEndSession(): Promise<CalyxaMessage> {
 }
 
 /**
- * Relays GET_PROFILE_OVERVIEW to the read-only overview endpoint (Sprint 13
- * / ADR-024/025). Error-shaped like every other reply in this file
- * (toErrorMessage), including the SignedOutError -> "not signed in" text.
- * No caching here -- the overlay is responsible for re-requesting this on
- * every panel open.
- */
-async function handleGetProfileOverview(): Promise<CalyxaMessage> {
-  try {
-    const overview = await api.getProfileOverview();
-    return { type: 'GET_PROFILE_OVERVIEW', payload: { overview } };
-  } catch (error) {
-    return { type: 'GET_PROFILE_OVERVIEW', payload: { error: toErrorMessage(error) } };
-  }
-}
-
-/**
  * The fallback auto-start trigger (ADR-027 Decision 1, amended by ADR-030's
  * Decision 3): session start now happens FIRST at the opening scan (when
  * panel-expand found a plausible problem), so by the time a turn is sent,
@@ -607,15 +585,15 @@ async function ensureSessionStarted(pageDomain: string | null, mode: 'voice' | '
  * Sprint 12 (ADR-023): the AI_REPLY payload additionally carries
  * `annotations` when api.aiTurn() returned any — OMITTED on a turn with
  * none, so a no-annotation reply is byte-identical to Sprint 11's
- * `{ reply }`. Sprint 13 (ADR-024/025/026) threads `profileTags` and
- * `pings` the same way. Voice turns get all of this for free too, since
- * they relay through this same handler.
+ * `{ reply }`. Sprint 15 (ADR-034) threads `pins` the same way (replacing
+ * Sprint 13's profileTags/pings pair). Voice turns get all of this for free
+ * too, since they relay through this same handler.
  *
  * Sprint 14 (ADR-027, amended by ADR-030): `pageDomain` feeds the fallback
  * auto-start (ensureSessionStarted, `mode: 'voice'` -- AI_TURN is
  * exclusively the voice/non-streaming path, text turns use the AI_STREAM
  * port above). `solutionProgress`/`session` ride the reply the same
- * additive way as annotations/profileTags/pings; a `session.complete: true`
+ * additive way as annotations/pins; a `session.complete: true`
  * ends the session server-side right away (mirrors the AI_STREAM port's own
  * handling above) -- the visible close choreography is Task 7's.
  */
@@ -627,7 +605,7 @@ async function handleAiTurn(
   try {
     await ensureSessionStarted(pageDomain, 'voice');
     const turnContext = await getTurnContext();
-    const { reply, annotations, profileTags, pings, solutionProgress, session } = await api.aiTurn(
+    const { reply, annotations, pins, solutionProgress, session } = await api.aiTurn(
       messages,
       pageContext,
       turnContext,
@@ -640,8 +618,7 @@ async function handleAiTurn(
       payload: {
         reply,
         ...(annotations ? { annotations } : {}),
-        ...(profileTags ? { profileTags } : {}),
-        ...(pings ? { pings } : {}),
+        ...(pins ? { pins } : {}),
         ...(solutionProgress !== undefined ? { solutionProgress } : {}),
         ...(session ? { session } : {}),
       },
@@ -667,7 +644,7 @@ async function handleAiTurn(
  *     active (it already counted as quota, ADR-030's explicit call) so the
  *     fallback first-sent-turn trigger picks it straight up; only the
  *     OPENING MESSAGE is lost.
- * Never emits assessment/pings/solutionProgress/session (api.openingScan's
+ * Never emits assessment/pins/solutionProgress/session (api.openingScan's
  * own return shape already excludes them) -- there is nothing yet to grade,
  * score, or close on a turn with no prior student answer.
  */
@@ -687,18 +664,22 @@ async function handleOpeningScan(payload: OpeningScanPayload, pageDomain: string
 
   try {
     const active = await getActiveSession();
-    const { reply, annotations, profileTags, prediction, topic } = await api.openingScan(payload.pageContext, active?.sessionId);
+    const { reply, annotations, prediction, topic, stickingCandidates } = await api.openingScan(
+      payload.pageContext,
+      active?.sessionId,
+    );
     return {
       type: 'OPENING_SCAN',
       payload: {
         reply,
         ...(annotations ? { annotations } : {}),
-        ...(profileTags ? { profileTags } : {}),
-        // The session-kickoff struggle prediction and the check-in's
-        // page-detected topic (both grounded server-side) -- additive
-        // pass-through, same omission discipline as the two above.
+        // The session-kickoff struggle prediction, the check-in's
+        // page-detected topic, and its 5b sticking-point candidates (all
+        // grounded server-side) -- additive pass-through, same omission
+        // discipline as annotations above.
         ...(prediction ? { prediction } : {}),
         ...(topic ? { topic } : {}),
+        ...(stickingCandidates ? { stickingCandidates } : {}),
       },
     };
   } catch (error) {

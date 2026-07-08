@@ -6,16 +6,17 @@ import http, { type Server } from 'node:http'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { createClient } from '@supabase/supabase-js'
 
-// The Sprint 13 Task 9 EQUIVALENCE pin (ADR-026): `computeTurnPings`
-// (events.ts) predicts what THIS turn's off-critical-path `applyInteraction`
-// (apply.ts) will write, by running the SAME extracted `computeNodeUpdate`
-// core read-only. This file asserts the two never drift for identical
-// fixtures -- driven end-to-end via a real running server (apply.ts/
-// events.ts sit behind `import 'server-only'`, which throws if imported
-// directly into this vitest process outside Next's bundler, the same
-// constraint ai-turn.test.ts/session.test.ts already document). A turn's
-// PING is read from the response; the ACTUAL write is read back from the DB
-// after waiting for the off-critical-path apply to land (session.test.ts's
+// The Sprint 13 Task 9 EQUIVALENCE pin (ADR-026; renamed to status pins by
+// ADR-034): `computeStatusPins` (events.ts) predicts what THIS turn's
+// off-critical-path `applyInteraction` (apply.ts) will write, by running
+// the SAME extracted `computeNodeUpdate` core read-only. This file asserts
+// the two never drift for identical fixtures -- driven end-to-end via a
+// real running server (apply.ts/events.ts sit behind `import
+// 'server-only'`, which throws if imported directly into this vitest
+// process outside Next's bundler, the same constraint
+// ai-turn.test.ts/session.test.ts already document). A turn's PIN is read
+// from the response; the ACTUAL write is read back from the DB after
+// waiting for the off-critical-path apply to land (session.test.ts's
 // waitFor convention) -- if the shared-core extraction ever let the two
 // callers diverge, this is where it would show up as a real assertion
 // failure, not a hypothetical.
@@ -252,8 +253,8 @@ afterAll(async () => {
   await new Promise<void>((resolveClose) => fakeAnthropic.close(() => resolveClose()))
 }, 20000)
 
-describe('computeTurnPings prospective outcome == applyInteraction actual write', () => {
-  it('a mastery-up ping (weak -> learning) predicts exactly the state applyInteraction then writes', async () => {
+describe('computeStatusPins prospective outcome == applyInteraction actual write', () => {
+  it('a concept-understood pin (weak -> learning) predicts exactly the state applyInteraction then writes', async () => {
     const conceptKey = 'algebra.polynomials.expanding'
     await seedNode({ conceptKey, mastery: 0.45, stability: 5, state: 'weak', confidenceBand: 'low', observationCount: 2 })
 
@@ -266,13 +267,19 @@ describe('computeTurnPings prospective outcome == applyInteraction actual write'
       messages: [{ role: 'user', content: 'expanding attempt' }],
     })
     expect(status).toBe(200)
-    expect(json.pings).toEqual([
-      { kind: 'mastery-up', conceptKey, title: 'Expanding polynomials', label: 'Leveled up: Expanding polynomials' },
+    expect(json.pins).toEqual([
+      {
+        category: 'progress',
+        kind: 'concept-understood',
+        conceptKey,
+        label: 'Key concept understood: Expanding polynomials',
+      },
     ])
 
-    // The ping PREDICTED 'learning' (a "Leveled up" label, not "Mastered").
-    // The real write, landing off the critical path, must independently
-    // agree -- the whole point of the shared computeNodeUpdate core.
+    // The pin PREDICTED 'learning' (a "Key concept understood" label, not
+    // "Mastered"). The real write, landing off the critical path, must
+    // independently agree -- the whole point of the shared computeNodeUpdate
+    // core.
     await waitFor(async () => {
       const { data, error } = await admin
         .from('knowledge_nodes')
@@ -286,7 +293,7 @@ describe('computeTurnPings prospective outcome == applyInteraction actual write'
     })
   })
 
-  it('a mastery-up ping crossing into "mastered" predicts exactly that, and the real write agrees', async () => {
+  it('a concept-understood pin crossing into "mastered" predicts exactly that, and the real write agrees', async () => {
     const conceptKey = 'algebra.quadratics.formula'
     // mastery already at 0.84 with a healthy (non-low) band and stability --
     // one more sound-correct clears MASTERED_THRESHOLD (0.85).
@@ -301,8 +308,8 @@ describe('computeTurnPings prospective outcome == applyInteraction actual write'
       messages: [{ role: 'user', content: 'quadratic formula attempt' }],
     })
     expect(status).toBe(200)
-    expect(json.pings).toEqual([
-      { kind: 'mastery-up', conceptKey, title: 'The quadratic formula', label: 'Mastered: The quadratic formula' },
+    expect(json.pins).toEqual([
+      { category: 'progress', kind: 'concept-understood', conceptKey, label: 'Mastered: The quadratic formula' },
     ])
 
     await waitFor(async () => {
@@ -317,7 +324,7 @@ describe('computeTurnPings prospective outcome == applyInteraction actual write'
     })
   })
 
-  it('a misconception-resolved ping predicts exactly the streak/status applyInteraction then writes', async () => {
+  it('a pattern-broken pin predicts exactly the streak/status applyInteraction then writes', async () => {
     const conceptKey = 'algebra.exponents.product-rule'
     await seedNode({ conceptKey, mastery: 0.8, stability: 20, state: 'learning', confidenceBand: 'medium', observationCount: 6 })
     await seedMisconception(conceptKey, 2)
@@ -331,11 +338,11 @@ describe('computeTurnPings prospective outcome == applyInteraction actual write'
       messages: [{ role: 'user', content: 'exponent attempt' }],
     })
     expect(status).toBe(200)
-    expect(json.pings).toEqual([
-      { kind: 'misconception-resolved', conceptKey, title: 'The product rule for exponents', label: 'Gap closed: sign errors' },
+    expect(json.pins).toEqual([
+      { category: 'progress', kind: 'pattern-broken', conceptKey, label: 'Pattern broken: sign errors' },
     ])
 
-    // The ping PREDICTED this turn's answer completes the streak (2 -> 3,
+    // The pin PREDICTED this turn's answer completes the streak (2 -> 3,
     // resolved). The real write must independently agree.
     await waitFor(async () => {
       const { data, error } = await admin
@@ -351,7 +358,7 @@ describe('computeTurnPings prospective outcome == applyInteraction actual write'
     })
   })
 
-  it('a turn predicting NO ping (an in-state tick) actually writes no state transition either', async () => {
+  it('a turn predicting NO pin (an in-state tick) actually writes no state transition either', async () => {
     const conceptKey = 'algebra.inequalities.linear'
     await seedNode({ conceptKey, mastery: 0.6, stability: 10, state: 'learning', confidenceBand: 'medium', observationCount: 5 })
 
@@ -364,7 +371,7 @@ describe('computeTurnPings prospective outcome == applyInteraction actual write'
       messages: [{ role: 'user', content: 'inequality attempt' }],
     })
     expect(status).toBe(200)
-    expect(json.pings).toBeUndefined()
+    expect(json.pins).toBeUndefined()
 
     await waitFor(async () => {
       const { data, error } = await admin
@@ -383,7 +390,7 @@ describe('computeTurnPings prospective outcome == applyInteraction actual write'
 })
 
 describe('the apply.ts shared-core extraction: write-path behaviour unchanged', () => {
-  it('a fresh (unseen) concept still writes the same mastery/state applyInteraction has always written (no seed row, no ping)', async () => {
+  it('a fresh (unseen) concept still writes the same mastery/state applyInteraction has always written (no seed row, no pin)', async () => {
     const conceptKey = 'algebra.linear-equations.two-variable'
 
     const started = await start(token, { mode: 'text' })
@@ -395,7 +402,7 @@ describe('the apply.ts shared-core extraction: write-path behaviour unchanged', 
       messages: [{ role: 'user', content: 'first attempt' }],
     })
     expect(status).toBe(200)
-    expect(json.pings).toBeUndefined()
+    expect(json.pins).toBeUndefined()
 
     await waitFor(async () => {
       const { data, error } = await admin

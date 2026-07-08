@@ -65,12 +65,10 @@ export function Composer({
   return (
     <div className={`${hasContent ? 'border-t border-border' : ''} px-[18px] pb-[14px] pt-3`}>
       {/* The solution-progress bar (Sprint 14 Task 7, ADR-028): thin,
-          low-saturation, persistent -- visually distinct from the strip's
-          brighter, transient auto-dismiss bar (InsightStrip.tsx). Hidden
-          entirely at 0 so an unstarted problem shows no track at all. The
-          outer container is NOT clipped so the glowing knob (Sprint 14 fix
-          pass) can spill its soft glow past the thin track; the fill itself
-          keeps its own rounded clip. */}
+          low-saturation, persistent. Hidden entirely at 0 so an unstarted
+          problem shows no track at all. The outer container is NOT clipped
+          so the glowing knob (Sprint 14 fix pass) can spill its soft glow
+          past the thin track; the fill itself keeps its own rounded clip. */}
       {solutionProgress > 0 && (
         <div
           role="img"

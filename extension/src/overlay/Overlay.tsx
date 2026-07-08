@@ -11,32 +11,23 @@ import type {
   Annotation,
   PageTopic,
   ProfileOverview,
-  ProfileTag,
-  ProfileTagKind,
   SessionCompletion,
   SessionRecap,
+  StatusPin,
+  StatusPinKind,
+  StickingCandidate,
   StrugglePrediction,
   TurnMessage,
-  TurnPing,
-  TurnPingKind,
 } from '../types/messages';
 import { AnnotationLayer } from './AnnotationLayer';
 import { CheckinCard } from './CheckinCard';
 import { Composer } from './Composer';
-import { InsightStrip } from './InsightStrip';
-import { PingToasts } from './PingToasts';
-import { PlanCard } from './PlanCard';
 import { RecapCard } from './RecapCard';
 import { SectionBloom } from './SectionBloom';
 import { TitleBar, type HeaderAccessory } from './TitleBar';
 import { Transcript } from './Transcript';
 import { startRecording, type RecordingHandle, type Utterance } from './VoiceController';
-import {
-  buildSessionPlan,
-  buildSessionStartMessage,
-  bloomLine,
-  formatRecapMeta,
-} from './session-flow';
+import { buildSessionStartMessage, buildStickingChips, bloomLine, formatRecapMeta } from './session-flow';
 import { createSentenceAccumulator, micStateReducer, wordsDueByTime } from './voice-timing';
 
 // The panel-close signal (Sprint 12 Task 6): dispatched from handleClose
@@ -64,143 +55,163 @@ export const PANEL_EXPANDED_EVENT = 'calyxa:panel-expanded';
 // `{ recap?: SessionRecap }`. Flows content -> Overlay only.
 export const SESSION_RECAP_EVENT = 'calyxa:session-recap';
 
-// What one turn resolves to (Sprint 13; widened Sprint 14 Task 7): the
-// reply plus the turn's grounded profile tags, computed event pings, raw
-// annotations, and progress/completion signal, when the wire carried any --
-// content/index.ts's sendAiTurn builds this from the `done` message / the
-// AI_REPLY payload on both paths. The empty-reply guard keys on `reply`
-// exactly as it did when onSend resolved a bare string. `annotations` rides
-// here (in ADDITION to content/index.ts already drawing them via
-// showTurnAnnotations) specifically so this file can compute the per-turn
-// color assignment and Transcript can match `target.text` inside `say` --
-// the resolved DrawInstruction[] the layer draws from has already lost that
-// exact text by the time it's dispatched as a window event.
+// What one turn resolves to (Sprint 13; widened Sprint 14 Task 7; Sprint 15
+// ADR-034 replaces the tags/pings pair with `pins`): the reply plus the
+// turn's status pins, raw annotations, and progress/completion signal, when
+// the wire carried any -- content/index.ts's sendAiTurn builds this from
+// the `done` message / the AI_REPLY payload on both paths. The empty-reply
+// guard keys on `reply` exactly as it did when onSend resolved a bare
+// string. `annotations` rides here (in ADDITION to content/index.ts already
+// drawing them via showTurnAnnotations) specifically so this file can
+// compute the per-turn color assignment and Transcript can match
+// `target.text` inside `say` -- the resolved DrawInstruction[] the layer
+// draws from has already lost that exact text by the time it's dispatched
+// as a window event.
 export type TurnResult = {
   reply: string;
-  tags?: ProfileTag[];
-  pings?: TurnPing[];
+  pins?: StatusPin[];
   annotations?: Annotation[];
   solutionProgress?: number;
   session?: SessionCompletion;
 };
 
-// Local DISPLAY message type (Sprint 13, ADR-024; widened Sprint 14 Task 7):
-// the transcript the overlay renders carries each assistant bubble's tags
-// AND (new) the turn's own annotations + the deterministic per-turn color
-// assignment computed for them (assignAnnotationColors below) -- both are
-// needed at RENDER time, not just at commit time, since Transcript
-// re-renders the whole message list on every change. The history handed
-// back to onSend is stripped to role/content (stripHistory below) -- none
-// of this is display-ephemeral state ever re-enters the wire request.
+// Local DISPLAY message type (Sprint 13, ADR-024; widened Sprint 14 Task 7;
+// slimmed Sprint 15, ADR-034 -- the per-bubble tag pills are retired, their
+// signal folded into the title card's status pins): the transcript the
+// overlay renders carries each assistant bubble's annotations + the
+// deterministic per-turn color assignment computed for them
+// (assignAnnotationColors below) -- both are needed at RENDER time, not
+// just at commit time, since Transcript re-renders the whole message list
+// on every change. The history handed back to onSend is stripped to
+// role/content (stripHistory below) -- none of this display-ephemeral state
+// ever re-enters the wire request.
 export type DisplayMessage = TurnMessage & {
-  tags?: ProfileTag[];
   annotations?: Annotation[];
   annotationColors?: AnnotationColorMap;
 };
 
-// Client-side caps (defence in depth -- the server already enforces both):
-// ≤2 tags per bubble (envelope.ts's MAX_PROFILE_TAGS) and ≤2 pings per turn
-// (ADR-026's delivery contract).
-export const MAX_TAGS_PER_TURN = 2;
-export const MAX_PINGS_PER_TURN = 2;
-const PING_DISMISS_MS = 4000;
-// The overview/recap strip's auto-dismiss sweep (Sprint 14 Task 7): shown
-// expanded for this long, then folds to a compact one-line handle rather
-// than disappearing -- hover/click re-expands it (InsightStrip.tsx).
-// Exported so InsightStrip's own CSS sweep animation can share the exact
-// same duration (via a --cx-strip-fold-duration custom property, the same
-// technique TitleBar's ring uses) rather than a second, driftable copy.
-export const STRIP_FOLD_MS = 6000;
+// Client-side cap (defence in depth -- the delivery contract is server-side
+// too): at most 2 pins SHOWN per turn (ADR-026's delivery cap, kept by
+// ADR-034) -- the server may legitimately send more (learning events + a
+// move + memory pins); the priority order below decides which two survive.
+export const MAX_PINS_PER_TURN = 2;
+// How long each pin holds the title card before the queue advances (and,
+// with an empty queue, the wordmark returns).
+export const PIN_DISPLAY_MS = 4000;
 
 // ---- Pure display logic (exported for the Task 9 vitest/jsdom spec, the
 // annotations.ts testable-module precedent) ----
 
-/** The history sent to onSend is pure role/content -- tags never leave the overlay. */
+/** The history sent to onSend is pure role/content -- display extras never leave the overlay. */
 export function stripHistory(messages: readonly DisplayMessage[]): TurnMessage[] {
   return messages.map(({ role, content }) => ({ role, content }));
 }
 
 // ---- The session-start check-in (designated pre-conversation UI, design
-// handoff state 05 -- replaces the Sprint 15 KickoffCard) ----
+// handoff state 05 -- replaces the Sprint 15 KickoffCard; later merged into
+// a single confirm screen per Darcy's follow-up ask) ----
 
 // What the opening scan resolves into: instead of committing straight to
 // the transcript as the first assistant bubble, the scan's result is HELD
-// here and feeds the check-in's 5a suggestion card (`topic`, the server's
+// here and feeds the check-in's confirm card (`topic`, the server's
 // page-detected concept). The held question bubble (with its tags/
 // annotations) still enters the transcript AND the wire history the moment
-// the conversation actually starts -- whichever way it starts (the plan's
-// Start button, a typed message, or a voice turn) -- so the model keeps the
-// exact same context it had when the scan opened the transcript directly.
+// the conversation actually starts -- whichever way it starts (the confirm
+// button, a typed message, or a voice turn) -- so the model keeps the exact
+// same context it had when the scan opened the transcript directly.
 // Display-ephemeral like the overview/recap: cleared on performClose, never
 // persisted. (The server's `prediction` still rides the wire but the
-// check-in doesn't render it -- the 5b sticking-point chips are the design's
-// fixed set; the student names the struggle themselves.)
+// check-in doesn't render it -- the sticking-point chips are built from
+// `stickingCandidates` instead, see buildStickingChips.)
 export type HeldScan = {
   question: string;
   topic?: PageTopic;
-  tags?: ProfileTag[];
+  // The check-in's sticking-point candidates (design handoff feature): up
+  // to 3 of the student's own recorded misconceptions for `topic`'s
+  // concept, grounded server-side. The check-in only ever renders once
+  // `topic` is present (see showCheckin below), so these always belong to
+  // the topic on screen -- no separate topic-match guard needed.
+  stickingCandidates?: StickingCandidate[];
   annotations?: Annotation[];
 };
-
-// The check-in stage machine (design: checkin(q1) -> checkin(q2) -> plan ->
-// tutoring). Plain state, not a reducer -- every transition is a direct
-// user tap with no timer races to guard against.
-export type CheckinStage = 'topic' | 'sticking' | 'plan';
 
 // The section-complete bloom's on-screen window (~3s per the design, plus
 // the exit fade the cx-bloom-cycle keyframe spends its tail on).
 export const BLOOM_MS = 3400;
 
-export function capTags(tags: ProfileTag[] | undefined): ProfileTag[] {
-  return (tags ?? []).slice(0, MAX_TAGS_PER_TURN);
-}
-
 /**
- * The tags/annotations/annotationColors extras every committed assistant
+ * The annotations/annotationColors extras every committed assistant
  * DisplayMessage carries (Sprint 14 Task 7) -- one place for the three
  * commit sites (text, voice, opening scan) so the color assignment is
  * computed the exact same way regardless of which turn kind produced it.
  */
 function assistantMessageExtras(result: {
-  tags?: ProfileTag[];
   annotations?: Annotation[];
-}): Pick<DisplayMessage, 'tags' | 'annotations' | 'annotationColors'> {
+}): Pick<DisplayMessage, 'annotations' | 'annotationColors'> {
   return {
-    ...(result.tags && result.tags.length > 0 ? { tags: capTags(result.tags) } : {}),
     ...(result.annotations && result.annotations.length > 0
       ? { annotations: result.annotations, annotationColors: assignAnnotationColors(result.annotations) }
       : {}),
   };
 }
 
+// Which pin wins the title card when a turn carries several (ADR-034): the
+// rarest, most-earned signals first -- a broken pattern or a confirmed
+// prediction is the product's whole thesis landing, a mastery crossing is a
+// milestone, the moves are context, and the memory pins are a quiet nod.
+// Lower number = shown first. Ties keep the server's own order
+// (Array.prototype.sort is stable).
+export const PIN_PRIORITY: Record<StatusPinKind, number> = {
+  'pattern-broken': 0,
+  'prediction-confirmed': 1,
+  'concept-understood': 2,
+  'self-caught': 3,
+  'streak-progress': 4,
+  progress: 5,
+  'confidence-up': 6,
+  'final-step': 7,
+  'misconception-detected': 8,
+  'pattern-detected': 8,
+  'teaching-visual': 9,
+  'teaching-decompose': 9,
+  'pace-up': 9,
+  'guidance-up': 9,
+  'guidance-down': 9,
+  'difficulty-up': 9,
+  'difficulty-down': 9,
+  callback: 10,
+  'due-review': 11,
+};
+
 /**
- * The ping dedupe gate: ≤2 per turn, and (Sprint 14 Task 7, widened from
- * Sprint 13's mastery-up-only rule) at most ONE ping of a given KIND per
- * concept per session for every kind EXCEPT misconception-resolved -- the
- * looser Task 5 thresholds (mastery-up's two new transitions, mastery-
- * progress, streak-progress) can otherwise fire repeatedly for the same
- * concept across a long session, and this is the client-side cap that
- * keeps that from reading as spam. `shownPingKeys` is the session-lifetime
- * dedupe set, keyed `${kind}:${conceptKey}` so two DIFFERENT kinds on the
- * SAME concept (e.g. a mastery-up then, later, a mastery-progress) each
- * still get their own one-time celebration; mutated here, reset when a
- * SESSION_RECAP_EVENT arrives (the session is over). misconception-resolved
- * stays exempt, unchanged from Sprint 13 -- each completed streak is a
- * distinct, real, non-repeating event (Task 5 didn't loosen its threshold).
+ * The pin gate (ADR-034, inheriting ADR-026's delivery discipline):
+ * priority-sort, then at most MAX_PINS_PER_TURN shown per turn, and at most
+ * ONE pin of a given KIND per concept per session for every kind EXCEPT
+ * pattern-broken -- the looser thresholds (concept-understood's first-
+ * contact transitions, progress, streak-progress) and the model-declared
+ * moves can otherwise fire repeatedly across a long session, and this is
+ * the client-side cap that keeps that from reading as spam. `shownPinKeys`
+ * is the session-lifetime dedupe set, keyed `${kind}:${conceptKey ?? ''}`
+ * (a concept-less move dedupes purely by kind -- once per session) so two
+ * DIFFERENT kinds on the SAME concept each still get their own one-time
+ * moment; mutated here, reset when a SESSION_RECAP_EVENT arrives (the
+ * session is over). pattern-broken stays exempt, unchanged since Sprint 13
+ * -- each completed streak is a distinct, real, non-repeating event.
  */
-export function filterPingsForDisplay(
-  pings: readonly TurnPing[] | undefined,
-  shownPingKeys: Set<string>,
-): TurnPing[] {
-  const shown: TurnPing[] = [];
-  for (const ping of pings ?? []) {
-    if (shown.length >= MAX_PINGS_PER_TURN) break;
-    if (ping.kind !== 'misconception-resolved') {
-      const key = `${ping.kind}:${ping.conceptKey}`;
-      if (shownPingKeys.has(key)) continue;
-      shownPingKeys.add(key);
+export function filterPinsForDisplay(
+  pins: readonly StatusPin[] | undefined,
+  shownPinKeys: Set<string>,
+): StatusPin[] {
+  const ordered = [...(pins ?? [])].sort((a, b) => PIN_PRIORITY[a.kind] - PIN_PRIORITY[b.kind]);
+  const shown: StatusPin[] = [];
+  for (const pin of ordered) {
+    if (shown.length >= MAX_PINS_PER_TURN) break;
+    if (pin.kind !== 'pattern-broken') {
+      const key = `${pin.kind}:${pin.conceptKey ?? ''}`;
+      if (shownPinKeys.has(key)) continue;
+      shownPinKeys.add(key);
     }
-    shown.push(ping);
+    shown.push(pin);
   }
   return shown;
 }
@@ -343,42 +354,9 @@ export function assignAnnotationColors(annotations: Annotation[] | undefined): A
   return map;
 }
 
-// ---- Sprint 14 Task 7: kind -> color mappings (ADR-018 discipline: no new
-// colors, just naming which existing alias each kind reads) ----
-
-// Reused by Transcript's tag pills AND (for known-gap/due-review)
-// InsightStrip's weak-spot/due-for-review lines -- "kind->color mapping
-// shared with the strip" from the sprint plan. `reviewing` and `strength`
-// intentionally share one color (green): the brand has exactly four
-// non-neutral hues (green/red/amber/blue) and amber fails AA as small TEXT
-// on the panel's light surface (~2.97:1, measured against #f7f7f5 --
-// verified while building this, not assumed), so it's reserved for the
-// annotation layer's existing non-text fill/stroke use and excluded from
-// every NEW text-colored alias here. Five kinds, four AA-safe hues:
-// reviewing/strength share green (both a "you're doing fine here" framing,
-// disambiguated by their own text prefixes), known-gap is red, due-review
-// is blue, callback is a quieter neutral (a factual nod to history, not an
-// urgent signal).
-export const TAG_KIND_COLOR_CLASS: Record<ProfileTagKind, string> = {
-  reviewing: 'cx-tag-reviewing',
-  strength: 'cx-tag-reviewing',
-  'known-gap': 'cx-tag-gap',
-  'due-review': 'cx-tag-due',
-  callback: 'cx-tag-callback',
-};
-
-// Ping-kind colors: the two mastery kinds (a state crossing, or a real
-// in-state jump) read as the same positive green as a resolved gap
-// (closing a gap is equally good news); streak-progress (not yet resolved,
-// still in progress) reads blue -- distinct from "already achieved" green,
-// consistent with due-review's blue above ("something in motion, not done
-// yet").
-export const PING_KIND_COLOR_CLASS: Record<TurnPingKind, string> = {
-  'mastery-up': 'cx-ping-green',
-  'mastery-progress': 'cx-ping-green',
-  'misconception-resolved': 'cx-ping-green',
-  'streak-progress': 'cx-ping-blue',
-};
+// (The Sprint 14 tag/ping kind->color maps lived here; ADR-034 retired both
+// surfaces -- the status pins' category->color map is TitlePin.tsx's
+// PIN_CATEGORY_COLOR_CLASS, same ADR-018 no-new-hues discipline.)
 
 /**
  * The forward look's humanized due phrasing ("comes back Thursday", Task 8
@@ -404,11 +382,12 @@ export function humanizeDue(dueAt: string, now: Date = new Date()): string {
 //                panel collapses to header + input row with no gap.
 //   input row  — text input + mic + send
 //
-// Sprint 14 Task 2: the five pieces of that layout now live in their own
-// files (TitleBar, Composer, InsightStrip, Transcript, PingToasts) --
-// presentational components that take props/callbacks. Overlay.tsx keeps
-// every state hook, effect, and handler (moved, not rewritten) and is the
-// composition root that wires them together; behavior is unchanged.
+// Sprint 14 Task 2: the pieces of that layout now live in their own
+// files (TitleBar, Composer, Transcript; Sprint 15's ADR-034 adds
+// TitlePin and retires PingToasts) -- presentational components that take
+// props/callbacks. Overlay.tsx keeps every state hook, effect, and handler
+// (moved, not rewritten) and is the composition root that wires them
+// together.
 //
 // Text turns: `onSend` receives an `onChunk` callback; each arriving token
 // appends to `streamingContent`, which renders as a pending assistant bubble
@@ -427,7 +406,6 @@ export function Overlay({
   onSynthesize,
   onSynthesizeStream,
   onVoicePlaybackStart,
-  onLoadOverview,
   onEndSession,
   onOpeningScan,
 }: {
@@ -455,19 +433,14 @@ export function Overlay({
   // with annotations -- it just reports the moment/duration, same as every
   // other chrome.*-free callback here.
   onVoicePlaybackStart: (durationMs: number) => void;
-  // Sprint 13 (ADR-024/025): fetches the read-only profile overview
-  // (GET_PROFILE_OVERVIEW via content -> background). Called on panel
-  // expand when no messages exist yet; a rejection renders nothing (the
-  // Sprint 10 empty state, unchanged). chrome.*-free, like every prop here.
-  onLoadOverview: () => Promise<ProfileOverview>;
   // Sprint 13 (ADR-025): sends the existing END_SESSION message -- the same
   // handler, RPC, and storage-clear the popup uses, no parallel path. The
   // recap does not come back through this promise -- it arrives via the
   // SESSION_ENDED broadcast so a popup-triggered end renders identically.
   onEndSession: () => Promise<void>;
   // Sprint 14 Task 6/7 (ADR-030): the proactive opening scan. Called on
-  // panel expand under the SAME guard as onLoadOverview (no messages yet) --
-  // content/index.ts runs its own plausible-problem gate first and resolves
+  // panel expand while there are no messages yet -- content/index.ts runs
+  // its own plausible-problem gate first and resolves
   // null when there's nothing to scan, the call failed, or the model found
   // nothing confident to say; a non-null result renders as the first
   // assistant bubble, no preceding student message. chrome.*-free, like
@@ -475,12 +448,19 @@ export function Overlay({
   // drawing any annotations it carries; `annotations` also rides the
   // resolved result (Task 7) so this file can color-link the first bubble
   // exactly like every other turn. The check-in (design 05) routes the
-  // result into the 5a suggestion card instead of a first transcript
-  // bubble; `topic` is the server's page-detected concept that card names.
+  // result into the confirm card instead of a first transcript bubble;
+  // `topic` is the server's page-detected concept that card names, and
+  // `stickingCandidates` (also grounded server-side) feeds the pre-selected,
+  // personalized top-3 chips (session-flow.ts's buildStickingChips).
   // `prediction` still rides the wire (predictLikelyStruggle, the
-  // session-kickoff feature) but the check-in doesn't render it -- the 5b
-  // chips are the design's fixed set.
-  onOpeningScan: () => Promise<{ reply: string; tags?: ProfileTag[]; annotations?: Annotation[]; prediction?: StrugglePrediction; topic?: PageTopic } | null>;
+  // session-kickoff feature) but the check-in doesn't render it.
+  onOpeningScan: () => Promise<{
+    reply: string;
+    annotations?: Annotation[];
+    prediction?: StrugglePrediction;
+    topic?: PageTopic;
+    stickingCandidates?: StickingCandidate[];
+  } | null>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -531,9 +511,6 @@ export function Overlay({
   const [liveTranscript, setLiveTranscript] = useState('');
 
   // ---- Sprint 13 profile-visibility state (all display-ephemeral, ADR-024) ----
-  // The "where you are" overview, fetched fresh on every panel open and held
-  // in overlay state only.
-  const [overview, setOverview] = useState<ProfileOverview | null>(null);
   // The session recap, set by SESSION_RECAP_EVENT and discarded on panel
   // close / the next sent message (shown once, ADR-025). Renders as the
   // in-panel terminal state (RecapCard, design 6b); recapMeta is the header's
@@ -547,24 +524,34 @@ export function Overlay({
   // re-fire into an already-active session, so the held question IS that
   // session's opener.
   const [scan, setScan] = useState<HeldScan | null>(null);
-  // The check-in flow (design 05/06a): the stage machine plus the two
-  // answers and the plan's reshuffle counter. All display-ephemeral; the
+  // The check-in flow (design 05, merged into one confirm screen): the
+  // scanned topic and the pre-selected sticking point. Both are set the
+  // moment the opening scan lands (see the opening-scan effect below) so
+  // the confirm card renders already-selected, per Darcy's ask -- the
+  // student only has to tap once to start. All display-ephemeral; the
   // answers reach the model only through the session-start turn
   // (buildSessionStartMessage) -- never a new wire field.
-  const [checkinStage, setCheckinStage] = useState<CheckinStage>('topic');
   const [checkinTopic, setCheckinTopic] = useState<string | null>(null);
   const [stickingPoint, setStickingPoint] = useState<string | null>(null);
-  const [planVariant, setPlanVariant] = useState(0);
   // When the conversation actually started (the first committed student
   // turn) -- the recap meta's duration baseline. A ref: read only at recap
   // arrival.
   const sessionStartRef = useRef<number | null>(null);
-  // Active ping toasts + their auto-dismiss timers, and the one-mastery-up-
-  // per-concept-per-session dedupe map (cleared when the session ends).
-  const [activePings, setActivePings] = useState<{ id: number; ping: TurnPing }[]>([]);
-  const pingIdRef = useRef(0);
-  const pingTimersRef = useRef<number[]>([]);
-  const shownMasteryUpRef = useRef<Set<string>>(new Set());
+  // The title-card pin queue (ADR-034): FIFO of the pins that survived
+  // filterPinsForDisplay, shown ONE at a time in the TitleBar's dynamic-
+  // island slot for PIN_DISPLAY_MS each (the advance effect below), plus
+  // the session-lifetime kind:concept dedupe set (cleared when the session
+  // ends).
+  const [pinQueue, setPinQueue] = useState<{ id: number; pin: StatusPin }[]>([]);
+  const pinIdRef = useRef(0);
+  const shownPinKeysRef = useRef<Set<string>>(new Set());
+  // The client-derived final-step pin's once-per-problem latch (reset with
+  // the progress bar in performClose).
+  const finalStepFiredRef = useRef(false);
+  // Mirror of solutionProgress for commit-time reads (applyProgressAndCompletion
+  // computes the eased value once, uses it for the final-step threshold, and
+  // sets state from it -- turns are serialized by `busy`, so this never races).
+  const progressRef = useRef(0);
   const [ending, setEnding] = useState(false);
 
   // ---- Sprint 14 Task 7 state (ADR-027/028) ----
@@ -612,33 +599,28 @@ export function Overlay({
     closeTimersRef.current = [];
   }
 
-  // The strip's (InsightStrip) auto-dismiss fold: expanded while a fresh
-  // overview/recap is showing, folds to a one-line handle after
-  // STRIP_FOLD_MS -- unless the close choreography is already running, in
-  // which case the recap holds through the ring (the sprint plan's own
-  // phrasing) rather than folding mid-sweep. stripHovered is a transient
-  // peek (same pattern as the idle pill's pillHovered above); clicking the
-  // folded handle un-folds it more durably via setStripFolded directly.
-  const [stripFolded, setStripFolded] = useState(false);
-  const [stripHovered, setStripHovered] = useState(false);
-
-  // The overview card renders whenever there's no STUDENT message yet --
-  // not "zero messages" -- so it renders ALONGSIDE the opening scan's own
-  // assistant-first bubble, not instead of it (ADR-030 Decision 4): the
-  // scan's message doesn't answer "where do I generally stand", the two
-  // surfaces answer different questions and both belong on screen together.
+  // hasStudentMessage gates the check-in below -- not "zero messages" -- so
+  // it renders ALONGSIDE the opening scan's own assistant-first bubble, not
+  // instead of it (ADR-030 Decision 4).
   const hasStudentMessage = messages.some((message) => message.role === 'user');
-  const showOverviewCard = overview !== null && !hasStudentMessage && !busy && !liveTranscript && !recap;
 
-  // The check-in (design 05/06a) renders alongside the overview (they answer
-  // different questions -- "where do I generally stand" vs "what are we
-  // doing right now", the same coexistence call as ADR-030 Decision 4)
-  // until the conversation starts. It also yields while a voice turn is in
-  // flight (recording/connecting/liveTranscript/busy) -- the "or just say
-  // it" escape hands over to the composer's own recording UI -- and during
-  // the close choreography/recap, both terminal.
+  // The check-in (design 05, merged into one confirm screen) shows until
+  // the conversation starts. It only renders once the opening scan has
+  // actually detected a topic (scan.topic) -- there is no more manual
+  // topic entry, so with nothing detected the composer takes over directly.
+  // It yields while a voice turn is in flight (recording/connecting/
+  // liveTranscript/busy) -- the "or just say it" escape hands over to the
+  // composer's own recording UI -- and during the close choreography/recap,
+  // both terminal.
   const showCheckin =
-    !hasStudentMessage && !recap && !busy && !recording && !connecting && !liveTranscript && closeState === 'idle';
+    !hasStudentMessage &&
+    !recap &&
+    !busy &&
+    !recording &&
+    !connecting &&
+    !liveTranscript &&
+    closeState === 'idle' &&
+    !!scan?.topic;
 
   // True whenever the chat area should be rendered (no gap when empty).
   // The recap no longer rides this -- it renders as its own in-panel
@@ -646,16 +628,10 @@ export function Overlay({
   const hasContent = messages.length > 0 || busy || !!notice || !!liveTranscript;
 
   // The header's right-side state slot (design's shared panel header): the
-  // check-in's progress bars, the plan's "Today's plan" chip, or the
-  // recap's muted meta -- one at a time; null hands the header back to the
-  // live-conversation treatments (Listening/Speaking).
-  const headerAccessory: HeaderAccessory | null = recap
-    ? { kind: 'recap', meta: recapMeta ?? '' }
-    : showCheckin
-      ? checkinStage === 'plan'
-        ? { kind: 'plan' }
-        : { kind: 'checkin', step: checkinStage === 'topic' ? 1 : 2 }
-      : null;
+  // recap's muted meta, or null hands the header back to the live-
+  // conversation treatments (Listening/Speaking) or the check-in's own
+  // card (which has no header accessory now that it's a single screen).
+  const headerAccessory: HeaderAccessory | null = recap ? { meta: recapMeta ?? '' } : null;
 
   function appendStreamToken(text: string) {
     // Strip the $$ math-block delimiters from the transient stream/reveal
@@ -707,28 +683,34 @@ export function Overlay({
       stopLevelMeter();
       speechRecRef.current?.stop();
       speechRecRef.current = null;
-      for (const timer of pingTimersRef.current) clearTimeout(timer);
-      pingTimersRef.current = [];
       clearCloseTimers();
       if (bloomTimerRef.current !== null) window.clearTimeout(bloomTimerRef.current);
     };
   }, []);
 
-  // Shows a turn's pings through the dedupe gate and schedules each one's
-  // ~4s auto-dismiss. Called at `done` for text turns (the promise resolve)
-  // and at playback start for voice turns (see handleMicStop).
-  function showPings(pings: TurnPing[] | undefined) {
-    const shown = filterPingsForDisplay(pings, shownMasteryUpRef.current);
+  // Queues a turn's pins through the gate (priority + cap + dedupe). Called
+  // at `done` for text turns (the promise resolve) and at reply-delivered
+  // for voice turns (see handleMicStop) -- the advance effect below then
+  // walks the queue one pin at a time.
+  function showPins(pins: StatusPin[] | undefined) {
+    const shown = filterPinsForDisplay(pins, shownPinKeysRef.current);
     if (shown.length === 0) return;
-    const entries = shown.map((ping) => ({ id: pingIdRef.current++, ping }));
-    setActivePings((prev) => [...prev, ...entries]);
-    for (const entry of entries) {
-      const timer = window.setTimeout(() => {
-        setActivePings((prev) => prev.filter((item) => item.id !== entry.id));
-      }, PING_DISMISS_MS);
-      pingTimersRef.current.push(timer);
-    }
+    setPinQueue((prev) => [...prev, ...shown.map((pin) => ({ id: pinIdRef.current++, pin }))]);
   }
+
+  // The queue's advance clock: whichever pin is at the head holds the title
+  // card for PIN_DISPLAY_MS, then the queue shifts (and, once empty, the
+  // wordmark returns). Keyed on the head's id so a new head -- whether from
+  // a shift or a fresh enqueue into an empty queue -- restarts the window,
+  // and the effect cleanup clears the pending timer on unmount/close.
+  const activePinId = pinQueue.length > 0 ? pinQueue[0].id : null;
+  useEffect(() => {
+    if (activePinId === null) return;
+    const timer = window.setTimeout(() => {
+      setPinQueue((prev) => prev.slice(1));
+    }, PIN_DISPLAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [activePinId]);
 
   // Drives nextCloseState with real timers (Sprint 14 Task 7): called
   // whenever a turn's session.complete arrives (automatic) or the student
@@ -754,9 +736,9 @@ export function Overlay({
 
   // The choreography's actual teardown (Sprint 14 Task 7): fires exactly
   // once, when closeState reaches 'closed' -- collapse to the pill, clear
-  // the transcript, reset the progress bar, drop the recap/overview (a
-  // fresh open re-fetches), and dispatch PANEL_CLOSED_EVENT for the
-  // annotation controller, same as a manual minimize. Then resets the
+  // the transcript, reset the progress bar, drop the recap, and dispatch
+  // PANEL_CLOSED_EVENT for the annotation controller, same as a manual
+  // minimize. Then resets the
   // state machine back to idle for the next problem. Minimizing (−) never
   // reaches this path -- it stays handleMinimize below, unchanged from the
   // old handleClose.
@@ -771,31 +753,31 @@ export function Overlay({
   }, [closeState]);
 
   // The panel teardown itself (Sprint 14 Task 7 + fix pass): collapse to the
-  // pill, clear the transcript, reset the progress bar, drop the
-  // recap/overview, and dispatch PANEL_CLOSED_EVENT for the annotation
-  // controller. Shared by TWO paths: the automatic close choreography's final
+  // pill, clear the transcript, reset the progress bar, drop the recap, and
+  // dispatch PANEL_CLOSED_EVENT for the annotation controller. Shared by TWO
+  // paths: the automatic close choreography's final
   // step (after the green ring sweep) AND a confirmed manual ✕ end, which
   // runs this DIRECTLY with no ring (handleEndSessionConfirmed below).
   function performClose() {
     setExpanded(false);
     setMessages([]);
     setSolutionProgress(0);
+    progressRef.current = 0;
+    finalStepFiredRef.current = false;
+    setPinQueue([]);
     setAnnotationColors({});
     setRecap(null);
     setRecapMeta(null);
     setScan(null);
     // The check-in resets for the next problem -- a fresh open asks fresh.
-    setCheckinStage('topic');
     setCheckinTopic(null);
     setStickingPoint(null);
-    setPlanVariant(0);
     sessionStartRef.current = null;
     // The bloom is transient (~3s) and usually gone long before the ring
     // finishes; clear it anyway so a manual end can't strand one.
     if (bloomTimerRef.current !== null) window.clearTimeout(bloomTimerRef.current);
     bloomTimerRef.current = null;
     setBloom(null);
-    setOverview(null);
     setDragPos(null);
     setIsDragging(false);
     dragOriginRef.current = null;
@@ -815,35 +797,9 @@ export function Overlay({
     window.dispatchEvent(new CustomEvent(PANEL_EXPANDED_EVENT));
   }, [expanded]);
 
-  // Overview fetch: on every panel expand while the conversation is still
-  // empty ("before the first question"). Fresh per open, never cached
-  // (the capturedPageContext discipline applied to profile data, ADR-024);
-  // a failure renders nothing -- the Sprint 10 empty state, unchanged --
-  // and never blocks asking a question.
-  useEffect(() => {
-    if (!expanded) return;
-    if (messages.length > 0) return;
-    let cancelled = false;
-    onLoadOverview()
-      .then((data) => {
-        if (cancelled) return;
-        setOverview(data);
-      })
-      .catch((error) => {
-        console.debug('Calyxa overlay: overview unavailable, rendering empty state', error);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // Deliberately keyed to `expanded` alone: "fresh on each panel open",
-    // not on every message-list change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded]);
-
   // Guards the opening scan (below) against React StrictMode's dev-only
   // double-invoke of effects (mount -> cleanup -> mount again, same
-  // `expanded` value). onLoadOverview above tolerates that harmlessly (a
-  // duplicate GET), but onOpeningScan triggers a real, billable
+  // `expanded` value). onOpeningScan triggers a real, billable
   // api.startSession -- a duplicate there is a real session/quota bug, not
   // a cosmetic one, so unlike that effect this one needs an explicit
   // in-flight guard. Reset only when the panel actually closes (the effect
@@ -852,15 +808,14 @@ export function Overlay({
   // guard) -- a genuine re-expand after a minimize is still free to try again.
   const openingScanFiredRef = useRef(false);
 
-  // The proactive opening scan (Sprint 14 Task 6, ADR-030): fires under the
-  // EXACT same guard as the overview fetch above -- "expanded, and no
-  // conversation yet" -- since it is itself the session start and must
-  // never fire a second time once a conversation exists. A null result (the
-  // content script's plausible-problem gate found nothing, the call
-  // failed, or the model declined to name a problem) renders nothing, the
-  // empty state, same as a failed overview fetch. A real result appends the
-  // FIRST assistant bubble with no preceding student message -- the
-  // opening scan's whole point.
+  // The proactive opening scan (Sprint 14 Task 6, ADR-030): fires while
+  // "expanded, and no conversation yet" -- since it is itself the session
+  // start and must never fire a second time once a conversation exists. A
+  // null result (the content script's plausible-problem gate found nothing,
+  // the call failed, or the model declined to name a problem) renders
+  // nothing, the empty state. A real result appends the FIRST assistant
+  // bubble with no preceding student message -- the opening scan's whole
+  // point.
   useEffect(() => {
     if (!expanded) {
       openingScanFiredRef.current = false;
@@ -874,17 +829,30 @@ export function Overlay({
       .then((result) => {
         if (cancelled || !result) return;
         // The scan's result feeds the check-in, NOT a first transcript
-        // bubble: `topic` becomes 5a's "spotted on this page" suggestion
-        // card, and the held question (with its tags/annotations) enters
+        // bubble: `topic` becomes the confirm card's "spotted on this page"
+        // display, and the held question (with its tags/annotations) enters
         // the transcript + wire history when the conversation actually
         // starts (takeScanPrefix below). The on-page annotation draw
         // already happened in content/index.ts, unchanged.
         setScan({
           question: result.reply,
           ...(result.topic ? { topic: result.topic } : {}),
-          ...(result.tags && result.tags.length > 0 ? { tags: result.tags } : {}),
+          ...(result.stickingCandidates && result.stickingCandidates.length > 0
+            ? { stickingCandidates: result.stickingCandidates }
+            : {}),
           ...(result.annotations && result.annotations.length > 0 ? { annotations: result.annotations } : {}),
         });
+        // Pre-select both check-in answers the moment the scan lands (design
+        // follow-up: "confirm, not fill out a form") -- the topic is the
+        // scan's own detected concept, and the sticking point is the top-
+        // ranked chip buildStickingChips would show first (a real recorded
+        // misconception when one exists, else the first generic chip). The
+        // student can still tap a different chip before confirming.
+        if (result.topic) {
+          setCheckinTopic(result.topic.title);
+          const topChip = buildStickingChips(result.stickingCandidates ?? [])[0];
+          setStickingPoint(topChip?.value ?? null);
+        }
         // Task 8: AnnotationLayer's box-stroke lookup reads the SAME map the
         // held bubble will carry once committed.
         setAnnotationColors(assignAnnotationColors(result.annotations));
@@ -895,14 +863,15 @@ export function Overlay({
     return () => {
       cancelled = true;
     };
-    // Deliberately keyed to `expanded` alone, matching the overview effect above.
+    // Deliberately keyed to `expanded` alone: "fresh on each panel open".
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded]);
 
   // Recap arrival (SESSION_ENDED -> content -> this event). A recap-less
   // end (no gradable interactions) sets null and renders nothing. The
-  // session is over either way, so the per-session mastery-up dedupe map
-  // resets here.
+  // session is over either way, so the per-session pin dedupe set resets
+  // here, and any still-queued pins yield the header to the recap's own
+  // accessory rather than talking over the terminal state.
   useEffect(() => {
     function onSessionRecap(event: Event) {
       const detail = (event as CustomEvent<{ recap?: SessionRecap }>).detail;
@@ -915,24 +884,12 @@ export function Overlay({
           ? formatRecapMeta(arrived, sessionStartRef.current !== null ? Date.now() - sessionStartRef.current : null)
           : null,
       );
-      shownMasteryUpRef.current.clear();
+      shownPinKeysRef.current.clear();
+      setPinQueue([]);
     }
     window.addEventListener(SESSION_RECAP_EVENT, onSessionRecap);
     return () => window.removeEventListener(SESSION_RECAP_EVENT, onSessionRecap);
   }, []);
-
-  // The strip's auto-dismiss fold (Sprint 14 Task 7): expands fresh
-  // whenever a NEW overview object lands (replaced wholesale, never
-  // mutated, so a reference change always means "something new to show"),
-  // then folds after STRIP_FOLD_MS. Overview-only now -- the recap moved
-  // in-panel (RecapCard, design 6b), so the old hold-through-the-ring
-  // guard has nothing left to hold.
-  useEffect(() => {
-    if (!overview) return;
-    setStripFolded(false);
-    const timer = window.setTimeout(() => setStripFolded(true), STRIP_FOLD_MS);
-    return () => window.clearTimeout(timer);
-  }, [overview]);
 
   // Scroll to bottom when messages, streaming tokens, or live transcript change.
   useEffect(() => {
@@ -958,14 +915,36 @@ export function Overlay({
     return () => window.removeEventListener('calyxa:toggle-panel', onTogglePanel);
   }, []);
 
+  // The threshold past which the client itself pins "Final step" (ADR-034's
+  // one client-derived pin): the first time the eased progress crosses this
+  // on a still-open problem. Well inside the prompt's own "close but not
+  // done reads 0.8-0.9" band (system-prompt.ts's SOLUTION PROGRESS rubric).
+  const FINAL_STEP_THRESHOLD = 0.85;
+
   // The progress bar + close choreography share one commit-time hook
   // (Sprint 14 Task 7): called at the moment each path's reply actually
   // becomes visible -- immediately for text (handleSubmit), after TTS
-  // playback for voice (handleMicStop, matching where tags already commit
-  // there). `solved` forces the bar to 1 before the choreography's own
-  // "Now closing tutoring session." bubble is even read.
+  // playback for voice (handleMicStop, matching where annotations already
+  // commit there). `solved` forces the bar to 1 before the choreography's
+  // own "Now closing tutoring session." bubble is even read.
   function applyProgressAndCompletion(result: TurnResult) {
-    setSolutionProgress((prev) => easeProgress(prev, result.solutionProgress, result.session?.reason === 'solved'));
+    const eased = easeProgress(progressRef.current, result.solutionProgress, result.session?.reason === 'solved');
+    progressRef.current = eased;
+    setSolutionProgress(eased);
+    // The client-derived final-step pin (ADR-034): fires ONCE per problem,
+    // the first time the bar crosses the threshold while the problem is
+    // still open -- a completing turn skips straight to the bloom/close
+    // choreography instead ("final step" after "solved" would read
+    // backwards). Deterministic from the progress signal; the server never
+    // emits this kind.
+    if (
+      !result.session?.complete &&
+      eased >= FINAL_STEP_THRESHOLD &&
+      !finalStepFiredRef.current
+    ) {
+      finalStepFiredRef.current = true;
+      showPins([{ category: 'progress', kind: 'final-step', conceptKey: null, label: 'Final step' }]);
+    }
     if (result.session?.complete) {
       // A correct answer earns the section-complete bloom over the page
       // (design 07, ~3s then it recedes) -- the close choreography keeps
@@ -981,10 +960,10 @@ export function Overlay({
   }
 
   // Consumes the held scan into the transcript's opening assistant bubble
-  // -- the exact DisplayMessage (content + tags/annotations/colors extras)
-  // the scan used to commit directly -- at the moment the conversation
-  // actually starts, whichever path starts it (the plan's Start button, a
-  // typed message, or a voice turn). Returns [] when no scan is held, so
+  // -- the exact DisplayMessage (content + annotations/colors extras) the
+  // scan used to commit directly -- at the moment the conversation actually
+  // starts, whichever path starts it (the check-in's Start session button,
+  // a typed message, or a voice turn). Returns [] when no scan is held, so
   // every caller can spread it unconditionally.
   function takeScanPrefix(): DisplayMessage[] {
     if (!scan) return [];
@@ -994,59 +973,36 @@ export function Overlay({
         role: 'assistant',
         content: scan.question,
         ...assistantMessageExtras({
-          ...(scan.tags ? { tags: scan.tags } : {}),
           ...(scan.annotations ? { annotations: scan.annotations } : {}),
         }),
       },
     ];
   }
 
-  // ---- The check-in flow's handlers (design 05 -> 6a -> tutoring) ----
+  // ---- The check-in flow's handlers (design 05, merged into one confirm
+  // screen -> tutoring) ----
 
-  // 5a: the suggestion card or any fallback chip answers "what are we
-  // working on" and advances to the sticking-point question -- "two taps,
-  // not a form".
-  function handleCheckinTopic(topic: string) {
-    if (busy || closeState !== 'idle') return;
-    setCheckinTopic(topic);
-    setCheckinStage('sticking');
-  }
-
-  // 5b's "change" link: back to 5a; the sticking-point selection resets
-  // with it (a different topic likely fails differently).
-  function handleCheckinChangeTopic() {
-    setCheckinStage('topic');
-    setStickingPoint(null);
-  }
-
-  // 5b: chips select (with the ✓), they don't advance -- Start session does.
+  // The confirm card's chips: still tappable so the student can override
+  // the pre-selected top misconception, but they select (with the ✓), they
+  // don't advance -- Start session does.
   function handleCheckinSticking(chip: string) {
     setStickingPoint(chip);
   }
 
-  // 5b's Start session -> the pre-session plan (6a).
+  // Start session: the conversation begins directly -- the check-in answers
+  // (the scanned topic + the confirmed sticking point, pre-selected the
+  // moment the scan landed) become a REAL student turn through the normal
+  // pipeline (buildSessionStartMessage, the session-kickoff discipline:
+  // never a side channel), so the tutor prompt hears the student's own
+  // framing and the held scan question opens the transcript exactly as any
+  // other send path.
   function handleCheckinStart() {
-    if (!stickingPoint) return;
-    setCheckinStage('plan');
-  }
-
-  // 6a's Reshuffle: cycles buildSessionPlan's deterministic variants.
-  function handlePlanReshuffle() {
-    setPlanVariant((prev) => prev + 1);
-  }
-
-  // 6a's Start: the conversation begins -- the check-in answers become a
-  // REAL student turn through the normal pipeline (buildSessionStartMessage,
-  // the session-kickoff discipline: never a side channel), so the tutor
-  // prompt hears the student's own framing and the held scan question opens
-  // the transcript exactly as any other send path.
-  function handlePlanStart() {
     if (busy || closeState !== 'idle' || !checkinTopic || !stickingPoint) return;
     void sendStudentMessage(buildSessionStartMessage(checkinTopic, stickingPoint));
   }
 
-  // 5a's "or just say it" (the design's ⌥ Space slot): straight to voice.
-  // The check-in yields the moment capture connects (showCheckin's
+  // "or just say it" (the design's ⌥ Space slot): straight to voice. The
+  // check-in yields the moment capture connects (showCheckin's
   // recording/connecting guards) and the composer's own recording UI takes
   // over; the held scan question still commits when the voice turn does.
   function handleCheckinVoice() {
@@ -1077,9 +1033,9 @@ export function Overlay({
     requestAnimationFrame(() => inputElRef.current?.focus());
   }
 
-  // The shared text-turn send (extracted from handleSubmit for the plan's
-  // Start button, which sends a built message rather than the input's
-  // contents; behavior for typed sends is unchanged).
+  // The shared text-turn send (extracted from handleSubmit for the
+  // check-in's Start session button, which sends a built message rather
+  // than the input's contents; behavior for typed sends is unchanged).
   async function sendStudentMessage(text: string) {
     if (!text || busy) return;
 
@@ -1106,16 +1062,16 @@ export function Overlay({
       });
       if (!result.reply.trim()) throw new Error('The tutor returned an empty reply.');
       clearStreamTokens();
-      // Text path: tags/annotations commit WITH the bubble at `done`, and
-      // pings show at the same moment (the promise resolves when `done`
-      // arrives).
+      // Text path: annotations commit WITH the bubble at `done`, and the
+      // turn's pins queue at the same moment (the promise resolves when
+      // `done` arrives).
       setMessages((current) => [
         ...current,
         { role: 'assistant', content: result.reply, ...assistantMessageExtras(result) },
       ]);
       // Task 8: AnnotationLayer's box-stroke lookup reads the SAME map.
       setAnnotationColors(assignAnnotationColors(result.annotations));
-      showPings(result.pings);
+      showPins(result.pins);
       applyProgressAndCompletion(result);
     } catch (error) {
       clearStreamTokens();
@@ -1230,7 +1186,7 @@ export function Overlay({
       setRecap(null); // shown once -- a new conversation replaces it
       setRecapMeta(null);
 
-      // Voice pings + annotation sequencing fire at REPLY-DELIVERED (ADR-026).
+      // Voice pins + annotation sequencing fire at REPLY-DELIVERED (ADR-026).
       // On the streamed path that is turn-done, which lands DURING playback
       // (text generates faster than it is spoken); on the buffered fallback it
       // is playback start, as before.
@@ -1241,7 +1197,7 @@ export function Overlay({
         }
       };
       const deliverEnvelope = (delivered: TurnResult, durationMs: number) => {
-        showPings(delivered.pings);
+        showPins(delivered.pins);
         onVoicePlaybackStart(durationMs);
       };
 
@@ -1272,7 +1228,7 @@ export function Overlay({
         result = await onSend(outbound);
         if (!result.reply.trim()) throw new Error('The tutor returned an empty reply.');
         const { audio } = await onSynthesize(stripMathDelimiters(result.reply));
-        // Buffered playback: onPlaybackStart fires showPings + onVoicePlaybackStart
+        // Buffered playback: onPlaybackStart fires showPins + onVoicePlaybackStart
         // at playback start with the real duration, exactly as the old path did.
         await playAudioWithTextReveal(audio, result.reply, appendStreamToken, setPlaying, audioRef, (durationMs) => {
           markFirstAudio('buffered fallback')();
@@ -1281,7 +1237,7 @@ export function Overlay({
       }
 
       clearStreamTokens();
-      // Voice tags/annotations commit with the reply after playback -- they
+      // Voice annotations commit with the reply after playback -- they
       // don't pre-announce what the tutor hasn't said yet (Task 8 spec).
       // Progress/completion apply at the SAME moment, for the same reason.
       setMessages((current) => [
@@ -1325,12 +1281,10 @@ export function Overlay({
     setDragPos(null);
     setIsDragging(false);
     dragOriginRef.current = null;
-    // The recap is shown once and discarded on panel close (ADR-025); the
-    // overview is refetched fresh on the next open. Minimizing does NOT
-    // end the session.
+    // The recap is shown once and discarded on panel close (ADR-025).
+    // Minimizing does NOT end the session.
     setRecap(null);
     setRecapMeta(null);
-    setOverview(null);
     window.dispatchEvent(new CustomEvent(PANEL_CLOSED_EVENT));
   }
 
@@ -1458,28 +1412,6 @@ export function Overlay({
         className={`fixed z-[2147483647] w-[420px] font-sans text-base text-foreground${isDragging ? ' select-none' : ''}${!dragPos ? ' bottom-7 left-1/2 -translate-x-1/2' : ''}`}
         style={dragPos ? { top: `${dragPos.y}px`, left: `${dragPos.x}px` } : undefined}
       >
-      <PingToasts pings={activePings} />
-
-      {/* ── Overview summary (Sprint 14 fix pass) — a small floating WINDOW
-          ABOVE the whole extension, not a strip wedged inside the panel. It
-          animates in on session start and auto-dismisses with a smooth exit
-          after STRIP_FOLD_MS (held open while hovered). Overview-only now:
-          the recap moved in-panel (RecapCard, design 6b). */}
-      {showOverviewCard && (
-        <div
-          className={`cx-strip-window mb-2${stripFolded && !stripHovered ? ' cx-strip-window--hidden' : ''}`}
-          onMouseEnter={() => setStripHovered(true)}
-          onMouseLeave={() => setStripHovered(false)}
-        >
-          <InsightStrip
-            overview={overview!}
-            foldDurationMs={STRIP_FOLD_MS}
-            onMouseEnter={() => setStripHovered(true)}
-            onMouseLeave={() => setStripHovered(false)}
-          />
-        </div>
-      )}
-
       <div className="relative">
       <div className="relative overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
 
@@ -1493,6 +1425,7 @@ export function Overlay({
           ringing={closeState === 'ringing'}
           ringDurationMs={CLOSE_RING_MS}
           accessory={headerAccessory}
+          pin={pinQueue.length > 0 ? pinQueue[0] : null}
           onHeaderPointerDown={handleHeaderPointerDown}
           onHeaderPointerMove={handleHeaderPointerMove}
           onHeaderPointerUp={handleHeaderPointerUp}
@@ -1527,34 +1460,25 @@ export function Overlay({
               </div>
             )}
 
-            {/* ── Session-start check-in -> plan (design 05/6a) — the
-                designated pre-conversation UI. The composer is deliberately
-                ABSENT while these show ("chips over text fields"); voice
-                stays one tap away via 5a's "or just say it", and any turn
-                path still consumes the held scan question into the
-                transcript the moment the conversation starts. ── */}
-            {showCheckin ? (
-              checkinStage === 'plan' && checkinTopic && stickingPoint ? (
-                <PlanCard
-                  plan={buildSessionPlan(checkinTopic, stickingPoint, planVariant)}
-                  disabled={busy || ending || closeState !== 'idle'}
-                  onStart={handlePlanStart}
-                  onReshuffle={handlePlanReshuffle}
-                />
-              ) : (
-                <CheckinCard
-                  stage={checkinStage === 'topic' ? 'topic' : 'sticking'}
-                  {...(scan?.topic ? { suggestion: scan.topic } : {})}
-                  topic={checkinTopic}
-                  selectedSticking={stickingPoint}
-                  disabled={busy || ending || closeState !== 'idle'}
-                  onPickTopic={handleCheckinTopic}
-                  onChangeTopic={handleCheckinChangeTopic}
-                  onPickSticking={handleCheckinSticking}
-                  onStart={handleCheckinStart}
-                  onVoice={handleCheckinVoice}
-                />
-              )
+            {/* ── Session-start check-in (design 05, merged into one confirm
+                screen) — the designated pre-conversation UI: the scanned
+                topic and the top predicted misconception arrive pre-
+                selected, so the student only has to tap once to start. The
+                composer is deliberately ABSENT while this shows ("chips
+                over text fields"); voice stays one tap away via "or just
+                say it", and any turn path still consumes the held scan
+                question into the transcript the moment the conversation
+                starts. ── */}
+            {showCheckin && scan && scan.topic ? (
+              <CheckinCard
+                topic={scan.topic}
+                stickingChips={buildStickingChips(scan.stickingCandidates ?? [])}
+                selectedSticking={stickingPoint}
+                disabled={busy || ending || closeState !== 'idle'}
+                onPickSticking={handleCheckinSticking}
+                onStart={handleCheckinStart}
+                onVoice={handleCheckinVoice}
+              />
             ) : (
               /* ── Input row — border-t only when chat area is present above ── */
               <Composer

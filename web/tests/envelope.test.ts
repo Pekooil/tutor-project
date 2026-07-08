@@ -429,3 +429,57 @@ describe('parseEnvelope: absent-fields back-compat (solution_progress + session 
     expect(Object.keys(envelope).sort()).toEqual(['assessment', 'mode', 'say'].sort())
   })
 })
+
+describe("parseEnvelope: signals (Sprint 15, ADR-034 -- allowlisted kinds, drop-don't-guess)", () => {
+  it('parses an array of allowlisted signal kinds through unchanged', () => {
+    const signals = ['teaching-decompose', 'guidance-up', 'self-caught']
+    expect(parseEnvelope(validEnvelopeJson({ signals })).signals).toEqual(signals)
+  })
+
+  it('accepts each allowlisted kind individually', () => {
+    for (const kind of [
+      'prediction-confirmed',
+      'misconception-detected',
+      'pattern-detected',
+      'pattern-broken',
+      'concept-understood',
+      'teaching-visual',
+      'teaching-decompose',
+      'pace-up',
+      'guidance-up',
+      'guidance-down',
+      'difficulty-up',
+      'difficulty-down',
+      'confidence-up',
+      'self-caught',
+    ] as const) {
+      expect(parseEnvelope(validEnvelopeJson({ signals: [kind] })).signals).toEqual([kind])
+    }
+  })
+
+  it('filters out unrecognised / free-text kinds, keeping the valid ones -- no invented signal', () => {
+    expect(
+      parseEnvelope(validEnvelopeJson({ signals: ['guidance-up', 'interpretive-dance', 'Teaching Visual', 42, null] }))
+        .signals
+    ).toEqual(['guidance-up'])
+  })
+
+  it('collapses duplicate kinds within a turn', () => {
+    expect(parseEnvelope(validEnvelopeJson({ signals: ['pace-up', 'pace-up', 'guidance-up'] })).signals).toEqual([
+      'pace-up',
+      'guidance-up',
+    ])
+  })
+
+  it('caps the array at 3 kinds even when the model sends more', () => {
+    const many = ['pace-up', 'guidance-up', 'difficulty-up', 'teaching-visual', 'self-caught']
+    expect(parseEnvelope(validEnvelopeJson({ signals: many })).signals).toHaveLength(3)
+  })
+
+  it('is omitted entirely (not present as an own key) when the array is empty or all-invalid', () => {
+    expect(parseEnvelope(validEnvelopeJson({ signals: [] })).signals).toBeUndefined()
+    expect(parseEnvelope(validEnvelopeJson({ signals: ['nope', 7] })).signals).toBeUndefined()
+    const envelope = parseEnvelope(validEnvelopeJson())
+    expect(Object.prototype.hasOwnProperty.call(envelope, 'signals')).toBe(false)
+  })
+})

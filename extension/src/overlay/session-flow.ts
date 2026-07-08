@@ -1,41 +1,104 @@
-import type { RecapConcept, SessionRecap } from '../types/messages';
+import type { RecapConcept, SessionRecap, StickingCandidate } from '../types/messages';
 
-// The check-in -> plan -> recap flow's pure logic (design handoff states
-// 05/06/07, Sprint 15). Everything here is display copy + deterministic
-// derivation with no React/chrome.* dependency, in its own module (the
-// voice-timing.ts precedent) so session-flow.test.ts can pin it directly.
+// The check-in -> recap flow's pure logic (design handoff states 05/06b/07,
+// Sprint 15; the 6a pre-session plan was removed in a later pass -- the
+// check-in confirms straight into tutoring). Everything here is display
+// copy + deterministic derivation with no React/chrome.* dependency, in its
+// own module (the voice-timing.ts precedent) so session-flow.test.ts can
+// pin it directly.
 //
-// The check-in's two answers ({ topic, stickingPoint }, the design's own
-// state shape) feed BOTH the pre-session plan (buildSessionPlan) and the
-// tutor prompt -- the latter via buildSessionStartMessage, a REAL student
-// turn through the normal pipeline (the session-kickoff discipline: never
-// a side channel), so the model hears the student's own framing and the
-// existing assessment machinery grades everything that follows.
+// The check-in's two answers ({ topic, stickingPoint }) feed the tutor
+// prompt via buildSessionStartMessage, a REAL student turn through the
+// normal pipeline (the session-kickoff discipline: never a side channel),
+// so the model hears the student's own framing and the existing assessment
+// machinery grades everything that follows.
 
-// The 5b sticking-point chips (design copy, fixed): four ways a math topic
-// usually goes wrong, plus the honest opt-out. The opt-out is a sentinel
-// the builders below branch on -- "not sure" must never be echoed back as
-// if it were a named weakness.
+// The sticking-point chips. The opt-out is a sentinel the builders below
+// branch on -- "not sure" must never be echoed back as if it were a named
+// weakness.
 export const NOT_SURE_CHIP = 'Honestly, not sure';
-export const STICKING_CHIPS = [
-  'Setting up the equation',
-  'Choosing a method',
-  'The algebra steps',
-  NOT_SURE_CHIP,
-] as const;
 
-// The 5a fallback chips (design copy, fixed) shown under the page-detected
-// suggestion card. Any chip advances to 5b exactly like the card does --
-// "two taps, not a form".
-export const TOPIC_FALLBACK_CHIPS = ['Homework set', 'Exam prep', 'Something else'] as const;
+// The generic fallback pool (design copy, fixed): used to fill whichever of
+// the top-3 slots the student's own recorded misconception history doesn't
+// cover -- a cold start on this topic (or a fully resolved history) falls
+// all the way back to these three, byte-identical to the design board's
+// original static set.
+const GENERIC_STICKING_CHIPS = ['Setting up the equation', 'Choosing a method', 'The algebra steps'] as const;
 
-// Chip labels -> how the start message says them mid-sentence. Detected
-// topics (curriculum titles) fall through to `casual` below instead.
-const TOPIC_CHIP_PHRASES: Record<string, string> = {
-  'Homework set': 'my homework set',
-  'Exam prep': 'exam prep',
-  'Something else': "something else -- I'll explain as we go",
+export type StickingChip = {
+  // What onPickSticking receives and what ends up in `stickingPoint` state
+  // -- also what buildSessionStartMessage embeds mid-sentence via casual()
+  // below, so this is deliberately the lowercase-leaning raw text, not the
+  // capitalized display form.
+  value: string;
+  // The chip button's display text -- `value`, capitalized.
+  label: string;
+  // 1/2/3 for the ranked slots (personalized or generic-filled alike --
+  // Darcy's ask: label EVERY one of the top 3, not just the grounded
+  // ones), null for the trailing not-sure chip.
+  rank: 1 | 2 | 3 | null;
+  // True only when this slot's value came from a REAL recorded
+  // misconception -- drives the personalized-history styling/caption so
+  // the UI never claims "based on your sessions" for a generic guess.
+  personalized: boolean;
 };
+
+function capitalize(text: string): string {
+  return text.length > 0 ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+/**
+ * A recorded misconception's short display text: its own free-text
+ * description when one was logged, else its humanized category -- the same
+ * "prefer description, fall back to category" precedent the deleted
+ * KickoffCard's humanizePredictionDetail established for the struggle
+ * prediction (Sprint 15). Lowercase-leaning by convention (matches how
+ * these are actually stored, e.g. "drops the negative sign when
+ * distributing") -- buildStickingChips capitalizes it for display; the
+ * sentence-builders' casual() below is a no-op on text that's already
+ * lowercase.
+ */
+export function humanizeMisconceptionLabel(candidate: StickingCandidate): string {
+  const description = candidate.description.trim();
+  if (description) return description;
+  return humanizeCategory(candidate.category);
+}
+
+/**
+ * The 5b sticking-point chips, personalized (design handoff feature, on top
+ * of the original static design): the top up to 3 of the student's OWN
+ * recorded misconceptions for the check-in's CONFIRMED topic -- already
+ * ranked most-relevant-first by the caller (predict.ts's
+ * pickStickingCandidates, fed by loadProfile's occurrence/recency-ordered
+ * read) -- each labeled "Top N possible misconception" so the ranking
+ * itself is visible on screen, not just implied. Fewer than 3 recorded ->
+ * the remaining slots fill from the fixed generic pool (skipping any
+ * exact-text duplicate of a personalized one already shown, case-
+ * insensitive). The 4th slot is ALWAYS the honest opt-out -- never counted
+ * toward the ranked 3, never personalized, never dropped even when all 3
+ * ranked slots are real. `candidates` is trusted pre-capped-at-3 by the
+ * caller but sliced again here defensively.
+ */
+export function buildStickingChips(candidates: readonly StickingCandidate[]): StickingChip[] {
+  const personalizedLabels = candidates.slice(0, 3).map(humanizeMisconceptionLabel);
+  const usedLabels = new Set(personalizedLabels.map((label) => label.toLowerCase()));
+  const fallback = GENERIC_STICKING_CHIPS.filter((label) => !usedLabels.has(label.toLowerCase()));
+
+  const values = [...personalizedLabels];
+  for (let index = 0; values.length < 3 && index < fallback.length; index++) {
+    values.push(fallback[index]);
+  }
+
+  const chips: StickingChip[] = values.map((value, index) => ({
+    value,
+    label: capitalize(value),
+    rank: (index + 1) as 1 | 2 | 3,
+    personalized: index < personalizedLabels.length,
+  }));
+
+  chips.push({ value: NOT_SURE_CHIP, label: NOT_SURE_CHIP, rank: null, personalized: false });
+  return chips;
+}
 
 // Lowercases a leading capital for mid-sentence use ("Quadratic equations"
 // -> "quadratic equations") -- but only when the second character is
@@ -45,80 +108,18 @@ function casual(text: string): string {
 }
 
 /**
- * The student turn the plan's Start button sends -- the check-in answers in
- * the student's own voice, so the tutor prompt (which sees the transcript)
- * gets both without any new wire field. The not-sure branch asks the tutor
- * to find the weak spot rather than claiming one.
+ * The student turn the confirm button sends -- the check-in's two answers
+ * (the scanned topic + the selected sticking point) in the student's own
+ * voice, so the tutor prompt (which sees the transcript) gets both without
+ * any new wire field. The not-sure branch asks the tutor to find the weak
+ * spot rather than claiming one.
  */
 export function buildSessionStartMessage(topic: string, stickingPoint: string): string {
-  const topicPhrase = TOPIC_CHIP_PHRASES[topic] ?? casual(topic);
+  const topicPhrase = casual(topic);
   if (stickingPoint === NOT_SURE_CHIP) {
     return `I'm working on ${topicPhrase} today. Honestly, I'm not sure where it usually goes wrong — can you help me find the weak spot as we work through it?`;
   }
   return `I'm working on ${topicPhrase} today, and the part that usually trips me up is ${casual(stickingPoint)}. Can we start there?`;
-}
-
-// ---- The pre-session plan (6a) ----
-
-export type PlanStep = { title: string; meta: string; minutes: number };
-
-export type SessionPlan = {
-  // The lead line echoes the student's own words; `emphasis` is the bold
-  // sticking-point segment (design: "with extra care on **choosing a
-  // method** — your words, not mine"). A not-sure answer gets a plain
-  // single-segment lead instead -- no invented emphasis.
-  lead: { before: string; emphasis?: string; after?: string };
-  steps: PlanStep[];
-  totalMinutes: number;
-};
-
-// Reshuffle cycles these deterministically (no Math.random -- the same
-// variant index always yields the same plan, so the spec can pin each one).
-export const PLAN_VARIANT_COUNT = 3;
-
-/**
- * Builds the 3-step plan client-side from the two check-in answers (the
- * agreed no-backend approach): warm up / the sticking point / prove it,
- * with two reshuffle variants that reorder the emphasis. Durations are
- * fixed per step and summed into the Start button's "~N min".
- */
-export function buildSessionPlan(topic: string, stickingPoint: string, variant: number): SessionPlan {
-  const notSure = stickingPoint === NOT_SURE_CHIP;
-  const sticking = notSure ? '' : casual(stickingPoint);
-
-  const lead = notSure
-    ? { before: `${topic} today — we'll find where it goes wrong together, one step at a time.` }
-    : { before: `${topic}, with extra care on `, emphasis: sticking, after: ' — your words, not mine.' };
-
-  const stickingStep = (minutes: number, meta: string): PlanStep =>
-    notSure
-      ? { title: 'Find the sticking point — watch where it wobbles', meta: `A few quick probes, ~${minutes} min`, minutes }
-      : { title: `The sticking point — ${sticking}`, meta: `${meta}, ~${minutes} min`, minutes };
-
-  const proveIt: PlanStep = { title: 'Prove it — one on your own', meta: 'I only watch, ~3 min', minutes: 3 };
-
-  const variants: PlanStep[][] = [
-    [
-      { title: 'Warm up — one you can already do', meta: `${topic}, ~3 min`, minutes: 3 },
-      stickingStep(6, 'Slow and careful'),
-      proveIt,
-    ],
-    [
-      notSure
-        ? { title: 'Straight in — find where it wobbles', meta: 'A few quick probes, ~6 min', minutes: 6 }
-        : { title: `Straight to it — ${sticking} first`, meta: 'The hard part while fresh, ~6 min', minutes: 6 },
-      { title: 'Steady it — a similar one together', meta: `${topic}, ~4 min`, minutes: 4 },
-      proveIt,
-    ],
-    [
-      { title: 'Warm up — a quick confidence rep', meta: `${topic}, ~2 min`, minutes: 2 },
-      stickingStep(7, 'Two in a row'),
-      { title: 'Stretch — one notch harder', meta: 'Only if you want it, ~3 min', minutes: 3 },
-    ],
-  ];
-
-  const steps = variants[((variant % PLAN_VARIANT_COUNT) + PLAN_VARIANT_COUNT) % PLAN_VARIANT_COUNT];
-  return { lead, steps, totalMinutes: steps.reduce((sum, step) => sum + step.minutes, 0) };
 }
 
 // ---- The post-session recap (6b) ----

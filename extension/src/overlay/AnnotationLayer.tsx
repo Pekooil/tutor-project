@@ -14,8 +14,8 @@ import type { AnnotationColorMap } from './Overlay';
 // Overlay.tsx -- a plain string-keyed record, not a DOM/chrome type, so it
 // doesn't touch that boundary; the type-only form also means there's no
 // runtime circular dependency with Overlay.tsx's own value import of this
-// component (Transcript.tsx and InsightStrip.tsx already establish the same
-// pattern for the same map).
+// component (Transcript.tsx already establishes the same pattern for the
+// same map).
 //
 // Coordinates: DrawRect is a getBoundingClientRect()-space rect (viewport
 // px). This SVG has no viewBox and is sized to exactly 100vw/100vh via CSS,

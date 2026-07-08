@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Overlay, type TurnResult } from './Overlay';
-import type { Annotation, PageTopic, ProfileOverview, ProfileTag, TurnMessage } from '../types/messages';
+import type { Annotation, PageTopic, StickingCandidate, TurnMessage } from '../types/messages';
 import type { Utterance } from './VoiceController';
 
 // Framework plumbing only. The content script calls these from WXT's
@@ -12,8 +12,8 @@ import type { Utterance } from './VoiceController';
 export type OverlayTransports = {
   /**
    * onChunk is called for each text delta when streaming. Omit for
-   * non-streaming (voice) turns. Resolves the reply plus the turn's tags
-   * and pings when the wire carried any (Sprint 13, ADR-024/026).
+   * non-streaming (voice) turns. Resolves the reply plus the turn's status
+   * pins when the wire carried any (Sprint 15, ADR-034).
    */
   onSend: (messages: TurnMessage[], onChunk?: (chunk: string) => void) => Promise<TurnResult>;
   /**
@@ -40,12 +40,15 @@ export type OverlayTransports = {
   onSynthesizeStream: (text: string, onChunk: (chunk: Uint8Array) => void) => Promise<{ ttsMs: number }>;
   /** Reports when synthesized speech starts playing + its duration (ms) -- see Overlay.tsx's prop comment. */
   onVoicePlaybackStart: (durationMs: number) => void;
-  /** Fetches the read-only profile overview (Sprint 13, ADR-024/025) -- see Overlay.tsx's prop comment. */
-  onLoadOverview: () => Promise<ProfileOverview>;
   /** Sends the existing END_SESSION message (Sprint 13, ADR-025) -- see Overlay.tsx's prop comment. */
   onEndSession: () => Promise<void>;
   /** The proactive opening scan (Sprint 14 Task 6/7, ADR-030) -- see Overlay.tsx's prop comment. */
-  onOpeningScan: () => Promise<{ reply: string; tags?: ProfileTag[]; annotations?: Annotation[]; topic?: PageTopic } | null>;
+  onOpeningScan: () => Promise<{
+    reply: string;
+    annotations?: Annotation[];
+    topic?: PageTopic;
+    stickingCandidates?: StickingCandidate[];
+  } | null>;
 };
 
 export type MountOverlayOptions = OverlayTransports;

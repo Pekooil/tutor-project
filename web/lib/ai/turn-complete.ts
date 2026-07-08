@@ -2,18 +2,24 @@ import { after } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getConcept } from '@calyxa/curriculum'
 import type { TurnEnvelope } from './claude'
-import type { ProfileTag } from './envelope'
+import type { Assessment, ModelSignalKind, ProfileTag } from './envelope'
 import type { LearningProfile } from './profile'
 import { applyInteraction } from '@/lib/learning/apply'
-import { computeTurnPings, type TurnPing } from '@/lib/learning/events'
+import { computeStatusPins, type StatusPin, type StatusPinCategory } from '@/lib/learning/events'
 
 // The shared "complete the turn" tail (Sprint 15 voice follow-on): once a
 // TurnEnvelope exists -- whether produced by the non-streaming runTutorTurn
 // (/api/ai/turn) or the streamed runTutorTurnEnvelopeStream
-// (/api/ai/turn/stream) -- the persistence + grounding + ping work is
+// (/api/ai/turn/stream) -- the persistence + grounding + pin work is
 // IDENTICAL, so it lives here as one source of truth. Extracted verbatim from
 // app/api/ai/turn/route.ts (ADR-019/024/026); the existing ai-turn.test.ts is
-// the regression guard for this move.
+// the regression guard for this move. Sprint 15 (ADR-034) replaces the
+// response's separate `profileTags`/`pings` fields with ONE `pins` array --
+// the title-card status-pin surface -- assembled from three sources here:
+// the deterministic FSRS learning events (computeStatusPins), the model's
+// per-turn `signals` array (the primary volume driver -- fixed copy keyed by
+// kind, below), and the grounded profile tags' memory kinds (callback /
+// due-review).
 
 // Model-authored tag labels (known-gap / callback keep them) are clipped
 // hard; concept-anchored labels are replaced with the curriculum title below.
@@ -141,8 +147,8 @@ export async function resolveOwnedTurnIndex(
 // (ADR-019). Best-effort and silent throughout: a missing/foreign sessionId,
 // a missing assessment, or any query failure all degrade to "no persistence
 // this turn." Returns whether the apply was actually SCHEDULED (ADR-026) --
-// the ping computation predicts what the apply will write, so a turn whose
-// apply never got scheduled must suppress its pings.
+// the pin computation predicts what the apply will write, so a turn whose
+// apply never got scheduled must suppress its learning-event pins.
 export async function persistInteraction(
   supabase: SupabaseClient,
   userId: string,
@@ -270,26 +276,104 @@ export async function persistOpeningInteraction(
   }
 }
 
+// The fixed, product-written copy + category for each model-emitted signal
+// (ADR-034): only the KIND ever comes from the model (envelope.ts's
+// allowlist), so a signal pin can be wrong about the tutoring, but it can
+// never SAY anything the product didn't write -- the same
+// server-rendered-display rule as every other pin label (ADR-024). A few
+// kinds get their base copy ENRICHED server-side from the turn's own
+// assessment (the misconception category it flagged, the concept title it
+// tagged) in modelSignalPins below -- still product-authored text, just
+// parameterized by a grounded field.
+const SIGNAL_PINS: Record<ModelSignalKind, { category: StatusPinCategory; label: string }> = {
+  'prediction-confirmed': { category: 'prediction', label: 'Misconception confirmed' },
+  'misconception-detected': { category: 'prediction', label: 'New misconception spotted' },
+  'pattern-detected': { category: 'prediction', label: 'Pattern spotted' },
+  'pattern-broken': { category: 'progress', label: 'Pattern broken' },
+  'concept-understood': { category: 'progress', label: 'Key concept understood' },
+  'teaching-visual': { category: 'teaching', label: 'Switching to visual examples' },
+  'teaching-decompose': { category: 'teaching', label: 'Breaking it into smaller steps' },
+  'pace-up': { category: 'teaching', label: 'Picking up the pace' },
+  'guidance-up': { category: 'guidance', label: 'Stepping in with more guidance' },
+  'guidance-down': { category: 'guidance', label: 'Pulling back — you’ve got this' },
+  'difficulty-up': { category: 'difficulty', label: 'Leveling up' },
+  'difficulty-down': { category: 'difficulty', label: 'Easing off' },
+  'confidence-up': { category: 'confidence', label: 'Confidence rising' },
+  'self-caught': { category: 'independence', label: 'You caught that yourself' },
+}
+
+// "sign-errors" / "algebra.sign_errors" -> "sign errors" for enriched copy.
+function humanizeCategory(category: string): string {
+  return category.replace(/[-_.]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+// The model-emitted signals (ADR-034) become pins with fixed product copy,
+// enriched from the turn's assessment where a grounded field sharpens the
+// label (the flagged misconception category on the three misconception
+// kinds; the tagged concept title on concept-understood). conceptKey rides
+// from the assessment so the client's kind:concept dedupe treats the
+// model's concept-understood and the server's FSRS-computed one as the same
+// pin (whichever lands first wins).
+function modelSignalPins(signals: readonly ModelSignalKind[], assessment: Assessment | undefined): StatusPin[] {
+  const conceptKey = assessment?.conceptKey ?? null
+  const category = assessment?.misconceptionCategory ? humanizeCategory(assessment.misconceptionCategory) : null
+  const title = assessment?.conceptKey ? getConcept(assessment.conceptKey)?.title : undefined
+
+  return signals.map((kind) => {
+    const base = SIGNAL_PINS[kind]
+    let label = base.label
+    if (category && (kind === 'prediction-confirmed' || kind === 'misconception-detected' || kind === 'pattern-broken')) {
+      label = `${base.label}: ${category}`
+    } else if (title && kind === 'concept-understood') {
+      label = `${base.label}: ${title}`
+    }
+    return { category: base.category, kind, conceptKey, label }
+  })
+}
+
+// The memory pins (ADR-034): derived from the GROUNDED profile tags' two
+// cross-session kinds -- the grounding gate above already verified each one
+// against the exact profile this turn's prompt carried, so a memory pin is
+// a claim about real recorded history, never a model invention. due-review's
+// tag label is already the curriculum title (groundProfileTags replaces it);
+// callback gets fixed copy -- the model's own callback phrasing belongs in
+// `say`, not the pin. The other three tag kinds (reviewing / strength /
+// known-gap) are grounding-only signals now: with the transcript's tag pills
+// retired (ADR-034 supersedes that ADR-024 surface), nothing renders them.
+function memoryPins(tags: ProfileTag[]): StatusPin[] {
+  const pins: StatusPin[] = []
+  for (const tag of tags) {
+    if (tag.kind === 'callback') {
+      pins.push({ category: 'memory', kind: 'callback', conceptKey: tag.conceptKey, label: 'Building on a previous session' })
+    } else if (tag.kind === 'due-review') {
+      pins.push({ category: 'memory', kind: 'due-review', conceptKey: tag.conceptKey, label: `Reviewing: ${tag.label}` })
+    }
+  }
+  return pins
+}
+
 // The response payload a completed tutor turn returns -- serialized as JSON by
 // /api/ai/turn and as the terminal SSE `envelope` event by /api/ai/turn/stream.
 // Additive-omission discipline (ADR-023/024/027): a field is OMITTED (not
 // null, not []) when the envelope carried none, so a bare turn is byte-
-// identical to Sprint 11's `{ reply }`.
+// identical to Sprint 11's `{ reply }`. `pins` (ADR-034) REPLACES the old
+// `profileTags` + `pings` pair -- the extension and this route ship together,
+// so this is a clean rename, not a deprecation dance.
 export type TurnResponsePayload = {
   reply: string
   annotations?: NonNullable<TurnEnvelope['annotations']>
-  profileTags?: ProfileTag[]
-  pings?: TurnPing[]
+  pins?: StatusPin[]
   solutionProgress?: number
   session?: NonNullable<TurnEnvelope['session']>
 }
 
-// Runs the shared persistence + grounding + ping tail and assembles the
+// Runs the shared persistence + grounding + pin tail and assembles the
 // response payload. Identical semantics to /api/ai/turn's POST tail: persist
-// and ping computation run IN PARALLEL (disjoint tables); a ping only rides
-// the response when its apply was actually scheduled (ADR-026); tags are
-// grounded against the injected profile; annotations/progress/session thread
-// through additively.
+// and pin computation run IN PARALLEL (disjoint tables); a learning-event
+// pin only rides the response when its apply was actually scheduled
+// (ADR-026) -- the model's signal pins (its own per-turn claims) and the
+// memory pins (grounded against the injected profile) ride regardless;
+// annotations/progress/session thread through additively.
 export async function completeTurn(
   supabase: SupabaseClient,
   userId: string,
@@ -299,22 +383,29 @@ export async function completeTurn(
   responseLatencyMs: number | undefined,
   profile: LearningProfile
 ): Promise<TurnResponsePayload> {
-  const [persisted, prospectivePings] = await Promise.all([
+  const [persisted, prospectivePins] = await Promise.all([
     persistInteraction(supabase, userId, sessionId, lastUserMessage, envelope, responseLatencyMs),
     envelope.assessment
-      ? computeTurnPings(supabase, userId, envelope.assessment, responseLatencyMs ?? null)
-      : Promise.resolve<TurnPing[]>([]),
+      ? computeStatusPins(supabase, userId, envelope.assessment, responseLatencyMs ?? null)
+      : Promise.resolve<StatusPin[]>([]),
   ])
 
-  const pings = persisted ? prospectivePings : []
   const annotations = envelope.annotations
   const profileTags = groundProfileTags(envelope.profileTags, profile)
+  // Merge order matters for the client's kind:concept dedupe (first wins):
+  // the FSRS-grounded learning pins lead (so their exact math-backed label
+  // beats the model's guess for the same kind+concept), then the model's
+  // per-turn signals (the volume driver), then the grounded memory pins.
+  const pins: StatusPin[] = [
+    ...(persisted ? prospectivePins : []),
+    ...modelSignalPins(envelope.signals ?? [], envelope.assessment),
+    ...memoryPins(profileTags),
+  ]
 
   return {
     reply: envelope.say,
     ...(annotations && annotations.length > 0 ? { annotations } : {}),
-    ...(profileTags.length > 0 ? { profileTags } : {}),
-    ...(pings.length > 0 ? { pings } : {}),
+    ...(pins.length > 0 ? { pins } : {}),
     ...(envelope.solutionProgress !== undefined ? { solutionProgress: envelope.solutionProgress } : {}),
     ...(envelope.session ? { session: envelope.session } : {}),
   }

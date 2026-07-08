@@ -1,17 +1,11 @@
 import type { RefObject } from 'react';
 import { Card } from '@calyxa/ui';
-import type { Annotation, ProfileTagKind } from '../types/messages';
-import { capTags, TAG_KIND_COLOR_CLASS, type AnnotationColorMap, type DisplayMessage } from './Overlay';
+import type { Annotation } from '../types/messages';
+import type { AnnotationColorMap, DisplayMessage } from './Overlay';
 
-// One visual language for all five kinds (Task 8 spec): a short
-// student-facing prefix per kind, rendered as `[prefix: label]` pills.
-const TAG_KIND_PREFIX: Record<ProfileTagKind, string> = {
-  reviewing: 'reviewing',
-  'known-gap': 'known gap',
-  'due-review': 'due review',
-  strength: 'strength',
-  callback: 'from a previous session',
-};
+// (The per-bubble profile-tag pills that rendered here through Sprint 14
+// were retired by ADR-034 -- their signal now surfaces as status pins in
+// the title card, TitlePin.tsx.)
 
 // The color-linked highlighting (Sprint 14 Task 7, ADR-029 amendment): a
 // pure function so it's testable without a browser (Task 9's
@@ -152,9 +146,8 @@ export function highlightAnnotatedPhrases(
 // handlers that mutate it all still live in Overlay.tsx.
 //
 // Sprint 14 Task 7: the recap card moved OUT of this component -- it now
-// renders in Overlay.tsx, above the composer, alongside the overview
-// (InsightStrip's new placement). This component gained the FIRST-bubble-
-// is-assistant allowance instead (the opening scan's reply has no
+// renders in Overlay.tsx, above the composer. This component gained the
+// FIRST-bubble-is-assistant allowance instead (the opening scan's reply has no
 // preceding student message -- a purely presentational allowance; the
 // `.map` below already renders whatever role sequence it's handed, so no
 // code change was actually needed for that -- it already worked) and the
@@ -223,23 +216,6 @@ export function Transcript({
                   ),
                 )}
               </p>
-              {/* Profile-tag pills (Sprint 13, ADR-024; color-coded per
-                  kind, Sprint 14 Task 7): ≤2, one visual language for all
-                  five kinds, now with a kind->color border/text treatment
-                  instead of one flat neutral style. Display-only --
-                  stripHistory keeps them out of the outbound wire. */}
-              {msg.tags && msg.tags.length > 0 && (
-                <span className="flex flex-wrap gap-1.5">
-                  {capTags(msg.tags).map((tag, tagIndex) => (
-                    <span
-                      key={tagIndex}
-                      className={`${TAG_KIND_COLOR_CLASS[tag.kind]} rounded-full border bg-surface px-2 py-0.5 text-[11px] font-medium`}
-                    >
-                      {TAG_KIND_PREFIX[tag.kind]}: {tag.label}
-                    </span>
-                  ))}
-                </span>
-              )}
             </div>
           </div>
         ),

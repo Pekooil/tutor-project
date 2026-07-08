@@ -108,6 +108,64 @@ function parseSessionCompletion(candidate: unknown): SessionCompletion | undefin
   return { complete: true, reason }
 }
 
+// Model signals (Sprint 15, ADR-034): the model's own per-turn read of what
+// it just DID pedagogically and what it OBSERVED about the student --
+// switched representation, re-sized the steps, adjusted guidance/difficulty/
+// pace, spotted or confirmed a misconception, saw the student catch their
+// own error, etc. These are the primary driver of the title-card status
+// pins: the teaching/guidance/difficulty/independence categories can ONLY
+// come from the model (no server math knows them), so the tool schema makes
+// `signals` a REQUIRED array the model fills every turn (empty when nothing
+// applies) and the prompt asks it to emit one whenever it genuinely does --
+// EXPECTED, not rare. Only an allowlisted KIND ever crosses the wire; the
+// student-visible copy is a fixed server-side string keyed by kind
+// (turn-complete.ts), never model text -- so a signal can be wrong about
+// itself, but it can never say anything the product didn't write. The
+// server-computed FSRS pins (events.ts) and grounded memory pins ride ON TOP
+// of these as trustworthy bonuses; the client's per-session dedupe then
+// lands the whole surface at ~3-6 distinct pins per session.
+export type ModelSignalKind =
+  | 'prediction-confirmed'
+  | 'misconception-detected'
+  | 'pattern-detected'
+  | 'pattern-broken'
+  | 'concept-understood'
+  | 'teaching-visual'
+  | 'teaching-decompose'
+  | 'pace-up'
+  | 'guidance-up'
+  | 'guidance-down'
+  | 'difficulty-up'
+  | 'difficulty-down'
+  | 'confidence-up'
+  | 'self-caught'
+
+export const MODEL_SIGNAL_KINDS: readonly ModelSignalKind[] = [
+  'prediction-confirmed',
+  'misconception-detected',
+  'pattern-detected',
+  'pattern-broken',
+  'concept-understood',
+  'teaching-visual',
+  'teaching-decompose',
+  'pace-up',
+  'guidance-up',
+  'guidance-down',
+  'difficulty-up',
+  'difficulty-down',
+  'confidence-up',
+  'self-caught',
+]
+
+// Defence in depth alongside the prompt's own "at most a couple per turn"
+// framing (and the overlay's ≤2-shown-per-turn cap): parse keeps the first
+// few unique valid kinds and discards the rest.
+const MAX_MODEL_SIGNALS = 3
+
+function isValidModelSignalKind(value: unknown): value is ModelSignalKind {
+  return typeof value === 'string' && (MODEL_SIGNAL_KINDS as readonly string[]).includes(value)
+}
+
 // Profile tags (Sprint 13, ADR-024/026): the tutor's structured references
 // to the student's OWN profile, rendered as visible pills in the transcript
 // (e.g. [reviewing: Factoring quadratics], [known gap: sign errors]). Unlike
@@ -145,6 +203,7 @@ export type TurnEnvelope = {
   profileTags?: ProfileTag[]
   solutionProgress?: number
   session?: SessionCompletion
+  signals?: ModelSignalKind[]
 }
 
 // Same fence-stripping regex as summarise.ts -- duplicated rather than
@@ -369,11 +428,28 @@ export function parseEnvelopeObject(parsed: Record<string, unknown>): TurnEnvelo
     profile_tags?: unknown
     solution_progress?: unknown
     session?: unknown
+    signals?: unknown
   }
   const envelope: TurnEnvelope = { say: envelopeSource.say }
 
   if (isValidMode(envelopeSource.mode)) {
     envelope.mode = envelopeSource.mode
+  }
+
+  // Drop-don't-guess, per entry: unrecognised kinds are filtered out
+  // (never defaulted), duplicates within a turn collapse, and the array is
+  // capped -- a malformed or over-long signals list degrades to whatever
+  // valid kinds it did carry, never to a wrong one.
+  if (Array.isArray(envelopeSource.signals)) {
+    const seen = new Set<string>()
+    const signals = (envelopeSource.signals as unknown[]).filter((kind): kind is ModelSignalKind => {
+      if (!isValidModelSignalKind(kind) || seen.has(kind)) return false
+      seen.add(kind)
+      return true
+    })
+    if (signals.length > 0) {
+      envelope.signals = signals.slice(0, MAX_MODEL_SIGNALS)
+    }
   }
 
   const assessment = parseAssessment(envelopeSource.assessment)

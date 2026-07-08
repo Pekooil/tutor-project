@@ -198,8 +198,42 @@ const ENVELOPE_TOOL: Anthropic.Tool = {
         },
         required: ['complete', 'reason'],
       },
+      signals: {
+        type: 'array',
+        items: {
+          type: 'string',
+          enum: [
+            'prediction-confirmed',
+            'misconception-detected',
+            'pattern-detected',
+            'pattern-broken',
+            'concept-understood',
+            'teaching-visual',
+            'teaching-decompose',
+            'pace-up',
+            'guidance-up',
+            'guidance-down',
+            'difficulty-up',
+            'difficulty-down',
+            'confidence-up',
+            'self-caught',
+          ],
+        },
+        description:
+          'The status signals for THIS turn (see SIGNALS below) -- the student sees each as a brief pin in ' +
+          'the panel header. Emit a kind WHENEVER it genuinely happened this turn: you switched to a ' +
+          'visual/concrete example (teaching-visual), broke the work into smaller steps ' +
+          '(teaching-decompose), picked up the pace (pace-up), stepped in with more guidance (guidance-up) ' +
+          'or deliberately pulled back (guidance-down), raised or lowered difficulty ' +
+          '(difficulty-up/difficulty-down); or you OBSERVED something: you spotted a NEW misconception ' +
+          '(misconception-detected), confirmed one the student has shown before (prediction-confirmed), ' +
+          'noticed a recurring error pattern (pattern-detected) or saw them stop making one (pattern-broken), ' +
+          'saw a key concept click (concept-understood), saw their confidence rise (confidence-up), or the ' +
+          'student caught their OWN mistake before you pointed it out (self-caught). Most turns carry one or ' +
+          'two; use [] only when truly none apply. Never emit a kind that did not actually happen.',
+      },
     },
-    required: ['say', 'mode', 'solution_progress', 'assessment', 'annotations', 'profile_tags'],
+    required: ['say', 'mode', 'solution_progress', 'assessment', 'annotations', 'profile_tags', 'signals'],
   },
   // Deliberately a turn WITH a real annotation, not an empty-array one --
   // Sprint 14 Task 10 live-find: annotating stayed under-used even after
@@ -228,6 +262,7 @@ const ENVELOPE_TOOL: Anthropic.Tool = {
         { id: 'a2', type: 'highlight', target: { kind: 'textMatch', text: '8t^2' }, style: { color: 'blue' } },
       ],
       profile_tags: [],
+      signals: ['concept-understood'],
     },
   ],
 }

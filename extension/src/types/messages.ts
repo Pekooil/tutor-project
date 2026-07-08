@@ -55,12 +55,6 @@ import type { ActiveSession, AuthUser } from '../lib/storage';
 //                  success, {error} otherwise). `audio` is base64-encoded
 //                  audio/mpeg bytes, decoded for playback only -- never
 //                  persisted (ADR-011).
-//   GET_PROFILE_OVERVIEW (Sprint 13) — content -> background, no payload.
-//                  Reply reuses the same type: GetProfileOverviewReplyPayload
-//                  ({overview} on success, {error} otherwise) — the same
-//                  request/reply type-reuse convention SESSION_STATE already
-//                  uses for GET_STATE. Read-only (ADR-024/025); the overlay
-//                  fetches it fresh on every panel open, never caches it.
 //   SESSION_ENDED  (Sprint 13) — background -> ALL tabs (broadcastToAllTabs,
 //                  the SESSION_STATE push convention), fired once a session
 //                  actually ends, from EITHER the popup's END_SESSION or a
@@ -71,8 +65,8 @@ import type { ActiveSession, AuthUser } from '../lib/storage';
 //                  OpeningScanPayload ({pageContext}, no messages -- the
 //                  content script only sends this after its own plausible-
 //                  problem gate passes). Reply reuses the same type
-//                  (SESSION_STATE/GET_PROFILE_OVERVIEW's request/reply
-//                  convention): OpeningScanReplyPayload ({reply,
+//                  (SESSION_STATE/GET_STATE's request/reply convention):
+//                  OpeningScanReplyPayload ({reply,
 //                  annotations?, profileTags?} on success -- reply is ""
 //                  when the model found nothing confident to say, passed
 //                  through as-is; {error} on failure). The background calls
@@ -101,7 +95,6 @@ export type MessageType =
   | 'VOICE_STT_REPLY'
   | 'VOICE_TTS'
   | 'VOICE_TTS_REPLY'
-  | 'GET_PROFILE_OVERVIEW'
   | 'SESSION_ENDED'
   | 'OPENING_SCAN';
 
@@ -184,14 +177,51 @@ export type Annotation = {
   ttlMs?: number;
 };
 
-// Mirrors /web/lib/ai/envelope.ts's ProfileTag/ProfileTagKind exactly (Sprint
-// 13, ADR-024/026) -- the same by-convention re-declaration as Annotation
-// above. `label` here is already the route's grounded, title-resolved
-// display copy -- the extension never re-derives or re-validates it.
-export type ProfileTagKind = 'reviewing' | 'known-gap' | 'due-review' | 'strength' | 'callback';
+// Mirrors /web/lib/learning/events.ts's StatusPin exactly (Sprint 15,
+// ADR-034 -- the unified transient-signal surface, replacing Sprint 13's
+// ProfileTag pills + TurnPing toasts) -- the same by-convention
+// re-declaration as Annotation above. `label` is already the route's
+// server-rendered display copy (grounded/title-resolved for learning and
+// memory pins, fixed product copy for the model-declared tutor moves) --
+// the extension never re-derives or re-validates it, it only maps `kind` to
+// an icon and `category` to a color. 'final-step' is the ONE kind the
+// extension itself constructs (from the solution-progress signal crossing
+// its threshold, Overlay.tsx); the server never emits it. Shown once in the
+// title card and discarded; never persisted.
+export type StatusPinCategory =
+  | 'prediction'
+  | 'progress'
+  | 'teaching'
+  | 'guidance'
+  | 'difficulty'
+  | 'memory'
+  | 'confidence'
+  | 'independence';
 
-export type ProfileTag = {
-  kind: ProfileTagKind;
+export type StatusPinKind =
+  | 'prediction-confirmed'
+  | 'misconception-detected'
+  | 'pattern-detected'
+  | 'pattern-broken'
+  | 'streak-progress'
+  | 'concept-understood'
+  | 'progress'
+  | 'final-step'
+  | 'teaching-visual'
+  | 'teaching-decompose'
+  | 'pace-up'
+  | 'guidance-up'
+  | 'guidance-down'
+  | 'difficulty-up'
+  | 'difficulty-down'
+  | 'callback'
+  | 'due-review'
+  | 'confidence-up'
+  | 'self-caught';
+
+export type StatusPin = {
+  category: StatusPinCategory;
+  kind: StatusPinKind;
   conceptKey: string | null;
   label: string;
 };
@@ -206,21 +236,20 @@ export type SessionCompletionReason = 'solved' | 'follow-up-declined' | 'follow-
 
 export type SessionCompletion = { complete: true; reason: SessionCompletionReason };
 
-// Sprint 12 / ADR-023 + Sprint 13 / ADR-024/025/026 + Sprint 14 / ADR-027/028:
-// `annotations`, `profileTags`, `pings`, `solutionProgress`, and `session`
-// all ride the existing AI_REPLY payload ADDITIVELY -- each present only
-// when the turn actually produced one (never `null`, never an empty array/
-// default), so a turn with none of the five is byte-identical to Sprint
-// 11's `{ reply }`. None of the five is ever persisted anywhere. Consuming
-// solutionProgress/session (the progress bar, the close choreography) is
-// Sprint 14 Task 7 -- this task only gets them onto the wire and lets the
-// background act on `session.complete` to end the session server-side.
+// Sprint 12 / ADR-023 + Sprint 13 / ADR-024/025/026 + Sprint 14 / ADR-027/028
+// + Sprint 15 / ADR-034: `annotations`, `pins`, `solutionProgress`, and
+// `session` all ride the existing AI_REPLY payload ADDITIVELY -- each
+// present only when the turn actually produced one (never `null`, never an
+// empty array/default), so a turn with none of the four is byte-identical
+// to Sprint 11's `{ reply }`. None of the four is ever persisted anywhere.
+// `pins` REPLACES Sprint 13's separate `profileTags` + `pings` fields
+// (ADR-034 -- the extension and the web routes ship together, so this is a
+// clean rename, not a deprecation dance).
 export type AiReplyPayload =
   | {
       reply: string;
       annotations?: Annotation[];
-      profileTags?: ProfileTag[];
-      pings?: TurnPing[];
+      pins?: StatusPin[];
       solutionProgress?: number;
       session?: SessionCompletion;
     }
@@ -229,9 +258,9 @@ export type AiReplyPayload =
 // Mirrors /web/app/api/profile/overview/route.ts's response shape exactly
 // (Sprint 13, ADR-024/025) -- the source of truth for this shape; titles
 // are resolved server-side (@calyxa/curriculum never ships in this bundle).
-// Read-only, display-ephemeral: the overlay holds this in local state only,
-// re-fetched fresh on every panel open (ADR-024's server-rendered-display /
-// nothing-persisted rules).
+// Kept only for Overlay.tsx's masteryDelta helper (a future recap pass may
+// re-add mastery-change arrows); nothing in the extension fetches this
+// shape over the wire anymore.
 export type ProfileOverview = {
   calibrating: boolean;
   // lastPracticedAt (Sprint 15 fix pass round 2): recency for the overview
@@ -239,24 +268,6 @@ export type ProfileOverview = {
   mastery: Array<{ conceptKey: string; title: string; mastery: number; state: string; confidenceBand: string; lastPracticedAt?: string | null }>;
   weakSpots: Array<{ conceptKey: string; title: string; category: string; description: string }>;
   dueForReview: Array<{ conceptKey: string; title: string; reason: string }>;
-};
-
-export type GetProfileOverviewReplyPayload = { overview: ProfileOverview } | { error: string };
-
-// Mirrors /web/lib/learning/events.ts's TurnPing/TurnPingKind exactly
-// (Sprint 13, ADR-026; widened Sprint 14 Task 5/6, the ADR-026 amendment --
-// mastery-progress and streak-progress join the original two kinds).
-// Computed by the model's own math, never the LLM -- no grounding gate
-// applies to this one. `label` is the full, qualitative, server-rendered
-// toast copy (never a number, ADR-026) -- the extension only renders it.
-// Shown once and discarded; never persisted.
-export type TurnPingKind = 'mastery-up' | 'mastery-progress' | 'misconception-resolved' | 'streak-progress';
-
-export type TurnPing = {
-  kind: TurnPingKind;
-  conceptKey: string;
-  title: string;
-  label: string;
 };
 
 // Mirrors /web/lib/learning/recap.ts's SessionRecap (and its constituent
@@ -343,15 +354,41 @@ export type PageTopic = {
   title: string;
 };
 
-// Mirrors the web route's opening-scan response shape exactly (ADR-030):
-// `reply` may be an empty string -- the model's own "I'm not confident"
-// signal, passed through as-is; the content script (not this type) decides
-// what an empty reply means. NEVER carries assessment/pings/solutionProgress/
+// The check-in's 5b sticking-point candidates (design handoff feature): up
+// to 3 of the student's OWN recorded misconceptions for the check-in's
+// CONFIRMED topic -- grounded server-side (the misconceptions table,
+// ranked occurrence/recency-first, scoped to one conceptKey via predict.ts's
+// pickStickingCandidates), never model-generated. `category`/`description`
+// mirror ActiveMisconception's own fields (web/lib/ai/profile.ts); the
+// overlay humanizes them into a chip label (session-flow.ts's
+// humanizeMisconceptionLabel). Rides the SAME opening-scan response as
+// `topic`/`prediction`, additive; empty/absent when the profile carries
+// nothing recorded for that concept -- the check-in then fills 5b's chips
+// from its fixed generic set (session-flow.ts's buildStickingChips).
+export type StickingCandidate = {
+  category: string;
+  description: string;
+};
+
+// Mirrors the web route's opening-scan response shape (ADR-030): `reply`
+// may be an empty string -- the model's own "I'm not confident" signal,
+// passed through as-is; the content script (not this type) decides what an
+// empty reply means. NEVER carries assessment/pins/solutionProgress/
 // session -- there is nothing yet to grade, score, or close. `prediction`
-// (session-kickoff feature) and `topic` (check-in 5a) ride additively, same
-// omission discipline as annotations/profileTags.
+// (session-kickoff feature), `topic` (check-in 5a), and `stickingCandidates`
+// (check-in 5b) ride additively, same omission discipline as annotations.
+// The route still sends `profileTags` on this reply; the extension stopped
+// consuming them when the transcript's tag pills were retired (ADR-034), so
+// the field is simply not declared here -- an ignored wire field, not an
+// error.
 export type OpeningScanReplyPayload =
-  | { reply: string; annotations?: Annotation[]; profileTags?: ProfileTag[]; prediction?: StrugglePrediction; topic?: PageTopic }
+  | {
+      reply: string;
+      annotations?: Annotation[];
+      prediction?: StrugglePrediction;
+      topic?: PageTopic;
+      stickingCandidates?: StickingCandidate[];
+    }
   | { error: string };
 
 export type VoiceSttPayload = {
@@ -403,8 +440,7 @@ export type VoiceTurnStreamDoneMessage = {
   type: 'done';
   reply: string;
   annotations?: Annotation[];
-  profileTags?: ProfileTag[];
-  pings?: TurnPing[];
+  pins?: StatusPin[];
   solutionProgress?: number;
   session?: SessionCompletion;
 };

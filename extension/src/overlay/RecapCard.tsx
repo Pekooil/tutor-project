@@ -2,9 +2,8 @@ import type { SessionRecap } from '../types/messages';
 import { conceptOutcome, pickRecapInsight } from './session-flow';
 
 // The post-session recap (design handoff state 6b): the panel body's
-// TERMINAL state, replacing the Sprint 14 floating recap window (the
-// floating InsightStrip window now only ever shows the session-start
-// overview). Headline, one outcome row per recap concept (filled check for
+// TERMINAL state, replacing the Sprint 14 floating recap window. Headline,
+// one outcome row per recap concept (filled check for
 // solid/mostly, empty circle for worth-one-more-pass — conceptOutcome's
 // mapping of the recorded counts), the grounded "Worth keeping" process-
 // praise callout when the session earned one, and the two exits: Done for

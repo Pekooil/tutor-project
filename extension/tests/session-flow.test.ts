@@ -1,22 +1,20 @@
-// The check-in -> plan -> recap flow's pure helpers (design handoff states
-// 05/06/07; the kickoff.test.ts slot, replaced with it): copy building and
+// The check-in -> recap flow's pure helpers (design handoff states 05/06b/07;
+// the kickoff.test.ts slot, replaced with it): copy building and
 // deterministic derivation only -- the React wiring stays in the components
-// (CheckinCard/PlanCard/RecapCard/SectionBloom).
+// (CheckinCard/RecapCard/SectionBloom).
 
 import { describe, expect, it } from 'vitest';
 import {
   NOT_SURE_CHIP,
-  PLAN_VARIANT_COUNT,
-  STICKING_CHIPS,
-  TOPIC_FALLBACK_CHIPS,
   bloomLine,
-  buildSessionPlan,
   buildSessionStartMessage,
+  buildStickingChips,
   conceptOutcome,
   formatRecapMeta,
+  humanizeMisconceptionLabel,
   pickRecapInsight,
 } from '../src/overlay/session-flow';
-import type { SessionRecap } from '../src/types/messages';
+import type { SessionRecap, StickingCandidate } from '../src/types/messages';
 
 function makeRecap(overrides: Partial<SessionRecap> = {}): SessionRecap {
   return {
@@ -41,46 +39,10 @@ describe('buildSessionStartMessage — the check-in answers as a real student tu
     expect(buildSessionStartMessage('SOH-CAH-TOA review', 'The algebra steps')).toContain('SOH-CAH-TOA review');
   });
 
-  it('phrases the fallback chips naturally instead of echoing the label', () => {
-    expect(buildSessionStartMessage('Homework set', 'The algebra steps')).toContain('my homework set');
-    expect(buildSessionStartMessage('Exam prep', 'The algebra steps')).toContain('exam prep');
-  });
-
   it('never echoes the not-sure sentinel as a named weakness', () => {
     const message = buildSessionStartMessage('Quadratic equations', NOT_SURE_CHIP);
     expect(message).not.toContain(NOT_SURE_CHIP.toLowerCase());
     expect(message).toContain('not sure where it usually goes wrong');
-  });
-});
-
-describe('buildSessionPlan — three steps, deterministic reshuffle', () => {
-  it('always yields exactly 3 steps whose minutes sum to totalMinutes', () => {
-    for (let variant = 0; variant < PLAN_VARIANT_COUNT; variant++) {
-      const plan = buildSessionPlan('Quadratic equations', 'Choosing a method', variant);
-      expect(plan.steps).toHaveLength(3);
-      expect(plan.totalMinutes).toBe(plan.steps.reduce((sum, step) => sum + step.minutes, 0));
-    }
-  });
-
-  it("bolds the student's own sticking point in the lead line", () => {
-    const plan = buildSessionPlan('Quadratic equations', 'Choosing a method', 0);
-    expect(plan.lead.emphasis).toBe('choosing a method');
-    expect(plan.lead.before).toContain('Quadratic equations');
-    expect(plan.lead.after).toContain('your words, not mine');
-  });
-
-  it('drops the emphasis (no invented weakness) on the not-sure answer', () => {
-    const plan = buildSessionPlan('Quadratic equations', NOT_SURE_CHIP, 0);
-    expect(plan.lead.emphasis).toBeUndefined();
-    expect(plan.steps.some((step) => step.title.includes('Find the sticking point'))).toBe(true);
-  });
-
-  it('reshuffles deterministically and cycles back after PLAN_VARIANT_COUNT', () => {
-    const first = buildSessionPlan('Quadratic equations', 'Choosing a method', 0);
-    const second = buildSessionPlan('Quadratic equations', 'Choosing a method', 1);
-    const wrapped = buildSessionPlan('Quadratic equations', 'Choosing a method', PLAN_VARIANT_COUNT);
-    expect(second.steps[0].title).not.toBe(first.steps[0].title);
-    expect(wrapped).toEqual(first);
   });
 });
 
@@ -158,14 +120,88 @@ describe('bloomLine — the section-complete card subtitle', () => {
   });
 });
 
-describe('the fixed chip sets (design copy, pinned)', () => {
-  it('matches the design board exactly', () => {
-    expect(STICKING_CHIPS).toEqual([
+describe('humanizeMisconceptionLabel — a recorded misconception as chip text', () => {
+  it('prefers the free-text description when one was logged', () => {
+    expect(humanizeMisconceptionLabel({ category: 'sign-errors', description: 'drops the negative sign' })).toBe(
+      'drops the negative sign',
+    );
+  });
+
+  it('falls back to the humanized category when the description is empty/whitespace', () => {
+    expect(humanizeMisconceptionLabel({ category: 'sign_error.distribution', description: '' })).toBe(
+      'sign error distribution',
+    );
+    expect(humanizeMisconceptionLabel({ category: 'setup-errors', description: '   ' })).toBe('setup errors');
+  });
+});
+
+describe('buildStickingChips — the personalized 5b sticking-point chips', () => {
+  const signErrors: StickingCandidate = { category: 'sign-errors', description: 'drops the negative sign' };
+  const setupErrors: StickingCandidate = { category: 'setup-errors', description: 'writes the equation backwards' };
+  const methodChoice: StickingCandidate = { category: 'method-choice', description: '' };
+
+  it('with zero recorded candidates, falls back to the exact original fixed set (byte-identical to the design board)', () => {
+    const chips = buildStickingChips([]);
+    expect(chips.map((chip) => chip.value)).toEqual([
       'Setting up the equation',
       'Choosing a method',
       'The algebra steps',
       'Honestly, not sure',
     ]);
-    expect(TOPIC_FALLBACK_CHIPS).toEqual(['Homework set', 'Exam prep', 'Something else']);
+    expect(chips.every((chip) => !chip.personalized)).toBe(true);
+    expect(chips.map((chip) => chip.rank)).toEqual([1, 2, 3, null]);
+  });
+
+  it('with 3 recorded candidates, all three ranked slots are personalized and none of the generic pool appears', () => {
+    const chips = buildStickingChips([signErrors, setupErrors, methodChoice]);
+    expect(chips).toHaveLength(4);
+    expect(chips.slice(0, 3).every((chip) => chip.personalized)).toBe(true);
+    expect(chips.map((chip) => chip.value)).toEqual([
+      'drops the negative sign',
+      'writes the equation backwards',
+      'method choice', // humanized category, description was empty
+      NOT_SURE_CHIP,
+    ]);
+    expect(chips[3]).toEqual({ value: NOT_SURE_CHIP, label: NOT_SURE_CHIP, rank: null, personalized: false });
+  });
+
+  it('with 1 recorded candidate, fills the remaining 2 ranked slots from the generic pool, in order', () => {
+    const chips = buildStickingChips([signErrors]);
+    expect(chips.map((chip) => ({ value: chip.value, personalized: chip.personalized, rank: chip.rank }))).toEqual([
+      { value: 'drops the negative sign', personalized: true, rank: 1 },
+      { value: 'Setting up the equation', personalized: false, rank: 2 },
+      { value: 'Choosing a method', personalized: false, rank: 3 },
+      { value: NOT_SURE_CHIP, personalized: false, rank: null },
+    ]);
+  });
+
+  it('every one of the top 3 is labeled "Top N possible misconception," regardless of personalized/generic source', () => {
+    const personalizedOnly = buildStickingChips([signErrors]);
+    // rank 1 (real) and rank 2/3 (generic fill) all get the label -- the
+    // per-chip `rank` field IS that label's number; the not-sure chip (rank
+    // null) is the only one excluded.
+    expect(personalizedOnly.filter((chip) => chip.rank !== null)).toHaveLength(3);
+    expect(personalizedOnly.map((chip) => chip.rank)).toEqual([1, 2, 3, null]);
+  });
+
+  it('caps at 3 ranked slots even when handed more than 3 candidates', () => {
+    const extra: StickingCandidate = { category: 'extra', description: 'a fourth one that must never appear' };
+    const chips = buildStickingChips([signErrors, setupErrors, methodChoice, extra]);
+    expect(chips).toHaveLength(4);
+    expect(chips.map((chip) => chip.value)).not.toContain('a fourth one that must never appear');
+  });
+
+  it('skips a generic fallback option that would exactly duplicate a personalized chip already shown', () => {
+    const chips = buildStickingChips([{ category: 'method-choice', description: 'Choosing a method' }]);
+    const values = chips.map((chip) => chip.value);
+    // "Choosing a method" appears exactly once (from the personalized slot),
+    // never a second time as a generic-pool duplicate.
+    expect(values.filter((value) => value === 'Choosing a method')).toHaveLength(1);
+  });
+
+  it('capitalizes the display label but leaves `value` as the raw (sentence-friendly) text', () => {
+    const chips = buildStickingChips([signErrors]);
+    expect(chips[0].value).toBe('drops the negative sign');
+    expect(chips[0].label).toBe('Drops the negative sign');
   });
 });

@@ -91,7 +91,6 @@ const DUE_OVERDUE_DAYS = 2
 let userTags: { id: string }
 let tokenTags: string
 const TAG_MASTERY_CONCEPT = 'algebra.quadratics.factoring'
-const TAG_MASTERY_TITLE = 'Factoring quadratics'
 const TAG_DUE_CONCEPT = 'algebra.linear-equations.one-variable'
 const TAG_DUE_TITLE = 'One-variable linear equations'
 const TAG_CALLBACK_CONCEPT = 'algebra.exponents.power-rule'
@@ -113,6 +112,21 @@ let tokenPings: string
 // earlier test's fixture for the same concept.
 let userPingsWide: { id: string }
 let tokenPingsWide: string
+
+// A seventh fixture user (design-handoff feature, check-in 5b's
+// personalized sticking-point candidates): one knowledge_nodes row on
+// STICKING_CONCEPT (so the profile doesn't calibrate-empty, which would
+// force activeMisconceptions to [] regardless of the misconceptions rows
+// below) plus FOUR active misconceptions rows on that SAME concept, seeded
+// with deliberately distinct occurrence_count/last_seen_at so the ranked-
+// top-3 + the dropped 4th are both independently verifiable. A DEDICATED
+// user (row scoping is per-user via RLS, so reusing the same concept key
+// other fixtures already use is fine -- e.g. TAG_MASTERY_CONCEPT is the
+// same key -- but sharing userTags's own ONE existing misconceptions row
+// here would have broken its "exactly one active misconception" framing).
+let userSticking: { id: string }
+let tokenSticking: string
+const STICKING_CONCEPT = 'algebra.quadratics.factoring'
 
 // --- Fake Anthropic backend ---
 // We spawn a REAL `next dev` below (not a direct route-function call) for the
@@ -557,6 +571,88 @@ beforeAll(async () => {
     throw new Error(`sign-in failed (pings-wide user): ${signInPingsWideErr?.message}`)
   }
   tokenPingsWide = signInPingsWide.session.access_token
+
+  // --- userSticking fixture (design-handoff feature -- see the declaration's
+  // comment): one knowledge_nodes row + four misconceptions rows on the SAME
+  // concept, occurrence_count/last_seen_at deliberately staggered so the
+  // ranked order is unambiguous and independent of insertion order.
+  const stickingEmail = `darcy20080911+calyxaaiturnsticking${Date.now()}@gmail.com`
+  const { data: createdSticking, error: stickingErr } = await admin.auth.admin.createUser({
+    email: stickingEmail,
+    password: PASSWORD,
+    email_confirm: true,
+  })
+  if (stickingErr || !createdSticking.user) {
+    throw new Error(`fixture setup failed (sticking user): ${stickingErr?.message}`)
+  }
+  userSticking = { id: createdSticking.user.id }
+
+  const { error: stickingNodeErr } = await admin.from('knowledge_nodes').insert({
+    user_id: userSticking.id,
+    concept_key: STICKING_CONCEPT,
+    mastery: 0.4,
+    stability: 3,
+    state: 'weak',
+    confidence_band: 'low',
+    observation_count: 5,
+    last_practiced_at: new Date().toISOString(),
+  })
+  if (stickingNodeErr) throw new Error(`fixture setup failed (sticking knowledge_nodes seed): ${stickingNodeErr.message}`)
+
+  const now = Date.now()
+  const { error: stickingMisconceptionsErr } = await admin.from('misconceptions').insert([
+    {
+      user_id: userSticking.id,
+      concept_key: STICKING_CONCEPT,
+      category: 'sign-errors',
+      description: 'drops the negative sign when distributing',
+      status: 'active',
+      occurrence_count: 5,
+      last_seen_at: new Date(now).toISOString(),
+    },
+    {
+      user_id: userSticking.id,
+      concept_key: STICKING_CONCEPT,
+      category: 'setup-errors',
+      description: 'writes the equation with the wrong sign on b',
+      status: 'active',
+      occurrence_count: 3,
+      last_seen_at: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      user_id: userSticking.id,
+      concept_key: STICKING_CONCEPT,
+      category: 'method-choice',
+      description: 'guesses between factoring and the formula',
+      status: 'active',
+      occurrence_count: 2,
+      last_seen_at: new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    // A 4th, deliberately the LOWEST-ranked -- must never surface once the
+    // route caps stickingCandidates at 3.
+    {
+      user_id: userSticking.id,
+      concept_key: STICKING_CONCEPT,
+      category: 'extra-mistake',
+      description: 'should never appear -- capped at 3',
+      status: 'active',
+      occurrence_count: 1,
+      last_seen_at: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+  ])
+  if (stickingMisconceptionsErr) {
+    throw new Error(`fixture setup failed (sticking misconceptions seed): ${stickingMisconceptionsErr.message}`)
+  }
+
+  const stickingClient = createClient(url, anonKey)
+  const { data: signInSticking, error: signInStickingErr } = await stickingClient.auth.signInWithPassword({
+    email: stickingEmail,
+    password: PASSWORD,
+  })
+  if (signInStickingErr || !signInSticking.session) {
+    throw new Error(`sign-in failed (sticking user): ${signInStickingErr?.message}`)
+  }
+  tokenSticking = signInSticking.session.access_token
 }, 45000)
 
 afterAll(async () => {
@@ -567,7 +663,7 @@ afterAll(async () => {
   // -> users -> auth user. `user` needs this too as of Sprint 11: the
   // ADR-019 positive-path test drives a real session + interaction + apply
   // for it (before Sprint 11 that user owned no rows at all).
-  for (const fixture of [userPingsWide, userPings, userTags, userDue, userDecayed, userWithProfile, user]) {
+  for (const fixture of [userSticking, userPingsWide, userPings, userTags, userDue, userDecayed, userWithProfile, user]) {
     if (!fixture) continue
     await admin.from('session_interactions').delete().eq('user_id', fixture.id)
     await admin.from('sessions').delete().eq('user_id', fixture.id)
@@ -1352,18 +1448,24 @@ describe('/api/ai/turn: solutionProgress + session (Sprint 14, ADR-027/028)', ()
   })
 })
 
-// --- Sprint 13 Task 9: the tag + callback grounding gate (ADR-024/026) ---
+// --- Sprint 13 Task 9: the tag + callback grounding gate (ADR-024/026;
+// re-surfaced as memory pins by ADR-034) ---
 // envelope.test.ts already pins parseProfileTag's own structural contract;
-// these assert the SEPARATE, decisive authority -- turn/route.ts's
+// these assert the SEPARATE, decisive authority -- turn-complete.ts's
 // groundProfileTags, which verifies each structurally-valid tag against the
 // EXACT LearningProfile this request injected, using userTags's fixture
 // profile (one mastery node + active misconception on TAG_MASTERY_CONCEPT,
 // one due item on TAG_DUE_CONCEPT, one real prior-session digest entry on
-// TAG_CALLBACK_CONCEPT). envelope.ts's MAX_PROFILE_TAGS caps the parsed
-// array at 2 BEFORE grounding ever runs, so each case below sends exactly
-// one tag to isolate what's under test.
-describe('/api/ai/turn: profile-tag grounding gate', () => {
-  it('a "reviewing" tag on a listed mastery node is grounded, with its label replaced by the curriculum title', async () => {
+// TAG_CALLBACK_CONCEPT). Since ADR-034 the response carries no profileTags
+// field at all: the two cross-session kinds (due-review / callback)
+// surface as memory-category status pins, and the other three kinds
+// (reviewing / strength / known-gap) are grounding-only -- a grounded one
+// and a dropped one are both invisible in the response, which is exactly
+// the contract these first three cases pin. envelope.ts's MAX_PROFILE_TAGS
+// caps the parsed array at 2 BEFORE grounding ever runs, so each case below
+// sends exactly one tag to isolate what's under test.
+describe('/api/ai/turn: profile-tag grounding gate -> memory pins', () => {
+  it('a grounded "reviewing" tag no longer surfaces anywhere in the response (grounding-only kind)', async () => {
     nextResponse = {
       status: 200,
       body: fakeTextMessage(
@@ -1377,10 +1479,10 @@ describe('/api/ai/turn: profile-tag grounding gate', () => {
     const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: 'more factoring practice' }] })
 
     expect(status).toBe(200)
-    expect(json.profileTags).toEqual([{ kind: 'reviewing', conceptKey: TAG_MASTERY_CONCEPT, label: TAG_MASTERY_TITLE }])
+    expect(Object.keys(json)).toEqual(['reply'])
   })
 
-  it('a "strength" tag on the same listed mastery node is grounded, title-replaced the same way', async () => {
+  it('a grounded "strength" tag no longer surfaces anywhere in the response (grounding-only kind)', async () => {
     nextResponse = {
       status: 200,
       body: fakeTextMessage(
@@ -1394,10 +1496,10 @@ describe('/api/ai/turn: profile-tag grounding gate', () => {
     const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: 'another one' }] })
 
     expect(status).toBe(200)
-    expect(json.profileTags).toEqual([{ kind: 'strength', conceptKey: TAG_MASTERY_CONCEPT, label: TAG_MASTERY_TITLE }])
+    expect(Object.keys(json)).toEqual(['reply'])
   })
 
-  it('a "known-gap" tag matching a listed ACTIVE misconception\'s concept key is grounded, keeping the model\'s own label', async () => {
+  it('a grounded "known-gap" tag no longer surfaces anywhere in the response (grounding-only kind)', async () => {
     nextResponse = {
       status: 200,
       body: fakeTextMessage(
@@ -1411,12 +1513,10 @@ describe('/api/ai/turn: profile-tag grounding gate', () => {
     const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: '-(x+2) = -x+2' }] })
 
     expect(status).toBe(200)
-    // known-gap keeps the model's label verbatim (truncated, never
-    // title-replaced) -- it describes the error, which no curriculum title can.
-    expect(json.profileTags).toEqual([{ kind: 'known-gap', conceptKey: TAG_MASTERY_CONCEPT, label: 'sign errors' }])
+    expect(Object.keys(json)).toEqual(['reply'])
   })
 
-  it('a "due-review" tag on a listed due item is grounded, title-replaced', async () => {
+  it('a grounded "due-review" tag surfaces as a memory pin, title-resolved by the grounding gate', async () => {
     nextResponse = {
       status: 200,
       body: fakeTextMessage(
@@ -1430,10 +1530,14 @@ describe('/api/ai/turn: profile-tag grounding gate', () => {
     const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: 'ready to review' }] })
 
     expect(status).toBe(200)
-    expect(json.profileTags).toEqual([{ kind: 'due-review', conceptKey: TAG_DUE_CONCEPT, label: TAG_DUE_TITLE }])
+    // The model's own label never survives: the grounding gate replaced it
+    // with the curriculum title, and the pin copy is built from that.
+    expect(json.pins).toEqual([
+      { category: 'memory', kind: 'due-review', conceptKey: TAG_DUE_CONCEPT, label: `Reviewing: ${TAG_DUE_TITLE}` },
+    ])
   })
 
-  it('a "callback" tag naming a REAL priorWork entry is grounded, keeping the model\'s own label', async () => {
+  it('a grounded "callback" tag surfaces as a memory pin with FIXED copy -- the model\'s phrasing belongs in `say`, never the pin', async () => {
     nextResponse = {
       status: 200,
       body: fakeTextMessage(
@@ -1447,10 +1551,12 @@ describe('/api/ai/turn: profile-tag grounding gate', () => {
     const { status, json } = await turn(tokenTags, { messages: [{ role: 'user', content: 'x^3 * x^4' }] })
 
     expect(status).toBe(200)
-    expect(json.profileTags).toEqual([{ kind: 'callback', conceptKey: TAG_CALLBACK_CONCEPT, label: 'a few sessions ago' }])
+    expect(json.pins).toEqual([
+      { category: 'memory', kind: 'callback', conceptKey: TAG_CALLBACK_CONCEPT, label: 'Building on a previous session' },
+    ])
   })
 
-  it('a "known-gap" tag on a concept with NO active misconception is dropped -- the field is omitted, not empty', async () => {
+  it('a "known-gap" tag on a concept with NO active misconception is dropped -- no field appears, not an empty one', async () => {
     nextResponse = {
       status: 200,
       body: fakeTextMessage(
@@ -1467,7 +1573,7 @@ describe('/api/ai/turn: profile-tag grounding gate', () => {
     expect(Object.keys(json)).toEqual(['reply'])
   })
 
-  it('a "callback" tag naming a session/concept absent from priorWork is dropped', async () => {
+  it('a "callback" tag naming a session/concept absent from priorWork is dropped -- no memory pin rides', async () => {
     nextResponse = {
       status: 200,
       body: fakeTextMessage(
@@ -1484,7 +1590,7 @@ describe('/api/ai/turn: profile-tag grounding gate', () => {
     expect(Object.keys(json)).toEqual(['reply'])
   })
 
-  it('a "due-review" tag on a concept that is not actually due is dropped', async () => {
+  it('a "due-review" tag on a concept that is not actually due is dropped -- no memory pin rides', async () => {
     nextResponse = {
       status: 200,
       body: fakeTextMessage(
@@ -1529,7 +1635,7 @@ describe('/api/ai/turn: profile-tag grounding gate', () => {
     })
 
     expect(status).toBe(200)
-    expect(json.profileTags).toHaveLength(1)
+    expect(json.profileTags).toBeUndefined()
 
     const { data, count } = await admin
       .from('session_interactions')
@@ -1542,13 +1648,15 @@ describe('/api/ai/turn: profile-tag grounding gate', () => {
   })
 })
 
-// --- Sprint 13 Task 9: turn-time event pings (ADR-026) ---
-// Pings only ride the response when persistInteraction actually scheduled
-// the off-critical-path apply (a real, owned sessionId), so every case here
-// starts a real session first. Each concept is seeded directly via the
-// service role (fixture data, not the write path -- computeTurnPings' READ
-// of it is what's under test) and touched by exactly one real turn.
-describe('/api/ai/turn: event pings', () => {
+// --- Sprint 13 Task 9: turn-time learning-event pins (ADR-026; renamed and
+// re-shaped by ADR-034's status pins) ---
+// Learning-event pins only ride the response when persistInteraction
+// actually scheduled the off-critical-path apply (a real, owned sessionId),
+// so every case here starts a real session first. Each concept is seeded
+// directly via the service role (fixture data, not the write path --
+// computeStatusPins' READ of it is what's under test) and touched by
+// exactly one real turn.
+describe('/api/ai/turn: learning-event pins', () => {
   async function seedNode(
     conceptKey: string,
     row: {
@@ -1616,36 +1724,41 @@ describe('/api/ai/turn: event pings', () => {
     return turn(bearer, { sessionId: started.json.sessionId, messages: [{ role: 'user', content: 'my attempt' }] })
   }
 
-  it('a state-crossing update (weak -> learning) fires exactly one mastery-up ping', async () => {
+  it('a state-crossing update (weak -> learning) fires exactly one concept-understood pin', async () => {
     const conceptKey = 'algebra.polynomials.expanding'
     await seedNode(conceptKey, { mastery: 0.45, stability: 5, state: 'weak', confidenceBand: 'low', observationCount: 2 })
 
     const { status, json } = await soundCorrectTurn(conceptKey)
 
     expect(status).toBe(200)
-    expect(json.pings).toEqual([
-      { kind: 'mastery-up', conceptKey, title: 'Expanding polynomials', label: 'Leveled up: Expanding polynomials' },
+    expect(json.pins).toEqual([
+      {
+        category: 'progress',
+        kind: 'concept-understood',
+        conceptKey,
+        label: 'Key concept understood: Expanding polynomials',
+      },
     ])
   })
 
-  it('an in-state tick (learning -> learning) fires no ping', async () => {
+  it('an in-state tick (learning -> learning) fires no pin', async () => {
     const conceptKey = 'algebra.inequalities.linear'
     await seedNode(conceptKey, { mastery: 0.6, stability: 10, state: 'learning', confidenceBand: 'medium', observationCount: 5 })
 
     const { status, json } = await soundCorrectTurn(conceptKey)
 
     expect(status).toBe(200)
-    expect(json.pings).toBeUndefined()
+    expect(json.pins).toBeUndefined()
   })
 
-  it('mastery already at the mastered threshold but held in "learning" by a low confidence band fires no ping (a band-gated state, not a boundary crossing)', async () => {
+  it('mastery already at the mastered threshold but held in "learning" by a low confidence band fires no pin (a band-gated state, not a boundary crossing)', async () => {
     const conceptKey = 'algebra.quadratics.formula'
     // mastery 0.9 would clear MASTERED_THRESHOLD, but confidence_band 'low'
     // (observation_count 1) blocks deriveState's mastered branch, so the
     // STORED state is 'learning' -- and stays 'learning' after this turn,
     // since observationCount is still < the low/medium boundary. No
-    // MasteryState transition occurs, so no ping -- exactly the "band
-    // upticks alone never ping" contract (ADR-026), since the ping
+    // MasteryState transition occurs, so no pin -- exactly the "band
+    // upticks alone never ping" contract (ADR-026), since the pin
     // computation only ever looks at the state label, never the band.
     await seedNode(conceptKey, {
       mastery: 0.9,
@@ -1658,10 +1771,10 @@ describe('/api/ai/turn: event pings', () => {
     const { status, json } = await soundCorrectTurn(conceptKey)
 
     expect(status).toBe(200)
-    expect(json.pings).toBeUndefined()
+    expect(json.pins).toBeUndefined()
   })
 
-  it('a first-ever (unseen) observation fires no ping -- first contact is never an improvement', async () => {
+  it('a first-ever (unseen) observation fires no pin -- first contact is never an improvement', async () => {
     // No seed row at all -- computeNodeUpdate reads priorState 'unseen'.
     // Under the current constants a fresh node's mastery can only reach
     // ~0.3 on one observation (BASE_K=0.3, confidenceWeight(0)=1), which
@@ -1669,19 +1782,19 @@ describe('/api/ai/turn: event pings', () => {
     // named upward transition either, so this also pins the exclusion at
     // the only value first contact can actually produce. The ~0.3 delta
     // comfortably clears MASTERY_PROGRESS_THRESHOLD (0.1) too, so this ALSO
-    // pins mastery-progress's "(and not from unseen)" exclusion (Sprint 14
+    // pins the progress kind's "(and not from unseen)" exclusion (Sprint 14
     // Task 5/9) -- a big single-turn gain from a truly unseen concept still
-    // produces no ping of either kind, since 'unseen' is never a member of
+    // produces no pin of either kind, since 'unseen' is never a member of
     // MASTERY_PROGRESS_STATES regardless of the transition it lands on.
     const conceptKey = 'algebra.linear-equations.two-variable'
 
     const { status, json } = await soundCorrectTurn(conceptKey)
 
     expect(status).toBe(200)
-    expect(json.pings).toBeUndefined()
+    expect(json.pins).toBeUndefined()
   })
 
-  it('a stored "unseen" row that jumps straight to "learning" on one turn fires mastery-up (Sprint 14 Task 5\'s first-contact widening)', async () => {
+  it('a stored "unseen" row that jumps straight to "learning" on one turn fires concept-understood (Sprint 14 Task 5\'s first-contact widening)', async () => {
     // Unlike the no-seed-row case above, an EXISTING row can be explicitly
     // stored with state 'unseen' (priorState reads the stored column
     // verbatim, apply.ts) at a mastery high enough that one sound-correct
@@ -1702,12 +1815,17 @@ describe('/api/ai/turn: event pings', () => {
     const { status, json } = await soundCorrectTurn(conceptKey, null, tokenPingsWide)
 
     expect(status).toBe(200)
-    expect(json.pings).toEqual([
-      { kind: 'mastery-up', conceptKey, title: 'Expanding polynomials', label: 'Leveled up: Expanding polynomials' },
+    expect(json.pins).toEqual([
+      {
+        category: 'progress',
+        kind: 'concept-understood',
+        conceptKey,
+        label: 'Key concept understood: Expanding polynomials',
+      },
     ])
   })
 
-  it('a stored "unseen" row that jumps straight to "mastered" on one turn fires mastery-up (Sprint 14 Task 5\'s first-contact widening)', async () => {
+  it('a stored "unseen" row that jumps straight to "mastered" on one turn fires concept-understood (Sprint 14 Task 5\'s first-contact widening)', async () => {
     // Same mastery/stability/observationCount as the mastered-crossing
     // fixture above (0.84 -> clears MASTERED_THRESHOLD), stored state
     // 'unseen' instead of 'learning'. userPingsWide again (fresh user).
@@ -1721,17 +1839,17 @@ describe('/api/ai/turn: event pings', () => {
     const { status, json } = await soundCorrectTurn(conceptKey, null, tokenPingsWide)
 
     expect(status).toBe(200)
-    expect(json.pings).toEqual([
-      { kind: 'mastery-up', conceptKey, title: 'The quadratic formula', label: 'Mastered: The quadratic formula' },
+    expect(json.pins).toEqual([
+      { category: 'progress', kind: 'concept-understood', conceptKey, label: 'Mastered: The quadratic formula' },
     ])
   })
 
-  it('an in-state gain >= MASTERY_PROGRESS_THRESHOLD (0.10) fires exactly one mastery-progress ping (Sprint 14 Task 5)', async () => {
+  it('an in-state gain >= MASTERY_PROGRESS_THRESHOLD (0.10) fires exactly one progress pin (Sprint 14 Task 5)', async () => {
     // observationCount 0 -> K = BASE_K(0.3) * confidenceWeight(0)(=1) = 0.3;
     // mastery 0.5 -> 0.5 + 0.3*(1-0.5) = 0.65, a 0.15 delta, comfortably
     // over the 0.10 threshold, both ends inside 'learning' (no crossing --
-    // mastery-up's exclusive branch never fires, so this is the ONLY ping).
-    // userPingsWide again (fresh user).
+    // concept-understood's exclusive branch never fires, so this is the
+    // ONLY pin). userPingsWide again (fresh user).
     const conceptKey = 'algebra.quadratics.factoring'
     await seedNode(
       conceptKey,
@@ -1742,12 +1860,12 @@ describe('/api/ai/turn: event pings', () => {
     const { status, json } = await soundCorrectTurn(conceptKey, null, tokenPingsWide)
 
     expect(status).toBe(200)
-    expect(json.pings).toEqual([
-      { kind: 'mastery-progress', conceptKey, title: 'Factoring quadratics', label: 'Progress: Factoring quadratics' },
+    expect(json.pins).toEqual([
+      { category: 'progress', kind: 'progress', conceptKey, label: 'Progress: Factoring quadratics' },
     ])
   })
 
-  it('an in-state gain BELOW MASTERY_PROGRESS_THRESHOLD fires no ping (a routine tick, not a celebration-worthy jump)', async () => {
+  it('an in-state gain BELOW MASTERY_PROGRESS_THRESHOLD fires no pin (a routine tick, not a celebration-worthy jump)', async () => {
     // observationCount 1 -> K = 0.3 * confidenceWeight(1)(=0.5) = 0.15;
     // mastery 0.7 -> 0.7 + 0.15*(1-0.7) = 0.745, a 0.045 delta -- well under
     // 0.10, both ends inside 'learning' (no crossing). userPingsWide again.
@@ -1761,29 +1879,29 @@ describe('/api/ai/turn: event pings', () => {
     const { status, json } = await soundCorrectTurn(conceptKey, null, tokenPingsWide)
 
     expect(status).toBe(200)
-    expect(json.pings).toBeUndefined()
+    expect(json.pins).toBeUndefined()
   })
 
-  it('a correct/sound answer that completes the 3-correct resolution streak fires exactly one misconception-resolved ping, NEVER also streak-progress on the same (completing) turn (Sprint 14 Task 5\'s superseding rule)', async () => {
+  it('a correct/sound answer that completes the 3-correct resolution streak fires exactly one pattern-broken pin, NEVER also streak-progress on the same (completing) turn (Sprint 14 Task 5\'s superseding rule)', async () => {
     const conceptKey = 'algebra.exponents.product-rule'
     // Mastery stays inside 'learning' before and after (no crossing), so the
-    // resolved ping is the ONLY ping this turn produces. Structural, not a
-    // runtime special-case (events.ts): the resolving/almostResolving checks
-    // are mutually exclusive (RESOLUTION_STREAK vs. RESOLUTION_STREAK - 1
-    // can never both match one row's post-turn consecutive_correct), so the
-    // exact-array assertion below is what actually pins "never both."
+    // pattern-broken pin is the ONLY pin this turn produces. Structural, not
+    // a runtime special-case (events.ts): the resolving/almostResolving
+    // checks are mutually exclusive (RESOLUTION_STREAK vs. RESOLUTION_STREAK
+    // - 1 can never both match one row's post-turn consecutive_correct), so
+    // the exact-array assertion below is what actually pins "never both."
     await seedNode(conceptKey, { mastery: 0.8, stability: 20, state: 'learning', confidenceBand: 'medium', observationCount: 6 })
     await seedMisconception(conceptKey, 2)
 
     const { status, json } = await soundCorrectTurn(conceptKey)
 
     expect(status).toBe(200)
-    expect(json.pings).toEqual([
-      { kind: 'misconception-resolved', conceptKey, title: 'The product rule for exponents', label: 'Gap closed: sign errors' },
+    expect(json.pins).toEqual([
+      { category: 'progress', kind: 'pattern-broken', conceptKey, label: 'Pattern broken: sign errors' },
     ])
   })
 
-  it('a correct/sound answer at streak 1 -> 2 (RESOLUTION_STREAK - 1, not yet resolved) fires exactly one streak-progress ping (Sprint 14 Task 5 -- Sprint 13 kept this silent, deliberately reversed)', async () => {
+  it('a correct/sound answer at streak 1 -> 2 (RESOLUTION_STREAK - 1, not yet resolved) fires exactly one streak-progress pin (Sprint 14 Task 5 -- Sprint 13 kept this silent, deliberately reversed)', async () => {
     const conceptKey = 'algebra.exponents.power-rule'
     await seedNode(conceptKey, { mastery: 0.8, stability: 20, state: 'learning', confidenceBand: 'medium', observationCount: 6 })
     await seedMisconception(conceptKey, 1)
@@ -1791,27 +1909,92 @@ describe('/api/ai/turn: event pings', () => {
     const { status, json } = await soundCorrectTurn(conceptKey)
 
     expect(status).toBe(200)
-    expect(json.pings).toEqual([
-      { kind: 'streak-progress', conceptKey, title: 'The power rule for exponents', label: 'Almost closed: sign errors (2 of 3)' },
+    expect(json.pins).toEqual([
+      { category: 'progress', kind: 'streak-progress', conceptKey, label: 'Almost broken: sign errors (2 of 3)' },
     ])
   })
 
-  it('a turn that flags a NEWLY detected misconception fires no ping (it surfaces later, only in the recap)', async () => {
+  it('the SERVER never auto-computes a pin for a newly detected misconception (only the model can, via a signal)', async () => {
+    // A new (not-yet-recorded) misconception produces no server-side
+    // learning-event pin -- the deterministic FSRS path stays silent on new
+    // gaps (ADR-026). The MODEL may still surface it by emitting a
+    // "misconception-detected" signal (ADR-034); this turn emits none, so
+    // with no signals and no server event, no pin rides.
     const conceptKey = 'algebra.linear-equations.one-variable'
 
     const { status, json } = await soundCorrectTurn(conceptKey, 'sign_error.distribution')
 
     expect(status).toBe(200)
-    expect(json.pings).toBeUndefined()
+    expect(json.pins).toBeUndefined()
   })
 
-  it('pings are never persisted -- session_interactions keeps its Sprint 11 shape', async () => {
+  it('the model\'s own signals become pins with fixed product copy, enriched from the assessment (ADR-034 -- the primary driver)', async () => {
+    // No seeded mastery/misconception rows -> no server-computed learning
+    // pin. The pins here come entirely from the model's `signals` array,
+    // proving the model is the volume driver. `misconception-detected`'s
+    // label is enriched with the flagged category; the teaching move keeps
+    // its fixed copy; both carry the assessed conceptKey.
+    const conceptKey = 'algebra.functions.notation'
+    const started = await start(tokenPingsWide, { mode: 'text' })
+    expect(started.status).toBe(200)
+
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(
+        JSON.stringify({
+          say: 'Let me break this into smaller steps.',
+          assessment: {
+            concept_key: conceptKey,
+            outcome: 'incorrect',
+            reasoning_quality: 'shallow',
+            self_confidence: 'low',
+            misconception_category: 'notation-confusion',
+            confidence: 'high',
+          },
+          signals: ['teaching-decompose', 'misconception-detected'],
+        })
+      ),
+    }
+
+    const { status, json } = await turn(tokenPingsWide, {
+      sessionId: started.json.sessionId,
+      messages: [{ role: 'user', content: 'f(x) attempt' }],
+    })
+
+    expect(status).toBe(200)
+    expect(json.pins).toEqual([
+      { category: 'teaching', kind: 'teaching-decompose', conceptKey, label: 'Breaking it into smaller steps' },
+      { category: 'prediction', kind: 'misconception-detected', conceptKey, label: 'New misconception spotted: notation confusion' },
+    ])
+  })
+
+  it('a flagged misconception matching an ACTIVE recorded one fires a prediction-confirmed pin (ADR-034) -- recurrence, never first occurrence', async () => {
+    const conceptKey = 'algebra.systems.elimination-substitution'
+    // The stored category is 'sign-errors'; the model flags "sign errors" --
+    // the same separator/case folding the tag grounding gate uses must
+    // bridge that gap, or a real recurrence would never confirm.
+    await seedNode(
+      conceptKey,
+      { mastery: 0.6, stability: 10, state: 'learning', confidenceBand: 'medium', observationCount: 5 },
+      userPingsWide.id
+    )
+    await seedMisconception(conceptKey, 0, userPingsWide.id)
+
+    const { status, json } = await soundCorrectTurn(conceptKey, 'sign errors', tokenPingsWide)
+
+    expect(status).toBe(200)
+    expect(json.pins).toEqual([
+      { category: 'prediction', kind: 'prediction-confirmed', conceptKey, label: 'Misconception confirmed: sign errors' },
+    ])
+  })
+
+  it('pins are never persisted -- session_interactions keeps its Sprint 11 shape', async () => {
     const conceptKey = 'algebra.quadratics.factoring'
     await seedNode(conceptKey, { mastery: 0.45, stability: 5, state: 'weak', confidenceBand: 'low', observationCount: 2 })
 
     const { status, json } = await soundCorrectTurn(conceptKey)
     expect(status).toBe(200)
-    expect(json.pings).toHaveLength(1)
+    expect(json.pins).toHaveLength(1)
 
     const { data, count } = await admin
       .from('session_interactions')
@@ -1821,7 +2004,7 @@ describe('/api/ai/turn: event pings', () => {
 
     expect(count).toBe(1)
     expect(Object.keys(data![0]).sort()).toEqual(EXPECTED_SESSION_INTERACTIONS_COLUMNS)
-    expect(JSON.stringify(data![0])).not.toContain('mastery-up')
+    expect(JSON.stringify(data![0])).not.toContain('concept-understood')
   })
 })
 
@@ -1895,15 +2078,21 @@ describe('/api/ai/turn: the opening scan (Sprint 14 Task 4, ADR-030)', () => {
     expect(json.profileTags).toBeUndefined()
   })
 
+  // "factoring" + "quadratics" are curriculum aliases for
+  // algebra.quadratics.factoring — the word-boundary match the alias table
+  // actually performs, unlike minimalPageContext's bare equation. Shared by
+  // both the topic test and the stickingCandidates test below, since both
+  // need the SAME detected concept (algebra.quadratics.factoring ==
+  // STICKING_CONCEPT).
+  const quadraticsPageContext = {
+    title: 'Factoring quadratics practice',
+    text: 'Factor each quadratic expression.',
+    equations: [],
+  }
+
   it('carries the page-detected topic additively (check-in 5a) — detectTopicKeys grounded, title-resolved; absent when the page names no known concept', async () => {
     nextResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ say: 'Quadratics on this page.' })) }
-    const withTopic = await turn(token, {
-      opening: true,
-      // "factoring" + "quadratics" are curriculum aliases for
-      // algebra.quadratics.factoring — the word-boundary match the alias
-      // table actually performs, unlike minimalPageContext's bare equation.
-      pageContext: { title: 'Factoring quadratics practice', text: 'Factor each quadratic expression.', equations: [] },
-    })
+    const withTopic = await turn(token, { opening: true, pageContext: quadraticsPageContext })
     expect(withTopic.status).toBe(200)
     expect(withTopic.json.topic).toEqual({ conceptKey: 'algebra.quadratics.factoring', title: 'Factoring quadratics' })
 
@@ -1911,6 +2100,30 @@ describe('/api/ai/turn: the opening scan (Sprint 14 Task 4, ADR-030)', () => {
     const withoutTopic = await turn(token, { opening: true, pageContext: minimalPageContext })
     expect(withoutTopic.status).toBe(200)
     expect(withoutTopic.json.topic).toBeUndefined()
+  })
+
+  it('carries up to 3 of the student\'s OWN recorded misconceptions for the detected topic, ranked occurrence/recency-first (check-in 5b) — capped at 3, absent when the profile has none for this concept', async () => {
+    nextResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ say: 'Quadratics on this page.' })) }
+
+    const withHistory = await turn(tokenSticking, { opening: true, pageContext: quadraticsPageContext })
+    expect(withHistory.status).toBe(200)
+    // Ranked by occurrence_count desc, last_seen_at desc (the fixture's own
+    // seed order) -- the 4th, lowest-ranked seeded row must never appear.
+    expect(withHistory.json.stickingCandidates).toEqual([
+      { category: 'sign-errors', description: 'drops the negative sign when distributing' },
+      { category: 'setup-errors', description: 'writes the equation with the wrong sign on b' },
+      { category: 'method-choice', description: 'guesses between factoring and the formula' },
+    ])
+
+    // The cold-start `user` fixture has the SAME detected topic (so `topic`
+    // still appears) but zero knowledge_nodes -- the profile calibrates
+    // entirely, forcing activeMisconceptions (and so stickingCandidates) to
+    // [], additively omitted rather than an empty array.
+    nextResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ say: 'Quadratics on this page.' })) }
+    const withoutHistory = await turn(token, { opening: true, pageContext: quadraticsPageContext })
+    expect(withoutHistory.status).toBe(200)
+    expect(withoutHistory.json.topic).toEqual({ conceptKey: 'algebra.quadratics.factoring', title: 'Factoring quadratics' })
+    expect(withoutHistory.json.stickingCandidates).toBeUndefined()
   })
 
   it('persistOpeningInteraction writes an assessment-less session_interactions row in BOTH the found-something and found-nothing cases -- never skips the row', async () => {

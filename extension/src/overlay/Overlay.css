@@ -9,7 +9,7 @@
  *
  * Sprint 14 Task 2 regrouped the sections below per the component that now
  * owns the JSX using them (Overlay.tsx was decomposed into TitleBar/
- * Composer/InsightStrip/Transcript/PingToasts) — selector names and rules
+ * Composer/Transcript/PingToasts) — selector names and rules
  * are unchanged, several keyframes are shared across more than one
  * component (noted per section) since a component split doesn't imply a
  * one-keyframe-per-file split. */
@@ -105,7 +105,7 @@
   }
 }
 
-/* ── Shared: TitleBar + Composer + Transcript + PingToasts ──
+/* ── Shared: TitleBar + Composer + Transcript ──
  * Four-state redesign (Sprint 10 Task 6 round 3, Calyxa Overlay.dc.html).
  * One keyframe per state's signature motion: cx-dot is the idle-pill
  * (Overlay.tsx)/listening-badge (TitleBar) readiness pulse, cx-bar drives
@@ -113,7 +113,7 @@
  * recording level meter — the shared WaveformBars component now lives in
  * Composer.tsx, Task 2), cx-orb/cx-ring are Transcript's TypingIndicator
  * breathing core + expanding ring, cx-rise is the idle-pill's mount
- * transition (also reused by PingToasts' entry animation). All applied as
+ * transition. All applied as
  * Tailwind arbitrary-value classes gated by motion-safe: in the owning
  * component's JSX — per brand.md S6, none of this motion is load-bearing
  * for comprehension. */
@@ -202,7 +202,7 @@
   }
 }
 
-/* ── Shared: Overlay.tsx's idle pill + PingToasts' entry animation ──
+/* ── Overlay.tsx's idle pill entry animation ──
  * Vertical-only (and opacity) — the horizontal centering on the idle pill's
  * wrapper is Tailwind's own -translate-x-1/2 utility (a separate `translate`
  * property in Tailwind v4, not `transform`), so this keyframe must not also
@@ -503,119 +503,9 @@
   }
 }
 
-/* ── InsightStrip: the overview/recap auto-dismiss sweep (Sprint 14 Task 7) ──
- * A brighter green bar that visibly shrinks over ~foldDurationMs (Overlay.tsx's
- * STRIP_FOLD_MS, threaded in as --cx-strip-fold-duration -- the same
- * shared-duration technique as the close ring above) before the strip
- * folds to its one-line handle. Purely decorative -- Overlay.tsx's real
- * setTimeout is what actually triggers the fold. */
-.cx-strip-sweep-track {
-  height: 3px;
-  width: 100%;
-  overflow: hidden;
-  border-radius: 9999px;
-  background: var(--color-border);
-  /* No margin of its own (Sprint 15 fix pass): the track now renders INSIDE
-   * the summary card as its last child, spaced by the card's own flex gap,
-   * so the countdown reads as the bottom edge of the box rather than a
-   * detached bar floating under it. */
-}
-
-.cx-strip-sweep-bar {
-  height: 100%;
-  width: 100%;
-  transform-origin: left center;
-  background: var(--color-accent-glow-strong);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .cx-strip-sweep-bar {
-    animation: cx-strip-sweep var(--cx-strip-fold-duration, 6000ms) linear forwards;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .cx-strip-sweep-bar {
-    transform: scaleX(0);
-  }
-}
-
-@keyframes cx-strip-sweep {
-  from {
-    transform: scaleX(1);
-  }
-  to {
-    transform: scaleX(0);
-  }
-}
-
-/* ── InsightStrip: the floating summary WINDOW (Sprint 14 fix pass) ──
- * The pre/post-session summary is a small window that sits ABOVE the whole
- * extension. It slides + fades IN when it first appears, and slides + fades
- * OUT (the --hidden modifier) when it auto-dismisses or the pointer leaves a
- * dismissed window -- "appears and disappears with smooth animations". The
- * exit is a transition (toggled by the class) so it plays whether or not the
- * element unmounts afterward; the entrance is a one-shot keyframe on mount.
- * transform-origin is the bottom edge (nearest the panel) so it grows out of
- * the extension rather than floating in from nowhere. */
-.cx-strip-window {
-  transform-origin: bottom center;
-  transition:
-    opacity 0.32s var(--motion-ease-out, ease-out),
-    transform 0.32s var(--motion-ease-out, ease-out);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .cx-strip-window {
-    /* No fill-mode on purpose: a persisted (both/forwards) entrance would
-       pin opacity:1 and outrank the --hidden exit transition below, so the
-       window could never fade back out. With no fill-mode the animation
-       reverts to the element's own styles once it ends, leaving the exit
-       transition free to run. */
-    animation: cx-strip-window-in 0.34s var(--motion-ease-out, ease-out);
-  }
-}
-
-.cx-strip-window--hidden {
-  opacity: 0;
-  transform: translateY(8px) scale(0.97);
-  pointer-events: none;
-}
-
-@keyframes cx-strip-window-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-/* ── Transcript + InsightStrip: tag-kind colors (Sprint 14 Task 7) ──
- * theme.css's --calyxa-tag-* aliases (ADR-018 discipline -- see that
- * file's own comment for the AA-contrast reasoning behind which kind gets
- * which hue). Applied to both the transcript's tag pills (with a border)
- * and InsightStrip's plain weak-spot/due-review text lines (no border,
- * harmless unused property) -- "kind->color mapping shared with the
- * strip" from the sprint plan. */
-.cx-tag-reviewing {
-  color: var(--calyxa-tag-reviewing);
-  border-color: var(--calyxa-tag-reviewing);
-}
-.cx-tag-gap {
-  color: var(--calyxa-tag-gap);
-  border-color: var(--calyxa-tag-gap);
-}
-.cx-tag-due {
-  color: var(--calyxa-tag-due);
-  border-color: var(--calyxa-tag-due);
-}
-.cx-tag-callback {
-  color: var(--calyxa-tag-callback);
-  border-color: var(--calyxa-tag-callback);
-}
+/* (The Transcript tag-pill color classes -- cx-tag-* -- lived here through
+ * Sprint 14; ADR-034 retired the per-bubble pills in favor of the title
+ * card's status pins below.) */
 
 /* ── Transcript: color-linked annotation highlighting (Sprint 14 Task 7,
  * ADR-029 amendment) ── theme.css's --calyxa-annot-1..4 aliases, the SAME
@@ -655,22 +545,44 @@
   text-underline-offset: 2px;
 }
 
-/* ── PingToasts: ping-kind colors (Sprint 14 Task 7) ── PING_KIND_COLOR_CLASS
- * maps a kind to one of these two base names; `-dot` is the small leading
- * indicator's fill, the bare name is the toast's text color. */
-.cx-ping-green {
+/* ── TitleBar/TitlePin: the status-pin dynamic island (Sprint 15, ADR-034,
+ * replacing PingToasts' floating pills) ── PIN_CATEGORY_COLOR_CLASS
+ * (TitlePin.tsx) maps a pin category to one of these three; each sets only
+ * `color`, which the pin's inline-SVG icon (stroke="currentColor") and
+ * label both inherit -- one class tints the whole pin. Green/blue reuse the
+ * exact values the retired toast classes used (ADR-018: no new hues);
+ * neutral is the muted foreground the old callback tag rendered in. */
+.cx-pin-green {
   color: var(--color-accent-emphasis);
 }
-.cx-ping-green-dot {
-  background-color: var(--color-accent-glow-strong);
-  box-shadow: 0 0 0 3px rgba(134, 239, 172, 0.35);
-}
-.cx-ping-blue {
+.cx-pin-blue {
   color: #2563eb;
 }
-.cx-ping-blue-dot {
-  background-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+.cx-pin-neutral {
+  color: var(--color-muted-foreground);
+}
+
+/* The island swap itself: whichever face (pin or wordmark) just mounted
+ * rises 5px into place while fading in, on the overlay's usual ease-out
+ * curve. One-shot per mount -- TitleBar keys each face, so the animation
+ * runs exactly once per swap. Motion-safe gated like every other transition
+ * in this file: under reduced motion the swap is instant (end-state
+ * applied), never load-bearing for comprehension. */
+@keyframes cx-pin-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cx-pin-in {
+    animation: cx-pin-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
 }
 
 /* ── SectionBloom: the section-complete celebration (design handoff state
