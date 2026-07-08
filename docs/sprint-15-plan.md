@@ -613,6 +613,77 @@ Verified: extension 124/124 (5 new `tokenizeMathText` specs);
 lock, rerun with it stopped); harness screenshots re-verified all three
 visual changes against the compiled `content.css`. UNCOMMITTED.
 
+**Session-kickoff card (Darcy's new feature) — implemented 2026-07-07.**
+On panel open, the pre-session overview is unchanged, but the opening scan's
+result no longer commits as the first transcript bubble: it renders as a
+designated card anchored to the composer (`KickoffCard.tsx`, new) showing
+(1) the question Calyxa sees on the page (detection + on-page annotation
+untouched — UI-only rerouting) and (2) a NEW grounded struggle prediction —
+`predictLikelyStruggle` (`web/lib/learning/predict.ts`, new) picks from the
+profile's ACTIVE misconceptions (page-topic match first, then profile node
+order, then first; null on cold start), title-resolved server-side and
+carried on the opening-scan response as an additive `prediction` field
+(route → api.ts → background → content → overlay). The student picks
+**Yes** (sends a real confirm turn naming the predicted concept — Calyxa
+explains it through the normal pipeline) or **No, something else** (the
+question bubble commits, the input focuses, they type it). Either way the
+held question bubble enters the transcript + wire history at the moment the
+conversation starts (text, voice, or button), so the model keeps the exact
+context the direct-commit scan gave it. Misconception recording/resolution
+is UNCHANGED — both choices flow through the existing assessment machinery.
+
+Verified: typecheck/lint/build 14/14 green; extension 129/129 (5 new
+`kickoff.test.ts` specs); web unit files 119/119 incl. 5 new
+`predict.test.ts` specs. The 7 server-spawning web files are still blocked
+by the live `next dev` (PID 63695) dir lock — same failure class as the
+prior passes; rerun with it stopped. Extension overlay not re-screenshot in
+the shadow-root harness this pass. UNCOMMITTED.
+
+**Design-handoff states 05–07 (check-in / plan+recap / section bloom) —
+implemented 2026-07-07.** From the Claude Design bundle
+(`design_handoff_calyxa_overlay`); states 01–04 were already in place. Four
+scope calls confirmed with Darcy: the check-in REPLACES the same-day
+KickoffCard (`KickoffCard.tsx` + `kickoff.test.ts` deleted); the 6a plan is
+a client-side template from the two check-in answers (no plan API); the 6b
+recap moves IN-PANEL as the terminal state (the floating InsightStrip
+window is overview-only now); the 07 bloom fires on session.complete
+reason "solved", replacing the whole-panel solved glow.
+
+- New: `session-flow.ts` (pure copy/derivation — start message, 3-variant
+  plan builder, outcome mapping, grounded insight picker, recap meta,
+  bloom line), `CheckinCard.tsx` (5a/5b), `PlanCard.tsx` (6a),
+  `RecapCard.tsx` (6b), `SectionBloom.tsx` (07), `session-flow.test.ts`
+  (20 specs, replacing kickoff's 5).
+- Overlay.tsx: check-in stage machine (topic → sticking → plan →
+  tutoring); the held scan commits to transcript+wire on ANY conversation
+  start, unchanged; check-in answers reach the tutor as a REAL student
+  turn (`buildSessionStartMessage`) — no new wire field. Composer hidden
+  during check-in/plan/recap per the design ("chips over text fields");
+  5a's "or just say it" starts the mic directly (the ⌥ Space slot —
+  Alt+Shift+C toggles the whole panel, so keycaps were dropped per
+  Darcy's carve-out). Recap's "One more pass" cancels the close; the next
+  turn auto-starts a session via the existing ensureSessionStarted.
+- TitleBar: right-side `accessory` slot (check-in progress bars /
+  "Today's plan" chip / recap meta), rendered before the window controls.
+- Wire (additive): opening-scan response gains `topic`
+  ({conceptKey,title} from the route's own detectTopicKeys[0],
+  titleFor-resolved) — route → api.ts → background → content → overlay;
+  feeds 5a's "spotted on this page" card. `prediction` still rides the
+  wire but is no longer rendered (the 5b chips are the design's fixed
+  set) — candidate for removal or re-use later.
+- CSS: `cx-breathe` (design keyframe, exact) + `cx-bloom-*`;
+  `cx-solved-glow` block removed. Recap-delta helpers
+  (masteryDelta/humanizeDue/DELTA_EPSILON) kept exported — pinned by
+  overlay-display.test.ts, no longer rendered.
+
+Verified: `turbo run typecheck lint build` 14/14; extension 144/144 (20 new
+session-flow specs); web unit files 119 tests passing, the 7
+server-spawning files still blocked by the live `next dev` dir lock (a new
+ai-turn.test.ts spec pins the `topic` field — rerun with the dev server
+stopped); all five states screenshot-verified against the compiled
+`content.css` in a static shadow-root-style harness (real components via
+react-dom/server + vite-node). UNCOMMITTED.
+
 ## Acceptance criteria (full checklist)
 
 - [x] ADR-032 (with the concept inventory appendix) + ADR-033 (with budgets + the root-cause amendment box) written; pointers + architecture.md updated

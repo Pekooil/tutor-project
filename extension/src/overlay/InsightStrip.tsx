@@ -1,29 +1,25 @@
 import type { CSSProperties } from 'react';
-import type { ProfileOverview, SessionRecap } from '../types/messages';
-import { DELTA_EPSILON, TAG_KIND_COLOR_CLASS, humanizeDue, masteryDelta } from './Overlay';
+import type { ProfileOverview } from '../types/messages';
+import { TAG_KIND_COLOR_CLASS } from './Overlay';
 
-// The overview/recap host (Sprint 13 ADR-024/025; Sprint 14 Task 2
-// decomposition; Sprint 14 Task 7 placement move; Sprint 14 fix pass —
-// floating window). Task 7 moved BOTH cards' render site out of the
-// scrollable transcript to ABOVE the composer. The Sprint 14 fix pass takes
-// that one step further per live feedback: instead of a strip wedged inside
-// the panel that folds to a one-line handle, the summary now renders as a
-// small floating WINDOW above the whole extension (Overlay.tsx positions the
-// wrapper and owns the appear/disappear animation + auto-dismiss timer). This
-// component is purely the card's contents + the green countdown sweep; the
-// glassy surface below matches the panel's own card (bg-background/85 +
-// shadow-panel + backdrop-blur) so the window reads as part of Calyxa, not a
-// foreign box.
+// The overview host (Sprint 13 ADR-024; Sprint 14 Task 2 decomposition;
+// Sprint 14 Task 7 placement move; Sprint 14 fix pass — floating window).
+// Task 7 moved the card's render site out of the scrollable transcript to
+// ABOVE the composer. The Sprint 14 fix pass takes that one step further
+// per live feedback: instead of a strip wedged inside the panel that folds
+// to a one-line handle, the summary now renders as a small floating WINDOW
+// above the whole extension (Overlay.tsx positions the wrapper and owns
+// the appear/disappear animation + auto-dismiss timer). This component is
+// purely the card's contents + the green countdown sweep; the glassy
+// surface below matches the panel's own card (bg-background/85 +
+// shadow-panel + backdrop-blur) so the window reads as part of Calyxa, not
+// a foreign box.
 //
-// A single component with a `kind` discriminant rather than two exports:
-// the two cards are mutually exclusive by construction (showOverviewCard
-// requires `!recap`), so one component covers both call sites without
-// duplicating the mutual-exclusion logic that already lives in Overlay.tsx.
-type InsightStripCardProps =
-  | { kind: 'overview'; overview: ProfileOverview }
-  | { kind: 'recap'; recap: SessionRecap; baseline: ProfileOverview | null };
-
-type InsightStripProps = InsightStripCardProps & {
+// Overview-only since the design-handoff pass: the end-of-session recap
+// this window used to host moved INSIDE the panel as its terminal state
+// (RecapCard.tsx, design 6b).
+type InsightStripProps = {
+  overview: ProfileOverview;
   foldDurationMs: number;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -43,7 +39,7 @@ export function InsightStrip(props: InsightStripProps) {
       onMouseLeave={onMouseLeave}
       style={{ '--cx-strip-fold-duration': `${foldDurationMs}ms` } as CSSProperties}
     >
-      {props.kind === 'overview' ? <OverviewCard overview={props.overview} /> : <RecapCard recap={props.recap} baseline={props.baseline} />}
+      <OverviewCard overview={props.overview} />
       {/* The green auto-dismiss sweep (Sprint 14 Task 7; Sprint 15 fix pass
           moved it inside the card, pinned to the bottom): brighter/more
           transient than the composer's own progress bar by design (that
@@ -161,91 +157,6 @@ function OverviewCard({ overview }: { overview: ProfileOverview }) {
           {moreDue > 0 && (
             <p className="m-0 text-[11px] leading-relaxed text-muted-foreground">+{moreDue} topics</p>
           )}
-        </div>
-      )}
-    </>
-  );
-}
-
-// The end-of-session recap card (Sprint 13, ADR-025): per-concept mastery
-// with delta arrows against the panel-open baseline when one exists
-// (absolute otherwise), misconceptions resolved/added, trend lines when
-// earned (most sessions have none, by design), and the FSRS forward look.
-function RecapCard({ recap, baseline }: { recap: SessionRecap; baseline: ProfileOverview | null }) {
-  return (
-    <>
-      <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-        Session recap
-      </p>
-      <div className="flex flex-col gap-1">
-        {recap.concepts.map((concept) => {
-          const delta = masteryDelta(baseline, concept.conceptKey, concept.mastery);
-          const showArrow = delta !== null && Math.abs(delta) >= DELTA_EPSILON;
-          return (
-            <div key={concept.conceptKey} className="flex items-center justify-between gap-2">
-              <span className="min-w-0">
-                <span className={`${SUBJECT_PILL_CLASS} border-border text-foreground`}>{concept.title}</span>
-              </span>
-              <span className="flex flex-none items-center gap-1 text-[12px] text-muted-foreground">
-                {Math.round(concept.mastery * 100)}%
-                {showArrow && (
-                  <span
-                    aria-label={delta > 0 ? 'improved this session' : 'slipped this session'}
-                    className={delta > 0 ? 'text-accent-emphasis' : 'text-muted-foreground'}
-                  >
-                    {delta > 0 ? '▲' : '▼'}
-                  </span>
-                )}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      {recap.misconceptionsResolved.length > 0 && (
-        <div className="flex flex-col gap-1">
-          {recap.misconceptionsResolved.map((item, index) => (
-            <p key={index} className="m-0 flex items-center gap-1.5 text-[12px] leading-relaxed text-accent-emphasis">
-              <span className="flex-none">✓ Gap closed:</span>
-              <span className={`${SUBJECT_PILL_CLASS} border-accent-emphasis text-accent-emphasis`}>
-                {humanizeCategory(item.category)}
-              </span>
-            </p>
-          ))}
-        </div>
-      )}
-      {recap.misconceptionsAdded.length > 0 && (
-        <div className="flex flex-col gap-1">
-          {recap.misconceptionsAdded.map((item, index) => (
-            <p key={index} className="m-0 flex items-center gap-1.5 text-[12px] leading-relaxed text-muted-foreground">
-              <span className="flex-none">Something to work on:</span>
-              <span className={`${SUBJECT_PILL_CLASS} border-border text-muted-foreground`}>
-                {humanizeCategory(item.category)}
-              </span>
-            </p>
-          ))}
-        </div>
-      )}
-      {recap.trends.length > 0 && (
-        <div className="flex flex-col gap-1">
-          {recap.trends.map((trend, index) => (
-            <p key={index} className="m-0 flex items-center gap-1.5 text-[12px] font-medium leading-relaxed text-accent-emphasis">
-              <span className={`${SUBJECT_PILL_CLASS} border-accent-emphasis text-accent-emphasis`}>{trend.title}</span>
-              <span className="min-w-0 truncate">{trend.line}</span>
-            </p>
-          ))}
-        </div>
-      )}
-      {recap.nextReviews.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-            Coming back
-          </p>
-          {recap.nextReviews.map((review, index) => (
-            <p key={index} className="m-0 flex items-center gap-1.5 text-[12px] leading-relaxed text-muted-foreground">
-              <span className={`${SUBJECT_PILL_CLASS} border-border text-foreground`}>{review.title}</span>
-              <span className="min-w-0 truncate">{humanizeDue(review.dueAt)}</span>
-            </p>
-          ))}
         </div>
       )}
     </>

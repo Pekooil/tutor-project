@@ -19,10 +19,12 @@ import type {
   GetProfileOverviewReplyPayload,
   OpeningScanReplyPayload,
   PageContext,
+  PageTopic,
   ProfileOverview,
   ProfileTag,
   SessionEndedPayload,
   SessionStatePayload,
+  StrugglePrediction,
   TurnMessage,
   TurnPing,
   VoiceSttReplyPayload,
@@ -120,7 +122,7 @@ export function isPlausibleProblem(context: PageContext | undefined): boolean {
 // the opening scan's own bubble too -- the model is held to the same
 // exact-target.text-reuse discipline there (system-prompt.ts's OPENING SCAN
 // MODE block), so there's no reason the first bubble should be exempt.
-async function requestOpeningScan(): Promise<{ reply: string; tags?: ProfileTag[]; annotations?: Annotation[] } | null> {
+async function requestOpeningScan(): Promise<{ reply: string; tags?: ProfileTag[]; annotations?: Annotation[]; prediction?: StrugglePrediction; topic?: PageTopic } | null> {
   if (!isPlausibleProblem(capturedPageContext)) return null;
 
   const registry = currentEquationRegistry();
@@ -147,6 +149,11 @@ async function requestOpeningScan(): Promise<{ reply: string; tags?: ProfileTag[
     reply: payload.reply,
     ...(payload.profileTags && payload.profileTags.length > 0 ? { tags: payload.profileTags } : {}),
     ...(payload.annotations && payload.annotations.length > 0 ? { annotations: payload.annotations } : {}),
+    // The session-kickoff struggle prediction and the check-in's
+    // page-detected topic (both grounded server-side): ride through to the
+    // overlay's check-in, same additive discipline.
+    ...(payload.prediction ? { prediction: payload.prediction } : {}),
+    ...(payload.topic ? { topic: payload.topic } : {}),
   };
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getConcept } from '@calyxa/curriculum'
 import { clientFromBearer } from '@/lib/auth/bearer'
 import { runTutorTurn, type TurnEnvelope, type TurnMessage } from '@/lib/ai/claude'
 import { parseEnvelope } from '@/lib/ai/envelope'
@@ -8,6 +9,7 @@ import { buildSystemPrompt } from '@/lib/ai/system-prompt'
 import type { LearningProfile } from '@/lib/ai/profile'
 import type { PageContext } from '@/lib/ai/page-context'
 import { loadProfile } from '@/lib/learning/profile-read'
+import { predictLikelyStruggle } from '@/lib/learning/predict'
 import { detectTopicKeys } from '@/lib/learning/topic'
 import { parseMessages, parsePageContext, parseSessionId, parseResponseLatencyMs } from '@/lib/ai/turn-request'
 import { completeTurn, groundProfileTags, persistOpeningInteraction } from '@/lib/ai/turn-complete'
@@ -82,10 +84,19 @@ function isOpeningScanBody(body: unknown): boolean {
   return (body as { opening?: unknown }).opening === true
 }
 
+// The curriculum-title fallback the overview route already uses: a stale
+// concept key must never 500 the scan -- a raw key beats a broken reply.
+function titleFor(conceptKey: string): string {
+  return getConcept(conceptKey)?.title ?? conceptKey
+}
+
 // The opening-scan branch (ADR-030): same auth, same topic-biased loadProfile
 // read, same grounding gate for any profile tag -- only the AI call and the
 // response shape differ from a normal turn. Never returns assessment /
-// solutionProgress / session.
+// solutionProgress / session. The session-kickoff feature adds `prediction`
+// (predictLikelyStruggle -- grounded in the profile's active misconceptions,
+// no model involvement), additively: absent, not null, when the profile
+// carries nothing to predict from.
 async function handleOpeningScan(
   auth: { supabase: SupabaseClient; user: { id: string } },
   body: unknown
@@ -108,11 +119,28 @@ async function handleOpeningScan(
 
     const annotations = envelope.annotations
     const profileTags = groundProfileTags(envelope.profileTags, profile)
+    const prediction = predictLikelyStruggle(profile, topicKeys)
 
     return NextResponse.json({
       reply: envelope.say,
       ...(annotations && annotations.length > 0 ? { annotations } : {}),
       ...(profileTags.length > 0 ? { profileTags } : {}),
+      // The check-in's page-detected topic (design state 5a's "spotted on
+      // this page" suggestion card): the first topicKey detectTopicKeys
+      // already resolved above -- deterministic keyword match, no model
+      // involvement, title-resolved with the same stale-key fallback as
+      // `prediction`. Additive: absent when the page named no known concept.
+      ...(topicKeys.length > 0 ? { topic: { conceptKey: topicKeys[0], title: titleFor(topicKeys[0]) } } : {}),
+      ...(prediction
+        ? {
+            prediction: {
+              conceptKey: prediction.conceptKey,
+              title: titleFor(prediction.conceptKey),
+              category: prediction.category,
+              description: prediction.description,
+            },
+          }
+        : {}),
     })
   } catch {
     return NextResponse.json({ error: 'Tutor is unavailable right now.' }, { status: 502 })

@@ -687,13 +687,18 @@ async function handleOpeningScan(payload: OpeningScanPayload, pageDomain: string
 
   try {
     const active = await getActiveSession();
-    const { reply, annotations, profileTags } = await api.openingScan(payload.pageContext, active?.sessionId);
+    const { reply, annotations, profileTags, prediction, topic } = await api.openingScan(payload.pageContext, active?.sessionId);
     return {
       type: 'OPENING_SCAN',
       payload: {
         reply,
         ...(annotations ? { annotations } : {}),
         ...(profileTags ? { profileTags } : {}),
+        // The session-kickoff struggle prediction and the check-in's
+        // page-detected topic (both grounded server-side) -- additive
+        // pass-through, same omission discipline as the two above.
+        ...(prediction ? { prediction } : {}),
+        ...(topic ? { topic } : {}),
       },
     };
   } catch (error) {

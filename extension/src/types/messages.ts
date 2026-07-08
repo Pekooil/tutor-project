@@ -315,13 +315,43 @@ export type SessionEndedPayload = { recap?: SessionRecap };
 // isPlausibleProblem) passes on the freshly captured PageContext.
 export type OpeningScanPayload = { pageContext: PageContext };
 
+// The session-kickoff struggle prediction (mirrors the web route's
+// `prediction` field exactly -- computed server-side by predictLikelyStruggle
+// from the profile's ACTIVE misconceptions, grounded and title-resolved, no
+// model involvement). Rides the opening scan additively: present only when
+// the student's recorded history actually carries an unresolved
+// misconception to predict from. Display-ephemeral, like every profile
+// surface here -- the kickoff card renders it and the student's yes/no
+// choice flows back through the normal turn pipeline (never a new write
+// path; misconception recording/resolution stays the existing
+// assessment-driven machinery).
+export type StrugglePrediction = {
+  conceptKey: string;
+  title: string;
+  category: string;
+  description: string;
+};
+
+// The opening scan's detected page topic (check-in state 5a's "spotted on
+// this page" suggestion card): the first topic key the route's own
+// detectTopicKeys resolved from the pageContext, title-resolved server-side
+// (@calyxa/curriculum never ships in this bundle) -- deterministic keyword
+// match, no model involvement, same grounding discipline as `prediction`
+// below. Display-ephemeral like every profile surface here.
+export type PageTopic = {
+  conceptKey: string;
+  title: string;
+};
+
 // Mirrors the web route's opening-scan response shape exactly (ADR-030):
 // `reply` may be an empty string -- the model's own "I'm not confident"
 // signal, passed through as-is; the content script (not this type) decides
 // what an empty reply means. NEVER carries assessment/pings/solutionProgress/
-// session -- there is nothing yet to grade, score, or close.
+// session -- there is nothing yet to grade, score, or close. `prediction`
+// (session-kickoff feature) and `topic` (check-in 5a) ride additively, same
+// omission discipline as annotations/profileTags.
 export type OpeningScanReplyPayload =
-  | { reply: string; annotations?: Annotation[]; profileTags?: ProfileTag[] }
+  | { reply: string; annotations?: Annotation[]; profileTags?: ProfileTag[]; prediction?: StrugglePrediction; topic?: PageTopic }
   | { error: string };
 
 export type VoiceSttPayload = {

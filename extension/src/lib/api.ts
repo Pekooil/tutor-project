@@ -12,10 +12,12 @@ import {
 import type {
   Annotation,
   PageContext,
+  PageTopic,
   ProfileOverview,
   ProfileTag,
   SessionCompletion,
   SessionRecap,
+  StrugglePrediction,
   TurnMessage,
   TurnPing,
 } from '../types/messages';
@@ -294,7 +296,7 @@ export async function aiTurn(
 export async function openingScan(
   pageContext: PageContext,
   sessionId: string | undefined,
-): Promise<{ reply: string; annotations?: Annotation[]; profileTags?: ProfileTag[] }> {
+): Promise<{ reply: string; annotations?: Annotation[]; profileTags?: ProfileTag[]; prediction?: StrugglePrediction; topic?: PageTopic }> {
   const res = await authorizedFetch('/api/ai/turn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -317,6 +319,21 @@ export async function openingScan(
       : {}),
     ...(Array.isArray(body.profileTags) && body.profileTags.length > 0
       ? { profileTags: body.profileTags as ProfileTag[] }
+      : {}),
+    // The session-kickoff struggle prediction: shape-checked field by field
+    // (the same defensive unwrap discipline as the arrays above) -- a
+    // malformed prediction is dropped, never half-passed to the card.
+    ...(body.prediction &&
+    typeof body.prediction.conceptKey === 'string' &&
+    typeof body.prediction.title === 'string' &&
+    typeof body.prediction.category === 'string' &&
+    typeof body.prediction.description === 'string'
+      ? { prediction: body.prediction as StrugglePrediction }
+      : {}),
+    // The check-in's page-detected topic (state 5a's suggestion card): same
+    // field-by-field unwrap discipline as `prediction` above.
+    ...(body.topic && typeof body.topic.conceptKey === 'string' && typeof body.topic.title === 'string'
+      ? { topic: body.topic as PageTopic }
       : {}),
   };
 }

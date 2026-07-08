@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Overlay, type TurnResult } from './Overlay';
-import type { Annotation, ProfileOverview, ProfileTag, TurnMessage } from '../types/messages';
+import type { Annotation, PageTopic, ProfileOverview, ProfileTag, TurnMessage } from '../types/messages';
 import type { Utterance } from './VoiceController';
 
 // Framework plumbing only. The content script calls these from WXT's
@@ -45,7 +45,7 @@ export type OverlayTransports = {
   /** Sends the existing END_SESSION message (Sprint 13, ADR-025) -- see Overlay.tsx's prop comment. */
   onEndSession: () => Promise<void>;
   /** The proactive opening scan (Sprint 14 Task 6/7, ADR-030) -- see Overlay.tsx's prop comment. */
-  onOpeningScan: () => Promise<{ reply: string; tags?: ProfileTag[]; annotations?: Annotation[] } | null>;
+  onOpeningScan: () => Promise<{ reply: string; tags?: ProfileTag[]; annotations?: Annotation[]; topic?: PageTopic } | null>;
 };
 
 export type MountOverlayOptions = OverlayTransports;

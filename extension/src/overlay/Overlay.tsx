@@ -9,22 +9,34 @@ import { CalyxaMark } from '@calyxa/ui';
 import './Overlay.css';
 import type {
   Annotation,
+  PageTopic,
   ProfileOverview,
   ProfileTag,
   ProfileTagKind,
   SessionCompletion,
   SessionRecap,
+  StrugglePrediction,
   TurnMessage,
   TurnPing,
   TurnPingKind,
 } from '../types/messages';
 import { AnnotationLayer } from './AnnotationLayer';
+import { CheckinCard } from './CheckinCard';
 import { Composer } from './Composer';
 import { InsightStrip } from './InsightStrip';
 import { PingToasts } from './PingToasts';
-import { TitleBar } from './TitleBar';
+import { PlanCard } from './PlanCard';
+import { RecapCard } from './RecapCard';
+import { SectionBloom } from './SectionBloom';
+import { TitleBar, type HeaderAccessory } from './TitleBar';
 import { Transcript } from './Transcript';
 import { startRecording, type RecordingHandle, type Utterance } from './VoiceController';
+import {
+  buildSessionPlan,
+  buildSessionStartMessage,
+  bloomLine,
+  formatRecapMeta,
+} from './session-flow';
 import { createSentenceAccumulator, micStateReducer, wordsDueByTime } from './voice-timing';
 
 // The panel-close signal (Sprint 12 Task 6): dispatched from handleClose
@@ -108,6 +120,37 @@ export function stripHistory(messages: readonly DisplayMessage[]): TurnMessage[]
   return messages.map(({ role, content }) => ({ role, content }));
 }
 
+// ---- The session-start check-in (designated pre-conversation UI, design
+// handoff state 05 -- replaces the Sprint 15 KickoffCard) ----
+
+// What the opening scan resolves into: instead of committing straight to
+// the transcript as the first assistant bubble, the scan's result is HELD
+// here and feeds the check-in's 5a suggestion card (`topic`, the server's
+// page-detected concept). The held question bubble (with its tags/
+// annotations) still enters the transcript AND the wire history the moment
+// the conversation actually starts -- whichever way it starts (the plan's
+// Start button, a typed message, or a voice turn) -- so the model keeps the
+// exact same context it had when the scan opened the transcript directly.
+// Display-ephemeral like the overview/recap: cleared on performClose, never
+// persisted. (The server's `prediction` still rides the wire but the
+// check-in doesn't render it -- the 5b sticking-point chips are the design's
+// fixed set; the student names the struggle themselves.)
+export type HeldScan = {
+  question: string;
+  topic?: PageTopic;
+  tags?: ProfileTag[];
+  annotations?: Annotation[];
+};
+
+// The check-in stage machine (design: checkin(q1) -> checkin(q2) -> plan ->
+// tutoring). Plain state, not a reducer -- every transition is a direct
+// user tap with no timer races to guard against.
+export type CheckinStage = 'topic' | 'sticking' | 'plan';
+
+// The section-complete bloom's on-screen window (~3s per the design, plus
+// the exit fade the cx-bloom-cycle keyframe spends its tail on).
+export const BLOOM_MS = 3400;
+
 export function capTags(tags: ProfileTag[] | undefined): ProfileTag[] {
   return (tags ?? []).slice(0, MAX_TAGS_PER_TURN);
 }
@@ -164,8 +207,12 @@ export function filterPingsForDisplay(
 
 /**
  * Delta vs the panel-open overview snapshot (ADR-025: computed client-side,
- * never persisted). null when there is no baseline for the concept -- the
- * recap then shows the absolute value with no arrow, by design.
+ * never persisted). null when there is no baseline for the concept. The
+ * floating recap window that rendered these arrows was replaced by the
+ * in-panel RecapCard (design 6b), which shows recorded counts instead of
+ * deltas -- kept exported (with DELTA_EPSILON and humanizeDue below) since
+ * overlay-display.test.ts pins the math and a future recap pass may re-add
+ * the arrows.
  */
 export function masteryDelta(
   baseline: ProfileOverview | null,
@@ -427,8 +474,13 @@ export function Overlay({
   // every prop here -- content/index.ts owns the OPENING_SCAN message and
   // drawing any annotations it carries; `annotations` also rides the
   // resolved result (Task 7) so this file can color-link the first bubble
-  // exactly like every other turn.
-  onOpeningScan: () => Promise<{ reply: string; tags?: ProfileTag[]; annotations?: Annotation[] } | null>;
+  // exactly like every other turn. The check-in (design 05) routes the
+  // result into the 5a suggestion card instead of a first transcript
+  // bubble; `topic` is the server's page-detected concept that card names.
+  // `prediction` still rides the wire (predictLikelyStruggle, the
+  // session-kickoff feature) but the check-in doesn't render it -- the 5b
+  // chips are the design's fixed set.
+  onOpeningScan: () => Promise<{ reply: string; tags?: ProfileTag[]; annotations?: Annotation[]; prediction?: StrugglePrediction; topic?: PageTopic } | null>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -480,15 +532,33 @@ export function Overlay({
 
   // ---- Sprint 13 profile-visibility state (all display-ephemeral, ADR-024) ----
   // The "where you are" overview, fetched fresh on every panel open and held
-  // in overlay state only. baselineRef keeps the last successful snapshot as
-  // the recap's client-side delta baseline (ADR-025) -- a ref, not state,
-  // because nothing re-renders when it changes; it is only read at recap
-  // render time.
+  // in overlay state only.
   const [overview, setOverview] = useState<ProfileOverview | null>(null);
-  const baselineRef = useRef<ProfileOverview | null>(null);
   // The session recap, set by SESSION_RECAP_EVENT and discarded on panel
-  // close / the next sent message (shown once, ADR-025).
+  // close / the next sent message (shown once, ADR-025). Renders as the
+  // in-panel terminal state (RecapCard, design 6b); recapMeta is the header's
+  // "18 min · 5 problems" line, computed once at arrival so it doesn't
+  // re-derive on every render.
   const [recap, setRecap] = useState<SessionRecap | null>(null);
+  const [recapMeta, setRecapMeta] = useState<string | null>(null);
+  // The held opening-scan result (see HeldScan above): non-null from a
+  // confident opening scan until the conversation starts or the panel
+  // closes. Survives a minimize the same way messages do -- the scan won't
+  // re-fire into an already-active session, so the held question IS that
+  // session's opener.
+  const [scan, setScan] = useState<HeldScan | null>(null);
+  // The check-in flow (design 05/06a): the stage machine plus the two
+  // answers and the plan's reshuffle counter. All display-ephemeral; the
+  // answers reach the model only through the session-start turn
+  // (buildSessionStartMessage) -- never a new wire field.
+  const [checkinStage, setCheckinStage] = useState<CheckinStage>('topic');
+  const [checkinTopic, setCheckinTopic] = useState<string | null>(null);
+  const [stickingPoint, setStickingPoint] = useState<string | null>(null);
+  const [planVariant, setPlanVariant] = useState(0);
+  // When the conversation actually started (the first committed student
+  // turn) -- the recap meta's duration baseline. A ref: read only at recap
+  // arrival.
+  const sessionStartRef = useRef<number | null>(null);
   // Active ping toasts + their auto-dismiss timers, and the one-mastery-up-
   // per-concept-per-session dedupe map (cleared when the session ends).
   const [activePings, setActivePings] = useState<{ id: number; ping: TurnPing }[]>([]);
@@ -521,14 +591,14 @@ export function Overlay({
   // pending grace/ring timers driving it, so they can be cleared on unmount
   // or if a fresh minimize/expand races them.
   const [closeState, setCloseState] = useState<CloseChoreographyState>('idle');
-  // The solved celebration (Sprint 15 fix pass; round 2 moved the glow to
-  // the whole panel): true from the moment a turn arrives with
-  // session.complete + reason "solved" until the panel actually closes --
-  // the panel card renders the Gemini-style green gradient glow around
-  // itself for exactly that window (the floating summary window stays
-  // outside it). Only the solved close earns it; a follow-up-declined/
-  // corrected close (and a manual ✕) closes plain.
-  const [solvedGlow, setSolvedGlow] = useState(false);
+  // The section-complete bloom (design 07, replacing the Sprint 15 whole-
+  // panel solved glow): non-null for ~BLOOM_MS from the moment a turn
+  // arrives with session.complete + reason "solved" -- the page-edge glow,
+  // rings, and "Section complete" card play over the host page and recede
+  // (SectionBloom.tsx). Only the solved close earns it; a follow-up-
+  // declined/corrected close (and a manual ✕) closes plain.
+  const [bloom, setBloom] = useState<{ line: string } | null>(null);
+  const bloomTimerRef = useRef<number | null>(null);
   const closeTimersRef = useRef<number[]>([]);
   // The manual-end confirm dialog (Sprint 14 fix pass): clicking ✕ opens this
   // instead of ending immediately -- ending discards the live session, so it
@@ -560,9 +630,32 @@ export function Overlay({
   const hasStudentMessage = messages.some((message) => message.role === 'user');
   const showOverviewCard = overview !== null && !hasStudentMessage && !busy && !liveTranscript && !recap;
 
+  // The check-in (design 05/06a) renders alongside the overview (they answer
+  // different questions -- "where do I generally stand" vs "what are we
+  // doing right now", the same coexistence call as ADR-030 Decision 4)
+  // until the conversation starts. It also yields while a voice turn is in
+  // flight (recording/connecting/liveTranscript/busy) -- the "or just say
+  // it" escape hands over to the composer's own recording UI -- and during
+  // the close choreography/recap, both terminal.
+  const showCheckin =
+    !hasStudentMessage && !recap && !busy && !recording && !connecting && !liveTranscript && closeState === 'idle';
+
   // True whenever the chat area should be rendered (no gap when empty).
-  const hasContent =
-    messages.length > 0 || busy || !!notice || !!liveTranscript || !!recap;
+  // The recap no longer rides this -- it renders as its own in-panel
+  // terminal card (RecapCard, design 6b), replacing the chat area outright.
+  const hasContent = messages.length > 0 || busy || !!notice || !!liveTranscript;
+
+  // The header's right-side state slot (design's shared panel header): the
+  // check-in's progress bars, the plan's "Today's plan" chip, or the
+  // recap's muted meta -- one at a time; null hands the header back to the
+  // live-conversation treatments (Listening/Speaking).
+  const headerAccessory: HeaderAccessory | null = recap
+    ? { kind: 'recap', meta: recapMeta ?? '' }
+    : showCheckin
+      ? checkinStage === 'plan'
+        ? { kind: 'plan' }
+        : { kind: 'checkin', step: checkinStage === 'topic' ? 1 : 2 }
+      : null;
 
   function appendStreamToken(text: string) {
     // Strip the $$ math-block delimiters from the transient stream/reveal
@@ -617,6 +710,7 @@ export function Overlay({
       for (const timer of pingTimersRef.current) clearTimeout(timer);
       pingTimersRef.current = [];
       clearCloseTimers();
+      if (bloomTimerRef.current !== null) window.clearTimeout(bloomTimerRef.current);
     };
   }, []);
 
@@ -686,9 +780,21 @@ export function Overlay({
     setExpanded(false);
     setMessages([]);
     setSolutionProgress(0);
-    setSolvedGlow(false);
     setAnnotationColors({});
     setRecap(null);
+    setRecapMeta(null);
+    setScan(null);
+    // The check-in resets for the next problem -- a fresh open asks fresh.
+    setCheckinStage('topic');
+    setCheckinTopic(null);
+    setStickingPoint(null);
+    setPlanVariant(0);
+    sessionStartRef.current = null;
+    // The bloom is transient (~3s) and usually gone long before the ring
+    // finishes; clear it anyway so a manual end can't strand one.
+    if (bloomTimerRef.current !== null) window.clearTimeout(bloomTimerRef.current);
+    bloomTimerRef.current = null;
+    setBloom(null);
     setOverview(null);
     setDragPos(null);
     setIsDragging(false);
@@ -722,7 +828,6 @@ export function Overlay({
       .then((data) => {
         if (cancelled) return;
         setOverview(data);
-        baselineRef.current = data;
       })
       .catch((error) => {
         console.debug('Calyxa overlay: overview unavailable, rendering empty state', error);
@@ -768,14 +873,20 @@ export function Overlay({
     onOpeningScan()
       .then((result) => {
         if (cancelled || !result) return;
-        // Task 7: the opening scan's own bubble gets the same per-turn
-        // annotation-color assignment as any other turn (its "say" line is
-        // held to the same exact-target.text-reuse discipline).
-        setMessages((current) => [
-          ...current,
-          { role: 'assistant', content: result.reply, ...assistantMessageExtras(result) },
-        ]);
-        // Task 8: AnnotationLayer's box-stroke lookup reads the SAME map.
+        // The scan's result feeds the check-in, NOT a first transcript
+        // bubble: `topic` becomes 5a's "spotted on this page" suggestion
+        // card, and the held question (with its tags/annotations) enters
+        // the transcript + wire history when the conversation actually
+        // starts (takeScanPrefix below). The on-page annotation draw
+        // already happened in content/index.ts, unchanged.
+        setScan({
+          question: result.reply,
+          ...(result.topic ? { topic: result.topic } : {}),
+          ...(result.tags && result.tags.length > 0 ? { tags: result.tags } : {}),
+          ...(result.annotations && result.annotations.length > 0 ? { annotations: result.annotations } : {}),
+        });
+        // Task 8: AnnotationLayer's box-stroke lookup reads the SAME map the
+        // held bubble will carry once committed.
         setAnnotationColors(assignAnnotationColors(result.annotations));
       })
       .catch((error) => {
@@ -795,7 +906,15 @@ export function Overlay({
   useEffect(() => {
     function onSessionRecap(event: Event) {
       const detail = (event as CustomEvent<{ recap?: SessionRecap }>).detail;
-      setRecap(detail?.recap ?? null);
+      const arrived = detail?.recap ?? null;
+      setRecap(arrived);
+      // The header meta ("18 min · 5 problems") is computed ONCE at arrival
+      // -- the duration is "how long the session ran", not a live counter.
+      setRecapMeta(
+        arrived
+          ? formatRecapMeta(arrived, sessionStartRef.current !== null ? Date.now() - sessionStartRef.current : null)
+          : null,
+      );
       shownMasteryUpRef.current.clear();
     }
     window.addEventListener(SESSION_RECAP_EVENT, onSessionRecap);
@@ -803,21 +922,17 @@ export function Overlay({
   }, []);
 
   // The strip's auto-dismiss fold (Sprint 14 Task 7): expands fresh
-  // whenever a NEW overview or recap object lands (both are replaced
-  // wholesale, never mutated, so a reference change here always means
-  // "something new to show"), then folds to the one-line handle after
-  // STRIP_FOLD_MS -- unless the close choreography is already running, in
-  // which case the recap holds through the ring rather than folding
-  // mid-sweep. This guard is load-bearing now: the ring (10s, fix pass
-  // round 2) outlasts STRIP_FOLD_MS (6s), so without it the recap would
-  // fold away mid-countdown.
+  // whenever a NEW overview object lands (replaced wholesale, never
+  // mutated, so a reference change always means "something new to show"),
+  // then folds after STRIP_FOLD_MS. Overview-only now -- the recap moved
+  // in-panel (RecapCard, design 6b), so the old hold-through-the-ring
+  // guard has nothing left to hold.
   useEffect(() => {
-    if (!overview && !recap) return;
+    if (!overview) return;
     setStripFolded(false);
-    if (closeState !== 'idle') return;
     const timer = window.setTimeout(() => setStripFolded(true), STRIP_FOLD_MS);
     return () => window.clearTimeout(timer);
-  }, [overview, recap, closeState]);
+  }, [overview]);
 
   // Scroll to bottom when messages, streaming tokens, or live transcript change.
   useEffect(() => {
@@ -852,24 +967,135 @@ export function Overlay({
   function applyProgressAndCompletion(result: TurnResult) {
     setSolutionProgress((prev) => easeProgress(prev, result.solutionProgress, result.session?.reason === 'solved'));
     if (result.session?.complete) {
-      // A correct answer earns the celebration glow around the composer for
-      // the whole close choreography (cleared in performClose).
-      if (result.session.reason === 'solved') setSolvedGlow(true);
+      // A correct answer earns the section-complete bloom over the page
+      // (design 07, ~3s then it recedes) -- the close choreography keeps
+      // running underneath it, so the recap is on screen by the time the
+      // bloom fades.
+      if (result.session.reason === 'solved') {
+        setBloom({ line: bloomLine(checkinTopic, stickingPoint) });
+        if (bloomTimerRef.current !== null) window.clearTimeout(bloomTimerRef.current);
+        bloomTimerRef.current = window.setTimeout(() => setBloom(null), BLOOM_MS);
+      }
       beginCloseChoreography();
     }
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const text = input.trim();
+  // Consumes the held scan into the transcript's opening assistant bubble
+  // -- the exact DisplayMessage (content + tags/annotations/colors extras)
+  // the scan used to commit directly -- at the moment the conversation
+  // actually starts, whichever path starts it (the plan's Start button, a
+  // typed message, or a voice turn). Returns [] when no scan is held, so
+  // every caller can spread it unconditionally.
+  function takeScanPrefix(): DisplayMessage[] {
+    if (!scan) return [];
+    setScan(null);
+    return [
+      {
+        role: 'assistant',
+        content: scan.question,
+        ...assistantMessageExtras({
+          ...(scan.tags ? { tags: scan.tags } : {}),
+          ...(scan.annotations ? { annotations: scan.annotations } : {}),
+        }),
+      },
+    ];
+  }
+
+  // ---- The check-in flow's handlers (design 05 -> 6a -> tutoring) ----
+
+  // 5a: the suggestion card or any fallback chip answers "what are we
+  // working on" and advances to the sticking-point question -- "two taps,
+  // not a form".
+  function handleCheckinTopic(topic: string) {
+    if (busy || closeState !== 'idle') return;
+    setCheckinTopic(topic);
+    setCheckinStage('sticking');
+  }
+
+  // 5b's "change" link: back to 5a; the sticking-point selection resets
+  // with it (a different topic likely fails differently).
+  function handleCheckinChangeTopic() {
+    setCheckinStage('topic');
+    setStickingPoint(null);
+  }
+
+  // 5b: chips select (with the ✓), they don't advance -- Start session does.
+  function handleCheckinSticking(chip: string) {
+    setStickingPoint(chip);
+  }
+
+  // 5b's Start session -> the pre-session plan (6a).
+  function handleCheckinStart() {
+    if (!stickingPoint) return;
+    setCheckinStage('plan');
+  }
+
+  // 6a's Reshuffle: cycles buildSessionPlan's deterministic variants.
+  function handlePlanReshuffle() {
+    setPlanVariant((prev) => prev + 1);
+  }
+
+  // 6a's Start: the conversation begins -- the check-in answers become a
+  // REAL student turn through the normal pipeline (buildSessionStartMessage,
+  // the session-kickoff discipline: never a side channel), so the tutor
+  // prompt hears the student's own framing and the held scan question opens
+  // the transcript exactly as any other send path.
+  function handlePlanStart() {
+    if (busy || closeState !== 'idle' || !checkinTopic || !stickingPoint) return;
+    void sendStudentMessage(buildSessionStartMessage(checkinTopic, stickingPoint));
+  }
+
+  // 5a's "or just say it" (the design's ⌥ Space slot): straight to voice.
+  // The check-in yields the moment capture connects (showCheckin's
+  // recording/connecting guards) and the composer's own recording UI takes
+  // over; the held scan question still commits when the voice turn does.
+  function handleCheckinVoice() {
+    if (busy || closeState !== 'idle') return;
+    void handleMicStart();
+  }
+
+  // ---- The recap's exits (design 6b, the terminal state) ----
+
+  // Done for today: the session is already over server-side (the recap only
+  // ever arrives after SESSION_ENDED) -- this just closes the panel now
+  // instead of waiting out the ring.
+  function handleRecapDone() {
+    clearCloseTimers();
+    setCloseState((prev) => nextCloseState(prev, 'reset'));
+    performClose();
+  }
+
+  // One more pass: cancel the close, drop the recap, keep working. The old
+  // session stays ended; the next turn auto-starts a fresh one (the
+  // background's ensureSessionStarted fallback), so nothing here touches
+  // session state.
+  function handleRecapMore() {
+    clearCloseTimers();
+    setCloseState((prev) => nextCloseState(prev, 'reset'));
+    setRecap(null);
+    setRecapMeta(null);
+    requestAnimationFrame(() => inputElRef.current?.focus());
+  }
+
+  // The shared text-turn send (extracted from handleSubmit for the plan's
+  // Start button, which sends a built message rather than the input's
+  // contents; behavior for typed sends is unchanged).
+  async function sendStudentMessage(text: string) {
     if (!text || busy) return;
 
+    // The held scan bubble (if any) opens the transcript + wire history
+    // now -- the model sees the same context it had when the scan committed
+    // its bubble directly.
+    const scanPrefix = takeScanPrefix();
+    // The conversation starts here if it hasn't already -- the recap meta's
+    // duration baseline.
+    if (sessionStartRef.current === null) sessionStartRef.current = Date.now();
     // The wire history is stripped to role/content (tags never re-enter the
     // request, ADR-024); the display list keeps its DisplayMessage shape.
-    const outbound: TurnMessage[] = [...stripHistory(messages), { role: 'user', content: text }];
-    setMessages((current) => [...current, { role: 'user', content: text }]);
+    const outbound: TurnMessage[] = [...stripHistory([...scanPrefix, ...messages]), { role: 'user', content: text }];
+    setMessages((current) => [...scanPrefix, ...current, { role: 'user', content: text }]);
     setRecap(null); // shown once -- a new conversation replaces it
-    setInput('');
+    setRecapMeta(null);
     setNotice(null);
     setBusy(true);
     clearStreamTokens();
@@ -897,6 +1123,14 @@ export function Overlay({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = input.trim();
+    if (!text || busy) return;
+    setInput('');
+    await sendStudentMessage(text);
   }
 
   // Best-effort live transcript (unchanged behavior/contract from before Task
@@ -986,9 +1220,15 @@ export function Overlay({
 
       // Swap the live interim bubble for the accurate Whisper result atomically.
       setLiveTranscript('');
-      const outbound: TurnMessage[] = [...stripHistory(messages), { role: 'user', content: transcript }];
-      setMessages((current) => [...current, { role: 'user', content: transcript }]);
+      // A voice turn starts the conversation too: the held scan bubble
+      // (if any) opens the transcript + wire history here, same as the text
+      // path (sendStudentMessage).
+      const scanPrefix = takeScanPrefix();
+      if (sessionStartRef.current === null) sessionStartRef.current = Date.now();
+      const outbound: TurnMessage[] = [...stripHistory([...scanPrefix, ...messages]), { role: 'user', content: transcript }];
+      setMessages((current) => [...scanPrefix, ...current, { role: 'user', content: transcript }]);
       setRecap(null); // shown once -- a new conversation replaces it
+      setRecapMeta(null);
 
       // Voice pings + annotation sequencing fire at REPLY-DELIVERED (ADR-026).
       // On the streamed path that is turn-done, which lands DURING playback
@@ -1089,6 +1329,7 @@ export function Overlay({
     // overview is refetched fresh on the next open. Minimizing does NOT
     // end the session.
     setRecap(null);
+    setRecapMeta(null);
     setOverview(null);
     window.dispatchEvent(new CustomEvent(PANEL_CLOSED_EVENT));
   }
@@ -1170,6 +1411,7 @@ export function Overlay({
     return (
       <>
         <AnnotationLayer annotationColors={annotationColors} />
+        {bloom && <SectionBloom line={bloom.line} durationMs={BLOOM_MS} />}
         <div className="fixed bottom-6 left-1/2 z-[2147483647] -translate-x-1/2 font-sans motion-safe:animate-[cx-rise_0.42s_cubic-bezier(0.2,0.8,0.2,1)_both]">
           <div className="relative">
             <div
@@ -1210,6 +1452,7 @@ export function Overlay({
   return (
     <>
       <AnnotationLayer annotationColors={annotationColors} />
+      {bloom && <SectionBloom line={bloom.line} durationMs={BLOOM_MS} />}
       <div
         ref={panelRef}
         className={`fixed z-[2147483647] w-[420px] font-sans text-base text-foreground${isDragging ? ' select-none' : ''}${!dragPos ? ' bottom-7 left-1/2 -translate-x-1/2' : ''}`}
@@ -1217,20 +1460,19 @@ export function Overlay({
       >
       <PingToasts pings={activePings} />
 
-      {/* ── Overview/recap summary (Sprint 14 fix pass) — a small floating
-          WINDOW ABOVE the whole extension, not a strip wedged inside the
-          panel. It animates in on session start (overview) and session end
-          (recap), and auto-dismisses with a smooth exit after STRIP_FOLD_MS
-          (held open while hovered, and held through the close ring). Renders
-          alongside the opening scan's own bubble, not instead of it. */}
-      {(showOverviewCard || recap) && (
+      {/* ── Overview summary (Sprint 14 fix pass) — a small floating WINDOW
+          ABOVE the whole extension, not a strip wedged inside the panel. It
+          animates in on session start and auto-dismisses with a smooth exit
+          after STRIP_FOLD_MS (held open while hovered). Overview-only now:
+          the recap moved in-panel (RecapCard, design 6b). */}
+      {showOverviewCard && (
         <div
           className={`cx-strip-window mb-2${stripFolded && !stripHovered ? ' cx-strip-window--hidden' : ''}`}
           onMouseEnter={() => setStripHovered(true)}
           onMouseLeave={() => setStripHovered(false)}
         >
           <InsightStrip
-            {...(recap ? { kind: 'recap', recap, baseline: baselineRef.current } : { kind: 'overview', overview: overview! })}
+            overview={overview!}
             foldDurationMs={STRIP_FOLD_MS}
             onMouseEnter={() => setStripHovered(true)}
             onMouseLeave={() => setStripHovered(false)}
@@ -1239,20 +1481,6 @@ export function Overlay({
       )}
 
       <div className="relative">
-        {/* The solved celebration (Sprint 15 fix pass; round 2 moved it from
-            the composer's input bar to the WHOLE panel): two stacked conic-
-            gradient layers behind the panel card -- a soft blurred aura and
-            a ring the card's own background punches into a border. Both
-            charge up in a quick burst, then rotate slowly until the session
-            actually closes. The floating summary window above is a SIBLING,
-            deliberately outside the glow. Purely decorative (aria-hidden);
-            static under reduced motion. */}
-        {solvedGlow && (
-          <>
-            <span aria-hidden="true" className="cx-solved-glow cx-solved-glow--panel cx-solved-glow--aura" />
-            <span aria-hidden="true" className="cx-solved-glow cx-solved-glow--panel" />
-          </>
-        )}
       <div className="relative overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
 
         <TitleBar
@@ -1264,6 +1492,7 @@ export function Overlay({
           closing={closeState !== 'idle'}
           ringing={closeState === 'ringing'}
           ringDurationMs={CLOSE_RING_MS}
+          accessory={headerAccessory}
           onHeaderPointerDown={handleHeaderPointerDown}
           onHeaderPointerMove={handleHeaderPointerMove}
           onHeaderPointerUp={handleHeaderPointerUp}
@@ -1272,50 +1501,91 @@ export function Overlay({
           onCloseSession={() => void handleEndSessionClick()}
         />
 
-        {/* ── Chat area — only rendered when there is something to show ── */}
-        {hasContent && (
-          <div
-            aria-live="polite"
-            className="flex max-h-[272px] flex-col gap-3 overflow-y-auto px-4 py-3 scroll-smooth"
-          >
-            <Transcript
-              messages={messages}
-              streamingTokens={streamingTokens}
-              busy={busy}
-              notice={notice}
-              liveTranscript={liveTranscript}
-              chatEndRef={chatEndRef}
-            />
-          </div>
-        )}
+        {recap ? (
+          /* ── Post-session recap (design 6b) — the panel body's TERMINAL
+              state: replaces the chat area AND the composer outright. The
+              close ring keeps sweeping in the title bar; Done for today
+              closes now, One more pass cancels the close and hands the
+              composer back. ── */
+          <RecapCard recap={recap} disabled={ending} onDone={handleRecapDone} onMorePractice={handleRecapMore} />
+        ) : (
+          <>
+            {/* ── Chat area — only rendered when there is something to show ── */}
+            {hasContent && (
+              <div
+                aria-live="polite"
+                className="flex max-h-[272px] flex-col gap-3 overflow-y-auto px-4 py-3 scroll-smooth"
+              >
+                <Transcript
+                  messages={messages}
+                  streamingTokens={streamingTokens}
+                  busy={busy}
+                  notice={notice}
+                  liveTranscript={liveTranscript}
+                  chatEndRef={chatEndRef}
+                />
+              </div>
+            )}
 
-        {/* ── Input row — border-t only when chat area is present above ── */}
-        <Composer
-          hasContent={hasContent}
-          recording={recording}
-          connecting={connecting}
-          level={level}
-          input={input}
-          busy={busy}
-          closing={closeState !== 'idle'}
-          solutionProgress={solutionProgress}
-          inputFocused={inputFocused}
-          caretLeft={caretLeft}
-          inputElRef={inputElRef}
-          measureElRef={measureElRef}
-          onSubmit={handleSubmit}
-          onInputChange={(event) => {
-            setInput(event.target.value);
-            refreshCaret();
-          }}
-          onCaretRefresh={refreshCaret}
-          onInputFocus={() => {
-            setInputFocused(true);
-            refreshCaret();
-          }}
-          onInputBlur={() => setInputFocused(false)}
-          onMicClick={handleMicClick}
-        />
+            {/* ── Session-start check-in -> plan (design 05/6a) — the
+                designated pre-conversation UI. The composer is deliberately
+                ABSENT while these show ("chips over text fields"); voice
+                stays one tap away via 5a's "or just say it", and any turn
+                path still consumes the held scan question into the
+                transcript the moment the conversation starts. ── */}
+            {showCheckin ? (
+              checkinStage === 'plan' && checkinTopic && stickingPoint ? (
+                <PlanCard
+                  plan={buildSessionPlan(checkinTopic, stickingPoint, planVariant)}
+                  disabled={busy || ending || closeState !== 'idle'}
+                  onStart={handlePlanStart}
+                  onReshuffle={handlePlanReshuffle}
+                />
+              ) : (
+                <CheckinCard
+                  stage={checkinStage === 'topic' ? 'topic' : 'sticking'}
+                  {...(scan?.topic ? { suggestion: scan.topic } : {})}
+                  topic={checkinTopic}
+                  selectedSticking={stickingPoint}
+                  disabled={busy || ending || closeState !== 'idle'}
+                  onPickTopic={handleCheckinTopic}
+                  onChangeTopic={handleCheckinChangeTopic}
+                  onPickSticking={handleCheckinSticking}
+                  onStart={handleCheckinStart}
+                  onVoice={handleCheckinVoice}
+                />
+              )
+            ) : (
+              /* ── Input row — border-t only when chat area is present above ── */
+              <Composer
+                hasContent={hasContent}
+                recording={recording}
+                connecting={connecting}
+                level={level}
+                input={input}
+                busy={busy}
+                closing={closeState !== 'idle'}
+                solutionProgress={solutionProgress}
+                inputFocused={inputFocused}
+                caretLeft={caretLeft}
+                inputElRef={inputElRef}
+                measureElRef={measureElRef}
+                onSubmit={handleSubmit}
+                onInputChange={(event) => {
+                  setInput(event.target.value);
+                  refreshCaret();
+                }}
+                onCaretRefresh={refreshCaret}
+                onInputFocus={() => {
+                  setInputFocused(true);
+                  refreshCaret();
+                }}
+                onInputBlur={() => setInputFocused(false)}
+                onMicClick={handleMicClick}
+              />
+            )}
+          </>
+        )}
 
         {/* ── End-session confirmation (Sprint 14 fix pass) — a small dialog
             over the panel, matching the panel's own surface. Only a manual ✕

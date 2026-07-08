@@ -1895,6 +1895,24 @@ describe('/api/ai/turn: the opening scan (Sprint 14 Task 4, ADR-030)', () => {
     expect(json.profileTags).toBeUndefined()
   })
 
+  it('carries the page-detected topic additively (check-in 5a) — detectTopicKeys grounded, title-resolved; absent when the page names no known concept', async () => {
+    nextResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ say: 'Quadratics on this page.' })) }
+    const withTopic = await turn(token, {
+      opening: true,
+      // "factoring" + "quadratics" are curriculum aliases for
+      // algebra.quadratics.factoring — the word-boundary match the alias
+      // table actually performs, unlike minimalPageContext's bare equation.
+      pageContext: { title: 'Factoring quadratics practice', text: 'Factor each quadratic expression.', equations: [] },
+    })
+    expect(withTopic.status).toBe(200)
+    expect(withTopic.json.topic).toEqual({ conceptKey: 'algebra.quadratics.factoring', title: 'Factoring quadratics' })
+
+    nextResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ say: 'Hmm.' })) }
+    const withoutTopic = await turn(token, { opening: true, pageContext: minimalPageContext })
+    expect(withoutTopic.status).toBe(200)
+    expect(withoutTopic.json.topic).toBeUndefined()
+  })
+
   it('persistOpeningInteraction writes an assessment-less session_interactions row in BOTH the found-something and found-nothing cases -- never skips the row', async () => {
     const started = await start(token, { mode: 'text' })
     expect(started.status).toBe(200)
