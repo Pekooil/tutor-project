@@ -177,3 +177,79 @@
   --calyxa-annot-3: var(--color-danger);
   --calyxa-annot-4: var(--color-border-strong);
 }
+
+/* ---- Calyxa overlay: tutoring-session aliases (design handoff section 08,
+ * the "a session, not a chatbot" redesign) ----
+ * Same ADR-018 discipline as the block above: extension-local aliases, added
+ * here because every color a component uses must exist as a named token
+ * first (the handoff README's own instruction). Grouped by feature:
+ *
+ * PING TONES (8b) -- the three toast/milestone tones. positive and adjust
+ * reuse existing tokens outright; watch is the design's amber set, NEW
+ * hexes but a pairing the design specifies exactly. AA note: the old
+ * "amber excluded from text" rule measured #d97706-family amber against
+ * --color-surface (~2.97:1). This watch TEXT color is #92400e (a dark
+ * amber-brown) on the #fffbeb watch tint: 7.06:1 relative-luminance,
+ * clearing the 4.5:1 AA text minimum comfortably -- the exclusion was
+ * about the bright amber hue, not this pairing.
+ *
+ * SESSION SURFACES (8a) -- the sage card border (already shipped as a
+ * literal in CheckinCard, now promoted to a token), the board strip's warm
+ * off-white, and the close button's warm-red hover set (#9a3412 on
+ * #fdf2f0: 6.71:1, AA).
+ *
+ * TUTOR MODES (8c) -- eight mode identities, each a text/bg/border triple
+ * in the design's light-fill + dark-text pattern (brand.md §4.1's own
+ * construction, applied to seven new hue families + the existing green for
+ * Practice). All eight text colors clear 4.5:1 AA on their paired tints
+ * (darkest-on-lightest pairs from the Tailwind reference palette the
+ * design sampled: e.g. #075985 on #f0f9ff = 8.31:1, #9f1239 on #fff1f2 =
+ * 7.61:1). These are the one deliberate exception to "no new hues": the
+ * tutor-mode feature's whole point is that each mode is instantly
+ * color-distinguishable, per the design ("all different colors").
+ */
+:root,
+:host {
+  --calyxa-ping-positive-bg: var(--color-accent-subtle);
+  --calyxa-ping-positive-border: var(--color-accent);
+  --calyxa-ping-positive-text: var(--color-accent-foreground);
+  --calyxa-ping-adjust-bg: var(--color-surface);
+  --calyxa-ping-adjust-border: var(--color-border);
+  --calyxa-ping-adjust-text: #46463f;
+  --calyxa-ping-watch-bg: #fffbeb;
+  --calyxa-ping-watch-border: #fde68a;
+  --calyxa-ping-watch-text: #92400e;
+  --calyxa-ping-watch-divider: #f3e4c0;
+
+  --calyxa-sage-border: #d6f5e1;
+  --calyxa-board-bg: #fbfaf8;
+  --calyxa-accent-hover: #6ee7a0; /* accent-fill hover (handoff token list); pair with accent-foreground like --color-accent itself */
+  --calyxa-close-hover-bg: #fdf2f0;
+  --calyxa-close-hover-border: #e5b8b0;
+  --calyxa-close-hover-text: #9a3412;
+
+  --calyxa-mode-explore-text: #075985;
+  --calyxa-mode-explore-bg: #f0f9ff;
+  --calyxa-mode-explore-border: #7dd3fc;
+  --calyxa-mode-coach-text: #9a3412;
+  --calyxa-mode-coach-bg: #fff7ed;
+  --calyxa-mode-coach-border: #fdba74;
+  --calyxa-mode-build-text: #6d28d9;
+  --calyxa-mode-build-bg: #f5f3ff;
+  --calyxa-mode-build-border: #c4b5fd;
+  --calyxa-mode-practice-text: var(--color-accent-emphasis);
+  --calyxa-mode-practice-bg: var(--color-accent-subtle);
+  --calyxa-mode-practice-border: var(--color-accent);
+  --calyxa-mode-challenge-text: #a21caf;
+  --calyxa-mode-challenge-bg: #fdf4ff;
+  --calyxa-mode-challenge-border: #f0abfc;
+  --calyxa-mode-verify-text: #0f766e;
+  --calyxa-mode-verify-bg: #f0fdfa;
+  --calyxa-mode-verify-border: #5eead4;
+  --calyxa-mode-review-text: #3730a3;
+  --calyxa-mode-review-bg: #eef2ff;
+  --calyxa-mode-review-border: #a5b4fc;
+  --calyxa-mode-recover-text: #9f1239;
+  --calyxa-mode-recover-bg: #fff1f2;
+  --calyxa-mode-recover-border: #fda4af;
+}

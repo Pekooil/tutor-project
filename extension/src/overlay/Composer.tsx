@@ -2,14 +2,12 @@ import type { CSSProperties, RefObject } from 'react';
 import { VisuallyHidden } from '@calyxa/ui';
 
 // The input row (Sprint 10 Task 6; Sprint 14 Task 2 decomposition; Sprint
-// 14 Task 7 progress bar + icon Send, ADR-028). Extracted from Overlay.tsx
-// with zero behavior change at Task 2; Task 7 adds the solution-progress
-// bar (a thin track along the frame's top edge, filled by Overlay.tsx's
-// already-eased/clamped `solutionProgress` -- this component does no
-// clamping itself, it only renders the number it's handed) and turns Send
-// into an icon-only button. Owns no session state -- every value and
-// handler here is a prop from Overlay.tsx, which keeps the input/recording/
-// caret state and the submit/mic handlers.
+// 14 Task 7 icon Send; design-08 restyle). The Sprint 14 solution-progress
+// bar is RETIRED per the design ("the progress bar is gone -- pings and
+// markers ARE the progress"); the progress signal itself still drives the
+// stage label and the final-step pin in Overlay.tsx. Owns no session state
+// -- every value and handler here is a prop from Overlay.tsx, which keeps
+// the input/recording/caret state and the submit/mic handlers.
 export function Composer({
   hasContent,
   recording,
@@ -18,7 +16,7 @@ export function Composer({
   input,
   busy,
   closing,
-  solutionProgress,
+  placeholder,
   inputFocused,
   caretLeft,
   inputElRef,
@@ -45,9 +43,9 @@ export function Composer({
   // Task 7 spec) -- a turn can't be sent while the panel is already on its
   // way to closing.
   closing: boolean;
-  // 0-1, already eased/clamped by Overlay.tsx (easeProgress, ADR-028) --
-  // this component just renders the bar width, no math of its own.
-  solutionProgress: number;
+  // Contextual hint (design 8a): "Answer out loud or type here" during a
+  // session, the classic ask prompt before one. Overlay.tsx decides.
+  placeholder: string;
   inputFocused: boolean;
   caretLeft: number;
   inputElRef: RefObject<HTMLInputElement | null>;
@@ -63,47 +61,19 @@ export function Composer({
   const micBusy = connecting || (disabled && !recording);
 
   return (
-    <div className={`${hasContent ? 'border-t border-border' : ''} px-[18px] pb-[14px] pt-3`}>
-      {/* The solution-progress bar (Sprint 14 Task 7, ADR-028): thin,
-          low-saturation, persistent. Hidden entirely at 0 so an unstarted
-          problem shows no track at all. The outer container is NOT clipped
-          so the glowing knob (Sprint 14 fix pass) can spill its soft glow
-          past the thin track; the fill itself keeps its own rounded clip. */}
-      {solutionProgress > 0 && (
-        <div
-          role="img"
-          aria-label={`Progress on this problem: ${Math.round(solutionProgress * 100)} percent`}
-          className="relative mb-2 h-[3px] w-full"
-        >
-          <div className="h-full w-full overflow-hidden rounded-full bg-border">
-            <div
-              className="cx-progress-fill h-full rounded-full transition-[width] duration-300 ease-out"
-              style={{ width: `${Math.round(Math.max(0, Math.min(1, solutionProgress)) * 100)}%` }}
-            />
-          </div>
-          {/* The glowing knob (Sprint 14 fix pass): a small circle riding the
-              head of the fill, with a soft glow. Positioned by the same
-              clamped percent the fill uses, so it always sits at the fill's
-              leading edge and eases along with it. */}
-          <span
-            aria-hidden="true"
-            className="cx-progress-knob"
-            style={{ left: `${Math.round(Math.max(0, Math.min(1, solutionProgress)) * 100)}%` }}
-          />
-        </div>
-      )}
+    <div className={`${hasContent ? 'border-t border-border' : ''} px-[11px] pb-[10px] pt-2`}>
       <form
         onSubmit={onSubmit}
-        className="flex items-center gap-2 rounded-full border border-border bg-background py-[7px] pr-[7px] pl-[18px] shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
+        className="flex items-center gap-[7px] rounded-full border border-border bg-background py-[5px] pr-1.5 pl-[13px] shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
       >
         {connecting ? (
-          <div className="flex h-[34px] flex-1 items-center justify-center gap-2 text-[13px] text-muted-foreground">
+          <div className="flex h-[32px] flex-1 items-center justify-center gap-2 text-[13px] text-muted-foreground">
             <VisuallyHidden>Connecting to the microphone…</VisuallyHidden>
             <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground" />
             <span aria-hidden="true">Connecting…</span>
           </div>
         ) : recording ? (
-          <div className="flex h-[34px] flex-1 items-center justify-center">
+          <div className="flex h-[32px] flex-1 items-center justify-center">
             <VisuallyHidden>Recording — click the square button to stop and send</VisuallyHidden>
             <WaveformBars count={24} barWidth={3} gap={3} gradientFrom="#4ade80" gradientTo="#86efac" durationBase={0.9} level={level} />
           </div>
@@ -115,11 +85,11 @@ export function Composer({
             <span
               ref={measureElRef}
               aria-hidden="true"
-              className="pointer-events-none invisible absolute whitespace-pre text-[14.5px]"
+              className="pointer-events-none invisible absolute whitespace-pre text-[12.5px]"
             />
             <input
               ref={inputElRef}
-              className="w-full border-none bg-transparent text-[14.5px] text-foreground outline-none placeholder:text-muted-foreground caret-transparent"
+              className="h-[32px] w-full border-none bg-transparent text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground caret-transparent"
               type="text"
               value={input}
               onChange={onInputChange}
@@ -131,7 +101,7 @@ export function Composer({
               onScroll={onCaretRefresh}
               onFocus={onInputFocus}
               onBlur={onInputBlur}
-              placeholder="Ask a math question…"
+              placeholder={placeholder}
               disabled={disabled}
             />
             {inputFocused && !disabled && (
@@ -149,27 +119,23 @@ export function Composer({
           disabled={micBusy}
           aria-label={connecting ? 'Connecting to microphone…' : recording ? 'Stop recording and send' : 'Switch to voice'}
           title={connecting ? 'Connecting…' : recording ? 'Stop and send' : 'Switch to voice'}
-          className="flex h-[34px] w-[34px] flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-[26px] w-[26px] flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
           {recording ? (
-            <span aria-hidden="true" className="block h-2.5 w-2.5 rounded-[2px] bg-muted-foreground" />
+            <span aria-hidden="true" className="block h-2 w-2 rounded-[2px] bg-muted-foreground" />
           ) : (
-            <span aria-hidden="true" className="block h-[13px] w-[7px] rounded-full bg-muted-foreground" />
+            <span aria-hidden="true" className="block h-2.5 w-[5px] rounded-full bg-muted-foreground" />
           )}
         </button>
-        {/* Send is an icon-only ↵ enter-arrow button (Sprint 14 Task 7 spec)
-            -- was a "Send" text button through Sprint 13. */}
+        {/* Send is the accent ↑ circle (design 8a compact spec: 32px). */}
         <button
           type="submit"
           disabled={!input.trim() || recording || connecting || disabled}
           aria-label="Send"
           title="Send"
-          className="flex h-[34px] w-[34px] flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-accent p-0 text-accent-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-[32px] w-[32px] flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-accent p-0 text-[14px] font-semibold text-accent-foreground outline-none hover:bg-[var(--calyxa-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <svg aria-hidden="true" width="15" height="15" viewBox="0 0 15 15" fill="none">
-            <path d="M11 4V9H4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M7 6.5L4.5 9L7 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <span aria-hidden="true">↑</span>
         </button>
       </form>
     </div>

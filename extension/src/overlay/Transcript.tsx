@@ -1,11 +1,12 @@
 import type { RefObject } from 'react';
-import { Card } from '@calyxa/ui';
+import { CalyxaMark, Card } from '@calyxa/ui';
 import type { Annotation } from '../types/messages';
 import type { AnnotationColorMap, DisplayMessage } from './Overlay';
+import { PinIcon } from './TitlePin';
 
 // (The per-bubble profile-tag pills that rendered here through Sprint 14
-// were retired by ADR-034 -- their signal now surfaces as status pins in
-// the title card, TitlePin.tsx.)
+// were retired by ADR-034 -- their signal now surfaces as ping toasts over
+// the title card, PingToast.tsx, and as the milestone markers below.)
 
 // The color-linked highlighting (Sprint 14 Task 7, ADR-029 amendment): a
 // pure function so it's testable without a browser (Task 9's
@@ -98,6 +99,25 @@ export function splitMathBlocks(say: string): SayBlock[] {
   return blocks;
 }
 
+/**
+ * The board strip's current equation (design 8a: "a board strip pins the
+ * current equation... updates as the problem transforms"): the LAST $$ math
+ * block in the MOST RECENT tutor message that carries one -- the equation
+ * the tutor most recently put up is, by construction, the one being worked.
+ * Milestone entries never carry math; a session with no $$ block yet (or a
+ * tutor turn of pure prose since) keeps the previous equation on the board
+ * by scanning backwards until one is found. Null renders no strip at all.
+ */
+export function latestBoardEquation(messages: readonly DisplayMessage[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.role !== 'assistant' || message.milestone) continue;
+    const mathBlocks = splitMathBlocks(message.content).filter((block) => block.kind === 'math');
+    if (mathBlocks.length > 0) return mathBlocks[mathBlocks.length - 1].text;
+  }
+  return null;
+}
+
 export function highlightAnnotatedPhrases(
   say: string,
   annotations: Annotation[] | undefined,
@@ -170,15 +190,38 @@ export function Transcript({
   return (
     <>
       {messages.map((msg, index) =>
-        msg.role === 'user' ? (
-          <div key={index} className="flex justify-end">
-            <p className="m-0 max-w-[80%] rounded-2xl rounded-tr-sm bg-surface px-3.5 py-2 text-[13.5px] leading-relaxed text-foreground">
+        msg.milestone ? (
+          /* Milestone marker (design 8a): a quiet centered rule row -- icon
+             + one line between two hairlines, tone-tinted (sage win / amber
+             watch-out). These persist after the ping toast fades; with the
+             progress bar retired, the markers ARE the progress. role=status
+             (not a bubble): it's the session's own annotation, not a turn. */
+          <div key={index} role="status" className={`cx-msg cx-milestone-${msg.milestone.tone} my-0.5 flex items-center gap-2.5`}>
+            <span aria-hidden="true" className="cx-milestone-rule h-px flex-1" />
+            <span className="flex items-center gap-1.5 whitespace-nowrap text-[11px] font-semibold">
+              <PinIcon kind={msg.milestone.kind} size={12} />
+              {msg.milestone.line}
+            </span>
+            <span aria-hidden="true" className="cx-milestone-rule h-px flex-1" />
+          </div>
+        ) : msg.role === 'user' ? (
+          /* Student turns keep a bubble -- right-aligned, sage-tinted,
+             radius 14/14/4/14 (design 8a: "only the student gets a
+             bubble"). */
+          <div key={index} className="cx-msg flex justify-end">
+            <p className="m-0 max-w-[78%] rounded-[14px] rounded-br-[4px] border border-[var(--calyxa-sage-border)] bg-accent-subtle px-[13px] py-2 text-[13.5px] leading-normal text-accent-foreground">
               {msg.content}
             </p>
           </div>
         ) : (
-          <div key={index} className="flex justify-start">
-            <div className="flex max-w-[88%] flex-col items-start gap-1.5">
+          /* Tutor turns get NO bubble -- the 14px mark + open text sitting
+             on the panel (design 8a: "Calyxa's words sit open on the
+             page"). */
+          <div key={index} className="cx-msg flex justify-start gap-[9px]">
+            <span aria-hidden="true" className="mt-[3px] flex-none">
+              <CalyxaMark className="h-3.5 w-3.5" />
+            </span>
+            <div className="flex max-w-[92%] flex-col items-start gap-1.5">
               <p className="m-0 w-full whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-foreground">
                 {/* ChatGPT-style math layout (Sprint 15 fix pass): prose runs
                     render as before (color-linked highlighting included);
@@ -226,7 +269,7 @@ export function Transcript({
           accurate Whisper result is committed, to avoid a visible gap. */}
       {liveTranscript && (
         <div className="flex justify-end">
-          <p className="m-0 max-w-[80%] rounded-2xl rounded-tr-sm bg-surface px-3.5 py-2 text-[13.5px] leading-relaxed text-foreground">
+          <p className="m-0 max-w-[78%] rounded-[14px] rounded-br-[4px] border border-[var(--calyxa-sage-border)] bg-accent-subtle px-[13px] py-2 text-[13.5px] leading-normal text-accent-foreground">
             {liveTranscript}
           </p>
         </div>
@@ -236,9 +279,14 @@ export function Transcript({
           Each token is a separate <span key={id}> so only newly
           appended tokens trigger the cx-word-in entry animation. */}
       {busy && (
-        <div className="flex justify-start">
+        <div className="flex justify-start gap-[9px]">
+          {streamingTokens.length > 0 && (
+            <span aria-hidden="true" className="mt-[3px] flex-none">
+              <CalyxaMark className="h-3.5 w-3.5" />
+            </span>
+          )}
           {streamingTokens.length > 0 ? (
-            <p className="m-0 max-w-[88%] whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-foreground">
+            <p className="m-0 max-w-[92%] whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-foreground">
               {streamingTokens.map((token) => (
                 <span key={token.id} className="inline-block cx-word-in">
                   {token.text}

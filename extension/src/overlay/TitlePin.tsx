@@ -1,34 +1,16 @@
-import type { StatusPin, StatusPinCategory, StatusPinKind } from '../types/messages';
+import type { StatusPinKind } from '../types/messages';
 
-// The title-card status pin (Sprint 15, ADR-034 -- the unified
-// transient-signal surface, replacing PingToasts' floating pills and
-// Transcript's per-bubble tag pills). Pure presentational: Overlay.tsx owns
-// the queue/dedupe/timing; TitleBar.tsx owns WHERE it renders (the
-// dynamic-island swap of the logo+wordmark cluster); this file only maps a
-// pin to its icon + color and lays the two out.
+// The status-pin icon set (Sprint 15, ADR-034; the design-08 redesign
+// retired this file's TitlePin dynamic-island component -- the header no
+// longer swaps its identity for a signal; the ping toast (PingToast.tsx)
+// and the transcript's milestone markers (Transcript.tsx) render these
+// icons instead, tinted by the ping TONES in pings.ts rather than the old
+// category color map).
 //
 // Icons are inline SVGs -- never emoji (brand rule), never an icon library
-// (nothing else in the overlay ships one). All 17 share one visual language:
-// 14x14 viewBox, 1.5px round-capped strokes, currentColor -- so the
-// category color class on the wrapper tints icon and label together.
-//
-// Colors reuse the overlay's existing signal language (ADR-018 discipline,
-// no new hues): green = something achieved (progress / confidence /
-// independence), blue = something in motion -- the tutor adapting or a
-// prediction playing out (prediction / teaching / guidance / difficulty),
-// neutral = a factual nod to recorded history (memory), matching the old
-// callback tag's quiet treatment. Amber stays excluded from text (fails AA
-// on this surface, measured in Sprint 14).
-export const PIN_CATEGORY_COLOR_CLASS: Record<StatusPinCategory, string> = {
-  progress: 'cx-pin-green',
-  confidence: 'cx-pin-green',
-  independence: 'cx-pin-green',
-  prediction: 'cx-pin-blue',
-  teaching: 'cx-pin-blue',
-  guidance: 'cx-pin-blue',
-  difficulty: 'cx-pin-blue',
-  memory: 'cx-pin-neutral',
-};
+// (nothing else in the overlay ships one). All 19 share one visual language:
+// 14x14 viewBox, 1.5px round-capped strokes, currentColor -- so whatever
+// tone class the wrapper carries tints icon and label together.
 
 // One glyph per kind. Deliberately simple geometry -- these render at 14px
 // inside the header, so a glyph earns its place by silhouette, not detail;
@@ -172,12 +154,15 @@ const PIN_ICON_PATHS: Record<StatusPinKind, React.ReactNode> = {
   ),
 };
 
-export function PinIcon({ kind }: { kind: StatusPinKind }) {
+// `size` lets the transcript's milestone markers render the same icon a
+// step smaller (12px against their 11px labels) without a second icon set;
+// the viewBox stays 14x14 so the geometry is identical at every size.
+export function PinIcon({ kind, size = 14 }: { kind: StatusPinKind; size?: number }) {
   return (
     <svg
       aria-hidden="true"
-      width="14"
-      height="14"
+      width={size}
+      height={size}
       viewBox="0 0 14 14"
       fill="none"
       stroke="currentColor"
@@ -187,14 +172,5 @@ export function PinIcon({ kind }: { kind: StatusPinKind }) {
     >
       {PIN_ICON_PATHS[kind]}
     </svg>
-  );
-}
-
-export function TitlePin({ pin }: { pin: StatusPin }) {
-  return (
-    <span className={`${PIN_CATEGORY_COLOR_CLASS[pin.category]} flex min-w-0 items-center gap-[7px]`}>
-      <PinIcon kind={pin.kind} />
-      <span className="truncate text-[12.5px] font-semibold">{pin.label}</span>
-    </span>
   );
 }

@@ -454,58 +454,12 @@
   }
 }
 
-/* ── Composer: the solution-progress bar fill (Sprint 14 Task 7, ADR-028) ──
- * Thin, low-saturation, PERSISTENT -- deliberately distinct from the
- * strip's brighter, transient auto-dismiss sweep below (this bar sticks
- * around for the whole problem; that one counts down and folds). */
-.cx-progress-fill {
-  background-color: var(--calyxa-progress);
-}
-
-/* The progress bar's glowing knob (Sprint 14 fix pass): a small circle at the
- * head of the fill that glows softly, so the eye is drawn to exactly how far
- * along this problem is. `left` is the fill percent; the translate re-centers
- * the circle on that point and lifts it onto the track's midline. The glow is
- * a layered box-shadow in the progress color; a gentle, slow pulse under
- * prefers-reduced-motion: no-preference keeps "glow slightly" alive without
- * being distracting. It eases horizontally in lockstep with the fill width. */
-.cx-progress-knob {
-  position: absolute;
-  top: 50%;
-  height: 8px;
-  width: 8px;
-  border-radius: 9999px;
-  background: var(--calyxa-progress);
-  transform: translate(-50%, -50%);
-  box-shadow:
-    0 0 4px 1px var(--calyxa-progress),
-    0 0 8px 2px color-mix(in srgb, var(--calyxa-progress) 55%, transparent);
-  transition: left 0.3s ease-out;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .cx-progress-knob {
-    animation: cx-progress-knob-glow 2s ease-in-out infinite;
-  }
-}
-
-@keyframes cx-progress-knob-glow {
-  0%,
-  100% {
-    box-shadow:
-      0 0 3px 1px var(--calyxa-progress),
-      0 0 6px 2px color-mix(in srgb, var(--calyxa-progress) 45%, transparent);
-  }
-  50% {
-    box-shadow:
-      0 0 5px 1.5px var(--calyxa-progress),
-      0 0 11px 3px color-mix(in srgb, var(--calyxa-progress) 65%, transparent);
-  }
-}
-
-/* (The Transcript tag-pill color classes -- cx-tag-* -- lived here through
- * Sprint 14; ADR-034 retired the per-bubble pills in favor of the title
- * card's status pins below.) */
+/* (The Sprint 14 solution-progress bar's classes -- cx-progress-fill /
+ * cx-progress-knob -- lived here; the design-08 redesign retired the bar
+ * outright ("the progress bar is gone — pings and markers ARE the
+ * progress"). The progress SIGNAL itself still drives the header's stage
+ * label and the final-step pin. The Transcript tag-pill color classes --
+ * cx-tag-* -- were retired earlier by ADR-034.) */
 
 /* ── Transcript: color-linked annotation highlighting (Sprint 14 Task 7,
  * ADR-029 amendment) ── theme.css's --calyxa-annot-1..4 aliases, the SAME
@@ -545,33 +499,96 @@
   text-underline-offset: 2px;
 }
 
-/* ── TitleBar/TitlePin: the status-pin dynamic island (Sprint 15, ADR-034,
- * replacing PingToasts' floating pills) ── PIN_CATEGORY_COLOR_CLASS
- * (TitlePin.tsx) maps a pin category to one of these three; each sets only
- * `color`, which the pin's inline-SVG icon (stroke="currentColor") and
- * label both inherit -- one class tints the whole pin. Green/blue reuse the
- * exact values the retired toast classes used (ADR-018: no new hues);
- * neutral is the muted foreground the old callback tag rendered in. */
-.cx-pin-green {
-  color: var(--color-accent-emphasis);
-}
-.cx-pin-blue {
-  color: #2563eb;
-}
-.cx-pin-neutral {
-  color: var(--color-muted-foreground);
+/* ── PingToast: the ping system (design handoff 8a/8b, replacing the
+ * Sprint 15 dynamic-island title swap -- the island was tried and reverted
+ * in the design pass) ── one tone-tinted capsule that drops into the
+ * top-center of the session header, holds ~3s (Overlay.tsx's
+ * PIN_DISPLAY_MS drives removal), and fades up and out. The base class
+ * carries the horizontal centering (translateX) so the toast is correctly
+ * positioned even under reduced motion, where the keyframe never runs and
+ * the JS timer still removes it -- "end-state applied instantly", as
+ * everywhere else in this file. The keyframe is the design board's own
+ * cx-ping cycle, verbatim. */
+.cx-ping {
+  transform: translateX(-50%);
 }
 
-/* The island swap itself: whichever face (pin or wordmark) just mounted
- * rises 5px into place while fading in, on the overlay's usual ease-out
- * curve. One-shot per mount -- TitleBar keys each face, so the animation
- * runs exactly once per swap. Motion-safe gated like every other transition
- * in this file: under reduced motion the swap is instant (end-state
- * applied), never load-bearing for comprehension. */
-@keyframes cx-pin-in {
+@media (prefers-reduced-motion: no-preference) {
+  .cx-ping {
+    animation: cx-ping 3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
+
+@keyframes cx-ping {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -18px) scale(0.92);
+  }
+  9% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  85% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -14px) scale(0.95);
+  }
+}
+
+/* The three ping tones (8b: sage wins / neutral teaching moves / amber
+ * watch-outs) -- pings.ts's PIN_TONE picks the class; every value is a
+ * theme.css --calyxa-ping-* token (ADR-018). The icon inherits `color`
+ * through currentColor, so one class tints border, fill, label, and glyph
+ * together. */
+.cx-ping-positive {
+  background: var(--calyxa-ping-positive-bg);
+  border-color: var(--calyxa-ping-positive-border);
+  color: var(--calyxa-ping-positive-text);
+}
+.cx-ping-adjust {
+  background: var(--calyxa-ping-adjust-bg);
+  border-color: var(--calyxa-ping-adjust-border);
+  color: var(--calyxa-ping-adjust-text);
+}
+.cx-ping-watch {
+  background: var(--calyxa-ping-watch-bg);
+  border-color: var(--calyxa-ping-watch-border);
+  color: var(--calyxa-ping-watch-text);
+}
+
+/* ── Transcript: milestone markers (design 8a) ── the tone class sets the
+ * row's text/icon color and the hairline-rule color together; the rules
+ * themselves read the custom property so win and watch-out rows stay
+ * one-class affairs like the toast above. `adjust` is styled for
+ * completeness (no current milestone kind maps to it -- pings.ts). */
+.cx-milestone-positive {
+  color: var(--color-accent-emphasis);
+  --cx-milestone-rule: var(--calyxa-sage-border);
+}
+.cx-milestone-watch {
+  color: var(--calyxa-ping-watch-text);
+  --cx-milestone-rule: var(--calyxa-ping-watch-divider);
+}
+.cx-milestone-adjust {
+  color: var(--calyxa-ping-adjust-text);
+  --cx-milestone-rule: var(--color-border);
+}
+.cx-milestone-rule {
+  background: var(--cx-milestone-rule);
+}
+
+/* ── Transcript: entry animation (design 8a's Message-in) ── every
+ * committed transcript entry -- tutor line, student bubble, milestone
+ * marker -- settles in from 9px below on the overlay's usual spring-ish
+ * curve. One-shot per mount (React list keys), same discipline as
+ * cx-word-in above. */
+@keyframes cx-msg {
   from {
     opacity: 0;
-    transform: translateY(5px) scale(0.97);
+    transform: translateY(9px);
   }
   to {
     opacity: 1;
@@ -580,9 +597,56 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .cx-pin-in {
-    animation: cx-pin-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  .cx-msg {
+    animation: cx-msg 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
+}
+
+/* ── TitleBar: the tutor-mode identity colors (design 8c) ── each mode key
+ * maps to one class that publishes the mode's text/bg/border triple as
+ * custom properties; the chip, name, and anything else inside the identity
+ * cluster read those (inline style var() references), so a mode switch is
+ * one className change and the .45s color transitions carry the recolor.
+ * Every value is a theme.css --calyxa-mode-* token (ADR-018). */
+.cx-mode-explore {
+  --cx-mode-text: var(--calyxa-mode-explore-text);
+  --cx-mode-bg: var(--calyxa-mode-explore-bg);
+  --cx-mode-border: var(--calyxa-mode-explore-border);
+}
+.cx-mode-coach {
+  --cx-mode-text: var(--calyxa-mode-coach-text);
+  --cx-mode-bg: var(--calyxa-mode-coach-bg);
+  --cx-mode-border: var(--calyxa-mode-coach-border);
+}
+.cx-mode-build {
+  --cx-mode-text: var(--calyxa-mode-build-text);
+  --cx-mode-bg: var(--calyxa-mode-build-bg);
+  --cx-mode-border: var(--calyxa-mode-build-border);
+}
+.cx-mode-practice {
+  --cx-mode-text: var(--calyxa-mode-practice-text);
+  --cx-mode-bg: var(--calyxa-mode-practice-bg);
+  --cx-mode-border: var(--calyxa-mode-practice-border);
+}
+.cx-mode-challenge {
+  --cx-mode-text: var(--calyxa-mode-challenge-text);
+  --cx-mode-bg: var(--calyxa-mode-challenge-bg);
+  --cx-mode-border: var(--calyxa-mode-challenge-border);
+}
+.cx-mode-verify {
+  --cx-mode-text: var(--calyxa-mode-verify-text);
+  --cx-mode-bg: var(--calyxa-mode-verify-bg);
+  --cx-mode-border: var(--calyxa-mode-verify-border);
+}
+.cx-mode-review {
+  --cx-mode-text: var(--calyxa-mode-review-text);
+  --cx-mode-bg: var(--calyxa-mode-review-bg);
+  --cx-mode-border: var(--calyxa-mode-review-border);
+}
+.cx-mode-recover {
+  --cx-mode-text: var(--calyxa-mode-recover-text);
+  --cx-mode-bg: var(--calyxa-mode-recover-bg);
+  --cx-mode-border: var(--calyxa-mode-recover-border);
 }
 
 /* ── SectionBloom: the section-complete celebration (design handoff state

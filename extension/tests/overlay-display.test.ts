@@ -54,6 +54,23 @@ describe('stripHistory — display extras never re-enter the outbound wire', () 
     ]);
   });
 
+  it('drops milestone MARKER entries outright — the session annotating itself never reaches the wire', () => {
+    const messages: DisplayMessage[] = [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: 'Pattern broken · sign errors',
+        milestone: { kind: 'pattern-broken', tone: 'positive', line: 'Pattern broken · sign errors' },
+      },
+      { role: 'assistant', content: 'Nice — what are the roots?' },
+    ];
+
+    expect(stripHistory(messages)).toEqual([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'Nice — what are the roots?' },
+    ]);
+  });
+
   it('a history with no extras anywhere round-trips unchanged (back-compat)', () => {
     const messages: DisplayMessage[] = [
       { role: 'user', content: 'hi' },

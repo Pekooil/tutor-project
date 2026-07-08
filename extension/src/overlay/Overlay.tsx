@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -22,10 +23,13 @@ import type {
 import { AnnotationLayer } from './AnnotationLayer';
 import { CheckinCard } from './CheckinCard';
 import { Composer } from './Composer';
+import { PingToast } from './PingToast';
+import { MILESTONE_KINDS, PIN_TONE, milestoneLine, type MilestoneMeta } from './pings';
 import { RecapCard } from './RecapCard';
 import { SectionBloom } from './SectionBloom';
-import { TitleBar, type HeaderAccessory } from './TitleBar';
-import { Transcript } from './Transcript';
+import { TitleBar, type HeaderAccessory, type SessionHeader } from './TitleBar';
+import { Transcript, latestBoardEquation, tokenizeMathText } from './Transcript';
+import { TUTOR_MODES, deriveTutorMode, formatElapsed, stageLabel, type TutorModeKey } from './tutor-modes';
 import { startRecording, type RecordingHandle, type Utterance } from './VoiceController';
 import { buildSessionStartMessage, buildStickingChips, bloomLine, formatRecapMeta } from './session-flow';
 import { createSentenceAccumulator, micStateReducer, wordsDueByTime } from './voice-timing';
@@ -77,17 +81,23 @@ export type TurnResult = {
 
 // Local DISPLAY message type (Sprint 13, ADR-024; widened Sprint 14 Task 7;
 // slimmed Sprint 15, ADR-034 -- the per-bubble tag pills are retired, their
-// signal folded into the title card's status pins): the transcript the
-// overlay renders carries each assistant bubble's annotations + the
-// deterministic per-turn color assignment computed for them
-// (assignAnnotationColors below) -- both are needed at RENDER time, not
-// just at commit time, since Transcript re-renders the whole message list
-// on every change. The history handed back to onSend is stripped to
-// role/content (stripHistory below) -- none of this display-ephemeral state
-// ever re-enters the wire request.
+// signal folded into the title card's status pins; widened again for
+// design-08's milestone markers): the transcript the overlay renders
+// carries each assistant bubble's annotations + the deterministic per-turn
+// color assignment computed for them (assignAnnotationColors below) --
+// both are needed at RENDER time, not just at commit time, since
+// Transcript re-renders the whole message list on every change. An entry
+// with `milestone` set is a MARKER, not a turn: Transcript renders the
+// centered rule row from it (its `content` is the same line, for
+// completeness) and stripHistory drops it from the wire outright -- a
+// milestone is the session annotating itself, never something the model
+// said or should be told it said. The history handed back to onSend is
+// stripped to role/content (stripHistory below) -- none of this
+// display-ephemeral state ever re-enters the wire request.
 export type DisplayMessage = TurnMessage & {
   annotations?: Annotation[];
   annotationColors?: AnnotationColorMap;
+  milestone?: MilestoneMeta;
 };
 
 // Client-side cap (defence in depth -- the delivery contract is server-side
@@ -95,16 +105,20 @@ export type DisplayMessage = TurnMessage & {
 // ADR-034) -- the server may legitimately send more (learning events + a
 // move + memory pins); the priority order below decides which two survive.
 export const MAX_PINS_PER_TURN = 2;
-// How long each pin holds the title card before the queue advances (and,
-// with an empty queue, the wordmark returns).
-export const PIN_DISPLAY_MS = 4000;
+// How long each ping toast holds the top-center of the header before the
+// queue advances (design 8b: "pings hold for 3 seconds, one at a time").
+export const PIN_DISPLAY_MS = 3000;
 
 // ---- Pure display logic (exported for the Task 9 vitest/jsdom spec, the
 // annotations.ts testable-module precedent) ----
 
-/** The history sent to onSend is pure role/content -- display extras never leave the overlay. */
+/**
+ * The history sent to onSend is pure role/content -- display extras never
+ * leave the overlay, and milestone MARKERS (design 8a) are dropped outright:
+ * they're the session annotating itself, not something the model said.
+ */
 export function stripHistory(messages: readonly DisplayMessage[]): TurnMessage[] {
-  return messages.map(({ role, content }) => ({ role, content }));
+  return messages.filter((message) => !message.milestone).map(({ role, content }) => ({ role, content }));
 }
 
 // ---- The session-start check-in (designated pre-conversation UI, design
@@ -355,8 +369,8 @@ export function assignAnnotationColors(annotations: Annotation[] | undefined): A
 }
 
 // (The Sprint 14 tag/ping kind->color maps lived here; ADR-034 retired both
-// surfaces -- the status pins' category->color map is TitlePin.tsx's
-// PIN_CATEGORY_COLOR_CLASS, same ADR-018 no-new-hues discipline.)
+// surfaces -- the design-08 redesign maps each pin KIND onto one of three
+// toast tones instead, pings.ts's PIN_TONE.)
 
 /**
  * The forward look's humanized due phrasing ("comes back Thursday", Task 8
@@ -383,11 +397,13 @@ export function humanizeDue(dueAt: string, now: Date = new Date()): string {
 //   input row  — text input + mic + send
 //
 // Sprint 14 Task 2: the pieces of that layout now live in their own
-// files (TitleBar, Composer, Transcript; Sprint 15's ADR-034 adds
-// TitlePin and retires PingToasts) -- presentational components that take
-// props/callbacks. Overlay.tsx keeps every state hook, effect, and handler
-// (moved, not rewritten) and is the composition root that wires them
-// together.
+// files (TitleBar, Composer, Transcript; Sprint 15's ADR-034 unified the
+// transient signals into the status pins, and the design-08 redesign
+// renders them as the PingToast over the header, with the tutor mode --
+// tutor-modes.ts -- as the session identity) -- presentational components
+// that take props/callbacks. Overlay.tsx keeps every state hook, effect,
+// and handler (moved, not rewritten) and is the composition root that
+// wires them together.
 //
 // Text turns: `onSend` receives an `onChunk` callback; each arriving token
 // appends to `streamingContent`, which renders as a pending assistant bubble
@@ -537,14 +553,25 @@ export function Overlay({
   // turn) -- the recap meta's duration baseline. A ref: read only at recap
   // arrival.
   const sessionStartRef = useRef<number | null>(null);
-  // The title-card pin queue (ADR-034): FIFO of the pins that survived
-  // filterPinsForDisplay, shown ONE at a time in the TitleBar's dynamic-
-  // island slot for PIN_DISPLAY_MS each (the advance effect below), plus
-  // the session-lifetime kind:concept dedupe set (cleared when the session
-  // ends).
+  // The ping queue (ADR-034; design-08 moves the surface): FIFO of the pins
+  // that survived filterPinsForDisplay, shown ONE at a time as the toast
+  // dropping into the top-center of the header (PingToast) for
+  // PIN_DISPLAY_MS each (the advance effect below), plus the session-
+  // lifetime kind:concept dedupe set (cleared when the session ends).
   const [pinQueue, setPinQueue] = useState<{ id: number; pin: StatusPin }[]>([]);
   const pinIdRef = useRef(0);
   const shownPinKeysRef = useRef<Set<string>>(new Set());
+  // The live tutor mode (design 8c): derived client-side per turn from the
+  // turn's own signals (tutor-modes.ts's deriveTutorMode) -- the header
+  // identity recolors on every switch. Reset to Explore with the panel.
+  const [tutorMode, setTutorMode] = useState<TutorModeKey>('explore');
+  // Consecutive turns whose eased progress moved DOWN (a wrong step) --
+  // deriveTutorMode's "two misses in a row" input. A ref: read/written only
+  // at commit time (turns are serialized by `busy`).
+  const missStreakRef = useRef(0);
+  // The header clock (design 8a): elapsed m:ss since the first committed
+  // student turn, ticked by the interval effect below.
+  const [clockLabel, setClockLabel] = useState('0:00');
   // The client-derived final-step pin's once-per-problem latch (reset with
   // the progress bar in performClose).
   const finalStepFiredRef = useRef(false);
@@ -633,6 +660,29 @@ export function Overlay({
   // card (which has no header accessory now that it's a single screen).
   const headerAccessory: HeaderAccessory | null = recap ? { meta: recapMeta ?? '' } : null;
 
+  // The live-session header identity (design 8c): the tutor mode takes the
+  // logo's place from the first committed student turn until the recap's
+  // terminal card (which returns the wordmark + its meta accessory). The
+  // subtitle carries the topic (check-in confirmed, else the scan's own
+  // detection) and the live stage label; the clock ticks alongside.
+  const sessionActive = hasStudentMessage && !recap;
+  const topicTitle = checkinTopic ?? scan?.topic?.title ?? null;
+  const stage = stageLabel(solutionProgress, closeState !== 'idle');
+  const sessionHeader: SessionHeader | null = sessionActive
+    ? {
+        modeKey: tutorMode,
+        modeName: TUTOR_MODES[tutorMode].name,
+        modeGlyph: TUTOR_MODES[tutorMode].glyph,
+        subtitle: topicTitle ? `${topicTitle} · ${stage}` : stage,
+        clock: clockLabel,
+      }
+    : null;
+
+  // The board strip's pinned equation (design 8a): the most recent $$ math
+  // block the tutor put up -- pure derivation from the transcript, no new
+  // state or wire field. Null (no equation yet) renders no strip.
+  const boardEquation = useMemo(() => latestBoardEquation(messages), [messages]);
+
   function appendStreamToken(text: string) {
     // Strip the $$ math-block delimiters from the transient stream/reveal
     // tokens -- the committed bubble re-renders from the full reply, where
@@ -691,11 +741,29 @@ export function Overlay({
   // Queues a turn's pins through the gate (priority + cap + dedupe). Called
   // at `done` for text turns (the promise resolve) and at reply-delivered
   // for voice turns (see handleMicStop) -- the advance effect below then
-  // walks the queue one pin at a time.
+  // walks the queue one toast at a time. Milestone-worthy pins (pings.ts's
+  // MILESTONE_KINDS) ALSO settle into the transcript as marker rows at the
+  // same moment, so the signal stays readable after the toast fades
+  // (design 8b: "wins and resolved patterns also settle into the
+  // transcript"). Markers are display-only -- stripHistory drops them.
   function showPins(pins: StatusPin[] | undefined) {
     const shown = filterPinsForDisplay(pins, shownPinKeysRef.current);
     if (shown.length === 0) return;
     setPinQueue((prev) => [...prev, ...shown.map((pin) => ({ id: pinIdRef.current++, pin }))]);
+    const milestones = shown.filter((pin) => MILESTONE_KINDS.has(pin.kind));
+    if (milestones.length > 0) {
+      setMessages((current) => [
+        ...current,
+        ...milestones.map((pin): DisplayMessage => {
+          const line = milestoneLine(pin);
+          return {
+            role: 'assistant',
+            content: line,
+            milestone: { kind: pin.kind, tone: PIN_TONE[pin.kind], line },
+          };
+        }),
+      ]);
+    }
   }
 
   // The queue's advance clock: whichever pin is at the head holds the title
@@ -711,6 +779,23 @@ export function Overlay({
     }, PIN_DISPLAY_MS);
     return () => window.clearTimeout(timer);
   }, [activePinId]);
+
+  // The header clock's tick (design 8a): once a session is live, the m:ss
+  // label updates every second from the same baseline the recap meta uses
+  // (sessionStartRef, the first committed student turn). Paused while
+  // minimized -- the label catches back up on the first tick after
+  // re-expand.
+  useEffect(() => {
+    if (!expanded || !hasStudentMessage || recap) return;
+    const tick = () => {
+      if (sessionStartRef.current !== null) {
+        setClockLabel(formatElapsed(Date.now() - sessionStartRef.current));
+      }
+    };
+    tick();
+    const interval = window.setInterval(tick, 1000);
+    return () => window.clearInterval(interval);
+  }, [expanded, hasStudentMessage, recap]);
 
   // Drives nextCloseState with real timers (Sprint 14 Task 7): called
   // whenever a turn's session.complete arrives (automatic) or the student
@@ -764,6 +849,9 @@ export function Overlay({
     setSolutionProgress(0);
     progressRef.current = 0;
     finalStepFiredRef.current = false;
+    missStreakRef.current = 0;
+    setTutorMode('explore');
+    setClockLabel('0:00');
     setPinQueue([]);
     setAnnotationColors({});
     setRecap(null);
@@ -886,6 +974,9 @@ export function Overlay({
       );
       shownPinKeysRef.current.clear();
       setPinQueue([]);
+      // The session is over -- the mode walks to its terminal Reviewing
+      // state (design 8c: "Enters: a section closes or the clock runs low").
+      setTutorMode('review');
     }
     window.addEventListener(SESSION_RECAP_EVENT, onSessionRecap);
     return () => window.removeEventListener(SESSION_RECAP_EVENT, onSessionRecap);
@@ -928,23 +1019,41 @@ export function Overlay({
   // commit there). `solved` forces the bar to 1 before the choreography's
   // own "Now closing tutoring session." bubble is even read.
   function applyProgressAndCompletion(result: TurnResult) {
-    const eased = easeProgress(progressRef.current, result.solutionProgress, result.session?.reason === 'solved');
+    const previous = progressRef.current;
+    const eased = easeProgress(previous, result.solutionProgress, result.session?.reason === 'solved');
     progressRef.current = eased;
     setSolutionProgress(eased);
+    // The miss streak (design 8c's Recover trigger, "two misses in a row"):
+    // an eased regression IS a wrong step (easeProgress only moves down when
+    // the turn scored one); any forward movement resets the streak, and a
+    // turn that carried no progress signal leaves it untouched.
+    if (eased < previous) missStreakRef.current += 1;
+    else if (eased > previous) missStreakRef.current = 0;
     // The client-derived final-step pin (ADR-034): fires ONCE per problem,
-    // the first time the bar crosses the threshold while the problem is
-    // still open -- a completing turn skips straight to the bloom/close
-    // choreography instead ("final step" after "solved" would read
-    // backwards). Deterministic from the progress signal; the server never
-    // emits this kind.
-    if (
-      !result.session?.complete &&
-      eased >= FINAL_STEP_THRESHOLD &&
-      !finalStepFiredRef.current
-    ) {
+    // the first time the eased progress crosses the threshold while the
+    // problem is still open -- a completing turn skips straight to the
+    // bloom/close choreography instead ("final step" after "solved" would
+    // read backwards). Deterministic from the progress signal; the server
+    // never emits this kind.
+    const finalStepPin: StatusPin | null =
+      !result.session?.complete && eased >= FINAL_STEP_THRESHOLD && !finalStepFiredRef.current
+        ? { category: 'progress', kind: 'final-step', conceptKey: null, label: 'Final step' }
+        : null;
+    if (finalStepPin) {
       finalStepFiredRef.current = true;
-      showPins([{ category: 'progress', kind: 'final-step', conceptKey: null, label: 'Final step' }]);
+      showPins([finalStepPin]);
     }
+    // The tutor mode (design 8c): derived once per turn, from the turn's
+    // RAW pins (plus the client-derived final-step when it fired) -- a
+    // signal the toast dedupe suppressed is still real evidence of where
+    // the session is. The header recolors on the switch.
+    setTutorMode((current) =>
+      deriveTutorMode(current, {
+        pins: [...(result.pins ?? []), ...(finalStepPin ? [finalStepPin] : [])],
+        missStreak: missStreakRef.current,
+        complete: !!result.session?.complete,
+      }),
+    );
     if (result.session?.complete) {
       // A correct answer earns the section-complete bloom over the page
       // (design 07, ~3s then it recedes) -- the close choreography keeps
@@ -1415,6 +1524,16 @@ export function Overlay({
       <div className="relative">
       <div className="relative overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
 
+        {/* The ping toast (design 8a/8b): drops into the top-center of the
+            header, one at a time, tone-tinted; the timing/queue lives above
+            (PIN_DISPLAY_MS). The wrapper is a persistent aria-live region
+            so each ping's label is announced without stealing focus --
+            keyed by queue id so back-to-back pings of the same kind each
+            re-run the drop-in. */}
+        <span aria-live="polite">
+          {pinQueue.length > 0 && <PingToast key={pinQueue[0].id} pin={pinQueue[0].pin} />}
+        </span>
+
         <TitleBar
           playing={playing}
           isDragging={isDragging}
@@ -1425,7 +1544,7 @@ export function Overlay({
           ringing={closeState === 'ringing'}
           ringDurationMs={CLOSE_RING_MS}
           accessory={headerAccessory}
-          pin={pinQueue.length > 0 ? pinQueue[0] : null}
+          session={sessionHeader}
           onHeaderPointerDown={handleHeaderPointerDown}
           onHeaderPointerMove={handleHeaderPointerMove}
           onHeaderPointerUp={handleHeaderPointerUp}
@@ -1433,6 +1552,27 @@ export function Overlay({
           onMinimize={handleMinimize}
           onCloseSession={() => void handleEndSessionClick()}
         />
+
+        {/* The board strip (design 8a): pins the current equation just
+            below the header while a session is live -- the most recent
+            $$ math block the tutor put up, rendered with the transcript's
+            own superscript/symbol treatment. The trailing spacer matches
+            the design (the equation centers against the BOARD label). */}
+        {sessionActive && boardEquation && (
+          <div className="flex items-center gap-2.5 border-b border-border bg-[var(--calyxa-board-bg)] px-3.5 py-[7px]">
+            <span className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground">BOARD</span>
+            <span className="flex-1 text-center text-[14.5px] tabular-nums text-foreground">
+              {tokenizeMathText(boardEquation).map((token, tokenIndex) =>
+                token.kind === 'sup' ? (
+                  <sup key={tokenIndex}>{token.text}</sup>
+                ) : (
+                  <span key={tokenIndex}>{token.text}</span>
+                ),
+              )}
+            </span>
+            <span aria-hidden="true" className="w-[38px] flex-none" />
+          </div>
+        )}
 
         {recap ? (
           /* ── Post-session recap (design 6b) — the panel body's TERMINAL
@@ -1447,7 +1587,7 @@ export function Overlay({
             {hasContent && (
               <div
                 aria-live="polite"
-                className="flex max-h-[272px] flex-col gap-3 overflow-y-auto px-4 py-3 scroll-smooth"
+                className="flex max-h-[172px] flex-col gap-2 overflow-y-auto px-[13px] pb-[7px] pt-[11px] scroll-smooth"
               >
                 <Transcript
                   messages={messages}
@@ -1489,7 +1629,7 @@ export function Overlay({
                 input={input}
                 busy={busy}
                 closing={closeState !== 'idle'}
-                solutionProgress={solutionProgress}
+                placeholder={sessionActive ? 'Answer out loud or type here' : 'Ask a math question…'}
                 inputFocused={inputFocused}
                 caretLeft={caretLeft}
                 inputElRef={inputElRef}
