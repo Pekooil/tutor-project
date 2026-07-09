@@ -48,15 +48,22 @@ export type EndSessionRow = {
   interaction_count: number
 }
 
+// Sprint 16 / Task 7 (ADR-036): `pageDomain` was replaced by `pageUrlHash` —
+// the caller (web/app/api/session/start/route.ts) hashes the domain via
+// hashPageDomain() before it ever reaches this file. `p_page_domain` is
+// hardcoded to null below rather than left as a caller-supplied param, so
+// this is the one place in the codebase that can ever write a session row,
+// and plaintext page_domain structurally cannot flow through it again.
 export async function startSession(
   supabase: SupabaseClient,
-  { pageDomain, mode }: { pageDomain: string | null; mode: SessionMode }
+  { pageUrlHash, mode }: { pageUrlHash: string | null; mode: SessionMode }
 ): Promise<{ data: StartSessionRow | null; error: PostgrestError | null }> {
   const { data, error } = await supabase
     .rpc('start_session', {
-      p_page_domain: pageDomain,
+      p_page_domain: null,
       p_mode: mode,
       p_free_limit: FREE_SESSION_LIMIT,
+      p_page_url_hash: pageUrlHash,
     })
     .single()
 

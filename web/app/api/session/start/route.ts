@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { clientFromBearer } from '@/lib/auth/bearer'
 import { startSession, type SessionMode } from '@/lib/tier/session-gate'
 import { reconcileUnappliedForUser } from '@/lib/learning/apply'
+import { hashPageDomain } from '@/lib/privacy/url-hash'
 
 export async function POST(request: Request) {
   const auth = await clientFromBearer(request)
@@ -19,9 +20,15 @@ export async function POST(request: Request) {
 
   const pageDomain = typeof body.pageDomain === 'string' ? body.pageDomain : null
 
+  // Sprint 16 / Task 7 (ADR-036): hash immediately, discard the plaintext.
+  // The extension only ever sends a registrable domain (deriveTabDomain),
+  // never a full URL — this is the last step to page identifiers being
+  // hashed at rest: the domain string is never passed on from here.
+  const pageUrlHash = hashPageDomain(pageDomain)
+
   // The tier decision (free-quota check + degrade/remaining) is made entirely
   // inside the start_session RPC called here — this route only relays it.
-  const { data, error } = await startSession(auth.supabase, { pageDomain, mode: mode as SessionMode })
+  const { data, error } = await startSession(auth.supabase, { pageUrlHash, mode: mode as SessionMode })
 
   if (error || !data) {
     return NextResponse.json({ error: error?.message ?? 'Could not start session.' }, { status: 400 })
