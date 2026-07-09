@@ -51,7 +51,6 @@ export function CheckinCard({
   autoStartMs,
   onStart,
   onReframe,
-  onDismiss,
 }: {
   // The opening scan's detected page topic -- always present while this
   // card renders (Overlay.tsx gates showCheckin on it).
@@ -67,48 +66,36 @@ export function CheckinCard({
   autoStartActive: boolean;
   autoStartMs: number;
   onStart: () => void;
-  // "No, other" -- opens the 5b reframe tool (crop the exact problem).
+  // "No, other" -- opens the 5b reframe tool (crop the exact problem and
+  // say what's tripping you up). This is 5a's single correction path now:
+  // a wrong topic OR a wrong sticking-point prediction both go here (the
+  // old "Not this — pick something else" composer hand-off is retired --
+  // 5a shows two actions, confirm or reframe, and nothing else).
   onReframe: () => void;
-  // "Not this — pick something else" -- the topic prediction was wrong:
-  // dismisses the card and hands over to the composer to just say/type it.
-  onDismiss: () => void;
 }) {
   const autoStartSeconds = Math.round(autoStartMs / 1000);
   return (
-    <div className="flex flex-col gap-3.5 px-[18px] pb-[18px] pt-[18px]">
-      <p className="m-0 text-[15.5px] font-semibold tracking-[-0.01em] text-foreground">
+    <div className="flex flex-col gap-3 px-4 pb-4 pt-[15px]">
+      <p className="m-0 text-[14.5px] font-semibold tracking-[-0.01em] text-foreground">
         What are we working on today?
       </p>
+      {/* 5a topic card: the scanned topic, confirm-to-start. Just the mark
+          tile + title -- no evidence subline, no arrow (the earlier pass's
+          affordances the revised board dropped). */}
       <button
         type="button"
         onClick={onStart}
         disabled={disabled}
-        className="flex w-full cursor-pointer items-center gap-[11px] rounded-[12px] border-[1.5px] border-accent bg-accent-subtle px-3.5 py-3 text-left outline-none hover:bg-[var(--calyxa-sage-wash)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex w-full cursor-pointer items-center gap-2.5 rounded-[11px] border-[1.5px] border-accent bg-accent-subtle px-3 py-[9px] text-left outline-none hover:bg-[var(--calyxa-sage-wash)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <span className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-lg border border-[var(--calyxa-sage-border)] bg-background">
-          <CalyxaMark className="h-[17px] w-[17px]" />
+        <span className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[7px] border border-[var(--calyxa-sage-border)] bg-background">
+          <CalyxaMark className="h-[15px] w-[15px]" />
         </span>
-        <span className="flex min-w-0 flex-col gap-0.5">
-          <span className="truncate text-[14px] font-semibold text-accent-foreground">{topic.title}</span>
-          <span className="text-[12px] text-accent-emphasis">
-            from this page and your last session — tap to confirm
-          </span>
-        </span>
-        <span aria-hidden="true" className="ml-auto text-[16px] text-accent-emphasis">
-          →
-        </span>
-      </button>
-      <button
-        type="button"
-        onClick={onDismiss}
-        disabled={disabled}
-        className="-mt-1 self-start cursor-pointer rounded-full border border-dashed border-[var(--calyxa-placeholder-border)] bg-transparent px-3 py-[7px] text-[12.5px] text-muted-foreground outline-none hover:border-accent hover:bg-accent-subtle hover:text-accent-emphasis focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        Not this — pick something else
+        <span className="min-w-0 truncate text-[14px] font-semibold text-accent-foreground">{topic.title}</span>
       </button>
       <div aria-hidden="true" className="h-px bg-[#eceae5]" />
       <div className="flex items-center gap-2">
-        <p className="m-0 text-[15.5px] font-semibold tracking-[-0.01em] text-foreground">
+        <p className="m-0 text-[14.5px] font-semibold tracking-[-0.01em] text-foreground">
           Where you usually get stuck
         </p>
         <span className="cx-ai-tag rounded-full px-2 py-[2.5px] text-[9.5px] font-bold uppercase tracking-[0.06em]">
@@ -117,17 +104,17 @@ export function CheckinCard({
       </div>
       <div className="relative">
         <span aria-hidden="true" className="cx-checkin-halo absolute -inset-[3px] rounded-[15px]" />
-        <div className="relative flex items-center gap-3 rounded-[13px] border-[1.5px] border-accent bg-accent-subtle px-[15px] py-3.5">
-          <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[9px] border border-[var(--calyxa-sage-border)] bg-background">
-            <CalyxaMark className="h-[19px] w-[19px]" />
+        <div className="relative flex items-center gap-[11px] rounded-[12px] border-[1.5px] border-accent bg-accent-subtle px-[13px] py-[11px]">
+          <span className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[8px] border border-[var(--calyxa-sage-border)] bg-background">
+            <CalyxaMark className="h-[17px] w-[17px]" />
           </span>
-          <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-[14.5px] font-semibold text-accent-foreground">{sticking.label}</span>
+          <span className="flex min-w-0 flex-col gap-px">
+            <span className="text-[14px] font-semibold leading-tight text-accent-foreground">{sticking.label}</span>
             {/* Only claims the student's own history when the prediction is
                 actually grounded in it -- a generic-filled cold start gets
                 honest generic copy instead (the grounded/never-fabricate
                 discipline). */}
-            <span className="text-[12px] leading-[1.4] text-accent-emphasis">
+            <span className="text-[11.5px] leading-[1.35] text-accent-emphasis">
               {sticking.personalized
                 ? 'recorded from your recent sessions on this topic'
                 : 'a common first place to check on this topic'}
@@ -135,12 +122,12 @@ export function CheckinCard({
           </span>
         </div>
       </div>
-      <div className="mt-0.5 flex gap-[9px]">
+      <div className="mt-0.5 flex gap-2">
         <button
           type="button"
           onClick={onStart}
           disabled={disabled}
-          className="relative h-11 flex-1 cursor-pointer overflow-hidden rounded-full border-0 bg-accent text-[14px] font-semibold text-accent-foreground outline-none hover:bg-[var(--calyxa-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+          className="relative h-10 flex-1 cursor-pointer overflow-hidden rounded-full border-0 bg-accent text-[13.5px] font-semibold text-accent-foreground outline-none hover:bg-[var(--calyxa-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
           {autoStartActive && (
             <span
@@ -155,20 +142,21 @@ export function CheckinCard({
           type="button"
           onClick={onReframe}
           disabled={disabled}
-          className="h-11 flex-none cursor-pointer rounded-full border border-border bg-background px-[18px] text-[14px] font-semibold text-[#46463f] outline-none hover:border-accent hover:bg-accent-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-10 flex-none cursor-pointer rounded-full border border-border bg-background px-4 text-[13.5px] font-semibold text-[#46463f] outline-none hover:border-accent hover:bg-accent-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
           No, other
         </button>
       </div>
-      <div className="-mt-[3px] flex items-center gap-1.5 text-[11.5px] text-[var(--calyxa-hint-text)]">
-        <span
-          aria-hidden="true"
-          className="h-1.5 w-1.5 flex-none rounded-full bg-accent-glow-strong motion-safe:animate-[cx-dot_1.4s_ease-in-out_infinite]"
-        />
-        {autoStartActive
-          ? `Auto-starts in ${autoStartSeconds}s · tap No, other to reframe the exact spot`
-          : 'Tap No, other to reframe the exact spot'}
-      </div>
+      {/* 5a drops the visible hint row -- the fill sweep on Start IS the
+          auto-start cue. A screen-reader-only line keeps that announced
+          (the sweep is aria-hidden and absent under reduced motion), and
+          points to the one correction path, without adding chrome the
+          design doesn't show. */}
+      {autoStartActive && (
+        <span className="sr-only" aria-live="polite">
+          {`Auto-starts in ${autoStartSeconds} seconds — choose No, other to reframe the exact spot instead.`}
+        </span>
+      )}
     </div>
   );
 }

@@ -649,83 +649,80 @@
   --cx-mode-border: var(--calyxa-mode-recover-border);
 }
 
-/* ── SectionBloom: the section-complete celebration (design state 06 in the
- * revised board, "a bloom, not confetti" -- the Sprint 15 full-page version
- * is retired: the bloom is now CONTAINED IN THE PANEL CARD, so the host
- * page is never even visually claimed) ──
- * Three layers inside the panel while Overlay.tsx's `bloom` state is
- * non-null (~BLOOM_MS): the card-inset sage glow breathing at 3s, the
- * center orb's blurred halo breathing at 2.8s with two expanding rings
- * (the second delayed 1.4s -- both reuse the existing cx-ring keyframe,
- * which already matches the design board exactly), and the quiet line
- * naming what was earned. cx-breathe is the design's own keyframe, copied
- * exactly (deliberately distinct from calyxa-breathe above -- different
- * scale/opacity envelope). The whole stack fades in and back out via
- * cx-bloom-cycle over the same window the JS unmount timer runs, so the
- * bloom recedes rather than blinking off. Under reduced motion the layers
- * hold static and the timer still removes the whole thing -- "end-state
- * applied instantly", as everywhere else in this file. */
-@keyframes cx-breathe {
-  0%,
-  100% {
-    transform: scale(0.9);
-    opacity: 0.45;
-  }
-  50% {
-    transform: scale(1.12);
-    opacity: 0.95;
+/* ── SectionBloomFrame: the section-complete celebration (design state 06,
+ * "a bloom, not confetti") ──
+ * The earlier body-swap is retired. The completion lights up the panel's
+ * OWN frame: a rotating sage conic gradient rides the 2px border
+ * (.cx-bloom-spin) while the live card stays fully readable underneath,
+ * plus a one-shot burst ring (.cx-bloom-burst) pulsing just past the edge.
+ * Both glow layers fade in and back out over var(--cx-bloom-duration) --
+ * the REAL JS unmount window, the close ring's shared-duration discipline
+ * -- so the frame recedes rather than blinking off. The conic sits on a
+ * border-colour base (.cx-bloom-frame) so as it fades it lands on the plain
+ * border, seamless with the card that swaps back in. Under reduced motion
+ * the rotation and burst hold still (a calm static sage border) and the
+ * timer still removes the whole thing. Gradient stops are theme aliases --
+ * no bare hex in the palette, same as the AI-tag capsule above. */
+.cx-bloom-frame {
+  background: var(--color-border);
+}
+
+.cx-bloom-spin {
+  background: conic-gradient(
+    from 0deg,
+    var(--color-accent),
+    var(--calyxa-ai-tag-to) 25%,
+    var(--calyxa-ai-tag-from) 50%,
+    var(--calyxa-ai-tag-to) 75%,
+    var(--color-accent) 100%
+  );
+}
+
+@keyframes cx-bloom-rotate {
+  to {
+    transform: rotate(360deg);
   }
 }
 
-/* The 06 board's card-inset glow (inset 0 0 60px sage @ .45), replacing the
- * old full-viewport 110px page-edge glow. */
-.cx-bloom-edge {
-  box-shadow: inset 0 0 60px rgba(134, 239, 172, 0.45);
-}
-
-.cx-bloom-halo {
-  background: radial-gradient(circle, rgba(134, 239, 172, 0.55) 0%, transparent 70%);
-  filter: blur(6px);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .cx-bloom {
-    animation: cx-bloom-cycle var(--cx-bloom-duration, 3400ms) ease-in-out both;
-  }
-  .cx-bloom-edge {
-    animation: cx-breathe 3s ease-in-out infinite;
-  }
-  .cx-bloom-halo {
-    animation: cx-breathe 2.8s ease-in-out infinite;
-  }
-  .cx-bloom-ring {
-    animation: cx-ring 2.8s ease-out infinite;
-  }
-  .cx-bloom-ring--late {
-    animation-delay: 1.4s;
-  }
-}
-
-/* Reduced motion: the rings would otherwise sit static at full opacity on
- * top of the orb -- hide them and let the halo + card carry the moment. */
-@media (prefers-reduced-motion: reduce) {
-  .cx-bloom-ring {
-    display: none;
-  }
-}
-
-@keyframes cx-bloom-cycle {
+@keyframes cx-bloom-fade {
   0% {
     opacity: 0;
   }
-  9% {
+  12% {
     opacity: 1;
   }
-  85% {
+  82% {
     opacity: 1;
   }
   100% {
     opacity: 0;
+  }
+}
+
+@keyframes cx-bloom-burst {
+  0% {
+    transform: scale(0.98);
+    opacity: 0.95;
+    box-shadow: 0 0 0 0 rgba(134, 239, 172, 0.55);
+  }
+  65% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1.07);
+    opacity: 0;
+    box-shadow: 0 0 30px 12px rgba(134, 239, 172, 0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cx-bloom-spin {
+    animation:
+      cx-bloom-rotate 4.5s linear infinite,
+      cx-bloom-fade var(--cx-bloom-duration, 3000ms) ease-out both;
+  }
+  .cx-bloom-burst {
+    animation: cx-bloom-burst 1.1s ease-out 1;
   }
 }
 
@@ -735,8 +732,9 @@
  * runs (threaded in as --cx-fill-duration, the close ring's shared-duration
  * discipline) so the fill can never drift from the timer that actually
  * starts the session. Scoped inside the media query: under reduced motion
- * the bar is simply absent and the hint text ("Auto-starts in 5s") carries
- * the message alone -- the countdown itself still runs. */
+ * the bar is simply absent -- 5a shows no visible hint row, so the
+ * screen-reader-only "Auto-starts in 5s" line carries the message alone
+ * while the timer still runs. */
 @media (prefers-reduced-motion: no-preference) {
   .cx-autostart-fill {
     animation: cx-fill var(--cx-fill-duration, 5000ms) linear forwards;

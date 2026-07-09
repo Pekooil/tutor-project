@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
 } from 'react';
 import { CalyxaMark } from '@calyxa/ui';
 import './Overlay.css';
@@ -28,7 +29,7 @@ import { PingToast } from './PingToast';
 import { MILESTONE_KINDS, PIN_TONE, milestoneLine, type MilestoneMeta } from './pings';
 import { RecapCard } from './RecapCard';
 import { ReframeTool } from './ReframeTool';
-import { SectionBloom } from './SectionBloom';
+import { SectionBloomFrame } from './SectionBloom';
 import { TitleBar, type HeaderAccessory, type HeaderChip, type SessionHeader } from './TitleBar';
 import { Transcript, latestBoardEquation, tokenizeMathText } from './Transcript';
 import { TUTOR_MODES, deriveTutorMode, formatElapsed, stageLabel, type TutorModeKey } from './tutor-modes';
@@ -140,9 +141,10 @@ export function stripHistory(messages: readonly DisplayMessage[]): TurnMessage[]
 // or fabricated): on confirm it crosses the wire once as the structured
 // sessionStart.question field (startSessionTurn below), the server renders
 // it into the SESSION START MODE prompt block, and the tutor's first
-// message responds directly to the confirmed misconception in it. A typed
-// or voice start (the "Not this" path) simply drops it -- the student
-// rejected the detection, and pageContext still grounds every turn.
+// message responds directly to the confirmed misconception in it. A
+// reframe (5a's "No, other" path) supersedes it with the student's own
+// words -- the confirmed detection is dropped, and pageContext still
+// grounds every turn.
 // Display-ephemeral like the overview/recap: cleared on performClose, never
 // persisted. (The server's `prediction` still rides the wire but the
 // check-in doesn't render it -- the sticking-point chips are built from
@@ -159,14 +161,36 @@ export type HeldScan = {
   annotations?: Annotation[];
 };
 
-// The section-complete bloom's on-screen window (~3s per the design, plus
-// the exit fade the cx-bloom-cycle keyframe spends its tail on).
-export const BLOOM_MS = 3400;
+// The section-complete congratulation window: the glow holds for exactly 3s
+// before the panel hands off to the summary (RecapCard). The cx-bloom-fade
+// keyframe eases the glow in and back out within this same window, so the
+// hand-off lands as the congratulation recedes.
+export const BLOOM_MS = 3000;
+
+// The panel card shell: outside a bloom it is the plain frosted card;
+// during one (design 06) the SAME body is wrapped in SectionBloomFrame's
+// rotating gradient border + burst ring instead -- the card never swaps
+// out, it just lights up. Keeping the body a single `children` means the
+// header/transcript/input are declared once and simply re-parented.
+function BloomShell({ active, line, children }: { active: boolean; line: string; children: ReactNode }) {
+  if (active) {
+    return (
+      <SectionBloomFrame line={line} durationMs={BLOOM_MS}>
+        {children}
+      </SectionBloomFrame>
+    );
+  }
+  return (
+    <div className="relative overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
+      {children}
+    </div>
+  );
+}
 
 // The check-in's auto-start window (design 5a: "Start session
 // auto-proceeds in 5s"): the countdown arms when the check-in renders and
-// fires handleCheckinStart unless the student takes any of the exits first
-// ("No, other" -> the reframe tool, "Not this" -> the composer). The
+// fires handleCheckinStart unless the student takes the exit first
+// ("No, other" -> the 5b reframe tool). The
 // button's fill sweep (Overlay.css's cx-fill) reads this same constant, the
 // close ring's shared-duration discipline.
 export const AUTO_START_MS = 5000;
@@ -585,11 +609,6 @@ export function Overlay({
   // panel body shows the orb + "Reading the page…" line and the header the
   // pulsing "Scanning" chip only inside this window.
   const [scanPending, setScanPending] = useState(false);
-  // "Not this — pick something else" (design 5a): the topic prediction was
-  // wrong -- the check-in yields to the composer so the student just says
-  // or types it (there is no client-side topic catalog to pick from). The
-  // held scan question still commits whenever the conversation starts.
-  const [checkinDismissed, setCheckinDismissed] = useState(false);
   // The 5b reframe tool: while open, the whole panel yields to the crop
   // layer; Back returns to the check-in, Start session fires the kickoff
   // turn with the student's own framing (startSessionTurn).
@@ -662,14 +681,23 @@ export function Overlay({
   // pending grace/ring timers driving it, so they can be cleared on unmount
   // or if a fresh minimize/expand races them.
   const [closeState, setCloseState] = useState<CloseChoreographyState>('idle');
-  // The section-complete bloom (design 07, replacing the Sprint 15 whole-
-  // panel solved glow): non-null for ~BLOOM_MS from the moment a turn
-  // arrives with session.complete + reason "solved" -- the page-edge glow,
-  // rings, and "Section complete" card play over the host page and recede
-  // (SectionBloom.tsx). Only the solved close earns it; a follow-up-
-  // declined/corrected close (and a manual ✕) closes plain.
+  // The section-complete congratulation (design 06): non-null for BLOOM_MS
+  // from the moment a turn arrives with session.complete + reason "solved"
+  // -- the panel's own frame lights up with the rotating gradient glow
+  // (SectionBloomFrame) while the card stays readable, then hands off to the
+  // summary. Only the solved close earns it; a follow-up-declined/corrected
+  // close (and a manual ✕) closes plain.
   const [bloom, setBloom] = useState<{ line: string } | null>(null);
   const bloomTimerRef = useRef<number | null>(null);
+  // The section-complete → summary hand-off: the recap (SESSION_ENDED) fires
+  // as soon as the completing turn ends server-side, which can beat the ~3s
+  // congratulation glow. When it lands mid-bloom it parks HERE instead of
+  // switching the panel straight to the summary; the bloom timer applies it
+  // the instant the congratulation finishes, so the sequence is always
+  // congratulation (3s) → summary, never a summary that pops up under the
+  // glow. { recap: null } is a real value (a recap-less end), so absence is
+  // the null ref, not a null recap.
+  const pendingRecapRef = useRef<{ recap: SessionRecap | null; meta: string | null } | null>(null);
   const closeTimersRef = useRef<number[]>([]);
   // The manual-end confirm dialog (Sprint 14 fix pass): clicking ✕ opens this
   // instead of ending immediately -- ending discards the live session, so it
@@ -692,10 +720,10 @@ export function Overlay({
   // The check-in (design 5a, "one prediction, not a menu") shows until the
   // conversation starts. It only renders once the opening scan has
   // actually detected a topic (scan.topic) -- there is no more manual
-  // topic entry, so with nothing detected (or after "Not this — pick
-  // something else") the composer takes over directly. It yields while a
-  // voice turn is in flight (recording/connecting/liveTranscript/busy) and
-  // during the close choreography/recap, both terminal.
+  // topic entry, so with nothing detected the composer takes over
+  // directly. It yields while a voice turn is in flight
+  // (recording/connecting/liveTranscript/busy) and during the close
+  // choreography/recap, both terminal.
   const showCheckin =
     !sessionLive &&
     !recap &&
@@ -704,7 +732,6 @@ export function Overlay({
     !connecting &&
     !liveTranscript &&
     closeState === 'idle' &&
-    !checkinDismissed &&
     !!scan?.topic;
 
   // The 5a scanning body: only while the opening scan is genuinely in
@@ -936,7 +963,6 @@ export function Overlay({
     setCheckinTopic(null);
     setStickingPoint(null);
     setScanPending(false);
-    setCheckinDismissed(false);
     setReframeOpen(false);
     setAutoStartArmed(true);
     setKickoffStarted(false);
@@ -945,6 +971,7 @@ export function Overlay({
     // finishes; clear it anyway so a manual end can't strand one.
     if (bloomTimerRef.current !== null) window.clearTimeout(bloomTimerRef.current);
     bloomTimerRef.current = null;
+    pendingRecapRef.current = null;
     setBloom(null);
     setDragPos(null);
     setIsDragging(false);
@@ -1071,23 +1098,40 @@ export function Overlay({
     function onSessionRecap(event: Event) {
       const detail = (event as CustomEvent<{ recap?: SessionRecap }>).detail;
       const arrived = detail?.recap ?? null;
-      setRecap(arrived);
       // The header meta ("18 min · 5 problems") is computed ONCE at arrival
       // -- the duration is "how long the session ran", not a live counter.
-      setRecapMeta(
-        arrived
-          ? formatRecapMeta(arrived, sessionStartRef.current !== null ? Date.now() - sessionStartRef.current : null)
-          : null,
-      );
-      shownPinKeysRef.current.clear();
-      setPinQueue([]);
-      // The session is over -- the mode walks to its terminal Reviewing
-      // state (design 8c: "Enters: a section closes or the clock runs low").
-      setTutorMode('review');
+      const meta = arrived
+        ? formatRecapMeta(arrived, sessionStartRef.current !== null ? Date.now() - sessionStartRef.current : null)
+        : null;
+      // Hold the summary while the congratulation glow is still on screen
+      // (bloomTimerRef non-null == the 3s bloom is running); the bloom timer
+      // reveals it the moment the congratulation ends. Otherwise switch now.
+      if (bloomTimerRef.current !== null) {
+        pendingRecapRef.current = { recap: arrived, meta };
+      } else {
+        applyRecap(arrived, meta);
+      }
     }
     window.addEventListener(SESSION_RECAP_EVENT, onSessionRecap);
     return () => window.removeEventListener(SESSION_RECAP_EVENT, onSessionRecap);
+    // applyRecap only touches stable setters/refs, so the once-registered
+    // listener closure is safe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Switch the panel to the terminal summary state (design 7b). Split out of
+  // the recap listener so the bloom timer can call it too -- the summary
+  // arrives either immediately (no bloom) or when the congratulation glow
+  // finishes (deferred via pendingRecapRef).
+  function applyRecap(arrived: SessionRecap | null, meta: string | null) {
+    setRecap(arrived);
+    setRecapMeta(meta);
+    shownPinKeysRef.current.clear();
+    setPinQueue([]);
+    // The session is over -- the mode walks to its terminal Reviewing
+    // state (design 8c: "Enters: a section closes or the clock runs low").
+    setTutorMode('review');
+  }
 
   // Scroll to bottom when messages, streaming tokens, the live transcript,
   // or the answer-chip row (design 8a -- it adds height below the last
@@ -1164,14 +1208,24 @@ export function Overlay({
       }),
     );
     if (result.session?.complete) {
-      // A correct answer earns the section-complete bloom over the page
-      // (design 07, ~3s then it recedes) -- the close choreography keeps
-      // running underneath it, so the recap is on screen by the time the
-      // bloom fades.
+      // A correct answer earns the section-complete congratulation glow
+      // (design 06). It holds for exactly BLOOM_MS, then hands off to the
+      // summary: if the recap (SESSION_ENDED) already arrived it parked in
+      // pendingRecapRef, and this timer reveals it -- so the sequence is
+      // always congratulation (3s) → summary, never a summary popping up
+      // under the glow. If the recap hasn't landed yet, the listener applies
+      // it as soon as it does.
       if (result.session.reason === 'solved') {
         setBloom({ line: bloomLine(checkinTopic, stickingPoint) });
         if (bloomTimerRef.current !== null) window.clearTimeout(bloomTimerRef.current);
-        bloomTimerRef.current = window.setTimeout(() => setBloom(null), BLOOM_MS);
+        bloomTimerRef.current = window.setTimeout(() => {
+          setBloom(null);
+          bloomTimerRef.current = null;
+          if (pendingRecapRef.current !== null) {
+            applyRecap(pendingRecapRef.current.recap, pendingRecapRef.current.meta);
+            pendingRecapRef.current = null;
+          }
+        }, BLOOM_MS);
       }
       beginCloseChoreography();
     }
@@ -1259,17 +1313,6 @@ export function Overlay({
     if (busy || closeState !== 'idle') return;
     setAutoStartArmed(false);
     setReframeOpen(true);
-  }
-
-  // "Not this — pick something else" (design 5a): the TOPIC prediction was
-  // off -- the check-in yields to the composer and the student just says or
-  // types what they're working on. The rejected scan detection is simply
-  // dropped (pageContext still grounds every turn).
-  function handleCheckinDismiss() {
-    if (busy || closeState !== 'idle') return;
-    setAutoStartArmed(false);
-    setCheckinDismissed(true);
-    requestAnimationFrame(() => inputElRef.current?.focus());
   }
 
   // The reframe tool's exits: Back returns to the check-in (still
@@ -1646,14 +1689,24 @@ export function Overlay({
     return (
       <>
         <AnnotationLayer annotationColors={annotationColors} />
-        {/* The bloom is panel-contained now (design 06) -- if a completing
-            turn lands while minimized (a voice turn finishing after a
-            collapse), it still gets its card, in the panel's own slot. */}
+        {/* The bloom is a frame glow now (design 06) -- if a completing turn
+            lands while minimized (a voice turn finishing after a collapse),
+            there is no live card to light up, so the frame wraps a compact
+            completion card instead (its visual is aria-hidden -- the frame's
+            own status line already announces it). */}
         {bloom ? (
           <div className="fixed bottom-7 left-1/2 z-[2147483647] w-[420px] -translate-x-1/2 font-sans text-base text-foreground">
-            <div className="overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
-              <SectionBloom line={bloom.line} durationMs={BLOOM_MS} />
-            </div>
+            <SectionBloomFrame line={bloom.line} durationMs={BLOOM_MS}>
+              <div aria-hidden="true" className="flex items-center gap-2.5 px-3.5 py-3">
+                <span className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[9px] border border-[var(--calyxa-sage-border)] bg-background">
+                  <CalyxaMark className="h-[18px] w-[18px]" />
+                </span>
+                <span className="flex min-w-0 flex-col gap-px">
+                  <span className="text-[13.5px] font-semibold leading-tight text-foreground">Section complete</span>
+                  <span className="truncate text-[11.5px] leading-tight text-muted-foreground">{bloom.line}</span>
+                </span>
+              </div>
+            </SectionBloomFrame>
           </div>
         ) : (
         <div className="fixed bottom-6 left-1/2 z-[2147483647] -translate-x-1/2 font-sans motion-safe:animate-[cx-rise_0.42s_cubic-bezier(0.2,0.8,0.2,1)_both]">
@@ -1715,15 +1768,13 @@ export function Overlay({
         style={dragPos ? { top: `${dragPos.y}px`, left: `${dragPos.x}px` } : undefined}
       >
       <div className="relative">
-      <div className="relative overflow-hidden rounded-lg border border-border bg-background/85 shadow-panel backdrop-blur-[18px] backdrop-saturate-[1.5]">
-
-        {/* The section-complete bloom (design 06): contained entirely in
-            the panel card -- for ~BLOOM_MS the body swaps to the bloom
-            (header included; the design's card has none), then recedes to
-            whatever the close choreography has ready (usually the recap). */}
-        {bloom ? (
-          <SectionBloom line={bloom.line} durationMs={BLOOM_MS} />
-        ) : (
+      {/* The section-complete glow (design 06): the rotating gradient
+          border + burst ring wraps the LIVE card for ~BLOOM_MS -- the
+          header, last tutor line and input stay readable the whole time,
+          then it recedes to whatever the close choreography has ready
+          (usually the recap). Outside a bloom this is the plain frosted
+          card; the body is identical either way. */}
+      <BloomShell active={!!bloom} line={bloom?.line ?? ''}>
         <>
 
         {/* The ping toast (design 8a/8b): drops into the top-center of the
@@ -1815,8 +1866,8 @@ export function Overlay({
                 scanned topic and the TOP predicted sticking point arrive
                 pre-selected (one prediction, not a menu) and Start session
                 auto-proceeds after AUTO_START_MS. The composer is
-                deliberately ABSENT while either shows; "Not this" hands it
-                back, "No, other" opens the 5b reframe tool, and any turn
+                deliberately ABSENT while either shows; "No, other" opens the
+                5b reframe tool (5a's single correction path), and any turn
                 path still consumes the held scan question into the
                 transcript the moment the conversation starts. ── */}
             {showScanning ? (
@@ -1830,7 +1881,6 @@ export function Overlay({
                 autoStartMs={AUTO_START_MS}
                 onStart={handleCheckinStart}
                 onReframe={handleCheckinReframe}
-                onDismiss={handleCheckinDismiss}
               />
             ) : (
               /* ── Input row — border-t only when chat area is present above ── */
@@ -1905,9 +1955,8 @@ export function Overlay({
         )}
 
         </>
-        )}
+      </BloomShell>
 
-      </div>
       </div>
       </div>
     </>

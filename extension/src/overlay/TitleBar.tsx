@@ -112,15 +112,19 @@ export function TitleBar({
       >
         {session.modeGlyph}
       </span>
+      {/* Tight line-heights on both lines: without them each span inherits
+          the panel root's text-base 24px line-height, which pushes the mode
+          name and the topic/stage subtitle far apart -- 8a stacks them
+          snug (gap 1px, natural leading). */}
       <span className="flex min-w-0 flex-col gap-px">
         <span
           aria-live="polite"
-          className="truncate text-[13.5px] font-semibold tracking-[-0.01em] transition-colors duration-[450ms]"
+          className="truncate text-[13.5px] font-semibold leading-tight tracking-[-0.01em] transition-colors duration-[450ms]"
           style={{ color: 'var(--cx-mode-text)' }}
         >
           {session.modeName}
         </span>
-        <span className="truncate text-[11px] text-muted-foreground">{session.subtitle}</span>
+        <span className="truncate text-[11px] leading-tight text-muted-foreground">{session.subtitle}</span>
       </span>
     </span>
   ) : (

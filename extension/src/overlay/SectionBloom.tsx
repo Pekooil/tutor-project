@@ -1,40 +1,51 @@
-import type { CSSProperties } from 'react';
-import { CalyxaMark } from '@calyxa/ui';
+import type { CSSProperties, ReactNode } from 'react';
 
-// The section-complete celebration (design state 06 in the revised board):
-// "a bloom, not confetti" -- and now contained ENTIRELY in the panel card,
-// replacing the earlier full-page version (whose page-edge glow visually
-// claimed the host page; the revised board keeps the page untouched even
-// visually). Fired by Overlay.tsx when a turn lands with session.complete +
-// reason "solved": for ~BLOOM_MS the panel body swaps to this -- the
-// card-inset sage glow, the mark in its white orb with two staggered
-// expanding rings and a radial halo, and the quiet line naming what was
-// earned -- then recedes (the close choreography keeps running underneath,
-// so the recap is on screen when this fades). Overlay.css's cx-bloom-cycle
-// fades the whole body in and back out over the same window the JS unmount
-// timer runs. No confetti, no sound, no badges.
-export function SectionBloom({ line, durationMs }: { line: string; durationMs: number }) {
+// The section-complete celebration (design state 06 in the revised board:
+// "a bloom, not confetti"). The earlier body-swap version is retired -- the
+// completion no longer replaces the panel body. Instead the panel's own
+// frame lights up: for ~BLOOM_MS Overlay.tsx wraps the live card in this
+// frame while `bloom` is non-null, and the card underneath (header, the
+// last tutor line, the input) stays fully readable the whole time -- a live
+// edge, not a takeover.
+//
+// Three layers, all decorative (aria-hidden): a one-shot burst ring that
+// expands just past the frame and fades (cx-bloom-burst), a rotating sage
+// conic-gradient riding the 2px border (cx-bloom-spin), and a fade envelope
+// (cx-bloom-fade) that reads the REAL unmount duration so the glow eases in
+// and back out over exactly the window the JS timer runs -- the same
+// shared-duration discipline as the close ring, so CSS can never drift from
+// the timer that removes it. The screen-reader line names what was earned,
+// since the glow itself carries no text. No confetti, no sound, no badges.
+export function SectionBloomFrame({
+  children,
+  line,
+  durationMs,
+}: {
+  children: ReactNode;
+  // The completion line ("Choosing a method · every step was yours") --
+  // announced to assistive tech, since the visual treatment is glow-only.
+  line: string;
+  durationMs: number;
+}) {
   return (
-    <div
-      role="status"
-      className="cx-bloom relative overflow-hidden"
-      // The same shared-duration technique as the close ring: the fade
-      // cycle reads the REAL unmount timer's duration, so the CSS can never
-      // drift from the JS actually removing it.
-      style={{ '--cx-bloom-duration': `${durationMs}ms` } as CSSProperties}
-    >
-      <div aria-hidden="true" className="cx-bloom-edge pointer-events-none absolute inset-0 rounded-lg" />
-      <div className="relative flex flex-col items-center px-[18px] pb-[22px] pt-[26px]">
-        <div aria-hidden="true" className="relative flex h-[100px] w-[100px] items-center justify-center">
-          <div className="cx-bloom-ring absolute h-[74px] w-[74px] rounded-full border-2 border-accent" />
-          <div className="cx-bloom-ring cx-bloom-ring--late absolute h-[74px] w-[74px] rounded-full border-2 border-accent" />
-          <div className="cx-bloom-halo absolute h-[92px] w-[92px] rounded-full" />
-          <div className="relative flex h-[54px] w-[54px] items-center justify-center rounded-full border border-[var(--calyxa-sage-border)] bg-background shadow-[0_8px_24px_rgba(22,101,52,0.22)]">
-            <CalyxaMark className="h-[27px] w-[27px]" />
-          </div>
+    <div className="relative" style={{ '--cx-bloom-duration': `${durationMs}ms` } as CSSProperties}>
+      <span role="status" className="sr-only">
+        Section complete. {line}
+      </span>
+      {/* One-shot burst ring: expands just past the frame, then fades. */}
+      <div
+        aria-hidden="true"
+        className="cx-bloom-burst pointer-events-none absolute -inset-0.5 rounded-[19px] border-[2.5px] border-accent opacity-0"
+      />
+      {/* Rotating gradient border: a 2px sage conic ring around the card.
+          The wrapper's own border-colour fallback shows through as the
+          conic fades, so the swap back to the plain card at unmount is
+          seamless rather than a blink. */}
+      <div className="cx-bloom-frame relative overflow-hidden rounded-[18px] p-0.5 shadow-panel">
+        <div aria-hidden="true" className="cx-bloom-spin absolute inset-[-90%]" />
+        <div className="relative overflow-hidden rounded-lg bg-background/90 backdrop-blur-[18px] backdrop-saturate-[1.5]">
+          {children}
         </div>
-        <div className="mt-3 text-[16px] font-semibold tracking-[-0.01em] text-foreground">Section complete</div>
-        <div className="mt-[3px] text-[13px] text-muted-foreground">{line}</div>
       </div>
     </div>
   );
