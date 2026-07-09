@@ -167,6 +167,8 @@ export type SceneState = {
   artifacts: ArtifactKind[]
   /** True while the last speaker is the student and a tutor bubble is still coming. */
   pendingReply: boolean
+  /** The clamped scene time — drives the session header's m:ss clock. */
+  elapsedMs: number
   done: boolean
 }
 
@@ -200,6 +202,7 @@ export function reduceScene(script: SceneScript, tMs: number): SceneState {
     masteryDeltas: [],
     artifacts: [],
     pendingReply: false,
+    elapsedMs: t,
     done: t >= script.durationMs,
   }
 

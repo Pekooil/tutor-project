@@ -22,15 +22,17 @@ const DESIGN_W = 980
 const DESIGN_H = 612
 
 // The floating panel, bottom-center by default — the real overlay's resting
-// spot. Fixed WIDTH only, like the real overlay's w-[420px]: height is
-// intrinsic (the panel itself starts small — title bar + composer, no
-// transcript, no strip — and grows upward as content streams in, since the
-// box is anchored by `bottom` rather than `top`/a fixed `height`). Drag
-// bounds keep it on the page and below the browser chrome; PANEL_H_ESTIMATE
-// is only a rough cap on the FULLY-GROWN panel (transcript + strip window),
-// used to keep a drag from pushing even the tallest state off the top.
-const PANEL_W = 330
-const PANEL_H_ESTIMATE = 460
+// spot, at the real overlay's FULL 420px width (Sprint 25: the rebuild
+// copies the shipped components' measurements verbatim, so the panel is
+// 1:1 and the stage's canvas scale does any shrinking). Height stays
+// intrinsic (the panel starts small — title bar + composer — and grows
+// upward as content streams in, since the box is anchored by `bottom`).
+// Drag bounds keep it on the page and below the browser chrome;
+// PANEL_H_ESTIMATE is only a rough cap on the FULLY-GROWN panel (the
+// check-in/recap card states are the tallest), used to keep a drag from
+// pushing even the tallest state off the top.
+const PANEL_W = 420
+const PANEL_H_ESTIMATE = 500
 const PANEL_DEFAULT = { x: (DESIGN_W - PANEL_W) / 2, bottom: 20 }
 const PANEL_BOUNDS = {
   minX: 8,
@@ -142,9 +144,13 @@ export function DemoStage({
           // globals.css deliberately re-targets --color-border to
           // border-strong for shadcn (see its collision comment), so the
           // recreation scopes the product's real value here — the same
-          // file-local exception Overlay.css documents for its annotation
-          // amber/blue. Never use this outside the demo tree.
+          // file-local exception Overlay.css documents. The -soft variant
+          // is CheckinCard.tsx's own in-card divider hex, mirrored the same
+          // way. Never use these outside the demo tree; every other color
+          // reads a --calyxa-*/--color-* token directly (the @calyxa/ui
+          // theme import makes them reachable by name).
           '--cx-demo-hairline': '#e5e3de',
+          '--cx-demo-hairline-soft': '#eceae5',
         } as React.CSSProperties
       }
     >
@@ -193,45 +199,44 @@ export function DemoStage({
       </div>
       {/* Demo-scoped keyframes, mirroring Overlay.css's discipline: looping
           motion exists only under prefers-reduced-motion: no-preference —
-          reduced motion gets static bars and no caret blink, never a slower
-          version of the same animation. */}
+          reduced motion gets static bars, no caret blink, a held toast, and
+          resting orbs, never a slower version of the same animation. The
+          cx-demo-ping cycle and the dot/ring/orb breathing are the shipped
+          Overlay.css keyframes, mirrored 1:1. (The old progress-knob styles
+          are gone with the retired progress bar.) */}
       <style>{`
         @keyframes cx-demo-bar { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
         @keyframes cx-demo-caret { 0%, 48% { opacity: 1; } 49%, 100% { opacity: 0; } }
+        @keyframes cx-demo-ping {
+          0% { opacity: 0; transform: translate(-50%, -18px) scale(0.92); }
+          9% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+          85% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+          100% { opacity: 0; transform: translate(-50%, -14px) scale(0.95); }
+        }
+        @keyframes cx-demo-dot { 0%, 100% { transform: scale(0.65); opacity: 0.5; } 50% { transform: scale(1); opacity: 1; } }
+        @keyframes cx-demo-ring { 0% { transform: scale(0.7); opacity: 0.55; } 100% { transform: scale(1.9); opacity: 0; } }
+        @keyframes cx-demo-orb { 0%, 100% { transform: scale(0.86); opacity: 0.7; } 50% { transform: scale(1.1); opacity: 1; } }
+        .cx-demo-ping { transform: translateX(-50%); }
         @media (prefers-reduced-motion: no-preference) {
           .cx-demo-bar { animation-name: cx-demo-bar; animation-timing-function: ease-in-out; animation-iteration-count: infinite; }
           .cx-demo-caret { animation: cx-demo-caret 1s step-end infinite; }
+          .cx-demo-ping { animation: cx-demo-ping 3s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+          .cx-demo-dot { animation: cx-demo-dot 2.2s ease-in-out infinite; }
+          .cx-demo-ring { animation: cx-demo-ring 2.6s ease-out infinite; }
+          .cx-demo-orb { animation: cx-demo-orb 2.8s ease-in-out infinite; }
         }
-        /* The solution-progress bar's glowing knob (Composer.tsx's
-            cx-progress-knob, mirrored exactly): a small circle riding the
-            fill's leading edge, softly glowing, easing along with the bar. */
-        .cx-demo-progress-knob {
-          position: absolute;
-          top: 50%;
-          height: 8px;
-          width: 8px;
-          border-radius: 9999px;
-          background: var(--color-accent-glow-strong);
-          transform: translate(-50%, -50%);
-          box-shadow:
-            0 0 4px 1px var(--color-accent-glow-strong),
-            0 0 8px 2px color-mix(in srgb, var(--color-accent-glow-strong) 55%, transparent);
-          transition: left 0.3s ease-out;
-        }
-        @media (prefers-reduced-motion: no-preference) {
-          .cx-demo-progress-knob { animation: cx-demo-progress-knob-glow 2s ease-in-out infinite; }
-        }
-        @keyframes cx-demo-progress-knob-glow {
-          0%, 100% {
-            box-shadow:
-              0 0 3px 1px var(--color-accent-glow-strong),
-              0 0 6px 2px color-mix(in srgb, var(--color-accent-glow-strong) 45%, transparent);
-          }
-          50% {
-            box-shadow:
-              0 0 5px 1.5px var(--color-accent-glow-strong),
-              0 0 11px 3px color-mix(in srgb, var(--color-accent-glow-strong) 65%, transparent);
-          }
+        /* RecapCard.tsx's cx-recap-placeholder, mirrored — the "Generated
+           for you" reserved tiles (static, no motion to gate). */
+        .cx-demo-placeholder {
+          border: 1px dashed var(--calyxa-placeholder-border);
+          background: repeating-linear-gradient(
+            135deg,
+            var(--calyxa-placeholder-stripe-a),
+            var(--calyxa-placeholder-stripe-a) 6px,
+            var(--calyxa-placeholder-stripe-b) 6px,
+            var(--calyxa-placeholder-stripe-b) 12px
+          );
+          color: var(--calyxa-placeholder-text);
         }
       `}</style>
     </div>
