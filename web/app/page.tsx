@@ -2,6 +2,7 @@ import { Nav } from '@/components/marketing/Nav'
 import { Footer } from '@/components/marketing/Footer'
 import { Hero } from '@/components/marketing/Hero'
 import { SessionShowcase } from '@/components/marketing/SessionShowcase'
+import { AdaptiveSection } from '@/components/marketing/AdaptiveSection'
 import { ProfileSection } from '@/components/marketing/ProfileSection'
 import { StudyLoopSection } from '@/components/marketing/StudyLoopSection'
 import { Pricing } from '@/components/marketing/Pricing'
@@ -23,6 +24,10 @@ export default function Home() {
 
         <Reveal>
           <SessionShowcase />
+        </Reveal>
+
+        <Reveal>
+          <AdaptiveSection />
         </Reveal>
 
         <Reveal>
