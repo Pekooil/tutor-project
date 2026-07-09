@@ -5,57 +5,50 @@ import { useMotionValueEvent, useReducedMotion, useScroll } from 'motion/react'
 import { cn } from '@/lib/utils'
 import { Section } from '@/components/marketing/Section'
 import { DemoStage } from '@/components/marketing/demo/DemoStage'
-import { sessionBeats, sessionBeatTimes } from '@/components/marketing/demo/scripts'
+import { sessionBeats, sessionBeatTimes, sessionShowcaseAlts } from '@/components/marketing/demo/scripts'
 
-// Sprint 20 Task 6: the pinned session walkthrough. One DemoStage sticks in
-// the left column while four copy beats scroll past on the right; scroll
-// progress over the track scrubs the sessionBeats script, so scrolling back
-// rewinds the session — the "wait, it's live" proof a video can't give.
-// Below lg, and for anyone with prefers-reduced-motion, the pin degrades to
-// stacked beat cards, each rendering its beat's final frame statically via
-// DemoStage's fixed-frame mode (same script, scrub disabled).
+// Sprint 25 Task 6 (originally Sprint 20 Task 6): the pinned session
+// walkthrough. One DemoStage sticks in the left column while four copy beats
+// scroll past on the right; scroll progress over the track scrubs the
+// sessionBeats script, so scrolling back rewinds the session — the "wait,
+// it's live" proof a video can't give. Below lg, and for anyone with
+// prefers-reduced-motion, the pin degrades to stacked beat cards, each
+// rendering its beat's final frame statically via DemoStage's fixed-frame
+// mode (same script, scrub disabled).
 
 type Beat = {
   title: string
   body: string
   /** Beat 4's spoken-reply caption — what the tutor says out loud. */
   spoken?: { quote: string; note: string }
-  /** The stacked card's text alternative for this beat's frame. */
-  alt: string
 }
 
-// Every beat names the feature by its product name — annotations, the
-// solution progress bar, profile tags, pings, voice — the same vocabulary a
-// beta user later sees in the extension.
+// Every beat names the feature by its product name — annotations, milestone
+// markers, the board strip, tutor modes, pings, voice — the same vocabulary
+// a beta user later sees in the extension. Alt text for the frames lives
+// with the script (sessionShowcaseAlts) so copy and scene stay in one place.
 const BEATS: Beat[] = [
   {
     title: 'It points at the problem.',
-    body: 'Calyxa draws annotations on the page itself — a box around the equation, a box around the term it means. Each box is color-linked to the exact phrase in the tutor’s reply, so when it says “the middle term 5x,” you can see which 5x it means.',
-    alt: 'Demo frame: annotation boxes drawn around x² + 5x + 6 = 0 and its terms 5x and 6, each color-matched to the same phrase in the tutor’s reply.',
+    body: 'Calyxa draws on the page itself — labeled marks on the equation and its terms, numbered step badges for the order to think in, and a why-note that explains the step. The same marks echo in the tutor’s reply, so when it says “the middle term 5x,” you can see exactly which 5x it means.',
   },
   {
-    title: 'You see yourself getting closer.',
-    body: 'The solution progress bar sits under the conversation and moves as you work. Take a wrong step — x = 2 instead of x = −2 — and the bar eases back. Catch it yourself and it climbs past where it was.',
-    alt: 'Demo frame: the solution progress bar eased back after a sign mistake, then climbing again once the student corrects to x = −2 and x = −3.',
+    title: 'The moment it clicks, it’s on the record.',
+    body: 'Get the key idea and a milestone marker settles into the transcript — and stays there as you keep working. Up top, the board strip carries the problem through each transformation, from x² + 5x + 6 = 0 to its factored form, while the stage subtitle counts off where you are in the session.',
   },
   {
-    title: 'It knows what you’re working on.',
-    body: 'Profile tags on the tutor’s replies show what Calyxa remembers about you — a known gap with sign errors, a callback to factoring practice from three days ago. Close a gap for good and a ping marks the moment.',
-    alt: 'Demo frame: a known-gap tag and a callback tag on the tutor’s replies, with a “Gap closed: sign errors” ping above the panel and the progress bar full.',
+    title: 'It saw that mistake coming.',
+    body: 'Before the session starts, Calyxa predicts your likely sticking point — here, sign errors on the roots. When the slip actually happens — x = 2 instead of x = −2 — a ping names it in the moment, and the session switches from Exploring to Coaching right in the header.',
   },
   {
     title: 'Talk it through out loud.',
     body: 'Most sessions happen by voice. You think out loud, the waveform listens, and the tutor answers in its own voice while the transcript keeps up.',
     spoken: {
-      quote: 'Nice work — want to try one more like it?',
+      quote: 'Exactly — say it out loud: why negative?',
       note: 'Spoken aloud — Calyxa replies in under 2.5 seconds.',
     },
-    alt: 'Demo frame: the voice waveform pulsing while the tutor speaks, with the session recap strip showing factoring quadratics up and coming back Thursday.',
   },
 ]
-
-const PINNED_ALT =
-  'A scripted Calyxa session that scrubs with your scroll: annotations draw around x² + 5x + 6 = 0, the solution progress bar rises and eases back on a wrong step, profile tags and a “Gap closed: sign errors” ping appear, and the voice waveform pulses over a session recap.'
 
 export function SessionShowcase() {
   const reduceMotion = useReducedMotion() ?? false
@@ -75,7 +68,7 @@ export function SessionShowcase() {
       id="session-showcase"
       kicker="See it work"
       heading="It talks you through the problem, live."
-      sub="Annotations, solution progress, profile tags, and voice — one session, four things happening at once."
+      sub="Annotations, milestone markers, predictions and pings, and voice — one session, four things happening at once."
     >
       {/* The pinned walkthrough. Kept in the DOM at every width (CSS-hidden
           below lg and under reduced motion) so useScroll's target ref always
@@ -90,7 +83,7 @@ export function SessionShowcase() {
         <div>
           <div className="sticky top-28">
             <div className="mkt-stage">
-              <DemoStage script={sessionBeats} scrub={scrub} alt={PINNED_ALT} />
+              <DemoStage script={sessionBeats} scrub={scrub} alt={sessionShowcaseAlts.pinned} />
             </div>
           </div>
         </div>
@@ -116,7 +109,7 @@ export function SessionShowcase() {
           <div key={beat.title} className="flex flex-col gap-6">
             <BeatCopy beat={beat} index={index} />
             <div className="mkt-stage">
-              <DemoStage script={sessionBeats} frameMs={sessionBeatTimes[index + 1]} alt={beat.alt} />
+              <DemoStage script={sessionBeats} frameMs={sessionBeatTimes[index + 1]} alt={sessionShowcaseAlts.beats[index]} />
             </div>
           </div>
         ))}

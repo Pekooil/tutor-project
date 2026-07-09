@@ -1,0 +1,7 @@
+{
+  "crons": [
+    { "path": "/api/cron/reset-free-tier", "schedule": "0 8 * * *" },
+    { "path": "/api/cron/hard-delete-sweep", "schedule": "0 9 * * *" },
+    { "path": "/api/cron/stripe-reconcile", "schedule": "0 10 * * *" }
+  ]
+}
