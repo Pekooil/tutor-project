@@ -15,6 +15,10 @@ Sprint 15 — Curriculum expansion + voice pipeline latency (Task 1 of 9 — ADR
 - Free tier limits: enforced server-side. Client is a display hint only.
 - DOM policy: content script reads only. No mutations to host page DOM.
 - RLS policy: every Supabase table must have RLS before receiving data.
+- Build artifact: Darcy tests against `extension/dist/chrome-mv3` (production
+  build, loaded unpacked in Chrome). After ANY extension source change, run
+  `npm run build` in /extension — `dist/chrome-mv3` is a frozen snapshot and
+  does NOT auto-update (only `dist/chrome-mv3-dev` does, via `wxt dev`).
 
 ## Locked stack
 - Extension: WXT + React + TypeScript

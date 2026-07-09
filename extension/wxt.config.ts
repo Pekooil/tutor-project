@@ -15,6 +15,19 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   // React + TypeScript support.
   modules: ['@wxt-dev/module-react'],
+  // WXT's dev server defaults to port 3000 -- the SAME port the Next.js
+  // backend (web/, `next dev`) uses, which the extension talks to via the
+  // hardcoded API_BASE + host_permissions of http://localhost:3000. When both
+  // dev servers run, whichever binds 3000 first wins and the other is pushed
+  // off; if WXT wins, every /api/* fetch from the background worker hits WXT's
+  // dev server instead of Next and comes back as a 404 with an empty body,
+  // surfacing in the popup as "Unexpected end of JSON input" on sign-in. Pin
+  // WXT to 3001 so the backend always owns 3000 and the two never collide.
+  dev: {
+    server: {
+      port: 3001,
+    },
+  },
   vite: () => ({
     plugins: [tailwindcss()],
   }),
