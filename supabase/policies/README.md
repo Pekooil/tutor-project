@@ -79,6 +79,7 @@ alter table public.<table> enable row level security;
 | `session_interactions` | 2 (`user_id`) | `0007_session_interactions.sql` |
 | `reinforcement_schedule` | 2 (`user_id`) | `0008_reinforcement_schedule.sql` |
 | `waitlist` | 3 (deny-all) | `0012_waitlist.sql` |
+| `cost_ledger` | 3 (deny-all) | `0013_cost_ledger_and_erasure.sql` |
 
 ## Additive columns (no policy change)
 
@@ -101,3 +102,10 @@ alter table public.<table> enable row level security;
   "actually finished") so the reconcile sweep can tell "in progress" apart
   from "never started / crashed mid-work." Additive; inherits the table's
   existing policies.
+- `users.erasure_requested_at` (`0013_cost_ledger_and_erasure.sql`, ADR-035)
+  — a nullable timestamptz marking the caller's own deletion request (Phase
+  1 of the two-phase erasure flow), kept separate from `deleted_at` (which
+  stays the immediate soft-delete/logical-erasure flag). The hard-delete
+  sweep (Sprint 16 Task 6) queries it directly with the service-role client;
+  the existing Shape 1 `users_update_own` policy already lets a caller set
+  their own value (self-update, column-agnostic). Additive; no new policy.
