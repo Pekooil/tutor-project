@@ -8,6 +8,17 @@ import {
   type PageContext,
   type PageEquation,
 } from '@/lib/ai/page-context'
+import { costGuard } from '@/lib/tier/cost-guard'
+import { estimateCost } from '@/lib/tier/cost-model'
+
+// Sprint 16 / Task 3 (ADR-041): same resting text as the other two turn
+// paths. This route currently has no client caller (extension/src/lib/
+// api.ts's aiTurnStream is defined but never invoked — /api/ai/turn/stream
+// carries the actual voice-streaming path instead) but it is still a live,
+// reachable POST endpoint behind a valid bearer token, so it gets the same
+// guard as every other paid route rather than being left as an ungated
+// Claude-call surface.
+const COST_RESTING_MESSAGE = 'Calyxa is resting for today — the tutor is back tomorrow.'
 
 const MAX_MESSAGES = 40
 const MAX_MESSAGE_LENGTH = 4000
@@ -102,6 +113,32 @@ export async function POST(request: Request) {
   }
 
   const pageContext = parsePageContext(body)
+
+  // Sprint 16 / Task 3 (ADR-041): the global cost guard, before the profile
+  // read or the Claude call. Only the hard cap applies — this route has no
+  // envelope/voice concept to thread a `degraded` flag through (it streams
+  // raw text deltas only), so soft-cap voice degradation has nothing to act
+  // on here.
+  const { hardExceeded } = await costGuard(auth.supabase, estimateCost('claude_turn'))
+
+  if (hardExceeded) {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(sseChunk({ text: COST_RESTING_MESSAGE }))
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
+      },
+    })
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
+      },
+    })
+  }
+
   const profile = await loadProfile(auth.supabase)
 
   const stream = new ReadableStream({

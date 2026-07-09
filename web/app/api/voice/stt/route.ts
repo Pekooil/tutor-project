@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { clientFromBearer } from '@/lib/auth/bearer'
 import { transcribe } from '@/lib/voice/whisper'
 import { timed } from '@/lib/voice/latency'
+import { costGuard } from '@/lib/tier/cost-guard'
+import { estimateCost } from '@/lib/tier/cost-model'
 
 // No storage/Blob/DB import in this module (ADR-011) — the request body is
 // held only as an in-memory ArrayBuffer and handed straight to Whisper. This
@@ -37,6 +39,20 @@ export async function POST(request: Request) {
 
   if (audio.byteLength > MAX_AUDIO_BYTES) {
     return NextResponse.json({ error: 'Audio body is too large.' }, { status: 400 })
+  }
+
+  // Sprint 16 / Task 3 (ADR-041): the global cost guard, before the Whisper
+  // call. Either cap crossed degrades this leg to text — the client is
+  // expected to fall back rather than retry voice for this turn (see
+  // web/lib/tier/cost-guard.ts's fail-open note: an RPC error here proceeds
+  // as under-cap, never blocking transcription on a guard-layer hiccup).
+  const { softExceeded, hardExceeded } = await costGuard(
+    auth.supabase,
+    estimateCost('whisper_stt', audio.byteLength)
+  )
+
+  if (softExceeded || hardExceeded) {
+    return NextResponse.json({ degraded: true })
   }
 
   try {

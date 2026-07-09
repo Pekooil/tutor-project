@@ -4,6 +4,13 @@ import { loadProfile } from '@/lib/learning/profile-read'
 import { detectTopicKeys } from '@/lib/learning/topic'
 import { parseMessages, parsePageContext, parseSessionId, parseResponseLatencyMs } from '@/lib/ai/turn-request'
 import { completeTurn } from '@/lib/ai/turn-complete'
+import { costGuard } from '@/lib/tier/cost-guard'
+import { estimateCost } from '@/lib/tier/cost-model'
+
+// Sprint 16 / Task 3 (ADR-041): same friendly hard-cap refusal as
+// /api/ai/turn, verbatim — the two turn-taking paths must show the same
+// text regardless of which one the client happened to use.
+const COST_RESTING_MESSAGE = 'Calyxa is resting for today — the tutor is back tomorrow.'
 
 // Streamed-envelope tutor turn (Sprint 15 voice follow-on, ADR-033 amendment).
 // Same request shape and same learning writes as /api/ai/turn, but SSE: it
@@ -43,6 +50,34 @@ export async function POST(request: Request) {
   const sessionId = parseSessionId(body)
   const responseLatencyMs = parseResponseLatencyMs(body)
 
+  // Sprint 16 / Task 3 (ADR-041): the global cost guard, before the profile
+  // read or the Claude call — same placement and same hard/soft split as
+  // /api/ai/turn's main branch. Hard cap skips straight to a synthetic
+  // terminal envelope carrying the resting message, never touching
+  // runTutorTurnEnvelopeStream or completeTurn (no provider call, nothing to
+  // persist). Soft cap lets the turn proceed but flags `degraded: true` on
+  // the terminal envelope.
+  const { softExceeded, hardExceeded } = await costGuard(auth.supabase, estimateCost('claude_turn'))
+
+  if (hardExceeded) {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(sseChunk({ sayDelta: COST_RESTING_MESSAGE }))
+        controller.enqueue(sseChunk({ envelope: { reply: COST_RESTING_MESSAGE, degraded: true } }))
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
+      },
+    })
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
+      },
+    })
+  }
+
   // Same topic-biased profile read as /api/ai/turn (ADR-021). A read, not a
   // write; never throws.
   const topicKeys = detectTopicKeys(pageContext, messages)
@@ -73,7 +108,7 @@ export async function POST(request: Request) {
             responseLatencyMs,
             profile
           )
-          controller.enqueue(sseChunk({ envelope: payload }))
+          controller.enqueue(sseChunk({ envelope: { ...payload, ...(softExceeded ? { degraded: true } : {}) } }))
         }
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
       } catch {

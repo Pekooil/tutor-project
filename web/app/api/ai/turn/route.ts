@@ -20,6 +20,14 @@ import {
   sessionStartPlaceholder,
 } from '@/lib/ai/turn-request'
 import { completeTurn, groundProfileTags, persistOpeningInteraction } from '@/lib/ai/turn-complete'
+import { costGuard } from '@/lib/tier/cost-guard'
+import { estimateCost } from '@/lib/tier/cost-model'
+
+// Sprint 16 / Task 3 (ADR-041): the friendly hard-cap refusal, verbatim per
+// the ADR. Never a 500, never a provider call — the global daily ceiling is
+// a beta-budget backstop, not a per-user limit (that stays ADR-007's job,
+// untouched).
+const COST_RESTING_MESSAGE = 'Calyxa is resting for today — the tutor is back tomorrow.'
 
 // This route reads the live learning profile (ADR-014) and WRITES one
 // session_interactions row per gradable turn (text only, no audio -- ADR-011).
@@ -116,6 +124,21 @@ async function handleOpeningScan(
 
   const sessionId = parseSessionId(body)
 
+  // Sprint 16 / Task 3 (ADR-041): the global cost guard, before the profile
+  // read or the Claude call. Only the hard cap applies here — the opening
+  // scan is text-only (no voice legs to degrade) and this call is exactly
+  // as much "a new AI turn" as any other, so ADR-041's "hard cap refuses new
+  // AI turns" covers it too. It degrades to the SAME silent-open contract
+  // ADR-030 already established for "nothing found" / a failed scan
+  // (background/index.ts's EMPTY_REPLY) rather than the resting message —
+  // an unsolicited proactive turn is not the place to surface a budget
+  // notice the student never asked a question to receive.
+  const { hardExceeded } = await costGuard(auth.supabase, estimateCost('claude_turn'))
+
+  if (hardExceeded) {
+    return NextResponse.json({ reply: '' })
+  }
+
   const topicKeys = detectTopicKeys(pageContext, [])
   const profile = await loadProfile(auth.supabase, { topicKeys })
 
@@ -208,6 +231,18 @@ export async function POST(request: Request) {
   const sessionId = parseSessionId(body)
   const responseLatencyMs = parseResponseLatencyMs(body)
 
+  // Sprint 16 / Task 3 (ADR-041): the global cost guard, before the profile
+  // read or the Claude call. Hard cap skips both entirely and returns the
+  // friendly resting message — never a 500, never a provider call. Soft cap
+  // does NOT block a text turn (only the voice legs degrade, ADR-041
+  // Decision 2); it threads `degraded: true` onto the normal response below
+  // so the client knows to skip STT/TTS for this turn.
+  const { softExceeded, hardExceeded } = await costGuard(auth.supabase, estimateCost('claude_turn'))
+
+  if (hardExceeded) {
+    return NextResponse.json({ reply: COST_RESTING_MESSAGE, degraded: true })
+  }
+
   // Turn-time topic detection (ADR-021): deterministic keyword match, no model
   // call, [] on any miss -- so the profile read below degrades to its
   // pre-Sprint-11 behaviour.
@@ -239,7 +274,7 @@ export async function POST(request: Request) {
       profile
     )
 
-    return NextResponse.json(payload)
+    return NextResponse.json({ ...payload, ...(softExceeded ? { degraded: true } : {}) })
   } catch {
     // Never relay the provider's error text or any key material to the client.
     return NextResponse.json({ error: 'Tutor is unavailable right now.' }, { status: 502 })

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { clientFromBearer } from '@/lib/auth/bearer'
 import { synthesize } from '@/lib/voice/elevenlabs'
 import { timed } from '@/lib/voice/latency'
+import { costGuard } from '@/lib/tier/cost-guard'
+import { estimateCost } from '@/lib/tier/cost-model'
 
 // No persistence, no DB write — the synthesized audio stream is relayed
 // straight through to the caller.
@@ -24,6 +26,18 @@ export async function POST(request: Request) {
       { error: 'text must be a non-empty string up to 2000 characters.' },
       { status: 400 }
     )
+  }
+
+  // Sprint 16 / Task 3 (ADR-041): the global cost guard, before the
+  // ElevenLabs call. Either cap crossed degrades this leg to text — see
+  // voice/stt/route.ts's identical guard for the fail-open contract.
+  const { softExceeded, hardExceeded } = await costGuard(
+    auth.supabase,
+    estimateCost('elevenlabs_tts', text.length)
+  )
+
+  if (softExceeded || hardExceeded) {
+    return NextResponse.json({ degraded: true })
   }
 
   try {
