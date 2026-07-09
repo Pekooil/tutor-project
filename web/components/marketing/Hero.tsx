@@ -3,6 +3,7 @@ import { Reveal } from '@/components/marketing/Reveal'
 import { ParallaxGround } from '@/components/marketing/ParallaxGround'
 import { DemoStage } from '@/components/marketing/demo/DemoStage'
 import { heroSession } from '@/components/marketing/demo/scripts'
+import { FREE_SESSIONS_PER_MONTH } from '@/components/marketing/Pricing'
 
 // The full-bleed hero, redesigned as a centered stack: oversized display
 // headline, sub, waitlist form, then the live demo full-width beneath as the
@@ -25,7 +26,7 @@ export function Hero() {
           the exact step you&apos;re missing — without ever just giving you the answer.
         </p>
         <WaitlistForm source="hero" className="mt-9 w-full max-w-md" />
-        <p className="mt-4 text-sm text-muted-foreground">Free for 10 sessions a month · Chrome</p>
+        <p className="mt-4 text-sm text-muted-foreground">Free for {FREE_SESSIONS_PER_MONTH} sessions a month · Chrome</p>
       </div>
       <div className="relative mx-auto mt-16 max-w-5xl sm:mt-20">
         <div aria-hidden="true" className="mkt-halo" />

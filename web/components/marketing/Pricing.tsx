@@ -4,12 +4,16 @@ import { cn } from '@/lib/utils'
 
 // Pricing numbers come from PLAN.md §2.8 verbatim — no invented tiers, no
 // "contact us." FREE_SESSION_LIMIT lives server-side at
-// web/lib/tier/session-gate.ts (currently 10); that module pulls in
+// web/lib/tier/session-gate.ts (Sprint 16 / Task 4 retune: 10 -> 20, see
+// that file's comment for the reasoning); that module pulls in
 // @supabase/supabase-js and is written for server routes, not a marketing
 // page, so this file keeps its own literal rather than importing it —
-// per the sprint handoff, if Sprint 16's cost work retunes the limit, this
-// is the one constant here to update alongside it.
-const FREE_SESSIONS_PER_MONTH = 10
+// pricing.test.ts binds the two constants so they cannot drift silently.
+// Exported so Hero.tsx and FinalCta.tsx (which both echo this same number in
+// their own tagline) share this ONE marketing-side literal instead of each
+// hardcoding it — found already drifted (still "10") while retuning this
+// value for Task 4, exactly the failure mode this sync exists to prevent.
+export const FREE_SESSIONS_PER_MONTH = 20
 const PRO_PRICE_PER_MONTH = 12
 
 const PLANS = [
@@ -34,7 +38,7 @@ export function Pricing() {
       tone="wash"
       kicker="Pricing"
       heading="Simple, honest pricing."
-      sub="Free — 10 tutoring sessions a month. Pro — $12/mo for unlimited sessions."
+      sub={`Free — ${FREE_SESSIONS_PER_MONTH} tutoring sessions a month. Pro — $${PRO_PRICE_PER_MONTH}/mo for unlimited sessions.`}
     >
       <div className="grid gap-6 sm:grid-cols-2">
         {PLANS.map((plan) => (
