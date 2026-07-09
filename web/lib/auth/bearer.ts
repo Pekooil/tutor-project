@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js'
+import { createClient as createCookieClient } from '@/lib/supabase/server'
 
 export type BearerResult = { error: 401 } | { supabase: SupabaseClient; user: User }
 
@@ -32,6 +33,30 @@ export async function clientFromBearer(request: Request): Promise<BearerResult> 
     }
   )
 
+  const { data, error } = await supabase.auth.getUser()
+
+  if (error || !data.user) {
+    return { error: 401 }
+  }
+
+  return { supabase, user: data.user }
+}
+
+// Sprint 16 / Task 5 (ADR-035): the account export/delete routes are the
+// first to be reachable from either surface — the web dashboard's account
+// page (cookie session, the actual caller today) or, should the extension
+// ever grow an account-management UI, the bearer token above. Tries an
+// Authorization header first (extension shape); falls back to the cookie
+// session (web dashboard shape) when none is present, so either caller
+// works with no route-level branching. The cookie client is
+// request-scoped via Next's ambient cookies() (web/lib/supabase/server.ts)
+// exactly like every other cookie-authed route in this codebase.
+export async function clientFromBearerOrCookie(request: Request): Promise<BearerResult> {
+  if (request.headers.get('Authorization')) {
+    return clientFromBearer(request)
+  }
+
+  const supabase = await createCookieClient()
   const { data, error } = await supabase.auth.getUser()
 
   if (error || !data.user) {
