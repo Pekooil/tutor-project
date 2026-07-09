@@ -469,6 +469,48 @@ describe('parseEnvelope: completion backstop (the mandated close sentence infers
   })
 })
 
+describe('parseEnvelope: answer chips (design 8a -- model-offered tap-to-answer options)', () => {
+  it('parses a valid chips array through, trimmed and in order', () => {
+    const envelope = parseEnvelope(validEnvelopeJson({ chips: ['-2 and -3', ' 2 and 3 ', 'Not sure'] }))
+    expect(envelope.chips).toEqual(['-2 and -3', '2 and 3', 'Not sure'])
+  })
+
+  it('omits the field entirely when chips is absent, empty, or not an array (never [])', () => {
+    expect(parseEnvelope(validEnvelopeJson()).chips).toBeUndefined()
+    expect(parseEnvelope(validEnvelopeJson({ chips: [] })).chips).toBeUndefined()
+    expect(parseEnvelope(validEnvelopeJson({ chips: 'Not sure' })).chips).toBeUndefined()
+  })
+
+  it('drops non-string, empty, and over-long entries (never truncates -- a clipped answer is a different answer)', () => {
+    const overlong = 'x'.repeat(81)
+    const envelope = parseEnvelope(
+      validEnvelopeJson({ chips: [42, '', '   ', overlong, 'x = 2 or x = 3'] })
+    )
+    expect(envelope.chips).toEqual(['x = 2 or x = 3'])
+  })
+
+  it('dedupes case-insensitively and caps at 4 (first four unique win)', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({ chips: ['Factor it', 'factor it', 'Formula', 'Graph it', 'Guess', 'Not sure'] })
+    )
+    expect(envelope.chips).toEqual(['Factor it', 'Formula', 'Graph it', 'Guess'])
+  })
+
+  it('drops chips from a closing turn -- structured session and backstop-inferred alike', () => {
+    const structured = parseEnvelope(
+      validEnvelopeJson({ chips: ['Yes', 'No'], session: { complete: true, reason: 'solved' } })
+    )
+    expect(structured.session).toEqual({ complete: true, reason: 'solved' })
+    expect(structured.chips).toBeUndefined()
+
+    const backstopped = parseEnvelope(
+      validEnvelopeJson({ chips: ['Yes', 'No'], say: `Exactly right. ${SESSION_CLOSE_SENTENCE}` })
+    )
+    expect(backstopped.session).toEqual({ complete: true, reason: 'solved' })
+    expect(backstopped.chips).toBeUndefined()
+  })
+})
+
 describe('parseEnvelope: absent-fields back-compat (solution_progress + session both omitted)', () => {
   it('is byte-identical to a Sprint 13 envelope -- the wire shape gains no keys when the model carries neither field', () => {
     const envelope = parseEnvelope(validEnvelopeJson())

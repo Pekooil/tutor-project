@@ -233,6 +233,7 @@ export async function aiTurn(
   pins?: StatusPin[];
   solutionProgress?: number;
   session?: SessionCompletion;
+  chips?: string[];
 }> {
   const res = await authorizedFetch('/api/ai/turn', {
     method: 'POST',
@@ -261,6 +262,7 @@ export async function aiTurn(
     ...(Array.isArray(body.pins) && body.pins.length > 0 ? { pins: body.pins as StatusPin[] } : {}),
     ...(typeof body.solutionProgress === 'number' ? { solutionProgress: body.solutionProgress } : {}),
     ...(body.session ? { session: body.session as SessionCompletion } : {}),
+    ...(Array.isArray(body.chips) && body.chips.length > 0 ? { chips: body.chips as string[] } : {}),
   };
 }
 
@@ -407,6 +409,7 @@ type StreamEnvelopePayload = {
   pins?: StatusPin[];
   solutionProgress?: number;
   session?: SessionCompletion;
+  chips?: string[];
 };
 
 export async function aiTurnEnvelopeStream(

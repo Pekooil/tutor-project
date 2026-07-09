@@ -79,6 +79,12 @@ export type TurnResult = {
   annotations?: Annotation[];
   solutionProgress?: number;
   session?: SessionCompletion;
+  // Answer chips (design 8a): the turn's short tap-to-answer options,
+  // validated/deduped/capped server-side (envelope.ts) and threaded through
+  // additively like everything above. Display-ephemeral: they belong to the
+  // LATEST tutor turn only (the `chips` state below), never to the message
+  // list and never to the wire history.
+  chips?: string[];
 };
 
 // Local DISPLAY message type (Sprint 13, ADR-024; widened Sprint 14 Task 7;
@@ -543,6 +549,13 @@ export function Overlay({
   // recording. Kept non-empty until the accurate Whisper result is committed,
   // so there is no gap between "user stops speaking" and "message appears".
   const [liveTranscript, setLiveTranscript] = useState('');
+  // The CURRENT turn's answer chips (design 8a): set when a tutor turn
+  // commits carrying options, replaced wholesale by the next turn (a turn
+  // with none clears them -- chips only ever belong to the LATEST tutor
+  // line), and cleared the moment ANY student answer commits (tap, typed, or
+  // voice), matching the prototype's hide-on-pick. Display-ephemeral: never
+  // enters `messages` and stripHistory never sees it.
+  const [chips, setChips] = useState<string[] | null>(null);
 
   // ---- Sprint 13 profile-visibility state (all display-ephemeral, ADR-024) ----
   // The session recap, set by SESSION_RECAP_EVENT and discarded on panel
@@ -907,6 +920,7 @@ export function Overlay({
   function performClose() {
     setExpanded(false);
     setMessages([]);
+    setChips(null);
     setSolutionProgress(0);
     progressRef.current = 0;
     finalStepFiredRef.current = false;
@@ -1075,10 +1089,12 @@ export function Overlay({
     return () => window.removeEventListener(SESSION_RECAP_EVENT, onSessionRecap);
   }, []);
 
-  // Scroll to bottom when messages, streaming tokens, or live transcript change.
+  // Scroll to bottom when messages, streaming tokens, the live transcript,
+  // or the answer-chip row (design 8a -- it adds height below the last
+  // tutor line) change.
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, streamingTokens, liveTranscript]);
+  }, [messages, streamingTokens, liveTranscript, chips]);
 
   // The keyboard shortcut no longer mounts/unmounts the overlay (Sprint 10
   // Task 6 round 4 -- the idle pill's mount now tracks signedIn instead, see
@@ -1174,6 +1190,11 @@ export function Overlay({
       ...current,
       { role: 'assistant', content: result.reply, ...assistantMessageExtras(result) },
     ]);
+    // The turn's answer chips (design 8a) commit with the bubble too --
+    // REPLACING the previous turn's set either way, since chips only ever
+    // belong to the latest tutor line. A completing turn never shows any
+    // (the server already drops them there; this is belt-and-braces).
+    setChips(result.session?.complete ? null : result.chips ?? null);
     // Task 8: AnnotationLayer's box-stroke lookup reads the SAME map.
     setAnnotationColors(assignAnnotationColors(result.annotations));
     showPins(result.pins);
@@ -1301,6 +1322,9 @@ export function Overlay({
     // request, ADR-024); the display list keeps its DisplayMessage shape.
     const outbound: TurnMessage[] = [...stripHistory(messages), { role: 'user', content: text }];
     setMessages((current) => [...current, { role: 'user', content: text }]);
+    // The student answered -- however they did it (chip tap, typed, spoken),
+    // the offered options are consumed (design 8a: chips hide on pick).
+    setChips(null);
     setRecap(null); // shown once -- a new conversation replaces it
     setRecapMeta(null);
     setNotice(null);
@@ -1327,6 +1351,17 @@ export function Overlay({
     if (!text || busy) return;
     setInput('');
     await sendStudentMessage(text);
+  }
+
+  // Answer-chip tap (design 8a): the tap COMMITS the chip text as a real
+  // student turn -- same wire shape, same transcript bubble, same grading as
+  // if they had typed it ("tap commits the answer as a student bubble and
+  // advances or branches"). The raw chip text is sent verbatim (the model
+  // wrote it in the same calculator notation it reads); the row itself
+  // disappears via sendStudentMessage's setChips(null).
+  function handleChipTap(text: string) {
+    if (busy || closeState !== 'idle') return;
+    void sendStudentMessage(text);
   }
 
   // Best-effort live transcript (unchanged behavior/contract from before Task
@@ -1422,6 +1457,9 @@ export function Overlay({
       if (sessionStartRef.current === null) sessionStartRef.current = Date.now();
       const outbound: TurnMessage[] = [...stripHistory(messages), { role: 'user', content: transcript }];
       setMessages((current) => [...current, { role: 'user', content: transcript }]);
+      // A spoken answer consumes the offered chips too (design 8a: chips
+      // supplement voice, they never gate it).
+      setChips(null);
       setRecap(null); // shown once -- a new conversation replaces it
       setRecapMeta(null);
 
@@ -1483,6 +1521,10 @@ export function Overlay({
         ...current,
         { role: 'assistant', content: result.reply, ...assistantMessageExtras(result) },
       ]);
+      // Voice chips commit with the reply after playback, same moment as the
+      // annotations -- they don't pre-announce options the tutor hasn't
+      // finished asking about yet (the Task 8 sequencing rule).
+      setChips(result.session?.complete ? null : result.chips ?? null);
       // Task 8: AnnotationLayer's box-stroke lookup reads the SAME map.
       setAnnotationColors(assignAnnotationColors(result.annotations));
       applyProgressAndCompletion(result);
@@ -1760,6 +1802,9 @@ export function Overlay({
                   busy={busy}
                   notice={notice}
                   liveTranscript={liveTranscript}
+                  chips={chips}
+                  chipsDisabled={busy || recording || connecting || closeState !== 'idle'}
+                  onChipTap={handleChipTap}
                   chatEndRef={chatEndRef}
                 />
               </div>
@@ -1797,7 +1842,15 @@ export function Overlay({
                 input={input}
                 busy={busy}
                 closing={closeState !== 'idle'}
-                placeholder={sessionActive ? 'Answer out loud or type here' : 'Ask a math question…'}
+                placeholder={
+                  /* Contextual hint (design 8a): the chip row above changes
+                     what the field is FOR -- tap, or answer your own way. */
+                  sessionActive
+                    ? chips && chips.length > 0
+                      ? 'Tap an answer — or say it your way'
+                      : 'Answer out loud or type here'
+                    : 'Ask a math question…'
+                }
                 inputFocused={inputFocused}
                 caretLeft={caretLeft}
                 inputElRef={inputElRef}

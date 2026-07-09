@@ -219,6 +219,7 @@ async function sendAiTurn(
           pins?: StatusPin[];
           solutionProgress?: number;
           session?: TurnResult['session'];
+          chips?: string[];
           error?: string;
         }) => {
           if (msg.type === 'chunk' && msg.text) {
@@ -235,6 +236,7 @@ async function sendAiTurn(
               ...(msg.annotations && msg.annotations.length > 0 ? { annotations: msg.annotations } : {}),
               ...(msg.solutionProgress !== undefined ? { solutionProgress: msg.solutionProgress } : {}),
               ...(msg.session ? { session: msg.session } : {}),
+              ...(msg.chips && msg.chips.length > 0 ? { chips: msg.chips } : {}),
             });
           } else if (msg.type === 'error' && !settled) {
             settled = true;
@@ -283,6 +285,7 @@ async function sendAiTurn(
     ...(payload.annotations && payload.annotations.length > 0 ? { annotations: payload.annotations } : {}),
     ...(payload.solutionProgress !== undefined ? { solutionProgress: payload.solutionProgress } : {}),
     ...(payload.session ? { session: payload.session } : {}),
+    ...(payload.chips && payload.chips.length > 0 ? { chips: payload.chips } : {}),
   };
 }
 
@@ -319,6 +322,7 @@ async function sendVoiceTurnStreaming(
           ...(msg.annotations && msg.annotations.length > 0 ? { annotations: msg.annotations } : {}),
           ...(msg.solutionProgress !== undefined ? { solutionProgress: msg.solutionProgress } : {}),
           ...(msg.session ? { session: msg.session } : {}),
+          ...(msg.chips && msg.chips.length > 0 ? { chips: msg.chips } : {}),
         });
       } else if (msg.type === 'error' && !settled) {
         settled = true;

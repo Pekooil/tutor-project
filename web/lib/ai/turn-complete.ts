@@ -365,6 +365,10 @@ export type TurnResponsePayload = {
   pins?: StatusPin[]
   solutionProgress?: number
   session?: NonNullable<TurnEnvelope['session']>
+  // Answer chips (design 8a): the envelope's validated options, threaded as-is
+  // -- parse already trimmed/deduped/capped them and dropped them from any
+  // closing turn (envelope.ts), so past that gate they are display-ready.
+  chips?: string[]
 }
 
 // Runs the shared persistence + grounding + pin tail and assembles the
@@ -408,5 +412,6 @@ export async function completeTurn(
     ...(pins.length > 0 ? { pins } : {}),
     ...(envelope.solutionProgress !== undefined ? { solutionProgress: envelope.solutionProgress } : {}),
     ...(envelope.session ? { session: envelope.session } : {}),
+    ...(envelope.chips && envelope.chips.length > 0 ? { chips: envelope.chips } : {}),
   }
 }

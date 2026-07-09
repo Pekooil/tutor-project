@@ -195,8 +195,10 @@
  *
  * SESSION SURFACES (8a) -- the sage card border (already shipped as a
  * literal in CheckinCard, now promoted to a token), the board strip's warm
- * off-white, and the close button's warm-red hover set (#9a3412 on
- * #fdf2f0: 6.71:1, AA).
+ * off-white, the close button's warm-red hover set (#9a3412 on
+ * #fdf2f0: 6.71:1, AA), and the answer-chip label ink (#46463f on the
+ * white capsule: 9.19:1 AAA -- same hex as ping-adjust text, its own
+ * token because the chip is a session surface, not a ping tone).
  *
  * TUTOR MODES (8c) -- eight mode identities, each a text/bg/border triple
  * in the design's light-fill + dark-text pattern (brand.md §4.1's own
@@ -223,6 +225,7 @@
 
   --calyxa-sage-border: #d6f5e1;
   --calyxa-board-bg: #fbfaf8;
+  --calyxa-chip-text: #46463f;
   --calyxa-accent-hover: #6ee7a0; /* accent-fill hover (handoff token list); pair with accent-foreground like --color-accent itself */
   --calyxa-close-hover-bg: #fdf2f0;
   --calyxa-close-hover-border: #e5b8b0;

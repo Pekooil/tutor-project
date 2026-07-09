@@ -178,6 +178,9 @@ export function Transcript({
   busy,
   notice,
   liveTranscript,
+  chips,
+  chipsDisabled,
+  onChipTap,
   chatEndRef,
 }: {
   messages: DisplayMessage[];
@@ -185,6 +188,14 @@ export function Transcript({
   busy: boolean;
   notice: string | null;
   liveTranscript: string;
+  // The LATEST tutor turn's answer chips (design 8a) -- Overlay.tsx owns the
+  // state (set at turn commit, cleared the moment any student answer
+  // commits), so this component only ever renders the row under the last
+  // message. A tap hands the chip's RAW text up; Overlay commits it as a
+  // real student turn.
+  chips: string[] | null;
+  chipsDisabled: boolean;
+  onChipTap: (text: string) => void;
   chatEndRef: RefObject<HTMLDivElement | null>;
 }) {
   return (
@@ -262,6 +273,39 @@ export function Transcript({
             </div>
           </div>
         ),
+      )}
+
+      {/* Answer chips (design 8a): a wrap row of white capsules indented
+          23px under the tutor line (the mark's 14px + the 9px gap), hover
+          sage; entering with the same message-in motion as a turn. Only the
+          LATEST tutor turn ever has them (Overlay.tsx clears/replaces the
+          state per turn), so rendering after the list IS "under the tutor
+          line". Tapping commits the answer as a student bubble; the student
+          can always still type or speak instead. */}
+      {chips && chips.length > 0 && !busy && (
+        <div className="cx-msg flex flex-wrap gap-[7px] pl-[23px]">
+          {chips.map((chip) => (
+            <button
+              key={chip}
+              type="button"
+              disabled={chipsDisabled}
+              onClick={() => onChipTap(chip)}
+              className="cursor-pointer rounded-full border border-border bg-background px-[11px] py-[5px] text-[12px] leading-normal text-[var(--calyxa-chip-text)] outline-none transition-colors hover:border-accent hover:bg-accent-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-default disabled:opacity-50"
+            >
+              {/* Same superscript/symbol treatment as the transcript's math,
+                  so a chip like "x^2" reads as real notation, while the tap
+                  still commits the RAW calculator-notation text the model
+                  understands. */}
+              {tokenizeMathText(chip).map((token, tokenIndex) =>
+                token.kind === 'sup' ? (
+                  <sup key={tokenIndex}>{token.text}</sup>
+                ) : (
+                  <span key={tokenIndex}>{token.text}</span>
+                ),
+              )}
+            </button>
+          ))}
+        </div>
       )}
 
       {/* Live interim transcript from SpeechRecognition, updated word-by-word

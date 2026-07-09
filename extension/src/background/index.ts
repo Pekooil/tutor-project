@@ -177,7 +177,7 @@ export default defineBackground(() => {
       try {
         await ensureSessionStarted(pageDomain, 'text');
         const turnContext = await getTurnContext();
-        const { reply, annotations, pins, solutionProgress, session } = await api.aiTurn(
+        const { reply, annotations, pins, solutionProgress, session, chips } = await api.aiTurn(
           msg.messages,
           msg.pageContext,
           turnContext,
@@ -207,6 +207,7 @@ export default defineBackground(() => {
             ...(pins ? { pins } : {}),
             ...(solutionProgress !== undefined ? { solutionProgress } : {}),
             ...(session ? { session } : {}),
+            ...(chips ? { chips } : {}),
           });
         } catch {
           // Port already disconnected — all chunks were sent, no action needed.
@@ -238,7 +239,7 @@ export default defineBackground(() => {
       try {
         await ensureSessionStarted(pageDomain, 'voice');
         const turnContext = await getTurnContext();
-        const { reply, annotations, pins, solutionProgress, session } =
+        const { reply, annotations, pins, solutionProgress, session, chips } =
           await api.aiTurnEnvelopeStream(msg.messages, msg.pageContext, turnContext, (text) => {
             try {
               port.postMessage({ type: 'say', text });
@@ -258,6 +259,7 @@ export default defineBackground(() => {
             ...(pins ? { pins } : {}),
             ...(solutionProgress !== undefined ? { solutionProgress } : {}),
             ...(session ? { session } : {}),
+            ...(chips ? { chips } : {}),
           });
         } catch {
           // Port already disconnected.
@@ -606,7 +608,7 @@ async function handleAiTurn(
   try {
     await ensureSessionStarted(pageDomain, 'voice');
     const turnContext = await getTurnContext();
-    const { reply, annotations, pins, solutionProgress, session } = await api.aiTurn(
+    const { reply, annotations, pins, solutionProgress, session, chips } = await api.aiTurn(
       messages,
       pageContext,
       turnContext,
@@ -622,6 +624,7 @@ async function handleAiTurn(
         ...(pins ? { pins } : {}),
         ...(solutionProgress !== undefined ? { solutionProgress } : {}),
         ...(session ? { session } : {}),
+        ...(chips ? { chips } : {}),
       },
     };
   } catch (error) {

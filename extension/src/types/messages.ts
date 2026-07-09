@@ -279,6 +279,11 @@ export type AiReplyPayload =
       pins?: StatusPin[];
       solutionProgress?: number;
       session?: SessionCompletion;
+      // Answer chips (design 8a): the turn's short tap-to-answer options,
+      // already validated/deduped/capped server-side (envelope.ts) -- same
+      // additive discipline as the fields above (present only when the turn
+      // carried any, never []), same thread-through-only rule client-side.
+      chips?: string[];
     }
   | { error: string };
 
@@ -470,6 +475,7 @@ export type VoiceTurnStreamDoneMessage = {
   pins?: StatusPin[];
   solutionProgress?: number;
   session?: SessionCompletion;
+  chips?: string[];
 };
 export type VoiceTurnStreamErrorMessage = { type: 'error'; error: string };
 export type VoiceTurnStreamMessage =
