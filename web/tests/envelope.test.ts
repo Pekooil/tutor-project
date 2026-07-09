@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { CONCEPT_KEYS } from '@calyxa/curriculum'
-import { parseEnvelope } from '../lib/ai/envelope'
+import { parseEnvelope, SESSION_CLOSE_SENTENCE } from '../lib/ai/envelope'
 
 // Unit spec for the §2.5 envelope parser (ADR-019) — Task 8's only pure
 // unit surface (envelope.ts deliberately has no 'server-only' import and no
@@ -420,6 +420,52 @@ describe('parseEnvelope: session completion (Sprint 14, ADR-027 -- AI-signaled, 
     const envelope = parseEnvelope(validEnvelopeJson())
     expect(envelope.session).toBeUndefined()
     expect(Object.prototype.hasOwnProperty.call(envelope, 'session')).toBe(false)
+  })
+})
+
+describe('parseEnvelope: completion backstop (the mandated close sentence infers a dropped session field)', () => {
+  const closingSay = `Exactly — (x+2)(x+3) is right. ${SESSION_CLOSE_SENTENCE}`
+
+  it('infers a solved close when "say" ends with the mandated sentence but "session" is absent', () => {
+    // The reported bug: the tutor writes the closing line but the optional
+    // "session" field is dropped, so the section-complete bloom + recap never
+    // fire. The sentence is reserved for a genuine close, so its presence IS
+    // the signal.
+    const envelope = parseEnvelope(validEnvelopeJson({ say: closingSay }))
+    expect(envelope.session).toEqual({ complete: true, reason: 'solved' })
+  })
+
+  it('a well-formed "session" the model actually emitted still wins over the backstop', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({ say: closingSay, session: { complete: true, reason: 'follow-up-declined' } })
+    )
+    expect(envelope.session).toEqual({ complete: true, reason: 'follow-up-declined' })
+  })
+
+  it('salvages a malformed "session" (bad reason) into a solved close when the close sentence is present', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({ say: closingSay, session: { complete: true, reason: 'done' } })
+    )
+    expect(envelope.session).toEqual({ complete: true, reason: 'solved' })
+  })
+
+  it('tolerates trailing whitespace, a missing final period, and case when matching the sentence', () => {
+    for (const say of [
+      `Nice work. ${SESSION_CLOSE_SENTENCE}   `,
+      'Great — that is the answer. now closing tutoring session',
+      'You solved it. NOW CLOSING TUTORING SESSION.',
+    ]) {
+      expect(parseEnvelope(validEnvelopeJson({ say })).session).toEqual({ complete: true, reason: 'solved' })
+    }
+  })
+
+  it('never fires when the sentence only appears mid-"say", not as the closing line', () => {
+    const midSentence = `${SESSION_CLOSE_SENTENCE} is the phrase I say when we finish — but we are not done yet, so what is the next step?`
+    expect(parseEnvelope(validEnvelopeJson({ say: midSentence })).session).toBeUndefined()
+  })
+
+  it('never fires for an ordinary tutoring turn that never writes the close sentence', () => {
+    expect(parseEnvelope(validEnvelopeJson()).session).toBeUndefined()
   })
 })
 

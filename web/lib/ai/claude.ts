@@ -198,6 +198,16 @@ const ENVELOPE_TOOL: Anthropic.Tool = {
         },
         required: ['complete', 'reason'],
       },
+      chips: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Answer chips (see ANSWER CHIPS below): 2-4 SHORT tappable answer options for the ONE question ' +
+          '"say" just asked -- each 6 words or fewer, exactly one of them correct, the wrong ones plausible ' +
+          'distractors (ideally the very error this student is prone to), usually "Not sure" last. The ' +
+          'student taps one and it becomes their answer verbatim. Use [] when the question is open-ended ' +
+          'or the turn asks no question -- never force options onto a question that deserves their own words.',
+      },
       signals: {
         type: 'array',
         items: {
@@ -233,7 +243,7 @@ const ENVELOPE_TOOL: Anthropic.Tool = {
           'two; use [] only when truly none apply. Never emit a kind that did not actually happen.',
       },
     },
-    required: ['say', 'mode', 'solution_progress', 'assessment', 'annotations', 'profile_tags', 'signals'],
+    required: ['say', 'mode', 'solution_progress', 'assessment', 'annotations', 'profile_tags', 'signals', 'chips'],
   },
   // Deliberately a turn WITH a real annotation, not an empty-array one --
   // Sprint 14 Task 10 live-find: annotating stayed under-used even after
@@ -263,6 +273,10 @@ const ENVELOPE_TOOL: Anthropic.Tool = {
       ],
       profile_tags: [],
       signals: ['concept-understood'],
+      // A question with a small, short answer set carries chips (design 8a):
+      // one correct, one distractor aimed at a real misconception (13t^4 =
+      // "add the exponents too"), and the honest opt-out last.
+      chips: ['13t^2', '13t^4', 'Not sure'],
     },
   ],
 }

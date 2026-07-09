@@ -336,17 +336,14 @@ export function nextCloseState(
   return current;
 }
 
-// A short head start for the SESSION_ENDED recap broadcast (fired
-// unawaited by the background the moment it sees session.complete, Sprint
-// 14 Task 6) to land before the ring starts sweeping -- so the recap card
-// is already visible for the whole ring sweep rather than popping in
-// mid-ring. Not a promise race against the broadcast (there's no promise to
-// await here, it's a separate chrome.runtime message) -- just a fixed,
-// generous buffer.
+// The old auto-close choreography's two timings, RETAINED for the pure
+// nextCloseState reducer + the ring machinery (TitleBar's cx-close-ring) that
+// re-enabling auto-close would drive again. They are NOT scheduled anymore:
+// beginCloseChoreography parks the panel in 'completing' and stops, so the
+// recap never collapses on its own (auto-close disabled -- Darcy's call). Was:
+// a RECAP_GRACE_MS head start for the SESSION_ENDED recap broadcast to land,
+// then a CLOSE_RING_MS green ring sweep before the panel auto-collapsed.
 export const RECAP_GRACE_MS = 400;
-// 10s (Sprint 15 fix pass round 2, was 4s per Darcy's call): the window
-// auto-closes 10 seconds after the ring starts sweeping -- enough time to
-// actually read the recap before the panel collapses.
 export const CLOSE_RING_MS = 10_000;
 
 // ---- Sprint 14 Task 7: per-turn annotation color assignment (ADR-029
@@ -867,26 +864,20 @@ export function Overlay({
     return () => window.clearInterval(interval);
   }, [expanded, sessionLive, recap]);
 
-  // Drives nextCloseState with real timers (Sprint 14 Task 7): called
-  // whenever a turn's session.complete arrives (automatic) or the student
-  // clicks ✕ (manual, handleEndSessionClick below) -- both converge on the
-  // SAME visible choreography. A no-op if the choreography is already
-  // running (idle is the only state 'complete' does anything from), so a
-  // stray second signal can't restart the ring mid-sweep.
+  // Enters the terminal "ending" state on a turn's session.complete: parks
+  // the panel in 'completing' and STOPS there. AUTO-CLOSE IS DISABLED (Darcy's
+  // call): the post-session recap (design 7b) is a screen the student dismisses
+  // themselves via "Complete session" (handleRecapDone) -- it never collapses
+  // out from under them. The old choreography timed a ~10s green ring sweep
+  // (RECAP_GRACE_MS -> ringing -> CLOSE_RING_MS -> closed) and then tore the
+  // panel down automatically; those timers are gone, so 'ringing'/'closed' are
+  // no longer reached and the ring never sweeps. The nextCloseState reducer and
+  // the 'closed' teardown effect are left intact (pure, tested, and the single
+  // place re-enabling auto-close would hook back into) but simply not driven
+  // here anymore. A no-op if already ending -- 'complete' only advances from
+  // 'idle' -- so a stray second signal changes nothing.
   function beginCloseChoreography() {
-    setCloseState((prev) => {
-      const next = nextCloseState(prev, 'complete');
-      if (next === prev) return prev;
-      const graceTimer = window.setTimeout(() => {
-        setCloseState((state) => nextCloseState(state, 'recap-grace-elapsed'));
-        const ringTimer = window.setTimeout(() => {
-          setCloseState((state) => nextCloseState(state, 'ring-elapsed'));
-        }, CLOSE_RING_MS);
-        closeTimersRef.current.push(ringTimer);
-      }, RECAP_GRACE_MS);
-      closeTimersRef.current.push(graceTimer);
-      return next;
-    });
+    setCloseState((prev) => nextCloseState(prev, 'complete'));
   }
 
   // The choreography's actual teardown (Sprint 14 Task 7): fires exactly
@@ -1284,8 +1275,10 @@ export function Overlay({
 
   // Complete session (7b's one exit; the earlier 6b pass's "One more pass"
   // is retired with it): the session is already over server-side (the recap
-  // only ever arrives after SESSION_ENDED) -- this just closes the panel
-  // now instead of waiting out the ring.
+  // only ever arrives after SESSION_ENDED). With auto-close disabled this is
+  // now the ONLY way the summary screen dismisses -- the student closes the
+  // panel here, on their own time, rather than watching it collapse.
+  // (clearCloseTimers is kept defensively; no timers are pending anymore.)
   function handleRecapDone() {
     clearCloseTimers();
     setCloseState((prev) => nextCloseState(prev, 'reset'));
@@ -1744,9 +1737,9 @@ export function Overlay({
 
         {recap ? (
           /* ── Post-session recap (design 7b) — the panel body's TERMINAL
-              state: replaces the chat area AND the composer outright. The
-              close ring keeps sweeping in the title bar; Complete session
-              closes now instead of waiting out the ring. ── */
+              state: replaces the chat area AND the composer outright. It stays
+              put until the student taps Complete session — auto-close is
+              disabled, so the summary never collapses on its own. ── */
           <RecapCard
             recap={recap}
             topicTitle={checkinTopic}

@@ -2,6 +2,7 @@ import { CONCEPT_KEYS, getConcept } from '@calyxa/curriculum'
 import type { LearningProfile } from './profile'
 import { renderPageContext, type PageContext } from './page-context'
 import { detectTopicKeys } from '@/lib/learning/topic'
+import { SESSION_CLOSE_SENTENCE } from './envelope'
 
 // ADR-019: the turn can be prompted for either the restored §2.5 JSON
 // envelope (the live, non-streaming /api/ai/turn path) or the plain-text
@@ -434,10 +435,13 @@ absence of the field IS "still in progress").
      wrong, you give one hint, the student corrects it -- reason: "follow-up-corrected".
 On the SAME turn where you set "complete": true, "say" MUST end with this EXACT sentence,
 verbatim, as its final sentence (after whatever else you say to close out the problem, e.g.
-confirming the answer): "Now closing tutoring session." Never set "complete": true
-speculatively and never guess a reason -- if you are not sure the session is actually over,
-leave "session" out entirely and keep tutoring. A missed close is recoverable (the student
-can still end it manually); a false close mid-problem is not.
+confirming the answer): "${SESSION_CLOSE_SENTENCE}" The "session" field and this closing
+sentence are ONE signal: they MUST appear together on the closing turn -- never write the
+closing sentence without the "session" object, and never send the "session" object without
+the closing sentence. Never set "complete": true speculatively and never guess a reason --
+if you are not sure the session is actually over, leave "session" out entirely, do NOT write
+the closing sentence, and keep tutoring. A missed close is recoverable (the student can still
+end it manually); a false close mid-problem is not.
 
 SOLUTION PROGRESS — read before setting "solution_progress":
 "solution_progress" is a number from 0 (just started) to 1 (fully solved) estimating how far

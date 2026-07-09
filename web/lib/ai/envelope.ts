@@ -90,8 +90,43 @@ function parseSolutionProgress(candidate: unknown): number | undefined {
 export type SessionCompletionReason = 'solved' | 'follow-up-declined' | 'follow-up-corrected'
 export type SessionCompletion = { complete: true; reason: SessionCompletionReason }
 
+// The exact sentence the prompt (system-prompt.ts's SESSION COMPLETION block)
+// REQUIRES the model to end `say` with on the turn it closes the session --
+// the single source of truth both the prompt and the parser reference, so the
+// literal can never drift between "what the model is told to write" and "what
+// the parser looks for". Kept as its own export for that import.
+export const SESSION_CLOSE_SENTENCE = 'Now closing tutoring session.'
+
+// The completion backstop's fired-close reason. The close sentence is the
+// same for all three reasons, so its text alone can't say WHICH one -- and by
+// far the most common (and the one that earns the section-complete bloom) is
+// a solved problem, so an inferred close reads as "solved". A structured
+// `session` object the model actually emitted always wins over this (see the
+// backstop in parseEnvelopeObject); this only ever fills the gap where the
+// model wrote the closing line but forgot the field.
+const BACKSTOP_CLOSE_REASON: SessionCompletionReason = 'solved'
+
 function isValidCompletionReason(value: unknown): value is SessionCompletionReason {
   return value === 'solved' || value === 'follow-up-declined' || value === 'follow-up-corrected'
+}
+
+/**
+ * Does `say` end with the mandated close sentence? Tolerant of trailing
+ * whitespace and a missing/extra final period, and case-insensitive -- the
+ * point is to catch a model that wrote the closing line but dropped the
+ * structured `session` field, not to demand byte-perfect punctuation. The
+ * sentence is reserved by the prompt EXCLUSIVELY for a genuine close, so a
+ * match here is safe to treat as a real completion signal.
+ */
+export function saysClosingSentence(say: string): boolean {
+  const normalize = (text: string) =>
+    text
+      .trim()
+      .toLowerCase()
+      .replace(/[.!\s]+$/, '')
+  const normalizedSay = normalize(say)
+  const sentinel = normalize(SESSION_CLOSE_SENTENCE)
+  return normalizedSay === sentinel || normalizedSay.endsWith(` ${sentinel}`)
 }
 
 function parseSessionCompletion(candidate: unknown): SessionCompletion | undefined {
@@ -106,6 +141,42 @@ function parseSessionCompletion(candidate: unknown): SessionCompletion | undefin
   }
 
   return { complete: true, reason }
+}
+
+// Answer chips (design 8a): the model's own short answer OPTIONS for the one
+// question its `say` just asked -- rendered as tappable capsules under the
+// tutor line; a tap commits the choice as a real student turn (the same wire
+// shape as a typed answer, so the next turn grades it like any other). Free
+// model text shown verbatim to the student -- unlike pins there is no fixed
+// server copy to key by, because a chip IS a candidate answer to this exact
+// question -- so the parse is the tight gate: strings only, trimmed,
+// non-empty, bounded length (an over-long entry is DROPPED, never truncated
+// -- a clipped answer is a DIFFERENT answer, and committing it as the
+// student's turn would put words in their mouth), case-insensitive deduped,
+// capped in count. A closing turn never carries chips (parseEnvelopeObject
+// skips them once `session` is set): there is nothing left to answer.
+export const MAX_ANSWER_CHIPS = 4
+const MAX_CHIP_LENGTH = 80
+
+function parseChips(candidate: unknown): string[] | undefined {
+  if (!Array.isArray(candidate)) {
+    return undefined
+  }
+
+  const seen = new Set<string>()
+  const chips: string[] = []
+  for (const entry of candidate) {
+    if (typeof entry !== 'string') continue
+    const text = entry.trim()
+    if (text.length === 0 || text.length > MAX_CHIP_LENGTH) continue
+    const key = text.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    chips.push(text)
+    if (chips.length >= MAX_ANSWER_CHIPS) break
+  }
+
+  return chips.length > 0 ? chips : undefined
 }
 
 // Model signals (Sprint 15, ADR-034): the model's own per-turn read of what
@@ -204,6 +275,7 @@ export type TurnEnvelope = {
   solutionProgress?: number
   session?: SessionCompletion
   signals?: ModelSignalKind[]
+  chips?: string[]
 }
 
 // Same fence-stripping regex as summarise.ts -- duplicated rather than
@@ -429,6 +501,7 @@ export function parseEnvelopeObject(parsed: Record<string, unknown>): TurnEnvelo
     solution_progress?: unknown
     session?: unknown
     signals?: unknown
+    chips?: unknown
   }
   const envelope: TurnEnvelope = { say: envelopeSource.say }
 
@@ -465,6 +538,30 @@ export function parseEnvelopeObject(parsed: Record<string, unknown>): TurnEnvelo
   const session = parseSessionCompletion(envelopeSource.session)
   if (session) {
     envelope.session = session
+  } else if (saysClosingSentence(envelope.say)) {
+    // Completion backstop (fixes the section-complete bloom + recap never
+    // firing when the tutor "solves" the problem): the model wrote the
+    // mandated close sentence but omitted -- or malformed -- the structured
+    // `session` field, so the client never saw a completion and the terminal
+    // screens never played. `session` is deliberately OPTIONAL in the forced
+    // tool schema (claude.ts -- so the model isn't nudged into false closes
+    // every turn), which is exactly why it can be dropped on the one turn it
+    // matters. Because the close sentence is reserved by the prompt for a
+    // genuine close, its presence IS the signal -- infer the field the model
+    // meant to send. A well-formed `session` the model actually emitted still
+    // wins (the `if` branch above); this only fills the gap.
+    envelope.session = { complete: true, reason: BACKSTOP_CLOSE_REASON }
+  }
+
+  // Answer chips ride only on a turn that is still OPEN -- a closing turn
+  // (structured `session` or the backstop-inferred one alike, hence checked
+  // AFTER the session block above) has nothing left to answer, so any chips
+  // the model sent with it are dropped, never rendered next to a goodbye.
+  if (!envelope.session) {
+    const chips = parseChips(envelopeSource.chips)
+    if (chips) {
+      envelope.chips = chips
+    }
   }
 
   if (Array.isArray(envelopeSource.annotations)) {
