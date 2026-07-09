@@ -103,11 +103,12 @@ export function TitleBar({
     <span className={`cx-mode-${session.modeKey} flex min-w-0 items-center gap-2.5`}>
       <span
         aria-hidden="true"
-        className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[9px] border text-[14px] font-bold transition-colors duration-[450ms]"
+        className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[9px] border text-[14px] font-bold transition-[color,background-color,border-color,box-shadow] duration-[450ms]"
         style={{
           color: 'var(--cx-mode-text)',
           background: 'var(--cx-mode-bg)',
           borderColor: 'var(--cx-mode-border)',
+          boxShadow: 'var(--cx-mode-glow)',
         }}
       >
         {session.modeGlyph}

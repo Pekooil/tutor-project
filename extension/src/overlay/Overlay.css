@@ -402,6 +402,28 @@
 .cx-annot-leader-dot {
   fill: var(--cx-annot-stroke);
 }
+/* The leader is wayfinding, not a grab target — it stays inert even where a
+ * dragged explanation re-enables pointer events right beside it. */
+.cx-annot-leader-group {
+  pointer-events: none;
+}
+
+/* ── Draggable explanations ── the label pill + why-note card are the ONLY
+ * interactive annotation part. The layer is pointer-events:none so every
+ * shape (frame, underline, circle, arrow, badge) stays inert and the host
+ * page under them keeps its clicks; re-enabling events on just this group
+ * lets a reader pull the words off whatever text or figure they're covering,
+ * and a leader line is drawn back to the mark the instant it moves. Deltas
+ * map 1:1 to the layer's 100vw/100vh user space, so no coordinate math. */
+.cx-annot-explanation {
+  pointer-events: auto;
+  cursor: grab;
+  /* keep a touch-drag from scrolling the host page mid-gesture */
+  touch-action: none;
+}
+.cx-annot-explanation.cx-annot-grabbing {
+  cursor: grabbing;
+}
 
 /* ── Entry motion M1 "draw-on" + exit fade (replaces the old 0.18s
  * scale-pop) ── the stroke draws in over 480ms (pathLength=1 dash trick),
@@ -726,46 +748,58 @@
  * custom properties; the chip, name, and anything else inside the identity
  * cluster read those (inline style var() references), so a mode switch is
  * one className change and the .45s color transitions carry the recolor.
- * Every value is a theme.css --calyxa-mode-* token (ADR-018). */
+ * Every value is a theme.css --calyxa-mode-* token (ADR-018).
+ * --cx-mode-glow is the icon's gradient glow (design 8c): three stacked
+ * box-shadow layers -- a 1px edge, a soft drop, and a wide bloom -- tinted
+ * from --cx-mode-border via color-mix so it tracks --calyxa-mode-practice-*
+ * even where that token resolves to --color-accent rather than a literal hex. */
 .cx-mode-explore {
   --cx-mode-text: var(--calyxa-mode-explore-text);
   --cx-mode-bg: var(--calyxa-mode-explore-bg);
   --cx-mode-border: var(--calyxa-mode-explore-border);
+  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
 }
 .cx-mode-coach {
   --cx-mode-text: var(--calyxa-mode-coach-text);
   --cx-mode-bg: var(--calyxa-mode-coach-bg);
   --cx-mode-border: var(--calyxa-mode-coach-border);
+  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
 }
 .cx-mode-build {
   --cx-mode-text: var(--calyxa-mode-build-text);
   --cx-mode-bg: var(--calyxa-mode-build-bg);
   --cx-mode-border: var(--calyxa-mode-build-border);
+  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
 }
 .cx-mode-practice {
   --cx-mode-text: var(--calyxa-mode-practice-text);
   --cx-mode-bg: var(--calyxa-mode-practice-bg);
   --cx-mode-border: var(--calyxa-mode-practice-border);
+  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
 }
 .cx-mode-challenge {
   --cx-mode-text: var(--calyxa-mode-challenge-text);
   --cx-mode-bg: var(--calyxa-mode-challenge-bg);
   --cx-mode-border: var(--calyxa-mode-challenge-border);
+  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
 }
 .cx-mode-verify {
   --cx-mode-text: var(--calyxa-mode-verify-text);
   --cx-mode-bg: var(--calyxa-mode-verify-bg);
   --cx-mode-border: var(--calyxa-mode-verify-border);
+  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
 }
 .cx-mode-review {
   --cx-mode-text: var(--calyxa-mode-review-text);
   --cx-mode-bg: var(--calyxa-mode-review-bg);
   --cx-mode-border: var(--calyxa-mode-review-border);
+  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
 }
 .cx-mode-recover {
   --cx-mode-text: var(--calyxa-mode-recover-text);
   --cx-mode-bg: var(--calyxa-mode-recover-bg);
   --cx-mode-border: var(--calyxa-mode-recover-border);
+  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
 }
 
 /* ── SectionBloomFrame: the section-complete celebration (design state 06,

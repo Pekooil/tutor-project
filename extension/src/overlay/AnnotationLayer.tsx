@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import type { AnnotationColorMap } from './Overlay';
 
 // The annotation layer (Sprint 12 Task 6, ADR-022; Sprint 14 Task 8 box-
@@ -309,6 +316,21 @@ export function AnnotationLayer({ annotationColors }: { annotationColors?: Annot
   // their label where it last stood instead of re-entering the collision
   // pass against the new turn's labels.
   const placementsRef = useRef(new Map<string, LabelPlacement>());
+  // Per-explanation drag offsets, keyed by the SAME gen:id key the mark uses
+  // for its React key -- so an exiting mark keeps its offset (same gen) while
+  // a genuinely new mark reusing an id (fresh gen) starts un-dragged. Only
+  // the explanation (label pill + why-note) is draggable; every shape stays
+  // inert. The pruning effect below drops keys once a mark is fully gone.
+  const [dragOffsets, setDragOffsets] = useState<Map<string, { dx: number; dy: number }>>(new Map());
+
+  const handleDrag = useCallback((key: string, offset: { dx: number; dy: number } | undefined) => {
+    setDragOffsets((prev) => {
+      const next = new Map(prev);
+      if (offset) next.set(key, offset);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -367,6 +389,22 @@ export function AnnotationLayer({ annotationColors }: { annotationColors?: Annot
     };
   }, []);
 
+  // Drop drag offsets whose mark is fully gone (past its exit sweep) so the
+  // map can't grow unbounded over a long session.
+  useEffect(() => {
+    setDragOffsets((prev) => {
+      if (prev.size === 0) return prev;
+      const liveKeys = new Set(marks.map((m) => `${m.gen}:${m.instruction.id}`));
+      let changed = false;
+      const next = new Map<string, { dx: number; dy: number }>();
+      for (const [key, value] of prev) {
+        if (liveKeys.has(key)) next.set(key, value);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [marks]);
+
   if (marks.length === 0) return null;
 
   const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0;
@@ -379,16 +417,22 @@ export function AnnotationLayer({ annotationColors }: { annotationColors?: Annot
 
   return (
     <svg className="cx-annotation-layer" aria-hidden="true" focusable="false">
-      {marks.map((mark) => (
-        <AnnotationMark
-          key={`${mark.gen}:${mark.instruction.id}`}
-          mark={mark}
-          annotationColors={annotationColors}
-          placement={
-            mark.exiting ? placementsRef.current.get(mark.instruction.id) : placements.get(mark.instruction.id)
-          }
-        />
-      ))}
+      {marks.map((mark) => {
+        const markKey = `${mark.gen}:${mark.instruction.id}`;
+        return (
+          <AnnotationMark
+            key={markKey}
+            mark={mark}
+            annotationColors={annotationColors}
+            placement={
+              mark.exiting ? placementsRef.current.get(mark.instruction.id) : placements.get(mark.instruction.id)
+            }
+            dragKey={markKey}
+            dragOffset={dragOffsets.get(markKey)}
+            onDrag={handleDrag}
+          />
+        );
+      })}
     </svg>
   );
 }
@@ -397,10 +441,16 @@ function AnnotationMark({
   mark,
   placement,
   annotationColors,
+  dragKey,
+  dragOffset,
+  onDrag,
 }: {
   mark: RenderedMark;
   placement: LabelPlacement | undefined;
   annotationColors: AnnotationColorMap | undefined;
+  dragKey: string;
+  dragOffset: { dx: number; dy: number } | undefined;
+  onDrag: (key: string, offset: { dx: number; dy: number } | undefined) => void;
 }) {
   const { instruction, exiting, entryIndex } = mark;
   // Live marks re-resolve every render (the per-turn map can land a beat
@@ -414,7 +464,16 @@ function AnnotationMark({
         <StepBadge cx={rect.x - BOX_INSET + BADGE_RADIUS - 6} cy={rect.y - BOX_INSET - BADGE_RADIUS - 5} step={step} />
       )}
       {willShowLabel(instruction) && placement && (
-        <LabelPill text={label ?? ''} note={note} placement={placement} />
+        <LabelPill
+          text={label ?? ''}
+          note={note}
+          placement={placement}
+          anchorRect={rect}
+          dragKey={dragKey}
+          dragOffset={dragOffset}
+          onDrag={onDrag}
+          exiting={exiting}
+        />
       )}
     </g>
   );
@@ -538,56 +597,145 @@ function StepBadge({ cx, cy, step }: { cx: number; cy: number; step: number | un
   );
 }
 
+// The leader from a displaced explanation back to its mark: it starts at the
+// top/bottom edge midpoint of the target box (whichever side the pill sits
+// on) and ends on the pill's facing edge. Recomputed live from the pill's
+// CURRENT position -- so it tracks a user drag the same way it drew the
+// collision pass's automatic displacement. Kept as a plain leftward/rightward
+// S-curve for continuity with the collision leader's look.
+function computePillLeader(
+  anchor: DrawRect,
+  x: number,
+  y: number,
+  width: number,
+): { x1: number; y1: number; x2: number; y2: number } {
+  const anchorCenterX = anchor.x + anchor.w / 2;
+  const anchorCenterY = anchor.y + anchor.h / 2;
+  const above = y + LABEL_HEIGHT / 2 <= anchorCenterY;
+  return {
+    // pill end: near the horizontal point on the facing edge, clamped so the
+    // line meets the pill rather than empty space when dragged far sideways.
+    x1: Math.max(x, Math.min(anchorCenterX, x + width)),
+    y1: above ? y + LABEL_HEIGHT : y,
+    // mark end: the top or bottom edge midpoint of the target box.
+    x2: anchorCenterX,
+    y2: above ? anchor.y : anchor.y + anchor.h,
+  };
+}
+
 // Label pill (the WHAT -- required on every mark) + optional why-note card
-// (the WHY) at the collision-resolved position. Pill: 26px tall, tint bg,
-// 1px tint-border, deep 12px/600 text -- dark-on-light per brand rule,
-// replacing white-on-color. Note: white card, ordinal dot, <=90-char
+// (the WHY). Pill: 26px tall, tint bg, 1px tint-border, deep 12px/600 text --
+// dark-on-light per brand rule. Note: white card, ordinal dot, <=90-char
 // teaching payload, rendered as wrapped HTML in a foreignObject (SVG text
-// doesn't wrap). Draws the leader FIRST (so the pill sits on top of its
-// near end) whenever the placement says this label was moved off its
-// natural spot: 1.5px at 45% ordinal opacity, gentle S-curve, 3px dot at
-// the mark end.
+// doesn't wrap).
+//
+// The explanation (pill + note) is the ONLY draggable annotation part: a
+// reader who finds it covering the text or figure it points at can pull it
+// aside, and the moment it leaves its anchor a leader line is drawn so the
+// link to the mark is never lost (the same wayfinding the collision pass
+// uses when it has to move a label itself). The shapes -- frame, underline,
+// circle, arrow, badge -- stay inert (pointer-events: none on the layer),
+// so a drag can only ever move the words, never the mark on the work.
+//
+// Drag is pointer-capture based (matching Overlay.tsx's panel drag): deltas
+// are 1:1 with SVG user units because the layer is sized to exactly
+// 100vw/100vh (1 unit == 1 css px), so clientX/Y deltas drop straight into
+// the offset. The leader draws FIRST (outside the interactive group, so it
+// stays inert) and the pill paints on top of its near end.
 function LabelPill({
   text,
   note,
   placement,
+  anchorRect,
+  dragKey,
+  dragOffset,
+  onDrag,
+  exiting,
 }: {
   text: string;
   note: string | undefined;
   placement: LabelPlacement;
+  anchorRect: DrawRect;
+  dragKey: string;
+  dragOffset: { dx: number; dy: number } | undefined;
+  onDrag: (key: string, offset: { dx: number; dy: number } | undefined) => void;
+  exiting: boolean;
 }) {
   const width = estimateLabelWidth(text);
-  const { x, y, leader } = placement;
+  const dx = dragOffset?.dx ?? 0;
+  const dy = dragOffset?.dy ?? 0;
+  const x = placement.x + dx;
+  const y = placement.y + dy;
+
+  const dragState = useRef<{ startX: number; startY: number; baseDx: number; baseDy: number } | null>(null);
+  const [grabbing, setGrabbing] = useState(false);
+
+  const handlePointerDown = (event: ReactPointerEvent) => {
+    if (exiting) return; // don't grab a mark that's already fading out
+    event.stopPropagation();
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    dragState.current = { startX: event.clientX, startY: event.clientY, baseDx: dx, baseDy: dy };
+    setGrabbing(true);
+  };
+  const handlePointerMove = (event: ReactPointerEvent) => {
+    const state = dragState.current;
+    if (!state) return;
+    onDrag(dragKey, {
+      dx: state.baseDx + (event.clientX - state.startX),
+      dy: state.baseDy + (event.clientY - state.startY),
+    });
+  };
+  const endDrag = (event: ReactPointerEvent) => {
+    if (!dragState.current) return;
+    dragState.current = null;
+    setGrabbing(false);
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  };
+
+  // A leader is drawn whenever the explanation sits away from its anchor --
+  // either the collision pass moved it (placement.leader) or the user dragged
+  // it. Computed from the pill's live position so it tracks the drag.
+  const displaced = dx !== 0 || dy !== 0 || Boolean(placement.leader);
+  const leader = displaced ? computePillLeader(anchorRect, x, y, width) : undefined;
 
   return (
-    <g>
+    <>
       {leader && (
-        <>
+        <g className="cx-annot-leader-group">
           <path
             className="cx-annot-leader"
             d={`M ${leader.x2},${leader.y2} C ${(leader.x1 + leader.x2) / 2},${leader.y2} ${(leader.x1 + leader.x2) / 2},${leader.y1} ${leader.x1},${leader.y1}`}
           />
           <circle className="cx-annot-leader-dot" cx={leader.x2} cy={leader.y2} r={3} />
-        </>
+        </g>
       )}
-      <rect className="cx-annot-pill-bg" x={x} y={y} width={width} height={LABEL_HEIGHT} rx={LABEL_HEIGHT / 2} />
-      <text
-        x={x + width / 2}
-        y={y + LABEL_HEIGHT / 2}
-        textAnchor="middle"
-        dominantBaseline="central"
-        className="cx-annot-pill-text"
+      <g
+        className={`cx-annot-explanation${grabbing ? ' cx-annot-grabbing' : ''}`}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
       >
-        {text}
-      </text>
-      {note && (
-        <foreignObject x={x} y={y + LABEL_HEIGHT + NOTE_GAP} width={NOTE_WIDTH} height={estimateNoteHeight(note)}>
-          <div className="cx-annot-note">
-            <span className="cx-annot-note-dot" />
-            <span>{note}</span>
-          </div>
-        </foreignObject>
-      )}
-    </g>
+        <rect className="cx-annot-pill-bg" x={x} y={y} width={width} height={LABEL_HEIGHT} rx={LABEL_HEIGHT / 2} />
+        <text
+          x={x + width / 2}
+          y={y + LABEL_HEIGHT / 2}
+          textAnchor="middle"
+          dominantBaseline="central"
+          className="cx-annot-pill-text"
+        >
+          {text}
+        </text>
+        {note && (
+          <foreignObject x={x} y={y + LABEL_HEIGHT + NOTE_GAP} width={NOTE_WIDTH} height={estimateNoteHeight(note)}>
+            <div className="cx-annot-note">
+              <span className="cx-annot-note-dot" />
+              <span>{note}</span>
+            </div>
+          </foreignObject>
+        )}
+      </g>
+    </>
   );
 }
