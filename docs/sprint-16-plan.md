@@ -58,7 +58,7 @@ plaintext `page_domain` is written raw. The freemium gate, age gate (`MIN_AGE =
 13`, `web/lib/consent.ts`), and consent capture at signup all work and are
 **untouched** by this sprint — it builds the missing halves around them.
 
-### Decisions locked for this sprint (recorded in ADR-034/035/036)
+### Decisions locked for this sprint (recorded in ADR-041/035/036)
 1. **The cost guardrail is a global aggregate ceiling, not per-user billing.**
    Its job is to protect the beta budget, not to meter individuals — the
    per-user free-tier gate already does that. It is an atomic add-and-check RPC
@@ -166,7 +166,7 @@ code (billing is Sprint 23).
 
 ### Task 1 (ADRs + sprint pointers) creates or edits:
 ```
-/docs/adr/ADR-034-global-cost-guardrail.md ← new — the aggregate daily ceiling: atomic cost_guard RPC (SECURITY DEFINER, daily-keyed ledger), soft cap → voice degrades to text+browser-TTS (reuses §2.8), hard cap → graceful refusal; per-provider estimate constants (budget- not invoice-accurate); RETUNES FREE_SESSION_LIMIT with Sprint 15's cost data and the Pricing.tsx sync obligation.
+/docs/adr/ADR-041-global-cost-guardrail.md ← new (renumbered from 034: ADR-034 is status-pins, 035/036 stay as planned) — the aggregate daily ceiling: atomic cost_guard RPC (SECURITY DEFINER, daily-keyed ledger), soft cap → voice degrades to text+browser-TTS (reuses §2.8), hard cap → graceful refusal; per-provider estimate constants (budget- not invoice-accurate); RETUNES FREE_SESSION_LIMIT with Sprint 15's cost data and the Pricing.tsx sync obligation.
 /docs/adr/ADR-035-data-export-and-erasure.md ← new — export = RLS-scoped read → JSON; deletion = two-phase (queue in-request, cron sweep executes the FK-cascade via service-role admin client + verifies absence); grace window; CRON_SECRET-gated cron routes.
 /docs/adr/ADR-036-cron-and-url-hashing.md    ← new — first Vercel Cron infra (vercel.json), reset-free-tier safety net + hard-delete sweep + a no-op Stripe-reconcile stub (billing owns it); page_url_hash populated with a server-salted hash, plaintext page_domain no longer written (dashboard groups by hash — the coarse-domain display is a later explicit call).
 /CLAUDE.md                                    ← edit one line: Current sprint → Sprint 16 — Cost control + compliance hardening
@@ -192,7 +192,7 @@ code (billing is Sprint 23).
 
 ### Task 4 (web — FREE_SESSION_LIMIT retune + Pricing sync) edits:
 ```
-/web/lib/tier/session-gate.ts        ← edit — FREE_SESSION_LIMIT retuned to the value ADR-034 fixes from Sprint 15's per-turn cost data (problem-sized sessions). One constant; the RPC contract is unchanged.
+/web/lib/tier/session-gate.ts        ← edit — FREE_SESSION_LIMIT retuned to the value ADR-041 fixes from Sprint 15's per-turn cost data (problem-sized sessions). One constant; the RPC contract is unchanged.
 /web/components/marketing/Pricing.tsx ← edit — the "N tutoring sessions a month" free-tier number reads the retuned limit (imported constant if a shared import is clean, else a mirrored constant with a comment pointing at session-gate.ts as the source of truth). Sprint 20 flagged this exact sync in its handoff.
 ```
 
@@ -251,7 +251,7 @@ listed, add it to "What the next sprint needs to know" and ask before creating i
 ---
 
 ## Task 1 — Cost/compliance ADRs + sprint pointers (planning / docs)
-Write ADR-034/035/036 in the project format (match ADR-001…ADR-033). Fix the cap
+Write ADR-041/035/036 in the project format (match the existing ADRs). Fix the cap
 constants' *shape* (named, in `cost-model.ts`) even if their values tune later;
 spell out the two-phase erasure and the grace-window duration; record the
 hash-don't-store-plaintext-domain decision and the deliberate loss of domain
@@ -340,7 +340,7 @@ Signed in as a real dev user:
   7. Pricing: the marketing page shows the retuned free-tier number.
 
 ## Acceptance criteria (full checklist)
-- [ ] ADR-034/035/036 written; pointers + architecture.md updated; Stripe-reconcile deferral to Sprint 23 explicit
+- [ ] ADR-041/035/036 written; pointers + architecture.md updated; Stripe-reconcile deferral to Sprint 23 explicit
 - [ ] cost_ledger (deny-all) + cost_guard (SECURITY DEFINER, atomic) + users.erasure_requested_at land in 0013; db reset clean
 - [ ] Every paid route calls costGuard before the provider; soft cap → voice degrades to text + browser TTS; hard cap → graceful refusal, never a 500 or a provider call
 - [ ] FREE_SESSION_LIMIT retuned from Sprint 15 cost data; Pricing.tsx shows the same number (test-enforced)

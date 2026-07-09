@@ -202,6 +202,54 @@ rather than silently degrading to the wrong voice. Audio is still never
 persisted anywhere in this pipeline (ADR-011); the STT leg is untouched. See
 ADR-033.
 
+## Cost control + compliance hardening (Sprint 16)
+The pre-beta gate: a bounded spend ceiling and the GDPR/COPPA flows a public
+beta with minors requires, built *around* the shipped freemium/age/consent
+machinery without touching it. **A global cost guardrail** adds a second,
+aggregate ceiling above the per-user free-tier gate (ADR-007): migration 0013's
+`cost_ledger` (one row per UTC day, `spent_cents`; RLS enabled with **zero
+policies** — deny-all to clients) and `cost_guard(p_estimated_cents)` — a
+`SECURITY DEFINER`, atomic add-and-check RPC mirroring `start_session`'s
+race-proof pattern, the ledger's only writer, returning `{ soft_exceeded,
+hard_exceeded, spent_cents }`. Every paid route (`ai/turn`, `ai/stream`,
+`ai/turn/stream`, `voice/stt`, `voice/tts`) calls `costGuard(estimate)` *before*
+the provider, with per-provider estimate constants from `web/lib/tier/
+cost-model.ts` (budget-accurate, not invoice-accurate). **Soft cap** → voice
+degrades to text + browser `SpeechSynthesis` (the §2.8 over-quota path reused);
+**hard cap** → the turn route returns a friendly "resting for today" with no
+provider call and never a 500. `FREE_SESSION_LIMIT` is retuned from Sprint 15's
+per-turn cost data and mirrored into the marketing `Pricing.tsx` (test-bound so
+the two can't drift). The `start_session` contract is unchanged — only the
+limit's value moves. See ADR-041.
+
+**Account data-rights flows.** `GET /api/account/export` serializes the caller's
+rows from all six user-scoped tables to JSON through the *authenticated*
+(RLS-scoped) client — RLS is the guarantee that it returns only the caller's own
+data, not a `where` clause. `POST /api/account/delete` is phase one of a
+**two-phase erasure**: it sets `erasure_requested_at` + `deleted_at` on the
+caller's `users` row (immediate logical erasure via RLS + a durable queue
+marker), signs out, and returns — it does **not** delete in-request, and is
+idempotent. Phase two is the cron sweep (below), gated on a 7-day grace window,
+which hard-deletes via the service-role admin client — a single `delete` of the
+`auth.users` root cascades `public.users` and every user-scoped table through the
+FK `on delete cascade` already declared in 0002/0004/0007/0008 — then verifies
+absence. Every new user-scoped table from here on MUST carry that FK and appear
+in the export. See ADR-035.
+
+**First Vercel Cron infrastructure** (`/vercel.json`, three daily routes, all
+`CRON_SECRET`-gated via a shared constant-time `assertCronSecret`): `reset-free-
+tier` (a safety net normalizing dormant accounts the lazy `start_session` reset
+never reaches), `hard-delete-sweep` (executes ADR-035's erasure queue), and
+`stripe-reconcile` (a wired no-op **stub** — Sprint 23/billing owns its body; the
+seam exists, no Stripe SDK ships). The service-role admin client is used only in
+cron routes, only behind the secret gate. **Page identifiers are hashed at
+rest:** `web/lib/privacy/url-hash.ts`'s `hashPageDomain` = HMAC-SHA256(domain,
+`URL_HASH_SALT`) → hex (salt server-only, never bundled); `/api/session/start`
+now writes `page_url_hash` and **stops writing plaintext `page_domain`** on new
+rows. This deliberately supersedes PLAN §2.7's "keep `page_domain` for coarse
+analytics" — the future dashboard (Sprint 22) groups by hash, and a coarse-domain
+display is a later explicit reopening, not a silent default. See ADR-036.
+
 ## Marketing site (Sprint 20, revised by Sprint 25)
 `/web/app/page.tsx` is the public landing page, built as a **parallel
 track** alongside the product-roadmap sprints — it shares no files with them
@@ -324,6 +372,26 @@ See `/docs/adr/`. Notably:
   as a first-class fallback (p50 time-to-first-audio ≤2.5s); ElevenLabs voice
   pinned (explicit `model_id`/`voice_settings`, boot-time fail-loud assertion);
   wrong-voice root cause recorded in the ADR's amendment box once Task 7 runs
+- ADR-035 — Data export + two-phase erasure (Sprint 16): export = RLS-scoped
+  read → JSON of the caller's six tables (RLS is the guarantee, not a `where`);
+  deletion queues in-request (`erasure_requested_at` + `deleted_at`, idempotent,
+  no in-request cascade) and a cron sweep executes the FK `on delete cascade`
+  via the service-role admin client past a 7-day grace window, verifying
+  absence; every new user-scoped table must carry the cascade FK + join the
+  export
+- ADR-036 — First Vercel Cron infra + URL hashing at rest (Sprint 16):
+  `vercel.json` + three `CRON_SECRET`-gated daily routes (reset-free-tier safety
+  net, hard-delete-sweep executing ADR-035's queue, stripe-reconcile no-op stub
+  for Sprint 23); `page_url_hash` = HMAC-SHA256(domain, server-only salt),
+  plaintext `page_domain` no longer written on new rows (supersedes PLAN §2.7's
+  keep-domain line — dashboard groups by hash, ADR-036)
+- ADR-041 — Global cost guardrail (Sprint 16, renumbered from the plan's 034
+  which status-pins holds): an aggregate daily ceiling above the per-user gate
+  (ADR-007) — atomic `SECURITY DEFINER` `cost_guard` RPC over a deny-all
+  `cost_ledger`, called before every provider; soft cap degrades voice to text +
+  browser TTS (§2.8 reuse), hard cap refuses gracefully (never a 500 or a
+  provider call); per-provider estimate constants (budget- not invoice-accurate);
+  retunes `FREE_SESSION_LIMIT` from Sprint 15 data with a test-bound Pricing sync
 - ADR-040 (provisional number — Sprint 17 claims 039; renumber at whichever
   sprint lands second) — Landing page v2: the marketing demo recreates the
   REDESIGNED overlay (modes/pings/milestones/board strip/check-in/recap/
