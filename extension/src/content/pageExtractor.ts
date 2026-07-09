@@ -360,7 +360,62 @@ export type PageExtraction = {
   equationElements: (Element | null)[];
 };
 
-// The sole export -- a synchronous, read-only pass over the host page.
+// ---- The 5b reframe tool's crop-rect read (design handoff, Sprint 15) ----
+
+// Bounds the snippet the reframe tool quotes into the session-start turn --
+// a crop is by definition "the exact part", so this is deliberately much
+// smaller than MAX_TEXT_CHARS (the server's own budget re-applies anyway).
+export const MAX_SNIPPET_CHARS = 600;
+
+export type ViewportRect = { x: number; y: number; w: number; h: number };
+
+function rectsIntersect(a: ViewportRect, b: DOMRect): boolean {
+  return b.left < a.x + a.w && b.right > a.x && b.top < a.y + a.h && b.bottom > a.y;
+}
+
+function collectTextInRect(root: ParentNode, rect: ViewportRect, into: string[]): void {
+  const doc = root.ownerDocument ?? (root as Document);
+  const walker = doc.createTreeWalker(root as Node, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const parent = (node as Text).parentElement;
+    if (!parent || isInsideOverlay(parent)) continue;
+    const raw = node.textContent;
+    if (!raw || !raw.trim()) continue;
+    const range = doc.createRange();
+    range.selectNodeContents(node);
+    // Client rects are viewport-space, the same coordinate space the crop
+    // rect arrives in (the reframe layer is fixed-positioned) -- no offset
+    // math, the AnnotationLayer's own coordinate discipline.
+    for (const clientRect of range.getClientRects()) {
+      if (clientRect.width > 0 && clientRect.height > 0 && rectsIntersect(rect, clientRect)) {
+        into.push(raw);
+        break;
+      }
+    }
+  }
+}
+
+/**
+ * READ-ONLY, like everything in this file: the visible text intersecting a
+ * viewport-space rect -- what the reframe tool (design 5b) attaches as the
+ * "Snippet · Cropped from this page". Walks the document plus every OPEN
+ * host-page shadow root (the same boundary rules as extractPageContext:
+ * the overlay's own subtree is excluded, closed shadow roots are unreadable
+ * by design), collecting text nodes whose rendered rects intersect the
+ * crop. Returns '' when the crop holds no readable text (an image/diagram
+ * region) -- the caller words the turn around that honestly rather than
+ * quoting nothing (session-flow.ts's buildReframeStartMessage).
+ */
+export function extractTextInRect(rect: ViewportRect): string {
+  const pieces: string[] = [];
+  for (const root of collectSearchRoots()) {
+    collectTextInRect(root, rect, pieces);
+  }
+  const collapsed = collapseWhitespace(pieces.join(' '));
+  return collapsed ? truncate(collapsed, MAX_SNIPPET_CHARS) : '';
+}
+
+// The main export -- a synchronous, read-only pass over the host page.
 // Returns an EMPTY PageContext ({ equations: [] }, no text, no registry
 // entries) when nothing math-like or textual is found (e.g. an
 // image/canvas-only page), so the caller's prompt falls back to "ask the

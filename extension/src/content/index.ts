@@ -20,6 +20,7 @@ import type {
   PageContext,
   PageTopic,
   SessionEndedPayload,
+  SessionStartInfo,
   SessionStatePayload,
   StatusPin,
   StickingCandidate,
@@ -191,6 +192,12 @@ async function requestOpeningScan(): Promise<{
 async function sendAiTurn(
   messages: TurnMessage[],
   onChunk?: (text: string) => void,
+  // The session-start kickoff's structured confirmation (SessionStartInfo)
+  // -- present ONLY on the first turn fired by the check-in confirm /
+  // reframe start, always with an empty `messages` array. Pure
+  // pass-through: rides the AI_STREAM payload to the background and the
+  // /api/ai/turn body from there; the server renders it into the prompt.
+  sessionStart?: SessionStartInfo,
 ): Promise<TurnResult> {
   // Snapshotted once per turn, not re-read at reply time: a turn's whole
   // round trip should resolve against the page as it was when the turn was
@@ -244,7 +251,11 @@ async function sendAiTurn(
         }
       });
 
-      port.postMessage({ messages, pageContext: capturedPageContext });
+      port.postMessage({
+        messages,
+        pageContext: capturedPageContext,
+        ...(sessionStart ? { sessionStart } : {}),
+      });
     });
   }
 

@@ -172,3 +172,90 @@ export function parseResponseLatencyMs(body: unknown): number | undefined {
 
   return Math.round(responseLatencyMs)
 }
+
+// ---- The session-start kickoff (the check-in confirm / reframe start) ----
+
+// The confirmation the student gave on the check-in card, as STRUCTURED
+// request data (mirrors the extension's SessionStartInfo): the tutor must
+// never receive a fabricated student message -- the student only confirmed
+// the detected question and the predicted sticking point, and topic phrasing
+// can drift from the actual question. `question` is the opening scan's own
+// one-line read of the detected problem; `stickingPoint` is the confirmed
+// misconception (null = the honest "not sure"); `snippet` is the reframe
+// tool's cropped page text, when the student framed the exact spot
+// themselves. Rendered into the SESSION START MODE prompt block
+// (system-prompt.ts), never into the conversation.
+export type SessionStartRequest = {
+  question: string
+  stickingPoint: string | null
+  snippet?: string
+}
+
+// Generous per-field cap: the question is a one-line scan reply, the
+// sticking point a short misconception description, the snippet a crop of
+// on-page text -- none should approach this; anything past it is clipped,
+// not 400ed (the same degrade discipline as pageContext).
+export const MAX_SESSION_START_FIELD_LENGTH = 1000
+
+function clipSessionStartField(value: string): string {
+  return value.length > MAX_SESSION_START_FIELD_LENGTH ? value.slice(0, MAX_SESSION_START_FIELD_LENGTH) : value
+}
+
+// Untrusted client input like everything else here: a malformed shape (or a
+// missing/empty question -- the one field the prompt block cannot render
+// without) degrades to undefined, and the route then requires `messages`
+// as before -- never a special 400 for a bad kickoff.
+export function parseSessionStart(body: unknown): SessionStartRequest | undefined {
+  if (typeof body !== 'object' || body === null) {
+    return undefined
+  }
+
+  const { sessionStart } = body as { sessionStart?: unknown }
+
+  if (typeof sessionStart !== 'object' || sessionStart === null) {
+    return undefined
+  }
+
+  const { question, stickingPoint, snippet } = sessionStart as {
+    question?: unknown
+    stickingPoint?: unknown
+    snippet?: unknown
+  }
+
+  if (typeof question !== 'string' || question.trim().length === 0) {
+    return undefined
+  }
+
+  if (stickingPoint !== null && stickingPoint !== undefined && typeof stickingPoint !== 'string') {
+    return undefined
+  }
+
+  if (snippet !== undefined && typeof snippet !== 'string') {
+    return undefined
+  }
+
+  const trimmedSticking = typeof stickingPoint === 'string' ? stickingPoint.trim() : ''
+  const trimmedSnippet = typeof snippet === 'string' ? snippet.trim() : ''
+
+  return {
+    question: clipSessionStartField(question.trim()),
+    stickingPoint: trimmedSticking ? clipSessionStartField(trimmedSticking) : null,
+    ...(trimmedSnippet ? { snippet: clipSessionStartField(trimmedSnippet) } : {}),
+  }
+}
+
+// The placeholder "user" turn the Anthropic API requires when the session
+// starts with no student message (the OPENING_SCAN_PLACEHOLDER_MESSAGE
+// precedent): honest meta about what actually happened in the UI -- a
+// confirmation tap, not typed words -- with SESSION START MODE in the
+// system prompt driving the behavior. Never shown to the student; also what
+// persists as the row's student_transcript, which is exactly truthful.
+export function sessionStartPlaceholder(start: SessionStartRequest): TurnMessage {
+  const confirmed = start.stickingPoint
+    ? `and picked the sticking point "${start.stickingPoint}"`
+    : 'and said they are not sure where it usually goes wrong'
+  return {
+    role: 'user',
+    content: `(Session start: the student confirmed the detected problem ${confirmed} on the check-in card. Nothing was typed -- follow SESSION START MODE.)`,
+  }
+}

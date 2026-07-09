@@ -141,6 +141,28 @@ export type PageContext = {
   equations: PageEquation[];
 };
 
+// The check-in confirmation as STRUCTURED wire data (Darcy's design
+// follow-up, replacing the built session-start student turn entirely): the
+// tutor must never receive a fabricated student message -- topic phrasing
+// can drift from the actual detected question. The student only ever
+// CONFIRMED the detected question and the predicted sticking point, so
+// exactly that confirmation crosses the wire; the server renders it into
+// the system prompt (SESSION START MODE), never into the transcript, and
+// the tutor's first message dives straight into the problem at the
+// sticking point.
+export type SessionStartInfo = {
+  // The opening scan's own one-line read of the detected problem
+  // (HeldScan.question) -- the thing the student confirmed.
+  question: string;
+  // The confirmed sticking point: the predicted-misconception card the
+  // student accepted, or their own words from the 5b reframe tool. null =
+  // the honest "not sure" -- the tutor finds the weak spot while working.
+  stickingPoint: string | null;
+  // The reframe tool's cropped page snippet, when the student framed the
+  // exact spot themselves.
+  snippet?: string;
+};
+
 export type AiTurnPayload = {
   messages: TurnMessage[];
   // A single bounded PageContext snapshot, captured fresh by
@@ -149,6 +171,11 @@ export type AiTurnPayload = {
   // extraction found nothing (e.g. an image-only page); the server falls
   // back to the empty-slot prompt wording in that case.
   pageContext?: PageContext;
+  // Present ONLY on a session's first turn (the check-in confirm / reframe
+  // start), always with `messages: []` -- there is no student message; the
+  // server builds its own API placeholder turn and the SESSION START MODE
+  // prompt block from this instead.
+  sessionStart?: SessionStartInfo;
 };
 
 // Mirrors /web/lib/ai/envelope.ts's Annotation/AnnotationTarget exactly --

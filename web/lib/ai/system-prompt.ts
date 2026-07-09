@@ -22,7 +22,22 @@ export type PromptFormat = 'envelope' | 'text'
 // `opening` is independent of `format` (the opening scan always calls with
 // 'envelope', but this flag is what actually appends the block; the two are
 // separate knobs, not the same one renamed).
-export type PromptOpts = { format?: PromptFormat; opening?: boolean }
+//
+// `sessionStart` (the design follow-up on the check-in flow) appends SESSION
+// START MODE for the OTHER no-student-message turn kind: the first turn
+// after the student confirmed the check-in card. It carries the confirmed
+// detection itself -- the scan's one-line read of the problem, the confirmed
+// sticking point (null = the honest "not sure"), and the reframe tool's
+// cropped snippet when the student framed the exact spot themselves.
+// Mutually exclusive with `opening` in practice (the two turn kinds cannot
+// coincide); the route never sets both.
+export type SessionStartPrompt = {
+  question: string
+  stickingPoint: string | null
+  snippet?: string
+}
+
+export type PromptOpts = { format?: PromptFormat; opening?: boolean; sessionStart?: SessionStartPrompt }
 
 // PLAN.md §2.5 truncation intent: top-K weakest/relevant nodes (K≈12) and
 // active misconceptions only (cap ≈8). The hardcoded profile is already
@@ -580,6 +595,65 @@ doesn't actually show a problem), set "say" to an empty string ("") and omit "an
 valid, EXPECTED answer here -- it means "I looked and I'm not confident," and is treated as
 such downstream. Do NOT invent a plausible-sounding problem just to have something to say.`
 
+// The sixth additive block (the check-in design follow-up): appended only
+// for the session-start kickoff -- the first turn after the student
+// CONFIRMED the detected problem and the predicted sticking point on the
+// check-in card. Like the opening scan, there is no student message; unlike
+// it, the detection work is already done and already confirmed, so this
+// turn's job is to START TUTORING, not to ask anything. The confirmed data
+// is rendered inline (it comes from the request's structured sessionStart
+// field, never from a fabricated student turn -- the student never said
+// these words, they tapped a confirm button).
+function buildSessionStartMode(start: SessionStartPrompt): string {
+  const stickingLine = start.stickingPoint
+    ? `- Their usual sticking point, which they confirmed: "${start.stickingPoint}"`
+    : `- They said they are NOT sure where it usually goes wrong -- do not claim a weakness
+  they didn't name; watch for it while you work and name it only when you actually see it.`
+  const snippetLine = start.snippet
+    ? `\n- The exact part of the page they framed as where they're stuck (copied from the page):
+  "${start.snippet}"`
+    : ''
+
+  return `═══════════════════ SESSION START MODE ═══════════════════
+This is the FIRST turn of a confirmed tutoring session. The student has not typed anything:
+they were shown the problem detected on this page and a predicted sticking point, and tapped
+"Start session" to confirm both. That confirmation already happened in the UI, so it is
+settled fact -- do NOT greet, do NOT ask what they want to work on, and do NOT re-confirm the
+problem or the sticking point.
+
+What the student confirmed:
+- The detected problem: "${start.question}"${stickingLine ? `\n${stickingLine}` : ''}${snippetLine}
+
+THIS TURN USES A DIFFERENT TOOL than every other turn: call submit_session_start_turn, not
+submit_tutor_turn. Ignore the OUTPUT FORMAT JSON shape above for this one turn -- "say", "mode",
+"assessment", "solution_progress", "profile_tags", "signals", and "session" are not yours to
+fill here; they're fixed for a turn that hasn't graded anything or signaled anything yet, and
+are supplied outside your reply. submit_session_start_turn asks for exactly two pieces of text
+instead of one open reply -- read its field descriptions, they are the real contract for this
+turn, but in short:
+- "board_text" is ONLY the problem in bare calculator notation -- no sentence, no greeting, no
+  question, nothing but the math. The server wraps it in the $$ ... $$ board display itself.
+- "opening_question" is your ONE next question or micro-step, in your own voice, TO the
+  student. Start AT the sticking point, not at a generic step 1: it should make the student
+  engage the confirmed sticking point directly (if the sticking point IS the setup, starting at
+  the setup is correct). PEDAGOGY applies in full: Socratic default, one idea, at most 3
+  sentences.
+Splitting the reply into these two narrow fields is deliberate, not a formatting preference: a
+single open "say" string is exactly where two known failure modes hide --
+  1. Opening with a greeting ("Looks like you're working on... is that what you need help
+     with?") -- that's OPENING SCAN MODE's line, a different turn that's asking a question this
+     turn already has the confirmed answer to.
+  2. Echoing the confirmation back AS IF the student said it ("I'm working on... the part that
+     trips me up is...") -- the student never typed or spoke those words, they tapped a button;
+     writing them in first person fabricates a line that never happened.
+Neither has anywhere to go in "board_text" (bare math only) or "opening_question" (your own
+question only) -- so just answer each field for what it actually asks, and both failure modes
+are structurally avoided, not just discouraged.
+Annotations are encouraged on this turn too: framing the problem on the page (target.text
+copied EXACTLY from PAGE CONTEXT, per ANNOTATION GUIDANCE above) is the expected opening move
+when the problem is visible there.`
+}
+
 // Assembles the §2.5 system prompt. The PEDAGOGY and HARD RULES blocks are
 // static and reproduced verbatim from PLAN.md §2.5; STUDENT PROFILE renders
 // the injected profile; PAGE CONTEXT renders the extracted page when present
@@ -588,10 +662,18 @@ such downstream. Do NOT invent a plausible-sounding problem just to have somethi
 // §2.5 JSON contract for the live turn path, 'text' (the default) keeps the
 // ADR-008 plain-text block the streaming path still uses unchanged. The
 // BEFORE YOU ANSWER checklist (Sprint 14 Task 10 live-find) is appended for
-// every envelope-format, non-opening turn -- straight after OUTPUT FORMAT,
-// nothing else after it, so it's the last thing read before generation.
+// every envelope-format turn EXCEPT the opening scan and the session-start
+// kickoff -- straight after OUTPUT FORMAT, nothing else after it, so it's
+// the last thing read before generation.
 // OPENING SCAN MODE (ADR-030) is appended only when `opts.opening` is set,
 // and is mutually exclusive with the checklist (opposite instructions).
+// SESSION START MODE is appended only when `opts.sessionStart` is set (the
+// kickoff turn after the check-in confirm) and is ALSO mutually exclusive
+// with the checklist: that turn calls its own forced tool
+// (SESSION_START_TOOL, claude.ts) instead of submit_tutor_turn, so a
+// checklist nagging about "say"/"assessment"/"signals" -- fields this turn
+// no longer lets the model fill at all -- would just be confusing, not
+// reinforcing.
 export function buildSystemPrompt(
   profile: LearningProfile,
   pageContext?: PageContext,
@@ -645,6 +727,8 @@ ${renderPageContextBlock(pageContext)}
 - NEVER shame mistakes. Treat every error as information.
 
 ${outputFormat}${
-    format === 'envelope' && !opts?.opening ? `\n\n${ENVELOPE_COMPLIANCE_CHECK}` : ''
-  }${opts?.opening ? `\n\n${OPENING_SCAN_MODE}` : ''}`
+    format === 'envelope' && !opts?.opening && !opts?.sessionStart ? `\n\n${ENVELOPE_COMPLIANCE_CHECK}` : ''
+  }${opts?.opening ? `\n\n${OPENING_SCAN_MODE}` : ''}${
+    opts?.sessionStart ? `\n\n${buildSessionStartMode(opts.sessionStart)}` : ''
+  }`
 }

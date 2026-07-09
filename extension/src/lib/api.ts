@@ -15,6 +15,7 @@ import type {
   PageTopic,
   SessionCompletion,
   SessionRecap,
+  SessionStartInfo,
   StatusPin,
   StickingCandidate,
   StrugglePrediction,
@@ -220,6 +221,12 @@ export async function aiTurn(
   messages: TurnMessage[],
   pageContext?: PageContext,
   turnContext?: { sessionId?: string; responseLatencyMs?: number },
+  // The session-start kickoff's structured confirmation (SessionStartInfo):
+  // present ONLY on the session's first turn, always alongside an empty
+  // `messages` array -- the route builds its own placeholder turn and the
+  // SESSION START MODE prompt block from it. Thread-through only, same
+  // no-validation discipline as pageContext.
+  sessionStart?: SessionStartInfo,
 ): Promise<{
   reply: string;
   annotations?: Annotation[];
@@ -233,6 +240,7 @@ export async function aiTurn(
     body: JSON.stringify({
       messages,
       pageContext,
+      ...(sessionStart ? { sessionStart } : {}),
       ...(turnContext?.sessionId ? { sessionId: turnContext.sessionId } : {}),
       ...(turnContext?.responseLatencyMs !== undefined
         ? { responseLatencyMs: turnContext.responseLatencyMs }

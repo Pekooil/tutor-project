@@ -181,6 +181,7 @@ export default defineBackground(() => {
           msg.messages,
           msg.pageContext,
           turnContext,
+          msg.sessionStart,
         );
         // Split on whitespace boundaries, keeping trailing spaces attached to
         // the preceding token so the overlay reconstructs spacing correctly.

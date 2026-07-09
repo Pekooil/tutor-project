@@ -1,84 +1,116 @@
 import type { SessionRecap } from '../types/messages';
-import { conceptOutcome, pickRecapInsight } from './session-flow';
+import { conceptOutcome } from './session-flow';
 
-// The post-session recap (design handoff state 6b): the panel body's
-// TERMINAL state, replacing the Sprint 14 floating recap window. Headline,
-// one outcome row per recap concept (filled check for
-// solid/mostly, empty circle for worth-one-more-pass — conceptOutcome's
-// mapping of the recorded counts), the grounded "Worth keeping" process-
-// praise callout when the session earned one, and the two exits: Done for
-// today (closes the panel) and One more pass (cancels the close, keeps
-// working — the next turn auto-starts a fresh session). Presentational
-// only; Overlay.tsx owns the recap state and both handlers.
+// The post-session recap (design state 7b in the revised board): the panel
+// body's TERMINAL state. Four sections -- the session's concept, "What
+// improved" (the solid/mostly outcome rows, filled sage checks), "Still
+// needs practicing" (the worth-one-more-pass rows, empty circles under an
+// amber overline), and "Generated for you" -- then one exit, Complete
+// session. The outcome lines are still conceptOutcome's mapping of the
+// recorded counts (recap.ts builds AFTER the reconcile, so a row can never
+// disagree with the profile).
+//
+// "Generated for you" is a PLACEHOLDER slot: study-material generation is
+// deferred to the post-beta sprints (sprint-plan call), so the two tiles
+// render the board's reserved-space treatment (Overlay.css's
+// .cx-recap-placeholder) and nothing else. Presentational only; Overlay.tsx
+// owns the recap state and the handler.
 export function RecapCard({
   recap,
+  topicTitle,
   disabled,
   onDone,
-  onMorePractice,
 }: {
   recap: SessionRecap;
+  // The session's confirmed topic (check-in state), when known -- the
+  // Concept headline; falls back to the recap's own first concept row.
+  topicTitle: string | null;
   disabled: boolean;
   onDone: () => void;
-  onMorePractice: () => void;
 }) {
-  const insight = pickRecapInsight(recap);
+  const outcomes = recap.concepts.map((concept) => ({
+    conceptKey: concept.conceptKey,
+    ...conceptOutcome(concept),
+  }));
+  const improved = outcomes.filter((outcome) => outcome.kind !== 'revisit');
+  const practicing = outcomes.filter((outcome) => outcome.kind === 'revisit');
+  const conceptTitle = topicTitle ?? recap.concepts[0]?.title ?? null;
 
   return (
-    <div className="flex flex-col gap-[13px] px-[18px] pb-[18px] pt-4">
-      <p className="m-0 text-[15.5px] font-semibold tracking-[-0.01em] text-foreground">
-        Good session. Here&rsquo;s what stuck.
-      </p>
-      {recap.concepts.length > 0 && (
-        <div className="flex flex-col gap-2">
-          {recap.concepts.map((concept) => {
-            const outcome = conceptOutcome(concept);
-            return (
-              <div key={concept.conceptKey} className="flex items-center gap-2.5 text-[13.5px] text-foreground">
-                {outcome.kind === 'revisit' ? (
-                  <span
-                    aria-label="worth one more pass"
-                    className="h-[18px] w-[18px] flex-none rounded-full border-[1.5px] border-border bg-background"
-                  />
-                ) : (
-                  <span
-                    aria-label="mastered"
-                    className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full bg-accent text-[10.5px] font-bold text-accent-foreground"
-                  >
-                    ✓
-                  </span>
-                )}
-                <span className={outcome.kind === 'revisit' ? 'text-[#46463f]' : undefined}>{outcome.line}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {insight && (
-        <div className="rounded-[12px] border border-[#d6f5e1] bg-accent-subtle px-3.5 py-3">
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-accent-emphasis">
-            Worth keeping
+    <div className="flex flex-col gap-3.5 px-[18px] pb-[17px] pt-[15px]">
+      {conceptTitle && (
+        <div>
+          <div className="mb-[3px] text-[10.5px] font-semibold uppercase tracking-[0.11em] text-[var(--calyxa-hint-text)]">
+            Concept
           </div>
-          <div className="text-[13.5px] leading-[1.55] text-accent-foreground">{insight}</div>
+          <div className="text-[16px] font-semibold tracking-[-0.015em] text-foreground">{conceptTitle}</div>
+          {/* The board shows a curriculum unit line here ("Algebra II ·
+              Unit 4"); curriculum titles never ship in this bundle
+              (@calyxa/curriculum is server-side), so no line renders until
+              the wire carries one -- omitted, never invented. */}
         </div>
       )}
-      <div className="flex items-center gap-2.5">
-        <button
-          type="button"
-          onClick={onDone}
-          disabled={disabled}
-          className="h-[42px] flex-1 cursor-pointer rounded-full border-0 bg-accent text-[14px] font-semibold text-accent-foreground outline-none hover:bg-[#6ee7a0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Done for today
-        </button>
-        <button
-          type="button"
-          onClick={onMorePractice}
-          disabled={disabled}
-          className="h-[42px] flex-none cursor-pointer rounded-full border border-border bg-background px-4 text-[13px] text-[#46463f] outline-none hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          One more pass
-        </button>
+      {improved.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.11em] text-accent-emphasis">
+            What improved
+          </div>
+          <div className="flex flex-col gap-[7px]">
+            {improved.map((outcome) => (
+              <div key={outcome.conceptKey} className="flex items-center gap-2.5 text-[13.5px] text-foreground">
+                <span
+                  aria-label="mastered"
+                  className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full bg-accent text-[10.5px] font-bold text-accent-foreground"
+                >
+                  ✓
+                </span>
+                {outcome.line}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {practicing.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.11em] text-[var(--calyxa-recap-practice-text)]">
+            Still needs practicing
+          </div>
+          <div className="flex flex-col gap-[7px]">
+            {practicing.map((outcome) => (
+              <div key={outcome.conceptKey} className="flex items-center gap-2.5 text-[13.5px] text-[#46463f]">
+                <span
+                  aria-label="worth one more pass"
+                  className="h-[18px] w-[18px] flex-none rounded-full border-[1.5px] border-border bg-background"
+                />
+                {outcome.line}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div>
+        <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.11em] text-[var(--calyxa-hint-text)]">
+          Generated for you
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {/* Post-beta placeholders (see the component comment) -- two
+              reserved tiles, straight from the board. */}
+          <div className="cx-recap-placeholder flex h-[52px] items-center justify-center rounded-[10px] px-1.5 text-center font-mono text-[10px]">
+            study material
+          </div>
+          <div className="cx-recap-placeholder flex h-[52px] items-center justify-center rounded-[10px] px-1.5 text-center font-mono text-[10px]">
+            study material
+          </div>
+        </div>
       </div>
+      <button
+        type="button"
+        onClick={onDone}
+        disabled={disabled}
+        className="h-[42px] w-full cursor-pointer rounded-full border-0 bg-accent text-[14px] font-semibold text-accent-foreground outline-none hover:bg-[var(--calyxa-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Complete session
+      </button>
     </div>
   );
 }

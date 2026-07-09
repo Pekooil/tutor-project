@@ -253,3 +253,44 @@
   --calyxa-mode-recover-bg: #fff1f2;
   --calyxa-mode-recover-border: #fda4af;
 }
+
+/* ---- Calyxa overlay: check-in / reframe / recap aliases (design handoff
+ * states 5a/5b/7b, the session bookends redesign) ----
+ * Same ADR-018 discipline: extension-local aliases so no component ships a
+ * bare hex. Grouped by feature:
+ *
+ * CHECK-IN (5a) -- the AI-prediction treatment: the gradient tag/halo stops
+ * (#a7f3d0/#5eead4 join the existing accent green -- decorative gradient
+ * stops only, never text), the sage wash the board uses for hover/selected
+ * chrome (#dcfce7, the Tailwind green-100 the design sampled), and the
+ * faint hint text (#8a8a80, between --color-muted-foreground and the
+ * shipped #9b988f faint -- the design's own value, used at 11.5px
+ * alongside a live countdown so it stays quiet).
+ *
+ * REFRAME (5b) -- the crop frame's handle green (#22c55e, the darker
+ * accent the 2px-on-white handles need to read as controls) and the scrim
+ * (slate-900 at 50%, the board's exact overlay).
+ *
+ * RECAP (7b) -- the "Still needs practicing" amber overline (#a16207 on
+ * white: 4.63:1, clears 4.5:1 AA -- and it renders at 600 weight), the
+ * neutral section overline (#8a8a80 again), and the generated-for-you
+ * placeholder tile set (dashed border + two stripe tones + mono label;
+ * the label #9a988f matches the design board -- decorative-adjacent
+ * placeholder copy, replaced wholesale when study-material generation
+ * lands post-beta). */
+:root,
+:host {
+  --calyxa-ai-tag-from: #a7f3d0;
+  --calyxa-ai-tag-to: #5eead4;
+  --calyxa-sage-wash: #dcfce7;
+  --calyxa-hint-text: #8a8a80;
+
+  --calyxa-crop-handle: #22c55e;
+  --calyxa-scrim: rgba(15, 23, 42, 0.5);
+
+  --calyxa-recap-practice-text: #a16207;
+  --calyxa-placeholder-border: #d5d3cc;
+  --calyxa-placeholder-stripe-a: #faf9f6;
+  --calyxa-placeholder-stripe-b: #f2f0ea;
+  --calyxa-placeholder-text: #9a988f;
+}

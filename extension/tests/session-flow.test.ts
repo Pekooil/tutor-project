@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest';
 import {
   NOT_SURE_CHIP,
   bloomLine,
-  buildSessionStartMessage,
   buildStickingChips,
   conceptOutcome,
   formatRecapMeta,
@@ -27,24 +26,11 @@ function makeRecap(overrides: Partial<SessionRecap> = {}): SessionRecap {
   };
 }
 
-describe('buildSessionStartMessage — the check-in answers as a real student turn', () => {
-  it('names a detected topic mid-sentence, lowercased, with the sticking point', () => {
-    const message = buildSessionStartMessage('Quadratic equations', 'Choosing a method');
-    expect(message).toContain('quadratic equations');
-    expect(message).toContain('choosing a method');
-    expect(message).toMatch(/start there\?$/i);
-  });
-
-  it('keeps an acronym-led topic intact (no mangled lowercase)', () => {
-    expect(buildSessionStartMessage('SOH-CAH-TOA review', 'The algebra steps')).toContain('SOH-CAH-TOA review');
-  });
-
-  it('never echoes the not-sure sentinel as a named weakness', () => {
-    const message = buildSessionStartMessage('Quadratic equations', NOT_SURE_CHIP);
-    expect(message).not.toContain(NOT_SURE_CHIP.toLowerCase());
-    expect(message).toContain('not sure where it usually goes wrong');
-  });
-});
+// (The buildSessionStartMessage/buildReframeStartMessage specs lived here
+// until the design follow-up removed the builders themselves: the check-in
+// confirmation now crosses the wire as the structured sessionStart field --
+// no student turn, fabricated or otherwise, ever enters the conversation.
+// The server-side prompt rendering is pinned by web/tests/system-prompt.test.ts.)
 
 describe('conceptOutcome — recorded counts onto the three recap rows', () => {
   it('reads a clean run as solid', () => {

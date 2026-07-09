@@ -154,6 +154,27 @@ function fakeTextMessage(text: string) {
   }
 }
 
+// Every other fake response in this file uses fakeTextMessage, which -- since
+// it never carries a tool_use content block -- only ever exercises
+// runTutorTurn's FALLBACK path (the missing-tool-use degrade), regardless of
+// the `tool_choice: { type: 'tool', ... }` the real route always sends. That
+// leaves the actual forced-tool path (what the live Anthropic API really
+// does) unexercised by this suite. This helper mocks a genuine tool_use
+// response so the session-start assembly test below (assembleSessionStartEnvelope,
+// claude.ts) exercises the real primary path, not the degrade one.
+function fakeToolUseMessage(toolName: string, input: Record<string, unknown>) {
+  return {
+    id: 'msg_fake_tool',
+    type: 'message',
+    role: 'assistant',
+    model: 'claude-haiku-4-5-20251001',
+    content: [{ type: 'tool_use', id: 'toolu_fake', name: toolName, input }],
+    stop_reason: 'tool_use',
+    stop_sequence: null,
+    usage: { input_tokens: 1, output_tokens: 1 },
+  }
+}
+
 let nextResponse: FakeResponse = { status: 200, body: fakeTextMessage('default fake reply') }
 const receivedRequests: Array<{ system?: unknown; messages?: unknown; model?: unknown }> = []
 
@@ -2161,5 +2182,187 @@ describe('/api/ai/turn: the opening scan (Sprint 14 Task 4, ADR-030)', () => {
     }
     expect(data![0].tutor_response).toBe("Looks like you're working on a quadratic. Is that the one?")
     expect(data![1].tutor_response).toBe('')
+  })
+})
+
+describe('/api/ai/turn: the session-start kickoff (structured sessionStart, no messages)', () => {
+  const kickoffPageContext = { title: 'Forces worksheet', text: 'Which calculation gives the force in Newtons? F = ma, m = 250 g', equations: [] }
+  const kickoff = {
+    question: 'Looks like you\'re working on which calculation gives the force in Newtons',
+    stickingPoint: 'converting mass from grams to kilograms',
+  }
+
+  it('accepts sessionStart with no messages: SESSION START MODE in the prompt, an honest placeholder user turn, never a fabricated student message', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeToolUseMessage('submit_session_start_turn', {
+        board_text: 'F = m*a',
+        opening_question: 'The mass is in grams -- what does it need to be in first?',
+        annotations: [],
+      }),
+    }
+
+    const { status, json } = await turn(token, { sessionStart: kickoff, pageContext: kickoffPageContext })
+
+    expect(status).toBe(200)
+    expect(json.reply).toBe('$$F = m*a$$ The mass is in grams -- what does it need to be in first?')
+
+    const sent = receivedRequests[receivedRequests.length - 1]
+    const system = String(sent.system)
+    expect(system).toContain('SESSION START MODE')
+    expect(system).toContain(kickoff.question)
+    expect(system).toContain(kickoff.stickingPoint)
+
+    // The one API-required user turn is the route's own meta placeholder --
+    // it says what happened (a confirm tap), never words the student didn't
+    // type, and never a topic claim.
+    const messages = sent.messages as Array<{ role: string; content: string }>
+    expect(messages).toHaveLength(1)
+    expect(messages[0].role).toBe('user')
+    expect(messages[0].content).toContain('Session start')
+    expect(messages[0].content).toContain('follow SESSION START MODE')
+    expect(messages[0].content).not.toMatch(/I'm working on/i)
+  })
+
+  it('degrade path (no tool_use block at all -- a refusal/SDK edge case): never trusts raw freeform text for this turn either, falls straight to the zero-model-text fallback', async () => {
+    // Unlike every other turn kind (parseEnvelope's "whole raw string becomes
+    // say" degrade, ADR-019), session-start does NOT fall back to trusting
+    // arbitrary model text -- that field is exactly what both live-finds
+    // came from. A missing tool_use block is treated the same as a rejected
+    // opening_question: the deterministic, zero-model-text fallback.
+    nextResponse = {
+      status: 200,
+      body: fakeTextMessage(JSON.stringify({ say: "Looks like you're working on a force problem -- is that what you need help with?" })),
+    }
+
+    const { status, json } = await turn(token, { sessionStart: kickoff, pageContext: kickoffPageContext })
+
+    expect(status).toBe(200)
+    expect(json.reply).toBe(
+      `Let's start right at "${kickoff.stickingPoint}" -- walk me through your first step there.`
+    )
+  })
+
+  it('the REAL forced-tool path: requests submit_session_start_turn (never submit_tutor_turn) and assembles "say" server-side from board_text + opening_question', async () => {
+    nextResponse = {
+      status: 200,
+      body: fakeToolUseMessage('submit_session_start_turn', {
+        board_text: 'F = m*a',
+        opening_question: 'The mass is in grams -- what does it need to be in first?',
+        annotations: [{ id: 'a1', type: 'highlight', target: { kind: 'textMatch', text: 'F = ma' } }],
+      }),
+    }
+
+    const { status, json } = await turn(token, { sessionStart: kickoff, pageContext: kickoffPageContext })
+
+    expect(status).toBe(200)
+    // Assembled server-side, not taken verbatim from any model-authored
+    // single string -- there is no field the model filled that could equal
+    // this whole value directly.
+    expect(json.reply).toBe('$$F = m*a$$ The mass is in grams -- what does it need to be in first?')
+    expect(json.annotations).toEqual([{ id: 'a1', type: 'highlight', target: { kind: 'textMatch', text: 'F = ma' } }])
+
+    const sent = receivedRequests[receivedRequests.length - 1] as unknown as {
+      tools?: Array<{ name: string }>
+      tool_choice?: { name?: string }
+    }
+    expect(sent.tools?.map((t) => t.name)).toEqual(['submit_session_start_turn'])
+    expect(sent.tool_choice?.name).toBe('submit_session_start_turn')
+  })
+
+  it('a still-fabricated opening_question is caught by the backstop, retried once, and replaced with zero-model-text fallback -- never shown to the student', async () => {
+    // The 2nd live-find: a model that ignores "your own voice, never the
+    // student's words" and writes the fabricated-echo pattern anyway (this
+    // exact phrasing, reproduced live) inside the one opening_question
+    // string. The fake server returns the SAME bad response on every
+    // request, so this also proves the retry genuinely re-calls the API
+    // (two tool_use requests below) rather than reusing the first result --
+    // and that when the retry doesn't help either, the deterministic
+    // fallback (built only from sessionStart's own confirmed data) wins,
+    // never the model's fabricated text.
+    nextResponse = {
+      status: 200,
+      body: fakeToolUseMessage('submit_session_start_turn', {
+        board_text: '20 - 6 + 4k = 2 - 2k',
+        opening_question: "I'm working on one-variable linear equations today -- can we start there?",
+        annotations: [],
+      }),
+    }
+
+    const before = receivedRequests.length
+    const { json } = await turn(token, { sessionStart: kickoff, pageContext: kickoffPageContext })
+
+    expect(json.reply).not.toMatch(/i'?m working on/i)
+    expect(json.reply).not.toMatch(/can we start there/i)
+    expect(json.reply).toBe(
+      `$$20 - 6 + 4k = 2 - 2k$$ Let's start right at "${kickoff.stickingPoint}" -- walk me through your first step there.`
+    )
+    // Exactly one retry -- two tool_use requests total for this one turn.
+    expect(receivedRequests.length - before).toBe(2)
+  })
+
+  it('the assembly is deterministic no matter what the model puts in either field -- there is no room for a second, uncontrolled reply shape', async () => {
+    // A SHORTER, single-sentence misstep -- under the backstop's length/
+    // pattern/paragraph checks -- still gets through untouched: the backstop
+    // targets the specific multi-paragraph/echoed-confirmation failure
+    // shape, not stylistic imperfection. The reply is always exactly
+    // `$$<board_text>$$ <opening_question>`, one bubble, in that fixed
+    // order -- never a second, uncontrolled shape.
+    nextResponse = {
+      status: 200,
+      body: fakeToolUseMessage('submit_session_start_turn', {
+        board_text: '20 - 6 + 4k = 2 - 2k',
+        opening_question: "Let's simplify the left side first -- what does 20 - 6 combine to?",
+        annotations: [],
+      }),
+    }
+
+    const { json } = await turn(token, { sessionStart: kickoff, pageContext: kickoffPageContext })
+
+    expect(json.reply).toBe(
+      "$$20 - 6 + 4k = 2 - 2k$$ Let's simplify the left side first -- what does 20 - 6 combine to?"
+    )
+    expect(json.reply.startsWith('$$20 - 6 + 4k = 2 - 2k$$ ')).toBe(true)
+  })
+
+  it('still 400s when neither messages nor a well-formed sessionStart is present', async () => {
+    nextResponse = { status: 200, body: fakeTextMessage('should never be reached') }
+
+    // Malformed: no question -- the one field the prompt block cannot
+    // render without. Degrades to the same 400 as a missing-messages body.
+    const { status, json } = await turn(token, { sessionStart: { stickingPoint: 'x' }, pageContext: kickoffPageContext })
+
+    expect(status).toBe(400)
+    expect(json.error).toContain('messages')
+  })
+
+  it('ignores sessionStart when real messages are present -- a mid-conversation turn can never smuggle the block in', async () => {
+    nextResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ say: 'Right, next step.' })) }
+
+    const { status } = await turn(token, {
+      messages: [{ role: 'user', content: 'is it 0.25 kg?' }],
+      sessionStart: kickoff,
+      pageContext: kickoffPageContext,
+    })
+
+    expect(status).toBe(200)
+    const sent = receivedRequests[receivedRequests.length - 1]
+    expect(String(sent.system)).not.toContain('SESSION START MODE')
+    const messages = sent.messages as Array<{ role: string; content: string }>
+    expect(messages).toEqual([{ role: 'user', content: 'is it 0.25 kg?' }])
+  })
+
+  it('the not-sure kickoff (stickingPoint null) reaches the prompt as the watch-for-it branch, never a named weakness', async () => {
+    nextResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ say: '$$F = m*a$$ First: what units does force need?' })) }
+
+    const { status } = await turn(token, {
+      sessionStart: { question: kickoff.question, stickingPoint: null },
+      pageContext: kickoffPageContext,
+    })
+
+    expect(status).toBe(200)
+    const system = String(receivedRequests[receivedRequests.length - 1].system)
+    expect(system).toContain('NOT sure where it usually goes wrong')
+    expect(system).not.toContain('which they confirmed')
   })
 })

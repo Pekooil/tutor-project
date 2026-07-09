@@ -129,3 +129,50 @@ describe('buildSystemPrompt — subject scope + key-budget block (ADR-032 Task 4
     expect(prompt).toContain('SOLUTION PROGRESS')
   })
 })
+
+describe('buildSystemPrompt — SESSION START MODE (the check-in kickoff)', () => {
+  const start = {
+    question: 'Looks like you\'re working on which calculation gives the force in Newtons',
+    stickingPoint: 'converting mass from grams to kilograms',
+  }
+
+  it('is absent unless opts.sessionStart is set', () => {
+    expect(buildSystemPrompt(CALIBRATING, undefined, { format: 'envelope' })).not.toContain('SESSION START MODE')
+  })
+
+  it('renders the confirmed question and sticking point, and forbids re-confirmation', () => {
+    const prompt = buildSystemPrompt(CALIBRATING, undefined, { format: 'envelope', sessionStart: start })
+    expect(prompt).toContain('SESSION START MODE')
+    expect(prompt).toContain(start.question)
+    expect(prompt).toContain(start.stickingPoint)
+    expect(prompt).toMatch(/do NOT re-confirm/)
+    expect(prompt).toMatch(/Start AT the sticking point/)
+    // This turn hands off to its own forced tool (board_text/opening_question),
+    // not the shared "say" envelope -- the model never gets one open string.
+    expect(prompt).toContain('submit_session_start_turn')
+    expect(prompt).toContain('board_text')
+    expect(prompt).toContain('opening_question')
+  })
+
+  it('the not-sure branch never claims a weakness the student did not name', () => {
+    const prompt = buildSystemPrompt(CALIBRATING, undefined, {
+      format: 'envelope',
+      sessionStart: { question: start.question, stickingPoint: null },
+    })
+    expect(prompt).toContain('NOT sure where it usually goes wrong')
+    expect(prompt).not.toContain('which they confirmed')
+  })
+
+  it('renders the reframe snippet when the student framed the exact spot', () => {
+    const prompt = buildSystemPrompt(CALIBRATING, undefined, {
+      format: 'envelope',
+      sessionStart: { ...start, snippet: 'F = ma, m = 250 g' },
+    })
+    expect(prompt).toContain('"F = ma, m = 250 g"')
+  })
+
+  it('drops the BEFORE YOU ANSWER checklist -- it nags about fields this turn no longer lets the model fill', () => {
+    const prompt = buildSystemPrompt(CALIBRATING, undefined, { format: 'envelope', sessionStart: start })
+    expect(prompt).not.toContain('BEFORE YOU ANSWER')
+  })
+})

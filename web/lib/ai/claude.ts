@@ -1,7 +1,7 @@
 import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
 import { CONCEPT_KEYS } from '@calyxa/curriculum'
-import { buildSystemPrompt } from './system-prompt'
+import { buildSystemPrompt, type SessionStartPrompt } from './system-prompt'
 import { parseEnvelope, parseEnvelopeObject } from './envelope'
 import type { TurnEnvelope } from './envelope'
 import type { LearningProfile } from './profile'
@@ -267,6 +267,224 @@ const ENVELOPE_TOOL: Anthropic.Tool = {
   ],
 }
 
+// The session-start kickoff's OWN forced tool (live-find, this sprint):
+// ENVELOPE_TOOL's `say` is a single open string, and `strict: true` only
+// guarantees the ENVELOPE's SHAPE (assessment/annotations/etc. exist) --
+// nothing constrains the WORDING inside `say` itself. A live session-start
+// call reproduced exactly that gap: the model, asked in prose (SESSION START
+// MODE) to compose one `say` string that both puts the problem up and asks a
+// question without greeting or echoing the confirmation, instead wrote BOTH
+// a greeting line (mirroring OPENING SCAN MODE's own worked example) AND a
+// paraphrase of the confirmed sticking point recast in the student's voice
+// -- a fabricated-sounding turn baked into one `say` string, invisible to
+// ENVELOPE_TOOL's schema since `say` validates as long as it's a string.
+// Sprint 14 Task 10's own precedent (prose nudges alone plateaued at ~50%
+// compliance) says the reliable fix is the same one used there: stop asking
+// for the right WORDING in prose and instead narrow the SLOT so there's
+// nowhere for the wrong wording to hide. `board_text` can only be the bare
+// math (a greeting sentence looks obviously wrong sitting in a field
+// described as "no sentence, no punctuation but the math"); `opening_question`
+// can only be the tutor's own next question (there is no field shaped like
+// "what the student said" for an echoed confirmation to land in). The server
+// assembles the displayed `say` deterministically from the two -- the model
+// never gets to hand back one free-form paragraph for this turn.
+const SESSION_START_TOOL_NAME = 'submit_session_start_turn'
+
+const SESSION_START_TOOL: Anthropic.Tool = {
+  name: SESSION_START_TOOL_NAME,
+  description:
+    'Submit your response for this SESSION START turn -- the first turn after the student confirmed ' +
+    'the detected problem and sticking point on the check-in card (no student message exists yet). ' +
+    'This is the ONLY way to reply -- always call it, exactly once.',
+  strict: true,
+  input_schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      board_text: {
+        type: 'string',
+        description:
+          'ONLY the problem restated in plain calculator notation (e.g. "20 - 6 + 4k = 2 - 2k"). No ' +
+          'sentence, no greeting, no question, no punctuation beyond the math itself -- the server wraps ' +
+          'this in the $$ ... $$ board display, so do not add your own $$ delimiters or any surrounding ' +
+          'words here.',
+      },
+      opening_question: {
+        type: 'string',
+        description:
+          'The ONE Socratic question or micro-step YOU, the tutor, ask this turn -- in your own voice, ' +
+          'addressed TO the student, aimed straight at the confirmed sticking point. Never a greeting or ' +
+          're-confirmation ("Looks like you\'re working on... is that what you need help with?" -- that ' +
+          'already happened on the check-in card, do not repeat it here). Never a restatement of the ' +
+          'confirmation AS IF the student said it (e.g. "I\'m working on... the part that trips me up ' +
+          'is..." -- the student never typed or said those words, they tapped a button; writing them in ' +
+          'first person here fabricates a line they never spoke). Just your next question, nothing else.',
+      },
+      annotations: {
+        type: 'array',
+        items: ANNOTATION_ITEM_SCHEMA,
+        description:
+          'Zero or more annotations framing the problem on the page (at most 3, per ANNOTATION GUIDANCE ' +
+          'above). Use an empty array when PAGE CONTEXT has nothing to point at.',
+      },
+    },
+    required: ['board_text', 'opening_question', 'annotations'],
+  },
+  input_examples: [
+    {
+      board_text: 'F = m*a',
+      opening_question: 'The mass is in grams -- what does it need to be in first?',
+      annotations: [{ id: 'a1', type: 'highlight', target: { kind: 'textMatch', text: 'F = ma' } }],
+    },
+  ],
+}
+
+// Deterministic backstop for the session-start kickoff's `opening_question`
+// (2nd live-find, same failure family): the board_text/opening_question
+// split narrows WHERE a fabricated turn or a greeting can hide, but neither
+// field has a length or shape limit, so a still-misbehaving model can write
+// an entire multi-paragraph fake dialogue -- greeting, echoed "student"
+// reply, AND a follow-up tutor reply -- all inside the one opening_question
+// string, which then sails through the schema untouched (it's still just a
+// valid string). A live re-test reproduced exactly this: three paragraphs,
+// one crammed into what should have been a single question. There is no
+// reliable PROMPT-ONLY fix for an unconstrained free-text field (this
+// codebase's own Sprint 14 Task 10 precedent), so this is the actual
+// backstop: reject on sight, retry once, and if the retry ALSO fails, swap
+// in text built entirely from the confirmed sessionStart data -- zero model
+// text -- so a session start can never again put more than one clean
+// question on screen, no matter how badly the model misbehaves.
+const FABRICATED_TURN_PATTERNS = [
+  /\bis that what you need help with\b/i,
+  /\blooks like you'?re working on\b/i,
+  /\bi'?m working on\b/i,
+  /\btrips? me up\b/i,
+  /\bcan we start there\b/i,
+]
+const MAX_OPENING_QUESTION_CHARS = 320 // generous slack over PEDAGOGY's ~60-word/3-sentence bound
+
+function isCleanOpeningQuestion(text: string): boolean {
+  if (text.length === 0 || text.length > MAX_OPENING_QUESTION_CHARS) return false
+  if (FABRICATED_TURN_PATTERNS.some((pattern) => pattern.test(text))) return false
+  // A blank line between paragraphs, or more than a few sentence-ending
+  // marks, is the actual shape of a multi-turn dialogue rather than the
+  // required single question/micro-step -- catches the failure shape even
+  // if the wording doesn't match one of the known phrases above.
+  if (/\n\s*\n/.test(text)) return false
+  const terminalPunctuation = text.match(/[.?!]/g) ?? []
+  if (terminalPunctuation.length > 3) return false
+  return true
+}
+
+// The zero-model-text fallback: grounded ONLY in what the student actually
+// confirmed on the check-in card (the same data SESSION START MODE renders),
+// never a guess and never anything that could itself read as fabricated.
+function fallbackOpeningQuestion(start: SessionStartPrompt): string {
+  return start.stickingPoint
+    ? `Let's start right at "${start.stickingPoint}" -- walk me through your first step there.`
+    : `Let's start with the first step -- walk me through how you'd begin.`
+}
+
+// Assembles a SESSION_START_TOOL call into the same TurnEnvelope shape every
+// other turn kind produces, so completeTurn/persistence downstream never
+// needs to know this turn used a different tool. `say` is built HERE,
+// server-side, by concatenating the two narrow fields -- never taken as a
+// single string from the model -- which is the actual fix (narrowing the
+// slot, not just asking nicer): there is no field left for a greeting or an
+// echoed confirmation to hide in. `opening_question` additionally passes
+// through the isCleanOpeningQuestion backstop above before it ever gets
+// here (runSessionStartTool, below) -- by the time this function sees it,
+// it's already been validated or replaced. The rest of the envelope is the
+// fixed very-first-turn placeholder SESSION START MODE already specifies
+// (nothing to grade or signal yet), reused via parseEnvelopeObject so
+// annotations get the exact same defensive validation (allowlisted target
+// kinds, the 3-cap) every other turn's annotations get. Returns undefined
+// only when `opening_question` (post-validation) is somehow still blank --
+// the one field a session-start reply cannot do without.
+function assembleSessionStartEnvelope(boardText: string, openingQuestion: string, rawAnnotations: unknown): TurnEnvelope | undefined {
+  if (!openingQuestion) {
+    return undefined
+  }
+
+  return parseEnvelopeObject({
+    say: boardText ? `$$${boardText}$$ ${openingQuestion}` : openingQuestion,
+    mode: 'socratic',
+    solution_progress: 0,
+    assessment: {
+      concept_key: null,
+      outcome: 'none',
+      reasoning_quality: 'none',
+      self_confidence: 'unknown',
+      misconception_category: null,
+      misconception_description: null,
+      confidence: 'low',
+    },
+    annotations: rawAnnotations,
+    profile_tags: [],
+    signals: [],
+  })
+}
+
+// Runs the session-start kickoff's forced tool call, with the retry +
+// deterministic-fallback backstop described above. Isolated from
+// runTutorTurn's main body (below) because it owns its own retry loop --
+// the only turn kind that does, since it's the only one with a zero-model-
+// text fallback to reach for.
+async function runSessionStartTool({
+  messages,
+  pageContext,
+  profile,
+  sessionStart,
+}: {
+  messages: TurnMessage[]
+  pageContext?: PageContext
+  profile: LearningProfile
+  sessionStart: SessionStartPrompt
+}): Promise<TurnEnvelope> {
+  const system = buildSystemPrompt(profile, pageContext, { format: 'envelope', sessionStart })
+
+  const call = () =>
+    createClient().messages.create({
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
+      system,
+      messages,
+      tools: [SESSION_START_TOOL],
+      tool_choice: { type: 'tool', name: SESSION_START_TOOL_NAME },
+    })
+
+  let boardText = ''
+  let openingQuestion = ''
+  let annotations: unknown = []
+
+  for (let attempt = 0; attempt < 2 && !isCleanOpeningQuestion(openingQuestion); attempt++) {
+    const response = await call()
+    const toolUse = response.content.find(
+      (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use' && block.name === SESSION_START_TOOL_NAME
+    )
+    if (!toolUse || typeof toolUse.input !== 'object' || toolUse.input === null) break
+
+    const input = toolUse.input as Record<string, unknown>
+    boardText = typeof input.board_text === 'string' ? input.board_text.trim() : ''
+    openingQuestion = typeof input.opening_question === 'string' ? input.opening_question.trim() : ''
+    annotations = input.annotations
+  }
+
+  if (!isCleanOpeningQuestion(openingQuestion)) {
+    openingQuestion = fallbackOpeningQuestion(sessionStart)
+    // A board_text that arrived alongside a rejected opening_question is
+    // still independently useful (it's validated separately, just for
+    // length/pattern here too, out of the same abundance of caution) -- but
+    // never invent one when the model gave nothing at all.
+    if (boardText.length > MAX_OPENING_QUESTION_CHARS || FABRICATED_TURN_PATTERNS.some((p) => p.test(boardText))) {
+      boardText = ''
+    }
+    annotations = []
+  }
+
+  return assembleSessionStartEnvelope(boardText, openingQuestion, annotations) ?? { say: fallbackOpeningQuestion(sessionStart) }
+}
+
 // Non-streaming turn — used by /api/ai/turn (the live overlay path) and
 // voice synthesis where the full reply is needed before TTS can start.
 // Forces the model to reply through ENVELOPE_TOOL (`strict: true` --
@@ -281,11 +499,26 @@ export async function runTutorTurn({
   messages,
   pageContext,
   profile,
+  sessionStart,
 }: {
   messages: TurnMessage[]
   pageContext?: PageContext
   profile: LearningProfile
+  // The session-start kickoff's confirmed check-in data (the route parses
+  // it from the request's structured sessionStart field): threads into the
+  // prompt as the SESSION START MODE block. On that turn `messages` is the
+  // route-built placeholder -- there is no student message.
+  sessionStart?: SessionStartPrompt
 }): Promise<TurnEnvelope> {
+  // The session-start kickoff calls its OWN forced tool AND its own retry +
+  // deterministic-fallback backstop (see runSessionStartTool above) --
+  // ENVELOPE_TOOL's open `say` string, and an unvalidated opening_question,
+  // are exactly the two live-finds traced the fabricated-turn bug to, so
+  // this turn kind never gets access to either.
+  if (sessionStart) {
+    return runSessionStartTool({ messages, pageContext, profile, sessionStart })
+  }
+
   const response = await createClient().messages.create({
     model: MODEL,
     max_tokens: MAX_TOKENS,

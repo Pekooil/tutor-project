@@ -649,21 +649,22 @@
   --cx-mode-border: var(--calyxa-mode-recover-border);
 }
 
-/* ── SectionBloom: the section-complete celebration (design handoff state
- * 07, "a bloom, not confetti" -- replaces the Sprint 15 solved-glow panel
- * treatment) ──
- * Three layers over the host page while Overlay.tsx's `bloom` state is
- * non-null (~BLOOM_MS): the page-edge sage glow breathing at 3s, the center
- * orb's blurred halo breathing at 2.8s with two expanding rings (the second
- * delayed 1.4s -- both reuse the existing cx-ring keyframe, which already
- * matches the design board exactly), and the frosted card. cx-breathe is
- * the design's own keyframe, copied exactly (deliberately distinct from
- * calyxa-breathe above -- different scale/opacity envelope). The whole
- * stack fades in and back out via cx-bloom-cycle over the same window the
- * JS unmount timer runs, so the bloom recedes rather than blinking off.
- * Under reduced motion the layers hold static and the timer still removes
- * the whole thing -- "end-state applied instantly", as everywhere else in
- * this file. */
+/* ── SectionBloom: the section-complete celebration (design state 06 in the
+ * revised board, "a bloom, not confetti" -- the Sprint 15 full-page version
+ * is retired: the bloom is now CONTAINED IN THE PANEL CARD, so the host
+ * page is never even visually claimed) ──
+ * Three layers inside the panel while Overlay.tsx's `bloom` state is
+ * non-null (~BLOOM_MS): the card-inset sage glow breathing at 3s, the
+ * center orb's blurred halo breathing at 2.8s with two expanding rings
+ * (the second delayed 1.4s -- both reuse the existing cx-ring keyframe,
+ * which already matches the design board exactly), and the quiet line
+ * naming what was earned. cx-breathe is the design's own keyframe, copied
+ * exactly (deliberately distinct from calyxa-breathe above -- different
+ * scale/opacity envelope). The whole stack fades in and back out via
+ * cx-bloom-cycle over the same window the JS unmount timer runs, so the
+ * bloom recedes rather than blinking off. Under reduced motion the layers
+ * hold static and the timer still removes the whole thing -- "end-state
+ * applied instantly", as everywhere else in this file. */
 @keyframes cx-breathe {
   0%,
   100% {
@@ -676,8 +677,10 @@
   }
 }
 
+/* The 06 board's card-inset glow (inset 0 0 60px sage @ .45), replacing the
+ * old full-viewport 110px page-edge glow. */
 .cx-bloom-edge {
-  box-shadow: inset 0 0 110px rgba(134, 239, 172, 0.5);
+  box-shadow: inset 0 0 60px rgba(134, 239, 172, 0.45);
 }
 
 .cx-bloom-halo {
@@ -724,4 +727,85 @@
   100% {
     opacity: 0;
   }
+}
+
+/* ── CheckinCard: the 5a redesign (one prediction, not a menu) ──
+ * The Start button's auto-start sweep: a translucent deep-green layer
+ * scaling X 0→1 over the SAME window Overlay.tsx's real AUTO_START_MS timer
+ * runs (threaded in as --cx-fill-duration, the close ring's shared-duration
+ * discipline) so the fill can never drift from the timer that actually
+ * starts the session. Scoped inside the media query: under reduced motion
+ * the bar is simply absent and the hint text ("Auto-starts in 5s") carries
+ * the message alone -- the countdown itself still runs. */
+@media (prefers-reduced-motion: no-preference) {
+  .cx-autostart-fill {
+    animation: cx-fill var(--cx-fill-duration, 5000ms) linear forwards;
+    transform-origin: left;
+  }
+}
+
+@keyframes cx-fill {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+/* The AI-prediction treatment (5a): the gradient capsule tag and the
+ * blurred halo behind the predicted sticking-point card. Gradients can't be
+ * expressed as one theme token, so the stops are theme.css aliases composed
+ * here -- still no bare hex in a component. The halo is decorative only
+ * (aria-hidden in JSX) and sits behind an opaque-bordered card, so it needs
+ * no contrast math. */
+.cx-ai-tag {
+  color: var(--color-accent-foreground);
+  background: linear-gradient(120deg, var(--calyxa-ai-tag-from), var(--calyxa-ai-tag-to));
+}
+
+.cx-checkin-halo {
+  background: linear-gradient(
+    120deg,
+    var(--color-accent),
+    var(--calyxa-ai-tag-to),
+    var(--calyxa-ai-tag-from),
+    var(--color-accent)
+  );
+  filter: blur(8px);
+  opacity: 0.7;
+}
+
+/* ── ReframeTool: the 5b crop scrim (new feature) ──
+ * The lit window through the page scrim: the crop box's own box-shadow
+ * punches the hole (one element, no compositing math), exactly the board's
+ * technique. The layer as a whole DOES capture pointer events (unlike the
+ * annotation layer) -- framing the problem is a deliberate modal moment;
+ * Esc/Back both leave it. */
+.cx-crop-box {
+  box-shadow: 0 0 0 9999px var(--calyxa-scrim);
+  background: linear-gradient(135deg, rgb(134 239 172 / 0.1), rgb(134 239 172 / 0.02));
+}
+
+.cx-crop-handle {
+  background: var(--color-background);
+  border: 2px solid var(--calyxa-crop-handle);
+  border-radius: 2px;
+}
+
+/* ── RecapCard: the 7b "Generated for you" placeholder tiles ──
+ * Post-beta slot (study-material generation is deferred by the sprint
+ * plan): the dashed, candy-striped reserved-space tile straight from the
+ * board. Replaced wholesale when generation ships -- nothing here is
+ * load-bearing. */
+.cx-recap-placeholder {
+  border: 1px dashed var(--calyxa-placeholder-border);
+  background: repeating-linear-gradient(
+    135deg,
+    var(--calyxa-placeholder-stripe-a),
+    var(--calyxa-placeholder-stripe-a) 6px,
+    var(--calyxa-placeholder-stripe-b) 6px,
+    var(--calyxa-placeholder-stripe-b) 12px
+  );
+  color: var(--calyxa-placeholder-text);
 }

@@ -8,6 +8,11 @@ import type { TutorModeKey } from './tutor-modes';
 // window controls (the design's header has no controls; ours keeps them).
 export type HeaderAccessory = { meta: string };
 
+// The design's sage state chip (revised board, state 5a): "Scanning" (with
+// the pulsing dot) while the opening scan is in flight, "New session" while
+// the check-in card is up. Overlay.tsx owns which (if either) shows.
+export type HeaderChip = { label: string; pulsing: boolean };
+
 // The session header's identity (design handoff section 8c, tutor modes):
 // while a tutoring session is live, the tutor MODE takes the logo's place
 // -- glyph chip + mode name where the mark + wordmark sat, with the topic
@@ -46,6 +51,7 @@ export function TitleBar({
   ringing,
   ringDurationMs,
   accessory,
+  chip,
   session,
   onHeaderPointerDown,
   onHeaderPointerMove,
@@ -73,6 +79,9 @@ export function TitleBar({
   // conversation is live (the Listening/Speaking treatments own the header
   // then, unchanged) or before the recap arrives.
   accessory?: HeaderAccessory | null;
+  // The pre-session state chip (see HeaderChip above); null outside the
+  // scanning/check-in window.
+  chip?: HeaderChip | null;
   // The live-session identity (see SessionHeader above), or null for the
   // classic wordmark header.
   session?: SessionHeader | null;
@@ -125,6 +134,16 @@ export function TitleBar({
   // controls.
   const accessorySlot = accessory ? (
     <span className="text-[11.5px] text-muted-foreground">{accessory.meta}</span>
+  ) : chip ? (
+    <span className="flex items-center gap-1.5 rounded-full bg-accent-subtle px-[10px] py-1 text-[11.5px] font-semibold text-accent-emphasis">
+      {chip.pulsing && (
+        <span
+          aria-hidden="true"
+          className="h-[7px] w-[7px] rounded-full bg-accent-glow-strong motion-safe:animate-[cx-dot_1.4s_ease-in-out_infinite]"
+        />
+      )}
+      {chip.label}
+    </span>
   ) : null;
 
   // The live clock (8a): elapsed m:ss with the breathing green dot, only

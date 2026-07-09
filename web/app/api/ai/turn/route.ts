@@ -11,7 +11,14 @@ import type { PageContext } from '@/lib/ai/page-context'
 import { loadProfile } from '@/lib/learning/profile-read'
 import { predictLikelyStruggle, pickStickingCandidates } from '@/lib/learning/predict'
 import { detectTopicKeys } from '@/lib/learning/topic'
-import { parseMessages, parsePageContext, parseSessionId, parseResponseLatencyMs } from '@/lib/ai/turn-request'
+import {
+  parseMessages,
+  parsePageContext,
+  parseResponseLatencyMs,
+  parseSessionId,
+  parseSessionStart,
+  sessionStartPlaceholder,
+} from '@/lib/ai/turn-request'
 import { completeTurn, groundProfileTags, persistOpeningInteraction } from '@/lib/ai/turn-complete'
 
 // This route reads the live learning profile (ADR-014) and WRITES one
@@ -173,9 +180,19 @@ export async function POST(request: Request) {
     return handleOpeningScan(auth, body)
   }
 
-  const messages = parseMessages(body)
+  const parsedMessages = parseMessages(body)
+  // The session-start kickoff (the check-in confirm / reframe start): the
+  // request carries NO messages -- the student never typed anything, they
+  // confirmed the detected problem + sticking point on the check-in card,
+  // and that confirmation arrives as the structured `sessionStart` field.
+  // The Anthropic API still needs a user turn, so the route builds its own
+  // honest placeholder (the OPENING_SCAN_PLACEHOLDER_MESSAGE precedent) and
+  // SESSION START MODE in the prompt drives the reply: dive straight into
+  // the confirmed problem at the sticking point. Honored ONLY when messages
+  // are absent -- a mid-conversation turn can never smuggle one in.
+  const sessionStart = !parsedMessages ? parseSessionStart(body) : undefined
 
-  if (!messages) {
+  if (!parsedMessages && !sessionStart) {
     return NextResponse.json(
       {
         error:
@@ -184,6 +201,8 @@ export async function POST(request: Request) {
       { status: 400 }
     )
   }
+
+  const messages = parsedMessages ?? [sessionStartPlaceholder(sessionStart!)]
 
   const pageContext = parsePageContext(body)
   const sessionId = parseSessionId(body)
@@ -200,7 +219,12 @@ export async function POST(request: Request) {
   const profile = await loadProfile(auth.supabase, { topicKeys })
 
   try {
-    const envelope = await runTutorTurn({ messages, pageContext, profile })
+    const envelope = await runTutorTurn({
+      messages,
+      pageContext,
+      profile,
+      ...(sessionStart ? { sessionStart } : {}),
+    })
 
     // The shared persistence + grounding + ping tail (turn-complete.ts) --
     // identical to the streamed route's terminal event, so the two turn paths

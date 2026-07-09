@@ -7,11 +7,14 @@ import type { RecapConcept, SessionRecap, StickingCandidate } from '../types/mes
 // own module (the voice-timing.ts precedent) so session-flow.test.ts can
 // pin it directly.
 //
-// The check-in's two answers ({ topic, stickingPoint }) feed the tutor
-// prompt via buildSessionStartMessage, a REAL student turn through the
-// normal pipeline (the session-kickoff discipline: never a side channel),
-// so the model hears the student's own framing and the existing assessment
-// machinery grades everything that follows.
+// The check-in's answers no longer become a student turn at all (Darcy's
+// follow-up ask, superseding the earlier "real student turn" kickoff
+// discipline): the confirmation crosses the wire as the STRUCTURED
+// `sessionStart` field on the first AI_TURN (types/messages.ts's
+// SessionStartInfo) -- the transcript starts empty and the tutor's first
+// message responds directly to the confirmed misconception in the detected
+// problem. The old buildSessionStartMessage/buildReframeStartMessage
+// builders are gone with it.
 
 // The sticking-point chips. The opt-out is a sentinel the builders below
 // branch on -- "not sure" must never be echoed back as if it were a named
@@ -27,8 +30,8 @@ const GENERIC_STICKING_CHIPS = ['Setting up the equation', 'Choosing a method', 
 
 export type StickingChip = {
   // What onPickSticking receives and what ends up in `stickingPoint` state
-  // -- also what buildSessionStartMessage embeds mid-sentence via casual()
-  // below, so this is deliberately the lowercase-leaning raw text, not the
+  // -- also what crosses the wire as sessionStart.stickingPoint on confirm,
+  // so this is deliberately the lowercase-leaning raw text, not the
   // capitalized display form.
   value: string;
   // The chip button's display text -- `value`, capitalized.
@@ -54,9 +57,7 @@ function capitalize(text: string): string {
  * KickoffCard's humanizePredictionDetail established for the struggle
  * prediction (Sprint 15). Lowercase-leaning by convention (matches how
  * these are actually stored, e.g. "drops the negative sign when
- * distributing") -- buildStickingChips capitalizes it for display; the
- * sentence-builders' casual() below is a no-op on text that's already
- * lowercase.
+ * distributing") -- buildStickingChips capitalizes it for display.
  */
 export function humanizeMisconceptionLabel(candidate: StickingCandidate): string {
   const description = candidate.description.trim();
@@ -98,28 +99,6 @@ export function buildStickingChips(candidates: readonly StickingCandidate[]): St
 
   chips.push({ value: NOT_SURE_CHIP, label: NOT_SURE_CHIP, rank: null, personalized: false });
   return chips;
-}
-
-// Lowercases a leading capital for mid-sentence use ("Quadratic equations"
-// -> "quadratic equations") -- but only when the second character is
-// lowercase, so an acronym-led title ("SOH-CAH-TOA review") survives intact.
-function casual(text: string): string {
-  return /^[A-Z][a-z]/.test(text) ? text[0].toLowerCase() + text.slice(1) : text;
-}
-
-/**
- * The student turn the confirm button sends -- the check-in's two answers
- * (the scanned topic + the selected sticking point) in the student's own
- * voice, so the tutor prompt (which sees the transcript) gets both without
- * any new wire field. The not-sure branch asks the tutor to find the weak
- * spot rather than claiming one.
- */
-export function buildSessionStartMessage(topic: string, stickingPoint: string): string {
-  const topicPhrase = casual(topic);
-  if (stickingPoint === NOT_SURE_CHIP) {
-    return `I'm working on ${topicPhrase} today. Honestly, I'm not sure where it usually goes wrong — can you help me find the weak spot as we work through it?`;
-  }
-  return `I'm working on ${topicPhrase} today, and the part that usually trips me up is ${casual(stickingPoint)}. Can we start there?`;
 }
 
 // ---- The post-session recap (6b) ----
