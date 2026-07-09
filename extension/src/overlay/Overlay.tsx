@@ -10,6 +10,7 @@ import {
 import { CalyxaMark } from '@calyxa/ui';
 import './Overlay.css';
 import type {
+  AnswerField,
   Annotation,
   PageTopic,
   ProfileOverview,
@@ -86,6 +87,10 @@ export type TurnResult = {
   // LATEST tutor turn only (the `chips` state below), never to the message
   // list and never to the wire history.
   chips?: string[];
+  // Multi-part answer fields (design 8d): the turn's labeled per-unknown
+  // textbox spec, same additive/ephemeral discipline as `chips` and never
+  // present alongside it (the server sends at most one of the two).
+  answerFields?: AnswerField[];
 };
 
 // Local DISPLAY message type (Sprint 13, ADR-024; widened Sprint 14 Task 7;
@@ -580,6 +585,14 @@ export function Overlay({
   // voice), matching the prototype's hide-on-pick. Display-ephemeral: never
   // enters `messages` and stripHistory never sees it.
   const [chips, setChips] = useState<string[] | null>(null);
+  // The CURRENT turn's multi-part answer fields (design 8d): same lifecycle as
+  // `chips` above -- set when a tutor turn commits carrying fields, replaced
+  // wholesale by the next turn, and cleared the moment any student answer
+  // commits. Never present alongside `chips` (the server sends at most one),
+  // and equally display-ephemeral: the labeled boxes are an INPUT convenience,
+  // their filled values commit as one ordinary student turn, so nothing here
+  // ever enters `messages` or the wire history.
+  const [answerFields, setAnswerFields] = useState<AnswerField[] | null>(null);
 
   // ---- Sprint 13 profile-visibility state (all display-ephemeral, ADR-024) ----
   // The session recap, set by SESSION_RECAP_EVENT and discarded on panel
@@ -1134,11 +1147,11 @@ export function Overlay({
   }
 
   // Scroll to bottom when messages, streaming tokens, the live transcript,
-  // or the answer-chip row (design 8a -- it adds height below the last
-  // tutor line) change.
+  // or the answer-chip row / multi-part field panel (design 8a/8d -- each adds
+  // height below the last tutor line) change.
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, streamingTokens, liveTranscript, chips]);
+  }, [messages, streamingTokens, liveTranscript, chips, answerFields]);
 
   // The keyboard shortcut no longer mounts/unmounts the overlay (Sprint 10
   // Task 6 round 4 -- the idle pill's mount now tracks signedIn instead, see
@@ -1249,6 +1262,11 @@ export function Overlay({
     // belong to the latest tutor line. A completing turn never shows any
     // (the server already drops them there; this is belt-and-braces).
     setChips(result.session?.complete ? null : result.chips ?? null);
+    // The turn's multi-part answer fields (design 8d) commit the same way --
+    // same per-turn replacement and same never-on-a-closing-turn rule. The
+    // server sends at most one of chips/fields, so a turn clears whichever it
+    // didn't carry: the two never render at once.
+    setAnswerFields(result.session?.complete ? null : result.answerFields ?? null);
     // Task 8: AnnotationLayer's box-stroke lookup reads the SAME map.
     setAnnotationColors(assignAnnotationColors(result.annotations));
     showPins(result.pins);
@@ -1365,9 +1383,11 @@ export function Overlay({
     // request, ADR-024); the display list keeps its DisplayMessage shape.
     const outbound: TurnMessage[] = [...stripHistory(messages), { role: 'user', content: text }];
     setMessages((current) => [...current, { role: 'user', content: text }]);
-    // The student answered -- however they did it (chip tap, typed, spoken),
-    // the offered options are consumed (design 8a: chips hide on pick).
+    // The student answered -- however they did it (chip tap, typed, spoken,
+    // or multi-part fields), the offered options are consumed (design 8a:
+    // chips hide on pick; design 8d: the field panel closes on submit).
     setChips(null);
+    setAnswerFields(null);
     setRecap(null); // shown once -- a new conversation replaces it
     setRecapMeta(null);
     setNotice(null);
@@ -1405,6 +1425,19 @@ export function Overlay({
   function handleChipTap(text: string) {
     if (busy || closeState !== 'idle') return;
     void sendStudentMessage(text);
+  }
+
+  // Multi-part answer submit (design 8d: "Check answers"): the filled boxes
+  // commit as ONE student turn -- the AnswerFields panel joins each field as
+  // "<label> = <value>" (the same calculator notation the model reads and the
+  // question named the unknowns in), so the tutor grades every value at once,
+  // exactly as if the student had typed the whole line. The panel disappears
+  // via sendStudentMessage's setAnswerFields(null), same as a chip tap. The
+  // panel already gates the button on every field being filled, so `combined`
+  // is never empty here.
+  function handleAnswerFieldsSubmit(combined: string) {
+    if (busy || closeState !== 'idle') return;
+    void sendStudentMessage(combined);
   }
 
   // Best-effort live transcript (unchanged behavior/contract from before Task
@@ -1856,6 +1889,9 @@ export function Overlay({
                   chips={chips}
                   chipsDisabled={busy || recording || connecting || closeState !== 'idle'}
                   onChipTap={handleChipTap}
+                  answerFields={answerFields}
+                  answerFieldsDisabled={busy || recording || connecting || closeState !== 'idle'}
+                  onAnswerFieldsSubmit={handleAnswerFieldsSubmit}
                   chatEndRef={chatEndRef}
                 />
               </div>
@@ -1893,12 +1929,15 @@ export function Overlay({
                 busy={busy}
                 closing={closeState !== 'idle'}
                 placeholder={
-                  /* Contextual hint (design 8a): the chip row above changes
-                     what the field is FOR -- tap, or answer your own way. */
+                  /* Contextual hint (design 8a/8d): the chip row or the
+                     multi-part field panel above changes what the composer is
+                     FOR -- fill the boxes, tap, or answer your own way. */
                   sessionActive
-                    ? chips && chips.length > 0
-                      ? 'Tap an answer — or say it your way'
-                      : 'Answer out loud or type here'
+                    ? answerFields && answerFields.length > 0
+                      ? 'Fill the boxes above — or answer your way'
+                      : chips && chips.length > 0
+                        ? 'Tap an answer — or say it your way'
+                        : 'Answer out loud or type here'
                     : 'Ask a math question…'
                 }
                 inputFocused={inputFocused}

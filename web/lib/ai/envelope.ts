@@ -91,6 +91,10 @@ function parseSolutionProgress(candidate: unknown): number | undefined {
 export type SessionCompletionReason = 'solved' | 'follow-up-declined' | 'follow-up-corrected'
 export type SessionCompletion = { complete: true; reason: SessionCompletionReason }
 
+// One labeled input in a multi-part answer (design 8d) -- see parseAnswerFields
+// below. `label` is the short field name; `placeholder` an optional example.
+export type AnswerField = { label: string; placeholder?: string }
+
 // The exact sentence the prompt (system-prompt.ts's SESSION COMPLETION block)
 // REQUIRES the model to end `say` with on the turn it closes the session --
 // the single source of truth both the prompt and the parser reference, so the
@@ -178,6 +182,55 @@ function parseChips(candidate: unknown): string[] | undefined {
   }
 
   return chips.length > 0 ? chips : undefined
+}
+
+// Multi-part answer fields (design 8d): when the ONE question `say` just asked
+// carries more than one unknown (adjacent AND hypotenuse, x AND y), the model
+// emits one labeled field per value instead of chips. The overlay renders a
+// textbox per field and commits every value as a single student turn, so the
+// next turn grades it like any typed answer. Same tight parse discipline as
+// parseChips -- objects only, `label` a trimmed non-empty bounded string
+// (a field with no usable label is DROPPED, never defaulted -- an unlabeled
+// box tells the student nothing), `placeholder` optional and dropped when
+// absent/blank/over-long, deduped by label, capped in count. Like chips, a
+// closing turn never carries fields (parseEnvelopeObject skips them once
+// `session` is set), and the two are mutually exclusive there (fields win).
+export const MAX_ANSWER_FIELDS = 4
+const MAX_FIELD_LABEL_LENGTH = 40
+const MAX_FIELD_PLACEHOLDER_LENGTH = 40
+
+function parseAnswerFields(candidate: unknown): AnswerField[] | undefined {
+  if (!Array.isArray(candidate)) {
+    return undefined
+  }
+
+  const seen = new Set<string>()
+  const fields: AnswerField[] = []
+  for (const entry of candidate) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const raw = entry as { label?: unknown; placeholder?: unknown }
+    if (typeof raw.label !== 'string') continue
+    const label = raw.label.trim()
+    if (label.length === 0 || label.length > MAX_FIELD_LABEL_LENGTH) continue
+    const key = label.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    const field: AnswerField = { label }
+    if (typeof raw.placeholder === 'string') {
+      const placeholder = raw.placeholder.trim()
+      if (placeholder.length > 0 && placeholder.length <= MAX_FIELD_PLACEHOLDER_LENGTH) {
+        field.placeholder = placeholder
+      }
+    }
+    fields.push(field)
+    if (fields.length >= MAX_ANSWER_FIELDS) break
+  }
+
+  // One box is not "multi-part" -- a single unknown is an ordinary question
+  // (chips or free text), so a lone field degrades to no fields at all rather
+  // than rendering a one-box panel that the chip row already covers better.
+  return fields.length >= 2 ? fields : undefined
 }
 
 // Model signals (Sprint 15, ADR-034): the model's own per-turn read of what
@@ -277,6 +330,7 @@ export type TurnEnvelope = {
   session?: SessionCompletion
   signals?: ModelSignalKind[]
   chips?: string[]
+  answerFields?: AnswerField[]
 }
 
 // Same fence-stripping regex as summarise.ts -- duplicated rather than
@@ -504,6 +558,7 @@ export function parseEnvelopeObject(parsed: Record<string, unknown>): TurnEnvelo
     session?: unknown
     signals?: unknown
     chips?: unknown
+    answer_fields?: unknown
   }
   const envelope: TurnEnvelope = { say: envelopeSource.say }
 
@@ -555,14 +610,23 @@ export function parseEnvelopeObject(parsed: Record<string, unknown>): TurnEnvelo
     envelope.session = { complete: true, reason: BACKSTOP_CLOSE_REASON }
   }
 
-  // Answer chips ride only on a turn that is still OPEN -- a closing turn
-  // (structured `session` or the backstop-inferred one alike, hence checked
-  // AFTER the session block above) has nothing left to answer, so any chips
-  // the model sent with it are dropped, never rendered next to a goodbye.
+  // Answer inputs (chips OR multi-part fields) ride only on a turn that is
+  // still OPEN -- a closing turn (structured `session` or the backstop-inferred
+  // one alike, hence checked AFTER the session block above) has nothing left to
+  // answer, so anything the model sent with it is dropped, never rendered next
+  // to a goodbye. Fields and chips are mutually exclusive: a multi-part
+  // question wants labeled boxes, not a chip row, so when the model emits valid
+  // fields they WIN and chips are skipped for the turn (design 8d "swaps the
+  // chip row for one labeled textbox per value").
   if (!envelope.session) {
-    const chips = parseChips(envelopeSource.chips)
-    if (chips) {
-      envelope.chips = chips
+    const answerFields = parseAnswerFields(envelopeSource.answer_fields)
+    if (answerFields) {
+      envelope.answerFields = answerFields
+    } else {
+      const chips = parseChips(envelopeSource.chips)
+      if (chips) {
+        envelope.chips = chips
+      }
     }
   }
 

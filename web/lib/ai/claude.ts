@@ -156,9 +156,31 @@ const PROFILE_TAG_ITEM_SCHEMA = {
   required: ['kind', 'concept_key', 'label'],
 } as const
 
+// One labeled box in a multi-part answer (design 8d). Like every other nested
+// object under a strict:true tool it MUST carry additionalProperties:false
+// (the whole schema is rejected by the API otherwise -- the exact break that
+// 500'd every mid-conversation turn when this was first added inline without
+// it); `placeholder` is optional, the same shape ANNOTATION_ITEM_SCHEMA's
+// style/note/step use to stay out of `required` under strict mode. Shared by
+// ENVELOPE_TOOL and SESSION_START_TOOL so a multi-part opening question can
+// offer fields too.
+const ANSWER_FIELD_ITEM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    label: { type: 'string', description: 'Short field name shown above the box (e.g. "Adjacent", "x").' },
+    placeholder: { type: 'string', description: 'Optional format-only example (e.g. "e.g. 8.66"); never the answer.' },
+  },
+  required: ['label'],
+} as const
+
 const ENVELOPE_TOOL_NAME = 'submit_tutor_turn'
 
-const ENVELOPE_TOOL: Anthropic.Tool = {
+// Exported for the strict-schema guard test (tool-schema.test.ts): under
+// strict:true every object node needs additionalProperties:false or the whole
+// tool is rejected by the API at call time -- a break the fake-backend route
+// tests can't catch, so it's pinned structurally instead.
+export const ENVELOPE_TOOL: Anthropic.Tool = {
   name: ENVELOPE_TOOL_NAME,
   description:
     'Submit your structured response for this tutoring turn. This is the ONLY way to reply -- always call it, exactly once, every turn.',
@@ -220,6 +242,17 @@ const ENVELOPE_TOOL: Anthropic.Tool = {
           'distractors (ideally the very error this student is prone to), usually "Not sure" last. The ' +
           'student taps one and it becomes their answer verbatim. Use [] when the question is open-ended ' +
           'or the turn asks no question -- never force options onto a question that deserves their own words.',
+      },
+      answer_fields: {
+        type: 'array',
+        items: ANSWER_FIELD_ITEM_SCHEMA,
+        description:
+          'Multi-part answers (see MULTI-PART ANSWERS below): ONLY when the ONE question "say" just asked ' +
+          'has 2-4 DISTINCT unknowns each needing its own value (e.g. adjacent AND hypotenuse; x AND y). ' +
+          'Emit one object per unknown -- "label" the short field name shown above the box (e.g. "Adjacent"), ' +
+          'optional "placeholder" a format-only example (e.g. "e.g. 8.66"), never the answer. OMIT this key ' +
+          'entirely for a single-unknown question (use "chips" or free text) or an open-ended one; never emit ' +
+          'both "answer_fields" and "chips" on the same turn.',
       },
       signals: {
         type: 'array',
@@ -323,7 +356,7 @@ const ENVELOPE_TOOL: Anthropic.Tool = {
 // never gets to hand back one free-form paragraph for this turn.
 const SESSION_START_TOOL_NAME = 'submit_session_start_turn'
 
-const SESSION_START_TOOL: Anthropic.Tool = {
+export const SESSION_START_TOOL: Anthropic.Tool = {
   name: SESSION_START_TOOL_NAME,
   description:
     'Submit your response for this SESSION START turn -- the first turn after the student confirmed ' +
@@ -359,6 +392,15 @@ const SESSION_START_TOOL: Anthropic.Tool = {
         description:
           'Zero or more annotations framing the problem on the page (at most 3, per ANNOTATION GUIDANCE ' +
           'above). Use an empty array when PAGE CONTEXT has nothing to point at.',
+      },
+      answer_fields: {
+        type: 'array',
+        items: ANSWER_FIELD_ITEM_SCHEMA,
+        description:
+          'Multi-part answers (see MULTI-PART ANSWERS below): include ONLY when your "opening_question" ' +
+          'asks for 2-4 DISTINCT values at once (e.g. which side is on top AND which is on the bottom; an x ' +
+          'AND a y) -- one object per unknown, "label" the short field name, optional "placeholder" a ' +
+          'format-only example. OMIT this key for a single-answer or open-ended opening question.',
       },
     },
     required: ['board_text', 'opening_question', 'annotations'],
@@ -442,11 +484,21 @@ function fallbackOpeningQuestion(start: SessionStartPrompt): string {
 // kinds, the 3-cap) every other turn's annotations get. Returns undefined
 // only when `opening_question` (post-validation) is somehow still blank --
 // the one field a session-start reply cannot do without.
-function assembleSessionStartEnvelope(boardText: string, openingQuestion: string, rawAnnotations: unknown): TurnEnvelope | undefined {
+function assembleSessionStartEnvelope(
+  boardText: string,
+  openingQuestion: string,
+  rawAnnotations: unknown,
+  rawAnswerFields: unknown,
+): TurnEnvelope | undefined {
   if (!openingQuestion) {
     return undefined
   }
 
+  // answer_fields (design 8d) rides the same parseEnvelopeObject path as every
+  // other field, so a multi-part opening question ("which side on top, which
+  // on the bottom?") gets the exact same validation (2-4 usable fields, deduped,
+  // capped) here as a mid-conversation one -- a session-start turn is never a
+  // closing turn, so the open-turn-only gate always lets valid fields through.
   return parseEnvelopeObject({
     say: boardText ? `$$${boardText}$$ ${openingQuestion}` : openingQuestion,
     mode: 'socratic',
@@ -463,6 +515,7 @@ function assembleSessionStartEnvelope(boardText: string, openingQuestion: string
     annotations: rawAnnotations,
     profile_tags: [],
     signals: [],
+    answer_fields: rawAnswerFields,
   })
 }
 
@@ -497,6 +550,7 @@ async function runSessionStartTool({
   let boardText = ''
   let openingQuestion = ''
   let annotations: unknown = []
+  let answerFields: unknown = undefined
 
   for (let attempt = 0; attempt < 2 && !isCleanOpeningQuestion(openingQuestion); attempt++) {
     const response = await call()
@@ -509,6 +563,7 @@ async function runSessionStartTool({
     boardText = typeof input.board_text === 'string' ? input.board_text.trim() : ''
     openingQuestion = typeof input.opening_question === 'string' ? input.opening_question.trim() : ''
     annotations = input.annotations
+    answerFields = input.answer_fields
   }
 
   if (!isCleanOpeningQuestion(openingQuestion)) {
@@ -521,9 +576,17 @@ async function runSessionStartTool({
       boardText = ''
     }
     annotations = []
+    // The generic fallback question is single-answer, so any multi-part fields
+    // the model offered belonged to the REJECTED question -- drop them rather
+    // than render boxes that no longer match what's being asked.
+    answerFields = undefined
   }
 
-  return assembleSessionStartEnvelope(boardText, openingQuestion, annotations) ?? { say: fallbackOpeningQuestion(sessionStart) }
+  return (
+    assembleSessionStartEnvelope(boardText, openingQuestion, annotations, answerFields) ?? {
+      say: fallbackOpeningQuestion(sessionStart),
+    }
+  )
 }
 
 // Non-streaming turn — used by /api/ai/turn (the live overlay path) and

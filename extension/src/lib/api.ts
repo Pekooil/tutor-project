@@ -10,6 +10,7 @@ import {
   type StoredAuth,
 } from './storage';
 import type {
+  AnswerField,
   Annotation,
   PageContext,
   PageTopic,
@@ -234,6 +235,7 @@ export async function aiTurn(
   solutionProgress?: number;
   session?: SessionCompletion;
   chips?: string[];
+  answerFields?: AnswerField[];
 }> {
   const res = await authorizedFetch('/api/ai/turn', {
     method: 'POST',
@@ -263,6 +265,9 @@ export async function aiTurn(
     ...(typeof body.solutionProgress === 'number' ? { solutionProgress: body.solutionProgress } : {}),
     ...(body.session ? { session: body.session as SessionCompletion } : {}),
     ...(Array.isArray(body.chips) && body.chips.length > 0 ? { chips: body.chips as string[] } : {}),
+    ...(Array.isArray(body.answerFields) && body.answerFields.length > 0
+      ? { answerFields: body.answerFields as AnswerField[] }
+      : {}),
   };
 }
 
@@ -410,6 +415,7 @@ type StreamEnvelopePayload = {
   solutionProgress?: number;
   session?: SessionCompletion;
   chips?: string[];
+  answerFields?: AnswerField[];
 };
 
 export async function aiTurnEnvelopeStream(
@@ -483,6 +489,13 @@ export async function aiTurnEnvelopeStream(
     ...(Array.isArray(envelope.pins) && envelope.pins.length > 0 ? { pins: envelope.pins } : {}),
     ...(typeof envelope.solutionProgress === 'number' ? { solutionProgress: envelope.solutionProgress } : {}),
     ...(envelope.session ? { session: envelope.session } : {}),
+    // Answer inputs thread through the streamed-voice envelope too (the
+    // background destructures both from this return) -- chips and the design-8d
+    // multi-part fields alike, each present only when the turn carried it.
+    ...(Array.isArray(envelope.chips) && envelope.chips.length > 0 ? { chips: envelope.chips } : {}),
+    ...(Array.isArray(envelope.answerFields) && envelope.answerFields.length > 0
+      ? { answerFields: envelope.answerFields }
+      : {}),
   };
 }
 

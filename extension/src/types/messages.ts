@@ -264,6 +264,20 @@ export type SessionCompletionReason = 'solved' | 'follow-up-declined' | 'follow-
 
 export type SessionCompletion = { complete: true; reason: SessionCompletionReason };
 
+// Multi-part answer fields (design 8d): when the tutor's question carries more
+// than one unknown ("what's the adjacent side, and the hypotenuse?"), the
+// model emits one AnswerField per value instead of a flat chip row -- the
+// overlay renders a labeled textbox per field and commits every value as one
+// student turn (the model grades it like any typed answer). Same additive,
+// server-validated, display-ephemeral discipline as `chips`, and mutually
+// exclusive with it: a turn carries at most one of the two. `label` is the
+// short field name shown above the box ("Adjacent"); `placeholder` an optional
+// example value ("e.g. 8.66"). Mirrors /web/lib/ai/envelope.ts's AnswerField.
+export type AnswerField = {
+  label: string;
+  placeholder?: string;
+};
+
 // Sprint 12 / ADR-023 + Sprint 13 / ADR-024/025/026 + Sprint 14 / ADR-027/028
 // + Sprint 15 / ADR-034: `annotations`, `pins`, `solutionProgress`, and
 // `session` all ride the existing AI_REPLY payload ADDITIVELY -- each
@@ -285,6 +299,10 @@ export type AiReplyPayload =
       // additive discipline as the fields above (present only when the turn
       // carried any, never []), same thread-through-only rule client-side.
       chips?: string[];
+      // Multi-part answer fields (design 8d): the labeled per-unknown textbox
+      // spec, same additive/validated/ephemeral discipline as `chips` and
+      // never present alongside it (the server sends at most one of the two).
+      answerFields?: AnswerField[];
     }
   | { error: string };
 
@@ -477,6 +495,7 @@ export type VoiceTurnStreamDoneMessage = {
   solutionProgress?: number;
   session?: SessionCompletion;
   chips?: string[];
+  answerFields?: AnswerField[];
 };
 export type VoiceTurnStreamErrorMessage = { type: 'error'; error: string };
 export type VoiceTurnStreamMessage =

@@ -257,6 +257,10 @@ never markdown, never a reply that starts talking before the JSON begins.
   "chips": [ <zero to four SHORT answer options for the ONE question "say" just asked — see
               ANSWER CHIPS below; the student taps one and it becomes their answer verbatim.
               [] when the question is open-ended or the turn asks no question> ],
+  "answer_fields": [ <ONLY when "say"'s question has 2–4 DISTINCT unknowns, one object per
+                      unknown: { "label": "<short field name>", "placeholder": "<optional
+                      format example>" } — see MULTI-PART ANSWERS below. OMIT this key for a
+                      single-unknown or open-ended question; never send it alongside "chips"> ],
   "mode": "socratic" | "direct",   // which mode THIS turn used
   "assessment": {                  // your read of the student's LAST message. Include this
                                     // object on EVERY turn EXCEPT your very first (opening)
@@ -451,6 +455,24 @@ yes/no fork, or the name of the next step. The rules:
 - Never include chips on the turn that sets "session" -- a closing turn has nothing left to
   answer (they are dropped server-side there regardless).
 
+MULTI-PART ANSWERS — read before setting "answer_fields":
+Some questions ask for more than one value at once -- the two legs of a right triangle, an x
+AND a y, a slope AND an intercept. For those, "answer_fields" renders one LABELED textbox per
+unknown instead of a chip row; the student fills each box and the values commit together as a
+single answer you then grade. The rules:
+- Use "answer_fields" ONLY when your ONE question genuinely has 2 to 4 SEPARATE unknowns, each
+  wanting its own value. One unknown is an ordinary question -- use "chips" or free text, never
+  a one-box panel.
+- One object per unknown: "label" is the short field name shown above the box ("Adjacent",
+  "Hypotenuse", "x", "Slope") -- a noun, not a sentence. Optional "placeholder" is a FORMAT
+  example only ("e.g. 8.66", "e.g. 10"), never the actual answer or a value that gives it away.
+  Math in either uses plain calculator notation (x^2, sqrt(x)), never LaTeX.
+- "answer_fields" and "chips" are mutually exclusive -- emit at most one of the two on a turn.
+  A multi-part question takes fields; a single-answer question takes chips. Never both.
+- Like chips, "say" must still stand alone: name each unknown in the question itself (". . . what's
+  the adjacent side, and what's the hypotenuse?") -- never mention "the boxes" or "the fields".
+- Never include "answer_fields" on the turn that sets "session" (dropped server-side there too).
+
 SESSION COMPLETION — read before setting "session":
 This is a problem-sized session: it ends on exactly THREE conditions, never on your own
 judgment that "we've talked enough." Set "session": { "complete": true, "reason": "<one of
@@ -572,6 +594,10 @@ scaffolding step:
    "chips" (see ANSWER CHIPS above): 2-4 short options, exactly one correct, the distractors
    aimed at this student's known errors, usually "Not sure" last. "chips": [] is only correct
    when the question is genuinely open-ended or the turn asks no question.
+7. "answer_fields" -- does "say"'s one question ask for 2-4 DISTINCT values at once (two sides,
+   an x and a y, slope and intercept)? Then emit one labeled field per unknown (see MULTI-PART
+   ANSWERS above) INSTEAD of "chips" -- the two never ride the same turn. A single-unknown or
+   open-ended question omits "answer_fields" entirely.
 
 WORKED EXAMPLE of a correct MID-conversation turn (this is turn 3+ of a real exchange, NOT
 the opening turn -- note it still carries "assessment" and "solution_progress" even though
@@ -699,7 +725,11 @@ question only) -- so just answer each field for what it actually asks, and both 
 are structurally avoided, not just discouraged.
 Annotations are encouraged on this turn too: framing the problem on the page (target.text
 copied EXACTLY from PAGE CONTEXT, per ANNOTATION GUIDANCE above) is the expected opening move
-when the problem is visible there.`
+when the problem is visible there.
+"answer_fields" is available on this turn too (see MULTI-PART ANSWERS above): if your
+"opening_question" asks for 2-4 DISTINCT values at once -- e.g. "which side goes on top, and
+which goes on the bottom?" (numerator AND denominator) -- offer one labeled box per unknown so
+the student answers every part in one go. Omit it for a single-answer or open-ended opener.`
 }
 
 // Assembles the §2.5 system prompt. The PEDAGOGY and HARD RULES blocks are

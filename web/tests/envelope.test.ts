@@ -571,3 +571,100 @@ describe("parseEnvelope: signals (Sprint 15, ADR-034 -- allowlisted kinds, drop-
     expect(Object.prototype.hasOwnProperty.call(envelope, 'signals')).toBe(false)
   })
 })
+
+describe('parseEnvelope: answer_fields (design 8d -- multi-part answers, model-emitted)', () => {
+  const triangle = [
+    { label: 'Adjacent', placeholder: 'e.g. 8.66' },
+    { label: 'Hypotenuse', placeholder: 'e.g. 10' },
+  ]
+
+  it('parses 2+ well-formed fields, keeping label + optional placeholder', () => {
+    expect(parseEnvelope(validEnvelopeJson({ answer_fields: triangle })).answerFields).toEqual(triangle)
+  })
+
+  it('keeps a field with no placeholder, omitting the key rather than defaulting it', () => {
+    const envelope = parseEnvelope(validEnvelopeJson({ answer_fields: [{ label: 'x' }, { label: 'y' }] }))
+    expect(envelope.answerFields).toEqual([{ label: 'x' }, { label: 'y' }])
+  })
+
+  it('degrades a single field to nothing -- one unknown is an ordinary question, not multi-part', () => {
+    expect(parseEnvelope(validEnvelopeJson({ answer_fields: [{ label: 'x' }] })).answerFields).toBeUndefined()
+  })
+
+  it('trims labels/placeholders and drops a field whose label is blank or over-long', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({
+        answer_fields: [
+          { label: '  Adjacent  ', placeholder: '  e.g. 8.66 ' },
+          { label: '   ' },
+          { label: 'H'.repeat(60) },
+          { label: 'Hypotenuse' },
+        ],
+      })
+    )
+    // Only the two usable ones survive; the trimmed label/placeholder win.
+    expect(envelope.answerFields).toEqual([
+      { label: 'Adjacent', placeholder: 'e.g. 8.66' },
+      { label: 'Hypotenuse' },
+    ])
+  })
+
+  it('drops a non-string placeholder but keeps the field on a valid label', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({ answer_fields: [{ label: 'x', placeholder: 42 }, { label: 'y' }] })
+    )
+    expect(envelope.answerFields).toEqual([{ label: 'x' }, { label: 'y' }])
+  })
+
+  it('dedupes by label case-insensitively and caps the list at four', () => {
+    const dup = parseEnvelope(
+      validEnvelopeJson({ answer_fields: [{ label: 'X' }, { label: 'x' }, { label: 'y' }] })
+    )
+    expect(dup.answerFields).toEqual([{ label: 'X' }, { label: 'y' }])
+
+    const many = [{ label: 'a' }, { label: 'b' }, { label: 'c' }, { label: 'd' }, { label: 'e' }]
+    expect(parseEnvelope(validEnvelopeJson({ answer_fields: many })).answerFields).toHaveLength(4)
+  })
+
+  it('drops a non-array (or non-object entries) rather than throwing', () => {
+    expect(parseEnvelope(validEnvelopeJson({ answer_fields: 'Adjacent' })).answerFields).toBeUndefined()
+    expect(parseEnvelope(validEnvelopeJson({ answer_fields: ['Adjacent', 'Hypotenuse'] })).answerFields).toBeUndefined()
+  })
+
+  it('is dropped on a closing turn -- a goodbye has nothing left to answer', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({ answer_fields: triangle, session: { complete: true, reason: 'solved' } })
+    )
+    expect(envelope.answerFields).toBeUndefined()
+    expect(envelope.session).toEqual({ complete: true, reason: 'solved' })
+  })
+
+  it('is dropped when the mandated close sentence infers a session too', () => {
+    const closingSay = `Nice work — that's the full triangle. ${SESSION_CLOSE_SENTENCE}`
+    const envelope = parseEnvelope(validEnvelopeJson({ say: closingSay, answer_fields: triangle }))
+    expect(envelope.answerFields).toBeUndefined()
+    expect(envelope.session?.complete).toBe(true)
+  })
+
+  it('wins over chips when both are sent -- fields and chips are mutually exclusive (8d swaps the chip row)', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({ answer_fields: triangle, chips: ['8.66', '10', 'Not sure'] })
+    )
+    expect(envelope.answerFields).toEqual(triangle)
+    expect(envelope.chips).toBeUndefined()
+  })
+
+  it('leaves chips intact when answer_fields is present but invalid (single field degrades)', () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({ answer_fields: [{ label: 'x' }], chips: ['8.66', '10'] })
+    )
+    expect(envelope.answerFields).toBeUndefined()
+    expect(envelope.chips).toEqual(['8.66', '10'])
+  })
+
+  it('is omitted entirely (not present as an own key) when the model sends none', () => {
+    const envelope = parseEnvelope(validEnvelopeJson())
+    expect(envelope.answerFields).toBeUndefined()
+    expect(Object.prototype.hasOwnProperty.call(envelope, 'answerFields')).toBe(false)
+  })
+})

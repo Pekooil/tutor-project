@@ -14,6 +14,7 @@ import {
 import { extractPageContext } from './pageExtractor';
 import type {
   AiReplyPayload,
+  AnswerField,
   Annotation,
   CalyxaMessage,
   OpeningScanReplyPayload,
@@ -220,6 +221,7 @@ async function sendAiTurn(
           solutionProgress?: number;
           session?: TurnResult['session'];
           chips?: string[];
+          answerFields?: AnswerField[];
           error?: string;
         }) => {
           if (msg.type === 'chunk' && msg.text) {
@@ -237,6 +239,7 @@ async function sendAiTurn(
               ...(msg.solutionProgress !== undefined ? { solutionProgress: msg.solutionProgress } : {}),
               ...(msg.session ? { session: msg.session } : {}),
               ...(msg.chips && msg.chips.length > 0 ? { chips: msg.chips } : {}),
+              ...(msg.answerFields && msg.answerFields.length > 0 ? { answerFields: msg.answerFields } : {}),
             });
           } else if (msg.type === 'error' && !settled) {
             settled = true;
@@ -286,6 +289,7 @@ async function sendAiTurn(
     ...(payload.solutionProgress !== undefined ? { solutionProgress: payload.solutionProgress } : {}),
     ...(payload.session ? { session: payload.session } : {}),
     ...(payload.chips && payload.chips.length > 0 ? { chips: payload.chips } : {}),
+    ...(payload.answerFields && payload.answerFields.length > 0 ? { answerFields: payload.answerFields } : {}),
   };
 }
 
@@ -323,6 +327,7 @@ async function sendVoiceTurnStreaming(
           ...(msg.solutionProgress !== undefined ? { solutionProgress: msg.solutionProgress } : {}),
           ...(msg.session ? { session: msg.session } : {}),
           ...(msg.chips && msg.chips.length > 0 ? { chips: msg.chips } : {}),
+          ...(msg.answerFields && msg.answerFields.length > 0 ? { answerFields: msg.answerFields } : {}),
         });
       } else if (msg.type === 'error' && !settled) {
         settled = true;

@@ -1,6 +1,6 @@
-import type { RefObject } from 'react';
+import { useState, type RefObject } from 'react';
 import { CalyxaMark, Card } from '@calyxa/ui';
-import type { Annotation } from '../types/messages';
+import type { AnswerField, Annotation } from '../types/messages';
 import type { AnnotationColorMap, DisplayMessage } from './Overlay';
 import { PinIcon } from './TitlePin';
 
@@ -181,6 +181,9 @@ export function Transcript({
   chips,
   chipsDisabled,
   onChipTap,
+  answerFields,
+  answerFieldsDisabled,
+  onAnswerFieldsSubmit,
   chatEndRef,
 }: {
   messages: DisplayMessage[];
@@ -196,6 +199,14 @@ export function Transcript({
   chips: string[] | null;
   chipsDisabled: boolean;
   onChipTap: (text: string) => void;
+  // The LATEST tutor turn's multi-part answer fields (design 8d) -- same
+  // Overlay-owned per-turn lifecycle as chips, and mutually exclusive with
+  // them (a turn carries at most one). When present they render a labeled
+  // textbox per unknown INSTEAD of the chip row; "Check answers" hands the
+  // combined "<label> = <value>" line up for Overlay to commit as one turn.
+  answerFields: AnswerField[] | null;
+  answerFieldsDisabled: boolean;
+  onAnswerFieldsSubmit: (combined: string) => void;
   chatEndRef: RefObject<HTMLDivElement | null>;
 }) {
   return (
@@ -281,8 +292,10 @@ export function Transcript({
           LATEST tutor turn ever has them (Overlay.tsx clears/replaces the
           state per turn), so rendering after the list IS "under the tutor
           line". Tapping commits the answer as a student bubble; the student
-          can always still type or speak instead. */}
-      {chips && chips.length > 0 && !busy && (
+          can always still type or speak instead. A multi-part turn (design 8d,
+          answerFields below) replaces this row wholesale -- the server sends at
+          most one of the two, and the field panel wins if both ever arrive. */}
+      {chips && chips.length > 0 && !busy && !(answerFields && answerFields.length > 0) && (
         <div className="cx-msg flex flex-wrap gap-[7px] pl-[23px]">
           {chips.map((chip) => (
             <button
@@ -306,6 +319,21 @@ export function Transcript({
             </button>
           ))}
         </div>
+      )}
+
+      {/* Multi-part answer fields (design 8d): when the tutor's question
+          carries more than one unknown, one labeled textbox per value replaces
+          the chip row above. The key is the field labels joined, so a NEW
+          multi-part turn mounts a fresh panel (its inputs reset) rather than
+          reusing the previous turn's typed values. Overlay clears answerFields
+          on any student answer, so this only ever belongs to the latest turn. */}
+      {answerFields && answerFields.length > 0 && !busy && (
+        <AnswerFields
+          key={answerFields.map((field) => field.label).join('|')}
+          fields={answerFields}
+          disabled={answerFieldsDisabled}
+          onSubmit={onAnswerFieldsSubmit}
+        />
       )}
 
       {/* Live interim transcript from SpeechRecognition, updated word-by-word
@@ -379,5 +407,92 @@ function TypingIndicator() {
         />
       </div>
     </div>
+  );
+}
+
+// The multi-part answer's outbound form (design 8d): the filled boxes join as
+// "<label> = <value>", comma-separated, so the whole answer commits as one
+// student turn the model grades at once -- the same calculator notation it
+// named the unknowns in. Pure + exported for the jsdom spec (the stripHistory
+// precedent), and the single source of truth the component submits through.
+export function formatMultiPartAnswer(fields: AnswerField[], values: readonly string[]): string {
+  return fields.map((field, index) => `${field.label} = ${(values[index] ?? '').trim()}`).join(', ');
+}
+
+// Every box filled -- the check button's enable gate (a half-filled multi-part
+// answer is never sent, mirroring the composer's own empty-input guard).
+export function multiPartComplete(fields: AnswerField[], values: readonly string[]): boolean {
+  return fields.length > 0 && fields.every((_, index) => (values[index] ?? '').trim().length > 0);
+}
+
+// Multi-part answer fields (design 8d "One field per unknown"): one labeled
+// textbox per unknown, indented under the tutor line where the chip row would
+// sit, with a single "Check answers" button that commits every value at once.
+// Owns only the ephemeral typed values -- the field SPEC comes from Overlay
+// (the tutor turn), and on submit the joined "<label> = <value>" line goes
+// back up to Overlay to commit as one ordinary student turn (the model grades
+// it, same as a typed answer -- there is no client-side answer key). A fresh
+// panel mounts per multi-part turn (Transcript keys it on the labels), so the
+// inputs always start empty. The panel supplements typing/speaking, never
+// replaces them: the composer below stays live the whole time.
+function AnswerFields({
+  fields,
+  disabled,
+  onSubmit,
+}: {
+  fields: AnswerField[];
+  disabled: boolean;
+  onSubmit: (combined: string) => void;
+}) {
+  const [values, setValues] = useState<string[]>(() => fields.map(() => ''));
+
+  const allFilled = multiPartComplete(fields, values);
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (disabled || !allFilled) return;
+    onSubmit(formatMultiPartAnswer(fields, values));
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="cx-msg ml-[23px] flex flex-col gap-3 rounded-[12px] border border-border bg-[#fbfaf8] px-[15px] py-[14px]"
+    >
+      <div className="flex flex-wrap gap-[10px]">
+        {fields.map((field, index) => (
+          <label key={field.label} className="flex min-w-[150px] flex-1 flex-col gap-[5px]">
+            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              {field.label}
+            </span>
+            <span className="flex items-center rounded-[10px] border border-border bg-background px-3 py-2 transition-colors focus-within:border-accent">
+              <input
+                type="text"
+                value={values[index]}
+                disabled={disabled}
+                placeholder={field.placeholder}
+                onChange={(event) =>
+                  setValues((current) => {
+                    const next = [...current];
+                    next[index] = event.target.value;
+                    return next;
+                  })
+                }
+                className="min-w-0 flex-1 border-none bg-transparent text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+              />
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="flex items-center">
+        <button
+          type="submit"
+          disabled={disabled || !allFilled}
+          className="cursor-pointer rounded-full border-0 bg-accent px-[15px] py-[7px] text-[12.5px] font-semibold text-accent-foreground outline-none transition-colors hover:bg-[var(--calyxa-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Check answers
+        </button>
+      </div>
+    </form>
   );
 }

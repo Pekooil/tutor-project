@@ -369,6 +369,10 @@ export type TurnResponsePayload = {
   // -- parse already trimmed/deduped/capped them and dropped them from any
   // closing turn (envelope.ts), so past that gate they are display-ready.
   chips?: string[]
+  // Multi-part answer fields (design 8d): the envelope's validated per-unknown
+  // textbox spec, threaded as-is (same gate as chips, and never present
+  // alongside chips -- envelope.ts sends at most one of the two).
+  answerFields?: NonNullable<TurnEnvelope['answerFields']>
 }
 
 // Runs the shared persistence + grounding + pin tail and assembles the
@@ -413,5 +417,6 @@ export async function completeTurn(
     ...(envelope.solutionProgress !== undefined ? { solutionProgress: envelope.solutionProgress } : {}),
     ...(envelope.session ? { session: envelope.session } : {}),
     ...(envelope.chips && envelope.chips.length > 0 ? { chips: envelope.chips } : {}),
+    ...(envelope.answerFields && envelope.answerFields.length > 0 ? { answerFields: envelope.answerFields } : {}),
   }
 }

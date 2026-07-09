@@ -177,7 +177,7 @@ export default defineBackground(() => {
       try {
         await ensureSessionStarted(pageDomain, 'text');
         const turnContext = await getTurnContext();
-        const { reply, annotations, pins, solutionProgress, session, chips } = await api.aiTurn(
+        const { reply, annotations, pins, solutionProgress, session, chips, answerFields } = await api.aiTurn(
           msg.messages,
           msg.pageContext,
           turnContext,
@@ -208,6 +208,7 @@ export default defineBackground(() => {
             ...(solutionProgress !== undefined ? { solutionProgress } : {}),
             ...(session ? { session } : {}),
             ...(chips ? { chips } : {}),
+            ...(answerFields ? { answerFields } : {}),
           });
         } catch {
           // Port already disconnected — all chunks were sent, no action needed.
@@ -239,7 +240,7 @@ export default defineBackground(() => {
       try {
         await ensureSessionStarted(pageDomain, 'voice');
         const turnContext = await getTurnContext();
-        const { reply, annotations, pins, solutionProgress, session, chips } =
+        const { reply, annotations, pins, solutionProgress, session, chips, answerFields } =
           await api.aiTurnEnvelopeStream(msg.messages, msg.pageContext, turnContext, (text) => {
             try {
               port.postMessage({ type: 'say', text });
@@ -260,6 +261,7 @@ export default defineBackground(() => {
             ...(solutionProgress !== undefined ? { solutionProgress } : {}),
             ...(session ? { session } : {}),
             ...(chips ? { chips } : {}),
+            ...(answerFields ? { answerFields } : {}),
           });
         } catch {
           // Port already disconnected.
