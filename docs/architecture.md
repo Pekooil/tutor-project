@@ -202,34 +202,47 @@ rather than silently degrading to the wrong voice. Audio is still never
 persisted anywhere in this pipeline (ADR-011); the STT leg is untouched. See
 ADR-033.
 
-## Marketing site (Sprint 20)
-`/web/app/page.tsx` becomes the public landing page, built as a **parallel
-track** alongside the product-roadmap sprints (15–19) — it shares no files
-with them except `/web/package.json`. Structurally it borrows Cluely's
-layout (full-bleed hero, product demo center stage, scroll-driven feature
-reveals), rendered in Calyxa's existing light `@calyxa/ui` palette and voice
-(ADR-018, `/docs/brand.md`) rather than a dark, hype-forward skin.
+## Marketing site (Sprint 20, revised by Sprint 25)
+`/web/app/page.tsx` is the public landing page, built as a **parallel
+track** alongside the product-roadmap sprints — it shares no files with them
+except `/web/package.json`. Structurally it borrows Cluely's layout
+(full-bleed hero, product demo center stage, scroll-driven feature reveals),
+rendered in Calyxa's existing light `@calyxa/ui` palette and voice (ADR-018,
+`/docs/brand.md`) rather than a dark, hype-forward skin.
 
 The product demo is a **recreation, never an import**: components under
 `/web/components/marketing/demo/` rebuild the overlay's visual vocabulary
-(panel chrome, transcript bubbles, color-linked annotations, the profile
-tags/insight strip, pings, the solution-progress bar, the voice waveform)
-from `@calyxa/ui` tokens, driven by a pure scene-script + step-reducer engine
-rather than by the real WXT/shadow-DOM runtime. `/extension` is never
-imported into `/web`; fidelity is instead checked by eyeball against a real
-dev build. `motion` (framer-motion) is added to `/web`, scoped by ADR-031 to
-the marketing component tree only — product surfaces (dashboard, account,
-the overlay) keep ADR-018's CSS-only, reduced-motion-safe transitions
-unchanged.
+from tokens, driven by a pure scene-script + step-reducer engine rather than
+by the real WXT/shadow-DOM runtime. Sprint 20 recreated the Sprint-14-era
+overlay; **Sprint 25 (ADR-040, provisional number) rebuilds the recreation
+to the redesigned overlay**: the glass panel and idle-pill shell, the
+tutor-mode session header (stage subtitle + clock), the board strip,
+un-bubbled tutor turns with answer chips, milestone markers, the three-tone
+ping system, the check-in (AI-prediction) and recap cards, and the Meadow
+annotation system (ordinal triples, label pills, why-notes, step badges,
+leaders, draw-on motion). The retired vocabulary — the solution-progress
+bar, per-bubble profile tags, and the pre/post insight strips — is deleted
+from the scene engine end-to-end, with a test asserting no marketing
+component references it. The hero plays the full session arc (scan →
+check-in → session → recap); the hero H1 itself carries decorative
+Meadow-style annotations plus above-the-fold ping/mode elements; a dedicated
+adaptive-features section ("It adapts while you work") demonstrates
+misconception prediction, tutor modes, annotation anatomy, and a tap-to-fire
+ping catalog. `/extension` is never imported into `/web`; fidelity is
+checked by eyeball against a production extension build. `motion`
+(framer-motion) remains scoped by ADR-031 to the marketing component tree
+only — product surfaces (dashboard, account, the overlay) keep ADR-018's
+CSS-only, reduced-motion-safe transitions unchanged.
 
-A new `waitlist` table (RLS enabled, zero policies — service-role write only
-via `POST /api/waitlist`) replaces account signup as the page's promoted
-action; `/signup` and `/login` remain reachable but de-emphasized. The page
-also markets a "study loop" (per-session notes/practice problems/flashcards)
-that does not exist as a shipped product feature — a deliberate, recorded
-marketing-ahead-of-product call (ADR-031) with a named fuse: real artifact
-generation must ship, or the section's copy must be softened, before the
-waitlist converts to beta invitations. See ADR-031.
+A `waitlist` table (RLS enabled, zero policies — service-role write only via
+`POST /api/waitlist`) replaces account signup as the page's promoted action;
+`/signup` and `/login` remain reachable but de-emphasized. The "study loop"
+section (per-session notes/practice problems/flashcards) was originally
+marketed as live under ADR-031 §4's recorded fuse; that fuse is **resolved**
+(ADR-031 amendment, 2026-07-09): generation is deferred post-beta, so the
+section is reframed as roadmap — "on the way," no beta promise — chained
+visually off the recap card's "Generated for you" placeholder slot. See
+ADR-031 and ADR-040.
 
 ## Architecture decision records
 See `/docs/adr/`. Notably:
@@ -311,6 +324,15 @@ See `/docs/adr/`. Notably:
   as a first-class fallback (p50 time-to-first-audio ≤2.5s); ElevenLabs voice
   pinned (explicit `model_id`/`voice_settings`, boot-time fail-loud assertion);
   wrong-voice root cause recorded in the ADR's amendment box once Task 7 runs
+- ADR-040 (provisional number — Sprint 17 claims 039; renumber at whichever
+  sprint lands second) — Landing page v2: the marketing demo recreates the
+  REDESIGNED overlay (modes/pings/milestones/board strip/check-in/recap/
+  Meadow annotations), retired scene vocabulary deleted with a
+  no-retired-features test; the hero plays the full session arc and the H1
+  is annotated; a dedicated adaptive-features section; the study loop
+  reframed as roadmap with no beta promise (amends ADR-031 §4, resolving its
+  fuse); tokens consumed from `@calyxa/ui` or the DemoStage-scoped mirror,
+  `theme.css` read-only
 
 ## To be documented
 - System context diagram

@@ -3,7 +3,7 @@
 ## Read this file at the start of every session before doing anything else.
 
 ## Current sprint
-Sprint 15 — Curriculum expansion + voice pipeline latency (Task 1 of 9 — ADRs + pointers — done). Sprint 20's marketing landing page (parallel track) is COMPLETE (2026-07-06).
+Sprint 15 — Curriculum expansion + voice pipeline latency (Task 1 of 9 — ADRs + pointers — done). Sprint 20's marketing landing page (parallel track) is COMPLETE (2026-07-06). Sprint 25 — landing page v2 to match the redesigned extension (parallel track, `/docs/sprint-25-plan.md`) — IN PROGRESS (Task 1 of 10 — ADR + pointers — done 2026-07-09).
 (Update this line at the start of each new sprint)
 
 ## Locked architecture decisions

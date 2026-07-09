@@ -17,7 +17,7 @@
 - TTS: ElevenLabs streaming API
 
 ## Current phase
-Phase 2, Sprint 15 — Curriculum expansion + voice pipeline latency (Task 1 of 9 — ADRs + pointers — done). Sprint 20's marketing landing page (parallel track) is COMPLETE (2026-07-06).
+Phase 2, Sprint 15 — Curriculum expansion + voice pipeline latency (Task 1 of 9 — ADRs + pointers — done). Sprint 20's marketing landing page (parallel track) is COMPLETE (2026-07-06). Sprint 25 — landing page v2 to match the redesigned extension (parallel track, `/docs/sprint-25-plan.md`) — IN PROGRESS (Task 1 of 10 done 2026-07-09).
 
 ## File structure reference
 See /docs/architecture.md

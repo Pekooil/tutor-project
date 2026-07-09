@@ -110,3 +110,17 @@ implementation of the overlay.
   client-side Supabase read of the `waitlist` table; treating the study-loop
   section's "live" framing as settled product scope rather than a named,
   fused liability.
+
+---
+
+**Amendment (2026-07-09, Sprint 25 — recorded in ADR-040, provisional
+number):** Decision 4 is **reversed**. The fuse it recorded has come due on
+its "copy gains a qualifier" branch: study-material generation is deferred
+post-beta (the shipped recap card renders a "Generated for you"
+placeholder), it will not be in the beta build, and Darcy's call is to
+reframe the study-loop section as roadmap — "on the way," with **no beta
+promise** — visually chained off the recap card's placeholder slot. The
+corresponding "marketed as live" language in this ADR's Rationale and
+Consequences is superseded the same way. Decisions 1–3 and 5–6 stand
+unchanged; §2's recreation-never-import rule is carried forward (and
+extended to the redesigned overlay) by ADR-040 itself.
