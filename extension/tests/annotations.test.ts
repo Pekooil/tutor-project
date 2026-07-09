@@ -663,13 +663,13 @@ describe('layoutLabels — deterministic label collision layout (Sprint 14 Task 
   });
 
   it('clamps a too-close-to-the-top natural position down to the viewport margin, not a negative y', () => {
-    // rect.y = 28 is the EXACT boundary where "fits above" first becomes
-    // true (28 - LABEL_HEIGHT(22) - 6 == 0) -- so the natural (pre-clamp) y
+    // rect.y = 32 is the EXACT boundary where "fits above" first becomes
+    // true (32 - LABEL_HEIGHT(26) - 6 == 0) -- so the natural (pre-clamp) y
     // is 0, one px inside the top edge but still under the 4px margin this
     // module enforces everywhere else (VIEWPORT_MARGIN_PX). This is a
     // single, un-stacked label: nothing here is about collision, purely the
     // viewport floor.
-    const rect = { x: 100, y: 28, w: 10, h: 10 };
+    const rect = { x: 100, y: 32, w: 10, h: 10 };
     const [placement] = layoutLabels([box('a', rect)], 1280, 800);
 
     expect(placement.y).toBe(4);

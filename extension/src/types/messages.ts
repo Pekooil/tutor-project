@@ -200,6 +200,7 @@ export type Annotation = {
   target: AnnotationTarget;
   style?: { color?: string; weight?: string };
   label?: string;
+  note?: string;
   step?: number;
   ttlMs?: number;
 };

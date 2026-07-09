@@ -145,8 +145,21 @@
  *   - --calyxa-annot-1..4 are the per-turn annotation-ordinal palette
  *     (Overlay.tsx's assignAnnotationColors) -- a SEPARATE namespace from
  *     the tag-kind aliases above (ordinal position vs. semantic kind), so
- *     the two never collide in meaning even where they reuse the same
- *     underlying hue.
+ *     the two never collide in meaning even where they share a hue family.
+ *     Since the annotations redesign (design handoff "Calyxa Annotations",
+ *     palette A "Meadow") each ordinal is a TRIPLE-plus: stroke (the base
+ *     token), -tint (pill/badge bg), -tint-border (pill border), -deep
+ *     (dark-on-tint text), -fill (~7-9% shape fill). These are the one
+ *     sanctioned exception to "reuse only": the handoff specifies the
+ *     exact hexes, tuned to equal lightness/calm chroma. AA (relative-
+ *     luminance): every -deep on its own -tint clears 4.5:1 text AA
+ *     (#166534/#f0fdf4 6.4:1 · #8a4106/#fbf3e4 6.7:1 · #2c5288/#eff4fb
+ *     6.6:1 · #7c4370/#faf2f8 6.5:1); the strokes are non-text UI
+ *     boundaries (3:1 minimum) against white, which all four clear.
+ *     Transcript's color-linked text reads the -deep companions for its
+ *     text fill (Overlay.css .cx-annot-text-annot-N) -- the plain stroke
+ *     tokens are NOT AA as body text and are reserved for strokes,
+ *     underlines, and fills.
  * AA contrast (calculated, WCAG relative-luminance method, against
  * --color-surface #F7F7F5 -- this file's panel/pill background, a
  * slightly harder bar than brand.md's own --color-background pairs since
@@ -172,10 +185,26 @@
   --calyxa-tag-callback: var(--color-muted-foreground);
   --calyxa-progress: var(--color-accent-glow-strong);
 
-  --calyxa-annot-1: var(--color-accent-emphasis);
-  --calyxa-annot-2: #2563eb;
-  --calyxa-annot-3: var(--color-danger);
-  --calyxa-annot-4: var(--color-border-strong);
+  --calyxa-annot-1: #1f9d5b;
+  --calyxa-annot-1-tint: #f0fdf4;
+  --calyxa-annot-1-tint-border: #d6f5e1;
+  --calyxa-annot-1-deep: #166534;
+  --calyxa-annot-1-fill: rgb(31 157 91 / 0.09);
+  --calyxa-annot-2: #b45309;
+  --calyxa-annot-2-tint: #fbf3e4;
+  --calyxa-annot-2-tint-border: #f0e0bc;
+  --calyxa-annot-2-deep: #8a4106;
+  --calyxa-annot-2-fill: rgb(180 83 9 / 0.07);
+  --calyxa-annot-3: #3b6bb0;
+  --calyxa-annot-3-tint: #eff4fb;
+  --calyxa-annot-3-tint-border: #d8e4f4;
+  --calyxa-annot-3-deep: #2c5288;
+  --calyxa-annot-3-fill: rgb(59 107 176 / 0.07);
+  --calyxa-annot-4: #9d5b8f;
+  --calyxa-annot-4-tint: #faf2f8;
+  --calyxa-annot-4-tint-border: #efdceb;
+  --calyxa-annot-4-deep: #7c4370;
+  --calyxa-annot-4-fill: rgb(157 91 143 / 0.08);
 }
 
 /* ---- Calyxa overlay: tutoring-session aliases (design handoff section 08,

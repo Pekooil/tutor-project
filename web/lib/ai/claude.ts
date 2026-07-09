@@ -126,10 +126,23 @@ const ANNOTATION_ITEM_SCHEMA = {
       properties: { color: { type: 'string', enum: ['amber', 'blue', 'green', 'red'] } },
       required: ['color'],
     },
-    label: { type: 'string', description: '5 words or fewer; omit if it adds nothing new.' },
+    label: {
+      type: 'string',
+      description:
+        'REQUIRED on every annotation -- no naked shapes. Verb-first, 4 words or fewer, naming WHAT ' +
+        'the mark points at (e.g. "Split this term", "Same factor, twice").',
+    },
+    note: {
+      type: 'string',
+      description:
+        'Optional why-note shown under the label: answers WHY this mark matters, 90 characters or ' +
+        'fewer (e.g. "Both groups share (x - 3) -- that is the signal that grouping worked."). ' +
+        'Include one whenever there is a genuine why; if you cannot say why the mark matters, ' +
+        'reconsider the mark.',
+    },
     step: { type: 'number' },
   },
-  required: ['id', 'type', 'target'],
+  required: ['id', 'type', 'target', 'label'],
 } as const
 
 const PROFILE_TAG_ITEM_SCHEMA = {
@@ -268,8 +281,14 @@ const ENVELOPE_TOOL: Anthropic.Tool = {
         confidence: 'low',
       },
       annotations: [
-        { id: 'a1', type: 'highlight', target: { kind: 'textMatch', text: '5t^2' } },
-        { id: 'a2', type: 'highlight', target: { kind: 'textMatch', text: '8t^2' }, style: { color: 'blue' } },
+        {
+          id: 'a1',
+          type: 'highlight',
+          target: { kind: 'textMatch', text: '5t^2' },
+          label: 'Add these like terms',
+          note: 'Both are t² terms, so their coefficients (5 and 8) add directly.',
+        },
+        { id: 'a2', type: 'highlight', target: { kind: 'textMatch', text: '8t^2' }, style: { color: 'blue' }, label: 'Same power here' },
       ],
       profile_tags: [],
       signals: ['concept-understood'],
@@ -348,7 +367,15 @@ const SESSION_START_TOOL: Anthropic.Tool = {
     {
       board_text: 'F = m*a',
       opening_question: 'The mass is in grams -- what does it need to be in first?',
-      annotations: [{ id: 'a1', type: 'highlight', target: { kind: 'textMatch', text: 'F = ma' } }],
+      annotations: [
+        {
+          id: 'a1',
+          type: 'highlight',
+          target: { kind: 'textMatch', text: 'F = ma' },
+          label: 'Start with units',
+          note: 'Every quantity must be in SI units before you plug in.',
+        },
+      ],
     },
   ],
 }

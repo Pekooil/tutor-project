@@ -56,6 +56,7 @@ export type Annotation = {
   target: AnnotationTarget
   style?: { color?: string; weight?: string }
   label?: string
+  note?: string
   step?: number
   ttlMs?: number
 }
@@ -421,7 +422,7 @@ function parseAnnotation(candidate: unknown): Annotation | undefined {
     return undefined
   }
 
-  const { id, type, target, style, label, step, ttl_ms } = candidate as Record<string, unknown>
+  const { id, type, target, style, label, note, step, ttl_ms } = candidate as Record<string, unknown>
 
   if (typeof id !== 'string' || id.length === 0) return undefined
   if (!isValidAnnotationType(type)) return undefined
@@ -445,6 +446,7 @@ function parseAnnotation(candidate: unknown): Annotation | undefined {
     }
   }
   if (typeof label === 'string') annotation.label = label
+  if (typeof note === 'string' && note.trim().length > 0) annotation.note = note.trim()
   if (typeof step === 'number') annotation.step = step
   if (typeof ttl_ms === 'number') annotation.ttlMs = ttl_ms
 

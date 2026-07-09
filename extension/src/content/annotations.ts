@@ -83,6 +83,7 @@ export type DrawInstruction = {
   rect: DrawRect;
   style?: Annotation['style'];
   label?: string;
+  note?: string;
   step?: number;
 };
 
@@ -789,6 +790,7 @@ function dispatchActive(): void {
       rect,
       ...(annotation.style ? { style: annotation.style } : {}),
       ...(annotation.label !== undefined ? { label: annotation.label } : {}),
+      ...(annotation.note !== undefined ? { note: annotation.note } : {}),
       ...(annotation.step !== undefined ? { step: annotation.step } : {}),
     })),
   };

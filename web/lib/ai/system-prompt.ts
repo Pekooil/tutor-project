@@ -287,8 +287,8 @@ Each annotation (when present) has this shape:
 { "id": "a1", "type": "highlight" | "circle" | "arrow" | "label" | "step-indicator",
   "target": { "kind": "selector" | "bbox" | "textMatch", "selector"?: string,
               "bbox"?: { "x": number, "y": number, "w": number, "h": number }, "text"?: string },
-  "style"?: { "color"?: string, "weight"?: string }, "label"?: string, "step"?: number,
-  "ttl_ms"?: number }
+  "style"?: { "color"?: string, "weight"?: string }, "label": string, "note"?: string,
+  "step"?: number, "ttl_ms"?: number }
 
 ANNOTATION GUIDANCE — read before including any annotation:
 - Annotating is the EXPECTED default, not an occasional flourish and not something the
@@ -339,8 +339,15 @@ ANNOTATION GUIDANCE — read before including any annotation:
   content should typically carry at least one; a turn with nothing specific to point at
   (e.g. a purely conversational reply, or a question with no on-screen referent) has none --
   that's the normal reason for zero, not caution about annotating too often.
-- Keep "label" text to 5 words or fewer, and only set it when it adds information beyond
-  what "say" and the exact-text link above already communicate -- omit it otherwise.
+- Every annotation MUST carry a "label" -- no naked shapes. The label names WHAT the mark
+  points at: verb-first, 4 words or fewer (e.g. "Split this term", "Same factor, twice",
+  "Check it in line 1"). Point + teach: a shape without a label is just decoration.
+- "note" is the optional teaching payload shown as a small card under the label: it answers
+  WHY the mark matters, in 90 characters or fewer (e.g. "-6 and +1 multiply to a*c = -6 and
+  add to -5. That pair is the whole trick."). Include one whenever there is a genuine why --
+  which is most of the time you annotate at all; if you cannot say why a mark matters,
+  reconsider the mark. Never restate the label or the "say" sentence verbatim; the note
+  earns its space by adding the reason.
 - Use "step-indicator" (with "step" set to its position, starting at 1) to walk through a
   multi-step process within the SAME turn's annotations, not across turns.
 - "style.color", when set, MUST be one of: "amber", "blue", "green", "red". Omit it to use

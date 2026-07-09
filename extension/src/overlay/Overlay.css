@@ -255,131 +255,247 @@
   z-index: 2147483646;
 }
 
-/* The style.color allow-list (system-prompt.ts's ANNOTATION GUIDANCE, Task
- * 2): "amber" | "blue" | "green" | "red", amber default. @calyxa/ui's
- * theme.css (ADR-018) only has color AXES for the brand accent (green) and
- * danger (red) — it has no amber or blue token at all, and Task 6 is
- * explicit that this file adds no new token to /packages/ui. So green/red
- * below reuse the existing shared tokens; amber/blue are literal values
- * scoped to this file only (extension-local, not a design-system addition)
- * — chosen to read clearly as warm/cool without touching the shared palette.
- * An unresolved style.color already falls back to "amber" before these
- * classes are ever applied (AnnotationLayer.tsx's resolveColor). */
-.cx-annot-amber {
-  --cx-annot-color: #d97706;
-  --cx-annot-fill: rgb(217 119 6 / 0.22);
+/* ── Annotation marks: the "point + teach" system (Sprint 15, design
+ * handoff "Calyxa Annotations") ── each mark resolves ONE ordinal triple
+ * from theme.css's --calyxa-annot-N companions: stroke (2px geometry),
+ * tint (pill/badge bg), tint-border (pill border), deep (dark-on-light
+ * text — replacing the old white-on-color pills), fill (~8% shape fill —
+ * replacing the old 22% coats). AnnotationLayer.tsx picks the class: the
+ * model's explicit legacy style.color maps onto the ordinal carrying the
+ * same hue (green→o1, amber→o2, blue→o3, red→o4's plum — never a hard
+ * red, it reads "error"); otherwise the per-turn ordinal assignment
+ * (Overlay.tsx's assignAnnotationColors — the SAME map Transcript.tsx's
+ * color-linked text reads) decides. */
+.cx-annot-o1 {
+  --cx-annot-stroke: var(--calyxa-annot-1);
+  --cx-annot-tint: var(--calyxa-annot-1-tint);
+  --cx-annot-tint-border: var(--calyxa-annot-1-tint-border);
+  --cx-annot-deep: var(--calyxa-annot-1-deep);
+  --cx-annot-fill: var(--calyxa-annot-1-fill);
 }
-.cx-annot-blue {
-  --cx-annot-color: #2563eb;
-  --cx-annot-fill: rgb(37 99 235 / 0.18);
+.cx-annot-o2 {
+  --cx-annot-stroke: var(--calyxa-annot-2);
+  --cx-annot-tint: var(--calyxa-annot-2-tint);
+  --cx-annot-tint-border: var(--calyxa-annot-2-tint-border);
+  --cx-annot-deep: var(--calyxa-annot-2-deep);
+  --cx-annot-fill: var(--calyxa-annot-2-fill);
 }
-.cx-annot-green {
-  --cx-annot-color: var(--color-accent-emphasis);
-  --cx-annot-fill: rgb(22 101 52 / 0.18);
+.cx-annot-o3 {
+  --cx-annot-stroke: var(--calyxa-annot-3);
+  --cx-annot-tint: var(--calyxa-annot-3-tint);
+  --cx-annot-tint-border: var(--calyxa-annot-3-tint-border);
+  --cx-annot-deep: var(--calyxa-annot-3-deep);
+  --cx-annot-fill: var(--calyxa-annot-3-fill);
 }
-.cx-annot-red {
-  --cx-annot-color: var(--color-danger);
-  --cx-annot-fill: rgb(185 28 28 / 0.16);
+.cx-annot-o4 {
+  --cx-annot-stroke: var(--calyxa-annot-4);
+  --cx-annot-tint: var(--calyxa-annot-4-tint);
+  --cx-annot-tint-border: var(--calyxa-annot-4-tint-border);
+  --cx-annot-deep: var(--calyxa-annot-4-deep);
+  --cx-annot-fill: var(--calyxa-annot-4-fill);
 }
 
-.cx-annot-fill {
+/* Shape vocabulary: all 2px stroke, rounded. Stroke and fill are SEPARATE
+ * elements per shape so the M1 draw-on can sequence them (below). */
+.cx-annot-shape-stroke {
+  fill: none;
+  stroke: var(--cx-annot-stroke);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cx-annot-shape-fill {
   fill: var(--cx-annot-fill);
-  stroke: var(--cx-annot-color);
+}
+.cx-annot-underline-tint {
+  fill: var(--cx-annot-fill);
+}
+.cx-annot-underline-bar {
+  fill: var(--cx-annot-stroke);
+  /* the swipe entrance scales from its own left edge */
+  transform-box: fill-box;
+  transform-origin: left center;
+}
+.cx-annot-dot {
+  fill: var(--cx-annot-stroke);
+}
+.cx-annot-arrow-head {
+  fill: none;
+  stroke: var(--cx-annot-stroke);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Step badge: 22px circle, tint bg, 1.5px ordinal stroke, deep number —
+ * intentionally the twin of the pre-session plan's timeline circles. */
+.cx-annot-badge-bg {
+  fill: var(--cx-annot-tint);
+  stroke: var(--cx-annot-stroke);
   stroke-width: 1.5;
 }
-.cx-annot-fill-solid {
-  fill: var(--cx-annot-color);
-}
-.cx-annot-outline {
-  fill: none;
-  stroke: var(--cx-annot-color);
-  stroke-width: 2.5;
-}
-/* The primary "highlight" box (Sprint 14 fix): a colored coat (translucent
- * fill) UNDER the outlined stroke -- restoring the color-coded highlight look
- * ("colorcoats") the box lost when Task 8 first made it outline-only, while
- * keeping the clean rounded outline the layout engine relies on. fill-opacity
- * derives the coat straight from whatever --cx-annot-color the box resolved to
- * (the model's explicit style.color OR the per-turn ordinal slot), so the coat
- * and the stroke are always the same hue with no extra token. */
-.cx-annot-box {
-  fill: var(--cx-annot-color);
-  fill-opacity: 0.15;
-  stroke: var(--cx-annot-color);
-  stroke-width: 2.5;
-}
-.cx-annot-stroke {
-  stroke: var(--cx-annot-color);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-}
-.cx-annot-marker {
-  fill: var(--cx-annot-color);
-}
-.cx-annot-badge-text {
-  fill: #ffffff;
+.cx-annot-badge-num {
+  fill: var(--cx-annot-deep);
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
   pointer-events: none;
   user-select: none;
 }
 
-/* ── The primary box's per-turn ordinal color (Sprint 14 Task 8, ADR-029
- * amendment) ── set --cx-annot-color to theme.css's --calyxa-annot-1..4
- * aliases (the SAME per-turn assignment Transcript.tsx's color-linked text
- * highlight reads, Overlay.tsx's assignAnnotationColors) so .cx-annot-outline
- * above resolves its stroke from these instead of the amber/blue/green/red
- * set when the model left style.color unset (AnnotationLayer.tsx's
- * boxColorClass -- the explicit-color field still wins outright when
- * present, this is purely the fallback path). A deliberately SEPARATE
- * namespace from cx-annot-amber/blue/green/red above: ordinal position
- * (which annotation in this turn) vs. the model's own semantic color
- * choice, never combined into one class. */
-.cx-annot-box-annot-1 {
-  --cx-annot-color: var(--calyxa-annot-1);
-}
-.cx-annot-box-annot-2 {
-  --cx-annot-color: var(--calyxa-annot-2);
-}
-.cx-annot-box-annot-3 {
-  --cx-annot-color: var(--calyxa-annot-3);
-}
-.cx-annot-box-annot-4 {
-  --cx-annot-color: var(--calyxa-annot-4);
-}
-
-/* The label collision pass's leader line (Sprint 14 Task 8): a short,
- * subtle stroke from a stacked label back to the box it belongs to --
- * distinct from cx-annot-stroke's heavier, opaque arrow line (that one
- * IS the annotation; this one is just a wayfinding hint for a label that
- * had to move), so it's thinner and semi-transparent rather than a second
- * bold line competing with the arrow/box for attention. Shares whichever
- * color class (amber/blue/green/red OR the ordinal box-annot-N set above)
- * the label itself renders in, so a stacked label still reads as
- * "belonging to" its own box at a glance. */
-.cx-annot-leader {
-  stroke: var(--cx-annot-color);
+/* Label pill (required on every mark — "no naked shapes"): tint bg + 1px
+ * tint-border + deep 12px/600 text, dark-on-light per brand rule. */
+.cx-annot-pill-bg {
+  fill: var(--cx-annot-tint);
+  stroke: var(--cx-annot-tint-border);
   stroke-width: 1;
-  stroke-dasharray: 2 3;
-  opacity: 0.6;
+  filter: drop-shadow(0 1px 2px rgb(15 23 42 / 0.06));
+}
+.cx-annot-pill-text {
+  fill: var(--cx-annot-deep);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+  user-select: none;
 }
 
-/* Light draw-in transition (Task 6): each newly dispatched shape scales up
- * from 92% while fading in. One-shot per mount — the layer's whole
- * annotation set replaces on every dispatch, so React's key={id} only
- * (re)mounts groups that are actually new/changed, the same discipline as
- * the cx-word-in streaming-token animation above. Never load-bearing for
- * comprehension (brand.md S6), so it is fully absent, not just instant,
- * under reduced motion. */
+/* Why-note card (the teaching payload, ≤90 chars): wrapped HTML inside a
+ * foreignObject — SVG text can't wrap. White card + ordinal dot. #46463f
+ * is the handoff's body neutral (already shipped extension-local as the
+ * ping/chip ink); border reuses the shared hairline token. */
+.cx-annot-note {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  background: rgb(255 255 255 / 0.94);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 9px 12px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #46463f;
+  box-shadow: 0 4px 14px rgb(15 23 42 / 0.08);
+}
+.cx-annot-note-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--cx-annot-stroke);
+  margin-top: 6px;
+}
+
+/* Leader — connects a collision-displaced label back to its own mark:
+ * 1.5px at 45% of the ordinal stroke, gentle S-curve, 3px solid dot at the
+ * mark end (replacing the old 1px dashed line). Distinct from the arrow's
+ * full-opacity 2px stroke: that one IS the annotation, this one is just
+ * wayfinding for a label that had to move. */
+.cx-annot-leader {
+  fill: none;
+  stroke: var(--cx-annot-stroke);
+  stroke-width: 1.5;
+  opacity: 0.45;
+}
+.cx-annot-leader-dot {
+  fill: var(--cx-annot-stroke);
+}
+
+/* ── Entry motion M1 "draw-on" + exit fade (replaces the old 0.18s
+ * scale-pop) ── the stroke draws in over 480ms (pathLength=1 dash trick),
+ * the tint fill fades in 260ms starting at ~55% of the draw, and the meta
+ * group (badge, leader, pill, note) rises in together 320ms after —
+ * feels like the tutor's pen, still geometric. Marks that arrive together
+ * stagger via --cx-annot-delay (AnnotationLayer.tsx sets it per mark) so
+ * they draw one at a time. Exit is ALWAYS a 240ms opacity fade — never a
+ * shrink. All timings/easing are the handoff's spec values. Under reduced
+ * motion every entrance is instant (no transforms, no stroke draw — the
+ * animations simply never apply) and an exiting mark hides immediately. */
 @media (prefers-reduced-motion: no-preference) {
-  .cx-annot-in {
-    transform-box: fill-box;
-    transform-origin: center;
-    animation: cx-annot-in 0.18s var(--motion-ease-out, ease-out) both;
+  .cx-annot-mark .cx-annot-shape-stroke {
+    stroke-dasharray: 1;
+    animation: cx-annot-draw 480ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation-delay: var(--cx-annot-delay, 0ms);
+  }
+  .cx-annot-mark .cx-annot-shape-fill,
+  .cx-annot-mark .cx-annot-underline-tint,
+  .cx-annot-mark .cx-annot-dot,
+  .cx-annot-mark .cx-annot-arrow-head {
+    animation: cx-annot-fade 260ms ease both;
+    animation-delay: calc(var(--cx-annot-delay, 0ms) + 265ms);
+  }
+  .cx-annot-mark .cx-annot-underline-bar {
+    animation: cx-annot-swipe 480ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation-delay: var(--cx-annot-delay, 0ms);
+  }
+  .cx-annot-mark .cx-annot-meta {
+    animation: cx-annot-rise 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation-delay: calc(var(--cx-annot-delay, 0ms) + 480ms);
+  }
+  .cx-annot-out {
+    animation: cx-annot-exit 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .cx-annot-out {
+    opacity: 0;
+  }
+}
+
+@keyframes cx-annot-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes cx-annot-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes cx-annot-swipe {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes cx-annot-rise {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes cx-annot-exit {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Kept for Overlay.tsx's reframe-confirm backdrop, which reuses this
+ * keyframe by name (motion-safe:animate-[cx-annot-in_...]) — the
+ * annotation layer itself no longer uses it (the draw-on set above
+ * replaced the scale-pop). */
 @keyframes cx-annot-in {
   from {
     opacity: 0;
@@ -462,37 +578,40 @@
  * cx-tag-* -- were retired earlier by ADR-034.) */
 
 /* ── Transcript: color-linked annotation highlighting (Sprint 14 Task 7,
- * ADR-029 amendment) ── theme.css's --calyxa-annot-1..4 aliases, the SAME
- * per-turn assignment (Overlay.tsx's assignAnnotationColors) that will
- * color the annotation box's stroke once Task 8 wires AnnotationLayer.tsx
- * up to read it -- one source of truth for "which color is this turn's
- * Nth annotation," referenced from two different components. Underline +
- * a tinted text color, NOT a background block -- a solid highlight fill
- * would fight the assistant bubble's own (transparent) background and read
- * as a second, competing surface. */
+ * ADR-029 amendment) ── theme.css's --calyxa-annot-N aliases, the SAME
+ * per-turn assignment (Overlay.tsx's assignAnnotationColors) that colors
+ * the on-page mark's stroke (AnnotationLayer.tsx) -- one source of truth
+ * for "which color is this turn's Nth annotation," referenced from two
+ * different components. Underline + a tinted text color, NOT a background
+ * block -- a solid highlight fill would fight the assistant bubble's own
+ * (transparent) background and read as a second, competing surface. Since
+ * the annotations redesign the TEXT reads the -deep companion (dark-on-
+ * light, AA on the panel background -- the raw Meadow strokes measure
+ * ~3:1 as body text) while the underline keeps the stroke hue, matching
+ * the handoff's transcript-echo treatment (deep text, stroke underline). */
 .cx-annot-text-annot-1 {
-  color: var(--calyxa-annot-1);
+  color: var(--calyxa-annot-1-deep);
   text-decoration-line: underline;
   text-decoration-color: var(--calyxa-annot-1);
   text-decoration-thickness: 1.5px;
   text-underline-offset: 2px;
 }
 .cx-annot-text-annot-2 {
-  color: var(--calyxa-annot-2);
+  color: var(--calyxa-annot-2-deep);
   text-decoration-line: underline;
   text-decoration-color: var(--calyxa-annot-2);
   text-decoration-thickness: 1.5px;
   text-underline-offset: 2px;
 }
 .cx-annot-text-annot-3 {
-  color: var(--calyxa-annot-3);
+  color: var(--calyxa-annot-3-deep);
   text-decoration-line: underline;
   text-decoration-color: var(--calyxa-annot-3);
   text-decoration-thickness: 1.5px;
   text-underline-offset: 2px;
 }
 .cx-annot-text-annot-4 {
-  color: var(--calyxa-annot-4);
+  color: var(--calyxa-annot-4-deep);
   text-decoration-line: underline;
   text-decoration-color: var(--calyxa-annot-4);
   text-decoration-thickness: 1.5px;
