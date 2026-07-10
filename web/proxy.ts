@@ -19,6 +19,20 @@ function isPublicPath(pathname: string) {
   // /robots.txt is public for the same reason: crawlers are signed-out visitors,
   // and redirecting them to /login reads as an invalid robots.txt (the config
   // matcher below only exempts image extensions, so .txt lands here).
+  //
+  // Sprint 16 / Task 9 (found during manual acceptance, not the route-level
+  // test suite — those import route handlers directly and never go through
+  // this middleware at all): /api/cron/* and /api/account/* were missing
+  // from this list entirely. /api/cron/* is CRON_SECRET-gated
+  // (web/lib/cron/auth.ts), never cookie-authed — Vercel Cron never sends
+  // our cookie, so every real invocation was silently redirected to /login
+  // before assertCronSecret ever ran, making all three cron jobs
+  // unreachable in production. /api/account/* supports EITHER a bearer
+  // token or the cookie session (clientFromBearerOrCookie) — today's only
+  // caller is the cookie-authed account page, so this was latent rather
+  // than actively broken, but the bearer path (reserved for a future
+  // extension account UI, per bearer.ts's own comment) was equally
+  // unreachable without this exemption.
   return (
     PUBLIC_PATHS.includes(pathname) ||
     pathname === '/robots.txt' ||
@@ -27,7 +41,9 @@ function isPublicPath(pathname: string) {
     pathname.startsWith('/api/ai') ||
     pathname.startsWith('/api/voice') ||
     pathname.startsWith('/api/profile') ||
-    pathname.startsWith('/api/waitlist')
+    pathname.startsWith('/api/waitlist') ||
+    pathname.startsWith('/api/cron') ||
+    pathname.startsWith('/api/account')
   )
 }
 
