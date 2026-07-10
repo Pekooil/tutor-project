@@ -2,6 +2,13 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  // tsconfig sets jsx: "preserve" (Next transforms JSX itself), which
+  // vite 8's Oxc transform honors and then fails to parse the preserved JSX
+  // at import analysis. The override must go through the `oxc` option (the
+  // legacy `esbuild` option is ignored on rolldown-vite). Added in Sprint 25
+  // Task 10: marketing-sections.test.tsx is the first test to import .tsx
+  // component modules directly (SSR smoke renders).
+  oxc: { jsx: { runtime: 'automatic' } },
   resolve: {
     // Mirror tsconfig's "@/*" → "./*" so modules that import through the
     // alias resolve under vitest. Added in Sprint 20 Task 10: waitlist.test.ts
