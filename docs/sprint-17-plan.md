@@ -329,6 +329,63 @@ Acceptance gate before Task 6:
     kept; a missing DSN is a no-op; the extension holds no secret (errors relay via
     /api/errors or a public DSN only).
 
+> **Task 5 done-notes (2026-07-10):**
+> - **No vendor SDK added (Darcy's call, via AskUserQuestion).** The plan's
+>   "e.g. @sentry/nextjs / @sentry/browser" was illustrative, not locked by any
+>   ADR. Given the DSN-absent-tolerant design makes runtime behavior identical
+>   either way until a real account+DSN exists, and a real SDK means wrapping
+>   `next.config` (`withSentryConfig`) + `sentry.server/client.config.ts` plus
+>   known `@sentry/browser` friction inside an MV3 service worker, Darcy chose a
+>   **minimal, dependency-free custom reporter** instead. `web/package.json` /
+>   `extension/package.json` are therefore NOT edited this task — there is no
+>   new dependency to add. If a real vendor is wanted later, `captureError()`
+>   (`web/lib/monitoring/init.ts`) is the one call site the whole integration
+>   funnels through.
+> - **Scope check via Supabase MCP was NOT needed this task** (no migration
+>   involved) — Task 5 touches no table.
+> - **Client-side (browser) capture for the web dashboard was NOT built.** The
+>   sprint's own architecture-doc text names exactly three integration points —
+>   background worker, content script, Next.js API routes — and the acceptance
+>   gate only tests server-side capture. `web/lib/monitoring/init.ts` is
+>   `server-only`; a future web-dashboard browser-error path would need to
+>   relay through `/api/errors` the same way the extension does (no
+>   `NEXT_PUBLIC_` DSN — that would weaken the "server-only secret" discipline
+>   held everywhere else in this codebase). Flagged, not built — not named by
+>   the acceptance gate.
+> - **`onRequestError` (Next's own instrumentation hook) covers genuinely
+>   uncaught errors project-wide for free, but this codebase's existing routes
+>   already catch their own expected failures internally** (console.error + a
+>   generic client message, the established convention across every route from
+>   Sprint 03 on) **and so never reach this hook today.** Retrofitting
+>   `captureError` into every existing route's catch block would be a large,
+>   unscoped, cross-cutting change well outside Task 5's 5-file scope — not
+>   done here. The hook is wired and correct for any *new* uncaught bug; wiring
+>   existing catch blocks is a disclosed follow-up, not a Task-5 deliverable.
+> - **`/api/errors` deliberately never 401s**, unlike every other route in this
+>   codebase — the whole point of error monitoring is seeing failures that
+>   happen *without* a valid session too (a crashed background worker on
+>   startup, a failed token refresh). A coarse `userId` rides along only when a
+>   session happens to be present. This is a real, disclosed deviation from the
+>   codebase's otherwise-universal auth convention, with a documented accepted
+>   risk (unauthenticated endpoint abuse surface, same posture as the
+>   anonymous-write `waitlist` route) — rate-limiting was not built (not asked
+>   for, needs real traffic data to size).
+> - **`MONITORING_DSN` added to `web/.env.local.example`**, matching the
+>   existing per-secret documentation convention (not itself a listed Task-5
+>   file, but a natural, minimal extension of it — flagged here rather than
+>   done silently).
+> - **Verification:** `tsc --noEmit` + `eslint` green on all 5 files, both
+>   workspaces. Temp vitest specs (written, run, then removed — Task 8 owns the
+>   permanent `monitoring.test.ts`) proved: the scrub strips any field outside
+>   the `route`/`routeType`/`userId` allow-list while keeping route name +
+>   content (message/stack, length-capped); a missing DSN is a true no-op
+>   (`fetch` never called); `/api/errors` rejects a malformed/smuggled-field
+>   event, never 401s on missing auth, attaches a coarse `userId` only when a
+>   session is present, and tags the route as `extension:<context>`; the
+>   extension's `monitoring.ts` never touches `fetch`/`chrome.*` itself
+>   (structurally confirmed by grep) — only the injected `send` callback does,
+>   which is what Task 6 will wire to the real transport per context.
+
 ## Task 6 — Extension: event routing through the background worker
 Scope: `messages.ts`, `background/index.ts`, `content/index.ts`. Sole-egress
 respected; telemetry batched; failures swallowed.
