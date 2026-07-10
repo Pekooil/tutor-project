@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval": "vitest run --config vitest.eval.config.ts",
+    "eval:mock": "EVAL_MODE=mock vitest run --config vitest.eval.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.106.0",

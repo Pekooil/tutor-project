@@ -1,0 +1,3 @@
+# Generated eval artifacts — regenerate with `npm run eval` / `npm run eval:mock`.
+results/
+report/
