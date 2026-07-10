@@ -1,7 +1,7 @@
 import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
 import { CONCEPT_KEYS } from '@calyxa/curriculum'
-import { buildSystemPrompt, type SessionStartPrompt } from './system-prompt'
+import { buildSystemPromptBlocks, type SessionStartPrompt } from './system-prompt'
 import { parseEnvelope, parseEnvelopeObject } from './envelope'
 import type { TurnEnvelope } from './envelope'
 import type { LearningProfile } from './profile'
@@ -535,7 +535,7 @@ async function runSessionStartTool({
   profile: LearningProfile
   sessionStart: SessionStartPrompt
 }): Promise<TurnEnvelope> {
-  const system = buildSystemPrompt(profile, pageContext, { format: 'envelope', sessionStart })
+  const system = buildSystemPromptBlocks(profile, pageContext, { format: 'envelope', sessionStart })
 
   const call = () =>
     createClient().messages.create({
@@ -626,11 +626,21 @@ export async function runTutorTurn({
   const response = await createClient().messages.create({
     model: MODEL,
     max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(profile, pageContext, { format: 'envelope' }),
+    system: buildSystemPromptBlocks(profile, pageContext, { format: 'envelope' }),
     messages,
     tools: [ENVELOPE_TOOL],
     tool_choice: { type: 'tool', name: ENVELOPE_TOOL_NAME },
   })
+
+  // TEMPORARY (ADR-037 acceptance): confirm prompt caching is live. Set
+  // CALYXA_LOG_USAGE=1 and run a couple of regular turns -- expect
+  // cache_creation_input_tokens > 0 on turn 1 and cache_read_input_tokens ≈ the
+  // stable-prefix size on turn 2+ (a profile/page change between turns must NOT
+  // drop the read, proving the volatile tail is after the breakpoint). Remove
+  // this log once verified.
+  if (process.env.CALYXA_LOG_USAGE) {
+    console.log('[ADR-037 usage]', JSON.stringify(response.usage))
+  }
 
   const toolUse = response.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use' && block.name === ENVELOPE_TOOL_NAME
@@ -754,7 +764,7 @@ export async function* runTutorTurnEnvelopeStream({
   const stream = createClient().messages.stream({
     model: MODEL,
     max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(profile, pageContext, { format: 'envelope' }),
+    system: buildSystemPromptBlocks(profile, pageContext, { format: 'envelope' }),
     messages,
     tools: [ENVELOPE_TOOL],
     tool_choice: { type: 'tool', name: ENVELOPE_TOOL_NAME },
@@ -804,7 +814,7 @@ export async function* runTutorTurnStream({
   const stream = createClient().messages.stream({
     model: MODEL,
     max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(profile, pageContext),
+    system: buildSystemPromptBlocks(profile, pageContext),
     messages,
   })
 

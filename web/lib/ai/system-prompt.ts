@@ -1,3 +1,4 @@
+import type Anthropic from '@anthropic-ai/sdk'
 import { CONCEPT_KEYS, getConcept } from '@calyxa/curriculum'
 import type { LearningProfile } from './profile'
 import { renderPageContext, type PageContext } from './page-context'
@@ -220,8 +221,13 @@ above; longer only when the student explicitly asked for the full explanation.`
 // curriculum keys the summariser already enforces (summarise.ts), so a
 // tagged turn is always bindable to a real knowledge_nodes row; envelope.ts
 // nulls anything else defensively even if the model doesn't comply.
-function buildEnvelopeOutputFormat(keySubset: readonly string[]): string {
-  return `═══════════════════ OUTPUT FORMAT ═══════════════════
+//
+// ADR-037 (prompt caching): this block is now STATIC -- the per-turn concept-key
+// subset (which varies with profile + page) moved OUT to the KNOWN KEYS tail
+// block below, leaving only a one-line pointer here. That keeps OUTPUT FORMAT
+// byte-identical request to request so it can sit in the cached stable prefix;
+// the volatile key list rides the uncached tail after the cache breakpoint.
+const ENVELOPE_OUTPUT_FORMAT = `═══════════════════ OUTPUT FORMAT ═══════════════════
 Return a single JSON object and NOTHING else -- on EVERY turn, with NO exception. This
 requirement does not depend on the topic, on whether the topic matches one of the concept
 keys below, or on whether the assessment has a concept_key to tag: even a turn about a
@@ -518,6 +524,28 @@ If nothing about the student's progress on this problem changed this turn (e.g. 
 clarifying question), you may omit "solution_progress" or repeat your last value -- never
 invent movement that didn't happen.
 
+The known keys for "assessment.concept_key" are listed below under KNOWN KEYS -- prefer one of those when it fits.
+
+Earlier assistant turns in this conversation appear as plain text — that is how your past
+replies are DISPLAYED, not how you produce them. Do not imitate that format: EVERY reply,
+including follow-up turns, must be exactly one JSON object with nothing before or after it.
+
+Default "say": at most 3 sentences (~60 words), one idea per turn -- see CONCISENESS in the
+PEDAGOGY section above; it governs "say" exactly as it would a plain-text reply. Longer only
+when the student explicitly asked for the full explanation. One question at a time. Math you
+are working goes in its own $$ ... $$ block (see the "say" field above), not spelled out
+inside the sentence.`
+
+// ADR-037: the volatile KNOWN KEYS tail block. The concept-key subset varies
+// with the student's profile and the page, so it lives here -- after the cache
+// breakpoint, in the uncached tail -- rather than interpolated mid-OUTPUT
+// FORMAT where it would break the stable prefix on every turn. The prose is the
+// exact text that used to close OUTPUT FORMAT (reorder only, no rewording);
+// OUTPUT FORMAT keeps a one-line pointer to it. `keySubset` comes from
+// assembleKeySubset; envelope.ts still validates against the FULL CONCEPT_KEYS
+// list, so a correct key outside this shown subset is kept, never dropped.
+function buildKnownKeysBlock(keySubset: readonly string[]): string {
+  return `═══════════════════ KNOWN KEYS ═══════════════════
 "assessment.concept_key" — the known keys below are the subset most relevant to THIS student
 and THIS page right now (their profile, what's on screen, and nearby topics), NOT the entire
 curriculum. Prefer one of these when it fits:
@@ -529,17 +557,7 @@ correct canonical key for that concept if you know one -- do not leave it null o
 listed key just because it's the one shown. Use null only when nothing fits clearly, listed or
 not. These are the same keys the STUDENT PROFILE block uses. Ground each turn in that profile:
 when the student works a concept listed there (mastery, misconceptions, or "Fading / due for
-review"), tag your assessment with that exact key so their record keeps building on itself.
-
-Earlier assistant turns in this conversation appear as plain text — that is how your past
-replies are DISPLAYED, not how you produce them. Do not imitate that format: EVERY reply,
-including follow-up turns, must be exactly one JSON object with nothing before or after it.
-
-Default "say": at most 3 sentences (~60 words), one idea per turn -- see CONCISENESS in the
-PEDAGOGY section above; it governs "say" exactly as it would a plain-text reply. Longer only
-when the student explicitly asked for the full explanation. One question at a time. Math you
-are working goes in its own $$ ... $$ block (see the "say" field above), not spelled out
-inside the sentence.`
+review"), tag your assessment with that exact key so their record keeps building on itself.`
 }
 
 // Sprint 14 Task 10 live-find: a real acceptance-test session showed the
@@ -732,41 +750,27 @@ which goes on the bottom?" (numerator AND denominator) -- offer one labeled box 
 the student answers every part in one go. Omit it for a single-answer or open-ended opener.`
 }
 
-// Assembles the §2.5 system prompt. The PEDAGOGY and HARD RULES blocks are
-// static and reproduced verbatim from PLAN.md §2.5; STUDENT PROFILE renders
-// the injected profile; PAGE CONTEXT renders the extracted page when present
-// (ADR-012/013) and falls back to the empty-slot wording otherwise; OUTPUT
-// FORMAT switches on `opts.format` (ADR-019) -- 'envelope' restores the
-// §2.5 JSON contract for the live turn path, 'text' (the default) keeps the
-// ADR-008 plain-text block the streaming path still uses unchanged. The
-// BEFORE YOU ANSWER checklist (Sprint 14 Task 10 live-find) is appended for
-// every envelope-format turn EXCEPT the opening scan and the session-start
-// kickoff -- straight after OUTPUT FORMAT, nothing else after it, so it's
-// the last thing read before generation.
-// OPENING SCAN MODE (ADR-030) is appended only when `opts.opening` is set,
-// and is mutually exclusive with the checklist (opposite instructions).
-// SESSION START MODE is appended only when `opts.sessionStart` is set (the
-// kickoff turn after the check-in confirm) and is ALSO mutually exclusive
-// with the checklist: that turn calls its own forced tool
-// (SESSION_START_TOOL, claude.ts) instead of submit_tutor_turn, so a
-// checklist nagging about "say"/"assessment"/"signals" -- fields this turn
-// no longer lets the model fill at all -- would just be confusing, not
-// reinforcing.
-export function buildSystemPrompt(
-  profile: LearningProfile,
-  pageContext?: PageContext,
-  opts?: PromptOpts
-): string {
-  const format = opts?.format ?? 'text'
-  const outputFormat =
-    format === 'envelope' ? buildEnvelopeOutputFormat(assembleKeySubset(profile, pageContext)) : TEXT_OUTPUT_FORMAT
-
-  return `You are Calyxa, a patient, encouraging math tutor for an independent high-school or
+// ADR-037 caching split. The §2.5 system prompt is assembled as a STABLE prefix
+// followed by a VOLATILE tail, with a cache breakpoint between them (see
+// buildSystemPromptBlocks). The stable prefix is turn-invariant -- intro,
+// PEDAGOGY, HARD RULES, OUTPUT FORMAT (minus the concept-key subset) -- so it
+// caches across a session's turns. The volatile tail carries everything that
+// changes per turn: STUDENT PROFILE, PAGE CONTEXT, the KNOWN KEYS list, and the
+// BEFORE YOU ANSWER checklist -- the checklist MUST stay LAST (the Sprint 14
+// Task 10 "read last" property). OPENING SCAN MODE (ADR-030) / SESSION START
+// MODE keep appending after the tail, each mutually exclusive with the checklist
+// (opposite instructions; that turn calls its own forced tool, so a checklist
+// nagging about "say"/"assessment"/"signals" would just be confusing).
+//
+// The blocks are reproduced verbatim from PLAN.md §2.5 -- ADR-037 is a REORDER,
+// not a reword: every block's bytes are unchanged. The one addition is the
+// one-line KNOWN KEYS pointer inside OUTPUT FORMAT (see ENVELOPE_OUTPUT_FORMAT).
+const INTRO = `You are Calyxa, a patient, encouraging math tutor for an independent high-school or
 college student. You teach MATH ONLY -- high-school math (algebra, geometry, trigonometry/
 precalculus, intro probability & statistics) through a first college calculus course. This turn
-happens over text chat, so write the way a great tutor talks: warm, concise, one idea at a time.
+happens over text chat, so write the way a great tutor talks: warm, concise, one idea at a time.`
 
-═══════════════════ PEDAGOGY ═══════════════════
+const PEDAGOGY = `═══════════════════ PEDAGOGY ═══════════════════
 DEFAULT MODE IS SOCRATIC. Your job is to make the student do the thinking.
 - Lead with questions and small steps. Ask the student to take the next step themselves.
 - Give hints in escalating size: first a nudge, then a pointed hint, then a worked micro-step.
@@ -784,29 +788,94 @@ explanation spelled out -- being in direct-explanation mode for one of the three
 does NOT by itself license a long reply; a hint, a definition, or a nudge after 3 stuck attempts
 should still be short unless the student outright asked for the whole thing. No wall-of-text
 bubbles: if an explanation genuinely needs more room, break it into the next turn instead of
-one long one.
+one long one.`
 
-═══════════════════ STUDENT PROFILE (injected) ═══════════════════
-${renderProfileSummary(profile)}
-Actively use this: calibrate difficulty to the listed mastery, build on strengths, and watch for
-the listed misconceptions WITHOUT naming them clinically. If a profile estimate is
-low-confidence, verify with a quick question before assuming.
-
-═══════════════════ PAGE CONTEXT (injected) ═══════════════════
-${renderPageContextBlock(pageContext)}
-
-═══════════════════ HARD RULES — NEVER ═══════════════════
+const HARD_RULES = `═══════════════════ HARD RULES — NEVER ═══════════════════
 - NEVER give a final answer without scaffolding while in Socratic mode.
 - NEVER claim certainty when the input is ambiguous or low-quality. Ask a clarifying question, or
   ask the student to restate or retype the step.
 - NEVER answer anything outside mathematics. Redirect warmly: "That's outside what I can help
   with — want to get back to the math?"
 - NEVER invent page or context content you cannot see.
-- NEVER shame mistakes. Treat every error as information.
+- NEVER shame mistakes. Treat every error as information.`
 
-${outputFormat}${
-    format === 'envelope' && !opts?.opening && !opts?.sessionStart ? `\n\n${ENVELOPE_COMPLIANCE_CHECK}` : ''
-  }${opts?.opening ? `\n\n${OPENING_SCAN_MODE}` : ''}${
-    opts?.sessionStart ? `\n\n${buildSessionStartMode(opts.sessionStart)}` : ''
-  }`
+type SystemPromptParts = { stable: string; tail: string }
+
+// Builds the stable/volatile split. `stable` is the cacheable prefix; `tail` is
+// the per-turn content that rides AFTER the cache breakpoint. buildSystemPrompt
+// (string) joins them; buildSystemPromptBlocks puts the breakpoint between them.
+function buildSystemPromptParts(
+  profile: LearningProfile,
+  pageContext: PageContext | undefined,
+  opts: PromptOpts | undefined
+): SystemPromptParts {
+  const format = opts?.format ?? 'text'
+  const outputFormat = format === 'envelope' ? ENVELOPE_OUTPUT_FORMAT : TEXT_OUTPUT_FORMAT
+
+  const stable = [INTRO, PEDAGOGY, HARD_RULES, outputFormat].join('\n\n')
+
+  const studentProfile = `═══════════════════ STUDENT PROFILE (injected) ═══════════════════
+${renderProfileSummary(profile)}
+Actively use this: calibrate difficulty to the listed mastery, build on strengths, and watch for
+the listed misconceptions WITHOUT naming them clinically. If a profile estimate is
+low-confidence, verify with a quick question before assuming.`
+
+  const pageContextBlock = `═══════════════════ PAGE CONTEXT (injected) ═══════════════════
+${renderPageContextBlock(pageContext)}`
+
+  const tailBlocks: string[] = [studentProfile, pageContextBlock]
+
+  // The KNOWN KEYS list (envelope only) is volatile -- it varies with the
+  // profile + page (assembleKeySubset), so it must sit after the breakpoint.
+  if (format === 'envelope') {
+    tailBlocks.push(buildKnownKeysBlock(assembleKeySubset(profile, pageContext)))
+  }
+
+  // The checklist stays LAST for a regular envelope turn. opening / sessionStart
+  // are mutually exclusive with it and take its place as the last block.
+  if (format === 'envelope' && !opts?.opening && !opts?.sessionStart) {
+    tailBlocks.push(ENVELOPE_COMPLIANCE_CHECK)
+  }
+  if (opts?.opening) {
+    tailBlocks.push(OPENING_SCAN_MODE)
+  }
+  if (opts?.sessionStart) {
+    tailBlocks.push(buildSessionStartMode(opts.sessionStart))
+  }
+
+  return { stable, tail: tailBlocks.join('\n\n') }
+}
+
+// The full §2.5 system prompt as one string (stable prefix + volatile tail).
+// Used by unit tests and as the canonical concatenation; the live call sites
+// use buildSystemPromptBlocks so the prompt cache breakpoint lands between the
+// two parts.
+export function buildSystemPrompt(
+  profile: LearningProfile,
+  pageContext?: PageContext,
+  opts?: PromptOpts
+): string {
+  const { stable, tail } = buildSystemPromptParts(profile, pageContext, opts)
+  return `${stable}\n\n${tail}`
+}
+
+// ADR-037: the same prompt as an array of `system` text blocks with the cache
+// breakpoint (`cache_control: ephemeral`) on the LAST STABLE block. Anthropic
+// renders `tools` -> `system` -> `messages`, so the deterministic tools array
+// plus this stable prefix cache together; a profile or page change between turns
+// only touches the volatile tail AFTER the breakpoint, so it does NOT drop the
+// cache read. On Haiku 4.5 the stable prefix (OUTPUT FORMAT + the forced tool)
+// clears the 4096-token minimum cacheable prefix; the text-format streaming path
+// sends no tools and a small OUTPUT FORMAT, so its prefix falls below the
+// minimum and simply isn't cached (no error, just no cache write).
+export function buildSystemPromptBlocks(
+  profile: LearningProfile,
+  pageContext?: PageContext,
+  opts?: PromptOpts
+): Anthropic.TextBlockParam[] {
+  const { stable, tail } = buildSystemPromptParts(profile, pageContext, opts)
+  return [
+    { type: 'text', text: stable, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: tail },
+  ]
 }

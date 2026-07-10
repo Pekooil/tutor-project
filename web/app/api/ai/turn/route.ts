@@ -5,7 +5,7 @@ import { getConcept } from '@calyxa/curriculum'
 import { clientFromBearer } from '@/lib/auth/bearer'
 import { runTutorTurn, type TurnEnvelope, type TurnMessage } from '@/lib/ai/claude'
 import { parseEnvelope } from '@/lib/ai/envelope'
-import { buildSystemPrompt } from '@/lib/ai/system-prompt'
+import { buildSystemPromptBlocks } from '@/lib/ai/system-prompt'
 import type { LearningProfile } from '@/lib/ai/profile'
 import type { PageContext } from '@/lib/ai/page-context'
 import { loadProfile } from '@/lib/learning/profile-read'
@@ -79,7 +79,7 @@ async function runOpeningScanTurn({
   const response = await createOpeningScanClient().messages.create({
     model: OPENING_SCAN_MODEL,
     max_tokens: OPENING_SCAN_MAX_TOKENS,
-    system: buildSystemPrompt(profile, pageContext, { format: 'envelope', opening: true }),
+    system: buildSystemPromptBlocks(profile, pageContext, { format: 'envelope', opening: true }),
     messages: [OPENING_SCAN_PLACEHOLDER_MESSAGE],
   })
 

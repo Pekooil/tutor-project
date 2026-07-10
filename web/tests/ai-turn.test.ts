@@ -178,6 +178,21 @@ function fakeToolUseMessage(toolName: string, input: Record<string, unknown>) {
 let nextResponse: FakeResponse = { status: 200, body: fakeTextMessage('default fake reply') }
 const receivedRequests: Array<{ system?: unknown; messages?: unknown; model?: unknown }> = []
 
+// ADR-037: the system prompt is now sent as an array of `system` text blocks
+// (a stable cached prefix, then the volatile tail) rather than a single string.
+// Flatten to text for the substring assertions in this file.
+function systemText(system: unknown): string {
+  if (typeof system === 'string') return system
+  if (Array.isArray(system)) {
+    return system
+      .map((block) =>
+        block && typeof block === 'object' && 'text' in block ? String((block as { text: unknown }).text) : ''
+      )
+      .join('\n\n')
+  }
+  return ''
+}
+
 function startFakeAnthropic(): Promise<Server> {
   return new Promise((resolveServer) => {
     const srv = http.createServer((req, res) => {
@@ -740,8 +755,15 @@ describe('/api/ai/turn', () => {
     expect(status).toBe(200)
     expect(receivedRequests).toHaveLength(1)
 
-    const system = receivedRequests[0].system as string
-    expect(typeof system).toBe('string')
+    // ADR-037: `system` is an array of text blocks with the cache breakpoint
+    // (cache_control: ephemeral) on the stable prefix; the volatile tail block
+    // (profile/page/keys) sits after the breakpoint with no cache_control.
+    const rawSystem = receivedRequests[0].system
+    expect(Array.isArray(rawSystem)).toBe(true)
+    const blocks = rawSystem as Array<{ text?: string; cache_control?: { type?: string } }>
+    expect(blocks[0]?.cache_control?.type).toBe('ephemeral')
+    expect(blocks[blocks.length - 1]?.cache_control).toBeUndefined()
+    const system = systemText(rawSystem)
     expect(system).toContain('NEVER answer anything outside mathematics')
     expect(system).toContain('DEFAULT MODE IS SOCRATIC')
     // `user` has zero knowledge_nodes -- loadProfile's cold-start fallback
@@ -766,7 +788,7 @@ describe('/api/ai/turn', () => {
     expect(status).toBe(200)
     expect(receivedRequests).toHaveLength(1)
 
-    const system = receivedRequests[0].system as string
+    const system = systemText(receivedRequests[0].system)
     expect(system).toContain(`${SEEDED_CONCEPT_KEY}: mastery 0.42, state learning, confidence medium`)
     expect(system).not.toContain('(no mastery data yet)')
     expect(system).toContain('Confidence: Based on recorded session history.')
@@ -782,7 +804,7 @@ describe('/api/ai/turn', () => {
     expect(status).toBe(200)
     expect(receivedRequests).toHaveLength(1)
 
-    const system = receivedRequests[0].system as string
+    const system = systemText(receivedRequests[0].system)
     expect(system).toContain(`${DECAY_CONCEPT_KEY}: mastery ${DECAY_EXPECTED_MASTERY}`)
     expect(system).not.toContain(`mastery ${DECAY_RAW_MASTERY.toFixed(2)}`)
   })
@@ -873,7 +895,7 @@ describe('/api/ai/turn', () => {
     expect(status).toBe(200)
     expect(receivedRequests).toHaveLength(1)
 
-    const system = receivedRequests[0].system as string
+    const system = systemText(receivedRequests[0].system)
     expect(system).toContain('x^2 + 5x + 6 = 0')
     expect(system).toContain('Anchor the session to THIS content')
     expect(system).not.toContain('(no page context this turn)')
@@ -903,7 +925,7 @@ describe('/api/ai/turn', () => {
     // degrades to the same short, bounded fallback rather than 500ing or
     // injecting unbounded text.
     for (const captured of receivedRequests) {
-      expect(captured.system as string).toContain('(no page context this turn)')
+      expect(systemText(captured.system)).toContain('(no page context this turn)')
     }
   })
 
@@ -1153,7 +1175,7 @@ describe('/api/ai/turn', () => {
     expect(status).toBe(200)
     expect(receivedRequests).toHaveLength(1)
 
-    const system = receivedRequests[0].system as string
+    const system = systemText(receivedRequests[0].system)
     // Query 2 (ADR-020) surfaced into the STUDENT PROFILE block, with the
     // reason built from the schedule row + the joined node state.
     expect(system).toContain('Fading / due for review')
@@ -1186,7 +1208,7 @@ describe('/api/ai/turn', () => {
     expect(status).toBe(200)
     expect(receivedRequests).toHaveLength(1)
 
-    const system = receivedRequests[0].system as string
+    const system = systemText(receivedRequests[0].system)
     // The strong-but-page-relevant node now outranks the weaker one -- the
     // reorder is the ONLY change (both lines still render, nothing dropped).
     const strongLine = system.indexOf(`${DUE_TOPIC_CONCEPT}: mastery 0.80`)
@@ -1207,7 +1229,7 @@ describe('/api/ai/turn', () => {
     })
 
     expect(status).toBe(200)
-    const system = receivedRequests[0].system as string
+    const system = systemText(receivedRequests[0].system)
     // userWithProfile has no reinforcement_schedule rows and this turn has
     // no pageContext -- the Sprint 11 read additions must be invisible.
     expect(system).not.toContain('Fading / due for review')
@@ -2208,7 +2230,7 @@ describe('/api/ai/turn: the session-start kickoff (structured sessionStart, no m
     expect(json.reply).toBe('$$F = m*a$$ The mass is in grams -- what does it need to be in first?')
 
     const sent = receivedRequests[receivedRequests.length - 1]
-    const system = String(sent.system)
+    const system = systemText(sent.system)
     expect(system).toContain('SESSION START MODE')
     expect(system).toContain(kickoff.question)
     expect(system).toContain(kickoff.stickingPoint)
@@ -2347,7 +2369,7 @@ describe('/api/ai/turn: the session-start kickoff (structured sessionStart, no m
 
     expect(status).toBe(200)
     const sent = receivedRequests[receivedRequests.length - 1]
-    expect(String(sent.system)).not.toContain('SESSION START MODE')
+    expect(systemText(sent.system)).not.toContain('SESSION START MODE')
     const messages = sent.messages as Array<{ role: string; content: string }>
     expect(messages).toEqual([{ role: 'user', content: 'is it 0.25 kg?' }])
   })
@@ -2361,7 +2383,7 @@ describe('/api/ai/turn: the session-start kickoff (structured sessionStart, no m
     })
 
     expect(status).toBe(200)
-    const system = String(receivedRequests[receivedRequests.length - 1].system)
+    const system = systemText(receivedRequests[receivedRequests.length - 1].system)
     expect(system).toContain('NOT sure where it usually goes wrong')
     expect(system).not.toContain('which they confirmed')
   })

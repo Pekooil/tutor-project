@@ -94,6 +94,21 @@ let fakeAnthropic: Server
 let nextFakeResponse: FakeResponse = { status: 200, body: fakeTextMessage('default fake reply') }
 const receivedRequests: Array<{ system?: unknown; messages?: unknown }> = []
 
+// ADR-037: the system prompt is now sent as an array of `system` text blocks
+// (a stable cached prefix, then the volatile tail) rather than a single string.
+// Flatten to text for the substring assertions in this file.
+function systemText(system: unknown): string {
+  if (typeof system === 'string') return system
+  if (Array.isArray(system)) {
+    return system
+      .map((block) =>
+        block && typeof block === 'object' && 'text' in block ? String((block as { text: unknown }).text) : ''
+      )
+      .join('\n\n')
+  }
+  return ''
+}
+
 function startFakeAnthropic(): Promise<Server> {
   return new Promise((resolveServer) => {
     const srv = http.createServer((req, res) => {
@@ -495,7 +510,7 @@ describe('per-turn learning-state write -> live profile', () => {
       const probe = await turn(tokenA, { messages: [{ role: 'user', content: 'what should I work on next?' }] })
       expect(probe.status).toBe(200)
 
-      const system = receivedRequests[receivedRequests.length - 1].system as string
+      const system = systemText(receivedRequests[receivedRequests.length - 1].system)
       // apply.ts's applyInteraction calls the full FSRS updateKnowledgeNode
       // (ADR-016/ADR-019). This envelope omits reasoning_quality/
       // self_confidence, which envelope.ts's parseAssessment defaults to
@@ -519,7 +534,7 @@ describe('per-turn learning-state write -> live profile', () => {
     const probe = await turn(tokenA, { messages: [{ role: 'user', content: 'check my progress' }] })
     expect(probe.status).toBe(200)
 
-    const system = receivedRequests[receivedRequests.length - 1].system as string
+    const system = systemText(receivedRequests[receivedRequests.length - 1].system)
     // Unchanged from the previous test -- end_session's open->ended
     // transition 404s before the reconcile sweep ever runs a second time for
     // this session, so there is no second mastery nudge to observe here.
@@ -624,7 +639,7 @@ describe('per-turn learning-state write -> live profile', () => {
     setFakeTurnReply('ok, next one')
     const probeAfterFirst = await turn(tokenA, { messages: [{ role: 'user', content: 'next problem please' }] })
     expect(probeAfterFirst.status).toBe(200)
-    const systemAfterFirst = receivedRequests[receivedRequests.length - 1].system as string
+    const systemAfterFirst = systemText(receivedRequests[receivedRequests.length - 1].system)
     expect(systemAfterFirst).not.toContain('sign_error.distribution') // 1 instance -- still pending, not active
 
     const second = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
@@ -647,7 +662,7 @@ describe('per-turn learning-state write -> live profile', () => {
       setFakeTurnReply('ok, next one again')
       const probeAfterSecond = await turn(tokenA, { messages: [{ role: 'user', content: 'next problem please' }] })
       expect(probeAfterSecond.status).toBe(200)
-      const systemAfterSecond = receivedRequests[receivedRequests.length - 1].system as string
+      const systemAfterSecond = systemText(receivedRequests[receivedRequests.length - 1].system)
       expect(systemAfterSecond).toContain(
         'algebra.polynomials.expanding — sign_error.distribution: drops the negative sign when distributing'
       )
@@ -787,7 +802,7 @@ describe('per-turn learning-state write -> live profile', () => {
       setFakeTurnReply('ok, next one')
       const probe = await turn(tokenA, { messages: [{ role: 'user', content: 'next problem please' }] })
       expect(probe.status).toBe(200)
-      const system = receivedRequests[receivedRequests.length - 1].system as string
+      const system = systemText(receivedRequests[receivedRequests.length - 1].system)
       expect(system).toContain(`${conceptKey} — sign_error.flip_on_negative_multiply`)
     })
   })
@@ -892,7 +907,7 @@ describe('per-turn learning-state write -> live profile', () => {
     setFakeTurnReply('great work')
     const probe = await turn(tokenA, { messages: [{ role: 'user', content: 'how am I doing?' }] })
     expect(probe.status).toBe(200)
-    const system = receivedRequests[receivedRequests.length - 1].system as string
+    const system = systemText(receivedRequests[receivedRequests.length - 1].system)
     expect(system).not.toContain(misconception.category) // resolved -- loadProfile only selects status='active'
   })
 
