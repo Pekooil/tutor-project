@@ -1,206 +1,337 @@
-# Sprint 19 — LLM input-cost reduction (prompt caching + payload trims)
+# Sprint 19 — Store packaging + private beta distribution 🚀 (distribute after this sprint)
 
-> **Proposed sprint. Renumber to fit your roadmap.** This is the *recommended*
-> cost lever from the 2026-07-09 cost analysis: it captures ~60% of session cost
-> **on Haiku 4.5, inside the locked stack** (ADR-008 untouched), at ~1 day of
-> work. It is the low-risk alternative to a provider migration (see the
-> candidate `docs/sprint-24-plan.md` + ADR-038 for that path). The two are not
-> mutually exclusive, but **do this one first and measure** — a migration only
-> earns its risk if caching + Sprint 16's guardrail still miss the budget.
+> **This sprint replaced the earlier `sprint-19` prompt-caching cost proposal**
+> (Darcy's call, 2026-07-09 — "overwrite 19 with Store+Beta"). That proposal
+> self-labelled "renumber to fit your roadmap" and is already superseded by shipped
+> work: prompt caching landed as `e9cb3bf feat: enabled prompt caching` +
+> `docs/adr/ADR-037-prompt-caching-tutor-prefix.md`. The candidate model-migration
+> (`docs/sprint-24-plan.md`, ADR-038) that cross-referenced the old sprint-19 should
+> be repointed at that caching commit/ADR instead of this file.
+>
+> **Provisional ADR numbers** (latest on disk = ADR-043; parallel tracks 24/25 may
+> claim intervening numbers — confirm next-free at execution).
 
 ## Goal
-Cut per-turn Claude **input** cost by ~65% (and total session cost ~60%) by
-**caching the turn-invariant tutor prefix** and trimming duplicated payload —
-with **no model change, no provider change, and no envelope/pedagogy change**.
-By the end:
+Get Calyxa **into beta testers' browsers** — packaged, listed, and distributed
+through a controlled channel — and build the **waitlist → invite pipeline** that
+turns Sprint 20's collected emails into actual installs. This is the final pre-beta
+gate sprint. By the end:
 
-1. **The stable tutor prefix is cached.** The system prompt is reordered into a
-   contiguous `stable-prefix → volatile-tail`, an ephemeral `cache_control`
-   breakpoint sits on the last stable block, and every tutor call site reads the
-   cached prefix (`cache_read_input_tokens > 0`) on turn 2+.
-2. **The duplicated 66-key enum is de-duplicated.** `CONCEPT_KEYS` is embedded
-   twice in `submit_tutor_turn` (~2,930 tool tokens); it is factored so the list
-   serializes once.
-3. **History is windowed to the PLAN's 6-8 turns**, not the current 40-message
-   safety cap, so the volatile tail stays small.
-4. **The win is measured, not assumed** — `cost_analysis.py --api` is re-run
-   against the new request shape and the numbers are recorded.
+1. **A release pipeline exists.** `wxt zip` (unwired today) is scripted into a
+   repeatable, versioned build → uploadable artifact, with a documented rollback
+   (keep the last N builds addressable).
+2. **A Chrome Web Store listing** is assembled from the brand system: the missing
+   **privacy policy page** (`/privacy`, a hard store requirement), the **data-safety
+   disclosures** that truthfully match what Sprints 16/17 collect, listing copy, and
+   screenshots — the icons already exist.
+3. **A private/unlisted distribution channel** so only invited testers meaningfully
+   use it (the ADR-006/PLAN §2.11 "Chrome Web Store only for V1" call — unlisted, not
+   public).
+4. **The waitlist → invite pipeline**: the `waitlist` table (capture-only today) gets
+   an invite mechanism (cohort selection + invited-state + a claim path), and a way
+   to actually notify testers.
+5. **Submission to review is initiated** — the long-pole latency — as early in the
+   sprint as the assets allow.
 
 ```
-BEFORE (per regular turn, ~8,550 input tok, all full-price every turn)
-  [ tools 2,930 ][ system: intro+PEDAGOGY | PROFILE* | PAGE* | HARD RULES | OUTPUT FORMAT(+keys*) | CHECK ][ history ]
-                                    ^dynamic blocks sit BEFORE the big static ones → nothing caches
-
-AFTER (stable prefix cached ~0.1x on turn 2+)
-  [ tools 2,930 | system: intro+PEDAGOGY+HARD RULES+OUTPUT FORMAT+CHECK ]  <cache breakpoint>
-  [ system tail: PROFILE* | PAGE* | known-keys* ][ history* ]
-    \___________________ cached, ~0.1x _______________________/  \____ full price (small) ____/
-  (* = volatile / per-turn)
+build:  wxt zip (versioned) ──▶ .zip ──▶ Chrome Web Store (UNLISTED)
+listing: /privacy page + data-safety form + copy + screenshots (icons ready)
+invite: waitlist (email) ──cohort select──▶ invited_at + invite claim ──▶ notify ──▶ install
+gate:   a fresh tester installs from the channel → signs up (age gate + invite allowlist)
+        → onboards → runs a real session → mastery persists across two sessions
 ```
 
 ## Context
-The cost model built from the real request format (`cost_analysis.py`, repo
-root) shows a regular turn is **~8,550 input tok / ~218 output tok**, and that
-**~7,050 input tok are identical every turn** (system ~4,100 + forced-tool
-schema ~2,930). `web/lib/ai/claude.ts` sets **no `cache_control`**, so this
-block is billed at full price on all ~10 regular turns per session. Caching it
-(reads ~0.1×) is the single largest, lowest-risk input-cost lever available, and
-it stays entirely within the "Anthropic only" locked stack.
+The product is audited and gated (Sprint 18: CI, no-secret proof, a11y, RLS sweep,
+review-ready manifest). What stands between "release candidate" and "a tester is
+using it" is entirely **packaging + distribution + listing**, and the audit of that
+surface is stark: **no `wxt zip`/release/signing automation** (the extension is built
+manually to `dist/chrome-mv3`), **no privacy policy or terms page** (a Chrome Web
+Store blocker), **no store listing assets except the icons** (no screenshots, promo
+tiles, or description copy), and **no waitlist → invite mechanism at all** (Sprint 20's
+`waitlist` table is `{id, email, source, created_at}` with a POST-only capture route —
+no `invited_at`, no cohort, no claim, no email send). The auth pages are shadcn-styled
+and a11y-conscious (adequate for a private beta, not marketing). The manifest is now
+review-ready (Sprint 18). Sprint 17's telemetry funnel is the beta-health signal; its
+feedback table is the tester-issue inbox.
 
-The one non-trivial part: caching is a **prefix match**, and today
-`buildSystemPrompt` renders the volatile `STUDENT PROFILE` / `PAGE CONTEXT`
-blocks (and the per-turn `concept_key` subset) *before* the large static
-`OUTPUT FORMAT` block. So the sprint's real work is a **system-prompt reorder**
-(stable content first, volatile content last) plus breakpoint placement — see
-ADR-037.
+### Decisions locked for this sprint (recorded in ADR-045/046)
+1. **Unlisted Chrome Web Store, not a public listing.** Per ADR-006/PLAN §2.11
+   ("Chrome Web Store only for V1"), the beta ships as an **unlisted** item:
+   installable only via a direct link handed to invited testers, discoverable by no
+   one. Trusted-tester channel without standing up separate infrastructure.
+2. **The waitlist gains invite state; access is gated by an invite claim, not by the
+   store link alone.** An unlisted link is shareable, so *install* is open-via-link but
+   *use* is gated: a new account's email must be on an **invited** waitlist row (or
+   carry a valid invite code) to complete signup/onboard. The store link controls
+   discovery; the invite state controls access.
+3. **The privacy page + data-safety disclosure are generated from the truth.** They
+   enumerate exactly what Sprints 03/16/17 collect: email, birth year (age gate), GDPR
+   consent stamp, learning profile + session transcripts (text, no audio — ADR-011),
+   hashed page identifiers (Sprint 16), telemetry (typed, no content — Sprint 17), and
+   feedback. Nothing disclosed that isn't collected; nothing collected omitted.
+4. **The release pipeline is scripted, versioned, rollback-first.** `wxt zip` produces
+   a versioned artifact; the last N artifacts stay addressable so a bad beta build is
+   rolled back by re-uploading the prior one.
+5. **Submission starts as soon as the listing assets exist** (mid-sprint), because
+   review latency — especially with a broad-host-permission extension — is the sprint's
+   long pole. The invite pipeline is built in parallel while review runs.
 
-### Decisions locked for this sprint (ADR-037)
-1. **Stay on Haiku 4.5; no provider/model change.** This sprint does not reopen
-   ADR-008 or the locked stack. (That is ADR-038 / Sprint 24's job, if ever.)
-2. **Reorder, don't rewrite.** Block *order* changes so the stable prefix is
-   contiguous; block *content* (pedagogy, envelope contract, guidance) is
-   byte-identical. This is what keeps the behavioral risk near zero.
-3. **One breakpoint, on the last stable system block.** Tools render first and
-   cache with it. Max 4 breakpoints exist; one is enough here.
-4. **Measure before/after.** Cache effectiveness is proven by
-   `cache_read_input_tokens`, not assumed; the dollar delta is recorded from
-   `cost_analysis.py --api`, not from this doc's estimate.
+### Reconciliation with `/docs/PLAN.md` + prior handoffs (read before Task 1)
+- **PLAN §2.11 ADR-006** ("Chrome Web Store only for V1; Firefox/AMO deferred") — the
+  unlisted-CWS channel implements it; WXT's multi-target build keeps the Firefox door
+  open without V1 effort (out of scope).
+- **Sprint 17 handoff**: "the telemetry funnel as the beta health signal
+  (onboarding-completion, first-session, degraded-hit rates), the feedback table as the
+  tester-issue inbox; the store/data-safety disclosure must list telemetry + feedback
+  truthfully." Load-bearing here.
+- **Sprint 16 handoff**: "page identifiers are hashed" + "any new user-scoped table
+  MUST FK-cascade to users + appear in the export route" — the invite mechanism is
+  designed around this (columns on the anonymous, deny-all `waitlist`, not a new
+  user-scoped table).
+- **Sprint 20 handoff**: "the waitlist → beta funnel has `source` tags; export is a
+  service-role query; no emails are sent by anything — a launch task owns the
+  announcement." This sprint is that launch task.
 
-### Reconciliation with Sprint 16 (read before Task 1)
-Sprint 16's cost guardrail caps **aggregate daily spend**; this sprint lowers
-**per-turn cost**. They compose: after caching lands, Sprint 16's
-`CLAUDE_TURN_CENTS` estimate constant (`web/lib/tier/cost-model.ts`) is revised
-down to the cached rate so the guard stays budget-accurate. Sprint 16 explicitly
-put `web/lib/ai/*` out of scope precisely so a prompt/model change like this one
-lives in its own sprint — this is that sprint.
+### The unlisted link is not the access gate — the invite claim is (read before Tasks 4, 5)
+An unlisted store item hides from search but its install link is shareable, so
+distribution control cannot rest on link secrecy. The access gate is at **signup**: the
+signup route checks the email against invited `waitlist` rows (or a valid invite code)
+and refuses onboarding for an uninvited email with a soft "you're on the waitlist,
+we'll email you" state — not a hard error, no user created. This bounds the cohort even
+if the link leaks and reuses the existing waitlist as the allowlist. Cohort management:
+select a batch of `waitlist` rows → mark `invited_at` → send the link + code.
+
+### Waitlist stays anonymous/deny-all; invite state is additive columns (read before Task 4)
+`waitlist` is Shape 3 (deny-all, service-role-only) because it holds anonymous
+pre-signup emails. The invite mechanism adds columns to it (`invited_at`,
+`invite_code`, `cohort`) written only by a service-role admin path — it does **not**
+become user-scoped and does **not** need FK-to-users (the email isn't a user yet). The
+signup-time allowlist check reads it via the service-role client (as the signup route
+already does for the age gate). No RLS-shape change; still deny-all to clients.
+
+### Email sending is the one new external capability (read before Task 6)
+Nothing in the repo sends application email today (Supabase Auth handles its own
+transactional mail; the waitlist route only captures). The invite notification needs an
+email path. Decision: use **Supabase Auth's invite/magic-link** if it fits, else a
+minimal transactional provider called only from a service-role server route
+(`/api/admin/invite`, admin/CRON_SECRET-guarded). Its credential is server-only (the
+Sprint 18 no-secret gate covers it); the choice is recorded in ADR-045. The route also
+supports a **manual-send batch** (return the cohort for Darcy to email by hand first).
 
 ## Execution model
-A **single code session**, worked in order (1 → 5). ADR-037 fixes the reorder +
-breakpoint decision (Task 1); the reorder (Task 2) must land before the
-breakpoints reference the new stable block (Task 3); the schema de-dupe + history
-window (Task 4) are independent trims; verification + regression (Task 5) gate
-acceptance. No handoff.
+A **single code session** owns this sprint end to end, worked **strictly in order
+(1 → 8)**. The chain: ADRs (Task 1); the release pipeline (Task 2) is first so a
+buildable artifact exists; the privacy page + data-safety (Task 3) unblock submission;
+the waitlist invite migration (Task 4) precedes the invite route + signup allowlist
+(Task 5) and the notification path (Task 6); submission is initiated once Tasks 2–3
+land (Task 7, parallel with 4–6); the beta-launch acceptance is the gate (Task 8). One
+session — no handoff.
+
+This sprint touches: `extension/package.json` (a zip/release script) + `wxt.config.ts`
+(version bump only), a new `web/app/privacy/page.tsx` (+ terms), a new
+`supabase/migrations/0018_waitlist_invite.sql`, new `web/app/api/admin/invite/` +
+`web/app/api/invite/claim/` routes, `web/app/api/auth/signup/route.ts` (the allowlist
+check), `web/public/store/` (screenshots), and `/docs/` (listing copy + runbook). It
+does **not** touch the AI/learning paths, the extension overlay, or any billing (Sprint
+23).
 
 ## Files in scope
 
-### Task 1 (ADR + pointers)
+### Task 1 (ADRs + sprint pointers) creates or edits:
 ```
-/docs/adr/ADR-037-prompt-caching-tutor-prefix.md ← new (written)
-/CLAUDE.md, /docs/CLAUDE.md                       ← edit one line: Current sprint → Sprint 19
-/docs/architecture.md                             ← edit: tutor prefix is cached (stable/volatile split)
-/docs/sprint-19-plan.md                           ← this file
-```
-
-### Task 2 (system-prompt reorder — the load-bearing change)
-```
-/web/lib/ai/system-prompt.ts ← edit — split buildSystemPrompt output into a
-  STABLE prefix (intro, PEDAGOGY, HARD RULES, OUTPUT FORMAT sans key-subset,
-  BEFORE YOU ANSWER) and a VOLATILE tail (STUDENT PROFILE, PAGE CONTEXT,
-  known-keys list). Move the concept-key subset render out of buildEnvelopeOutputFormat
-  into the tail; leave a one-line "known keys are listed below" pointer in OUTPUT
-  FORMAT. Expose the split so claude.ts can place a breakpoint on the last stable
-  block (e.g. return { stable: string, volatile: string } or an ordered block list).
-  OPENING SCAN / SESSION START blocks are appended after the tail as today.
+/docs/adr/ADR-045-beta-distribution-channel.md ← new (provisional #) — unlisted Chrome Web Store (ADR-006 implemented); access gated by invite-claim at signup, NOT link secrecy; waitlist-as-allowlist (additive columns, still deny-all); the email/invite send path decision (Supabase invite vs minimal transactional, server-only credential, manual-send-batch option); versioned rollback-first release pipeline.
+/docs/adr/ADR-046-privacy-policy-and-data-safety.md ← new (provisional #) — the /privacy page + Chrome data-safety disclosure generated from the ACTUAL collection surface (email, birth year, GDPR stamp, text transcripts no-audio, hashed page ids, typed no-content telemetry, feedback); truthful-by-construction; export/delete rights (Sprint 16) linked from the page.
+/CLAUDE.md                                      ← edit one line: Current sprint → Sprint 19 — Store packaging + private beta distribution
+/docs/CLAUDE.md                                 ← edit one line: Current phase → Phase 2, Sprint 19
+/docs/sprint-19-plan.md                         ← this file
+/docs/architecture.md                           ← edit: release pipeline (wxt zip, versioned, unlisted CWS); /privacy + /terms pages; waitlist invite pipeline; beta = invite-gated signup
 ```
 
-### Task 3 (cache_control at every tutor call site)
+### Task 2 (release pipeline) creates / edits:
 ```
-/web/lib/ai/claude.ts          ← edit — pass system as content blocks with
-  cache_control:{type:'ephemeral'} on the last STABLE block, for runTutorTurn,
-  runTutorTurnEnvelopeStream, runTutorTurnStream, runSessionStartTool. Tools cache
-  with the prefix (rendered first) — no extra marker needed, but keep the tool array
-  serialization deterministic. Default 5-min TTL; note the 1h option.
-/web/app/api/ai/turn/route.ts  ← edit — same breakpoint on the opening-scan
-  messages.create system.
+/extension/package.json    ← edit — add "zip": "wxt zip" and a "release" script that builds + zips the versioned artifact into a predictable, addressable path (e.g. extension/release/calyxa-<version>.zip); keep the last N.
+/extension/wxt.config.ts   ← edit — version bump only (Sprint 18 set name/description/starting version). No permission/config change.
+/docs/release-runbook.md   ← new — the human steps: bump version → `npm run -w extension release` → run the Sprint 18 no-secret gate on the zipped artifact → upload to the CWS developer dashboard (unlisted) → record the version + rollback pointer.
 ```
 
-### Task 4 (payload trims — secondary levers)
+### Task 3 (privacy page + data-safety) creates / edits:
 ```
-/web/lib/ai/claude.ts          ← edit — de-duplicate the CONCEPT_KEYS enum in
-  ENVELOPE_TOOL: reference it once via a shared const already imported (it is), and
-  if the JSON size is the concern, prefer emitting the enum once. (Do NOT prune the
-  VALID key set — envelope.ts still validates against the full 66; this is about not
-  paying for the same 66-key list twice in the schema wire form.)
-/web/lib/ai/turn-request.ts    ← edit (optional) — tighten the resent history window
-  toward PLAN §2.5's 6-8 turns (below MAX_MESSAGES=40) so the volatile tail is small;
-  MAX_MESSAGES stays as the hard safety cap.
+/web/app/privacy/page.tsx ← new — the hosted privacy policy: what's collected (Task-1 enumeration), why, retention, the audio-never-persisted + hashed-page-id disciplines, and the export/delete rights with a link to the account page (Sprint 16). Marketing token system; server component.
+/web/app/terms/page.tsx   ← new — minimal terms (beta disclaimer, acceptable use, no warranty). Same tokens.
+/web/proxy.ts (or the public-path list) ← edit — ensure /privacy and /terms are public (no auth), matching how /api/waitlist was made public in Sprint 20.
+/docs/data-safety-disclosure.md ← new — the exact Chrome Web Store data-safety form answers (data types, purposes, sharing, encryption in transit, deletion mechanism) — the source Darcy transcribes into the CWS form; MUST match Sprints 16/17 collection exactly.
 ```
 
-### Task 5 (verify + regression — gate)
+### Task 4 (waitlist invite migration) creates:
 ```
-/web/tests/prompt-cache.test.ts ← new — assert the stable prefix is byte-stable
-  across two turns with different profile/page (the cache-key invariant); assert no
-  Date.now()/uuid/non-deterministic ordering leaks into system/tools.
-/web/tests/envelope-compliance.test.ts ← new or edit — the Sprint 14 Task 10 family:
-  assessment present on non-opening turns, annotations when say names page content,
-  chips/signals shape — proving the REORDER did not change behavior.
-  (Manual: a live turn shows usage.cache_read_input_tokens > 0 on turn 2+.)
+/supabase/migrations/0018_waitlist_invite.sql ← new (number at execution) — ALTER waitlist ADD invited_at timestamptz null, invite_code text null (unique where not null), cohort text null. STILL Shape 3 (deny-all to clients; service-role writes only) — no RLS-shape change, no FK-to-users (pre-signup emails aren't users), re-affirmed in the comment. Re-runs clean.
 ```
 
-### Explicitly out of scope
+### Task 5 (invite route + signup allowlist) creates / edits:
 ```
-Any provider/model change (that is ADR-038 / Sprint 24, gated separately)
-web/lib/ai/envelope.ts semantics (parsing/validation unchanged)
-The learning read/write path, voice pipeline, Sprint 16's guardrail internals
+/web/app/api/admin/invite/route.ts ← new — POST (admin/CRON_SECRET-guarded, service-role): given a cohort/batch selector, mark N waitlist rows invited_at = now() + generate invite_code; return the batch. Supports `send: boolean` (auto-send vs return-for-manual). No public access.
+/web/app/api/invite/claim/route.ts ← new — POST { code }: validates an invite_code against an un-consumed invited waitlist row; used by signup to authorize an email (or folded into signup).
+/web/app/api/auth/signup/route.ts  ← edit — after the age gate + consent (unchanged), add the INVITE ALLOWLIST check: the email must belong to an invited waitlist row (or the request carries a valid invite_code). Uninvited → soft 200 "you're on the waitlist" state (NOT a hard error, NOT a created user — mirrors the age-gate no-retention discipline). Invited → proceed exactly as today. Reuses the service-role read the age gate already uses.
 ```
 
-## Task acceptance gates
-- **Task 2:** `buildSystemPrompt` output for the same turn is unchanged *in
-  content* (a snapshot diff shows only block ORDER moved + the key-subset relocated
-  to the tail); typecheck passes.
-- **Task 3:** a live regular turn returns `cache_creation_input_tokens > 0` on
-  turn 1 and `cache_read_input_tokens ≈ prefix size` on turn 2; a forced profile
-  change between turns does NOT drop the read (proves the volatile tail is after the
-  breakpoint).
-- **Task 4:** `submit_tutor_turn` serialized schema is smaller; envelope.ts still
-  validates a `concept_key` from anywhere in the full 66-key set.
-- **Task 5:** compliance suite green; `cost_analysis.py --api` re-run shows the new
-  per-session input cost recorded in the sprint summary.
+### Task 6 (invite notification) creates / edits:
+```
+/web/lib/email/invite.ts        ← new — sendInvite(email, code, storeLink): the chosen send path (Supabase invite/magic-link OR a minimal transactional provider); server-only credential from env (Sprint 18 gate covers it). Absent credential → logs + no-ops (dev-safe), never throws.
+/web/app/api/admin/invite/route.ts ← edit — when send:true, call sendInvite per row; when send:false, return the batch for manual send.
+```
+
+### Task 7 (listing assets + submission) creates:
+```
+/web/public/store/*.png ← new — Chrome Web Store screenshots (1280×800) captured from a REAL dev build showing the overlay on a math page (no mockups); optional promo tile.
+/docs/store-listing.md  ← new — listing copy: title, short + full description, category, the /privacy URL, screenshot captions — the source Darcy pastes into the CWS dashboard. Submission is INITIATED here (upload the Task-2 zip as unlisted, fill the Task-3 data-safety form); review latency starts while Tasks 4–6 finish.
+```
+
+### Task 8 (beta-launch acceptance — manual, the real gate) creates:
+```
+/docs/beta-launch-acceptance.md ← new — the record of the end-to-end gate (below). Distribution proceeds only when this passes.
+```
+
+### Files explicitly out of scope
+```
+AI / learning / overlay feature code   (distribution sprint, not feature work)
+Billing / Stripe / entitlements        (Sprint 23; the beta is free)
+Study materials generation             (Sprint 21)
+Dashboard                              (Sprint 22)
+Firefox / AMO packaging                (V1 deferred — WXT keeps the door open, unused here)
+Public (listed) store presence + paid acquisition  (beta is unlisted + invite-gated)
+```
+Also out of scope (no pre-empting later roadmap sprints):
+- **A public store listing / open signups** — the beta is unlisted + invite-gated;
+  going public is a post-beta decision, the invite allowlist is the throttle until then.
+- **A full email/CRM system** — invite send is minimal (Supabase invite or one
+  transactional call, manual-batch supported); marketing email is not built.
+- **Resolving the study-loop marketing framing** — already resolved (Sprint 25/ADR-040
+  reframed it to "on the way"; the extension RecapCard shows a placeholder). No action.
+
+Do not create any file not listed above. If something seems needed but is not listed,
+add it to "What the next sprint needs to know" and ask before creating it.
+
+---
+
+## Task 1 — Distribution + privacy ADRs + sprint pointers (planning / docs)
+Write ADR-045/046 in the project format. Fix the unlisted-channel + invite-gate
+decision, the truthful data-safety enumeration, and the email-send path. Update
+pointers + architecture.md; repoint the sprint-24 cross-ref to the caching commit.
+
+Acceptance gate before Task 2:
+  - Both ADRs read as decisions; the data-safety enumeration matches Sprints 16/17
+    collection exactly; no code touched.
+
+## Task 2 — Release pipeline
+Scope: the zip/release script + version bump + runbook. A versioned, addressable,
+rollback-able artifact.
+
+Acceptance gate before Task 3:
+  - `npm run -w extension release` produces `calyxa-<version>.zip`; the Sprint 18
+    no-secret gate passes on the zipped artifact; the runbook is followable.
+
+## Task 3 — Privacy page + data-safety
+Scope: `/privacy` + `/terms` (public) + the data-safety disclosure doc. Truthful,
+linked to export/delete.
+
+Acceptance gate before Task 4:
+  - /privacy renders publicly (no auth), enumerates the real collection surface, links
+    account export/delete; the data-safety doc maps 1:1 to what's collected.
+
+## Task 4 — Waitlist invite migration
+Scope: `0018_waitlist_invite.sql`. Additive columns; still deny-all.
+
+Acceptance gate before Task 5:
+  - `db reset` clean; waitlist gains invited_at/invite_code/cohort; RLS still deny-all
+    (no client can read it); no FK-to-users introduced.
+
+## Task 5 — Invite route + signup allowlist
+Scope: the admin invite route + the signup allowlist check. Uninvited → soft "you're
+on the waitlist," no user created.
+
+Acceptance gate before Task 6:
+  - An invited email signs up + onboards normally; an uninvited email gets the soft
+    waitlist state with no user/profile created; the admin route is not publicly
+    callable.
+
+## Task 6 — Invite notification
+Scope: `sendInvite` + the admin route wiring. Server-only credential; absent → no-op;
+manual-batch supported.
+
+Acceptance gate before Task 7:
+  - A test invite send delivers the store link + code (or returns the batch for manual
+    send); no credential in any bundle.
+
+## Task 7 — Listing assets + submission
+Scope: screenshots + listing copy; initiate the unlisted submission.
+
+Acceptance gate before Task 8:
+  - The unlisted item is uploaded with the /privacy URL and the data-safety form
+    filled; review is in-flight.
+
+## Task 8 — Beta-launch acceptance (manual, the real gate)
+A tester who was NOT part of development, on a fresh machine:
+  1. Receives an invite (email on an invited waitlist row) with the unlisted link.
+  2. Installs the extension from the link.
+  3. Signs up — passes the age gate; the invite allowlist accepts their email.
+  4. Completes onboarding (Sprint 17), runs a real tutoring session with annotations +
+     tags + recap, hits (or doesn't) the free-tier limit gracefully.
+  5. Opens a second session — mastery from session one is still there.
+  6. An uninvited stranger with the same link gets the soft waitlist state, not access.
+  7. The tester's telemetry funnel events and any feedback appear server-side.
 
 ## Acceptance criteria (full checklist)
-- [ ] ADR-037 written; pointers + architecture.md updated; locked stack untouched
-- [ ] System prompt reordered into stable-prefix → volatile-tail; key-subset moved to tail
-- [ ] `cache_control` on the last stable block at all tutor call sites incl. opening scan
-- [ ] `cache_read_input_tokens > 0` on turn 2+ (live), and a profile change doesn't bust it
-- [ ] 66-key enum de-duplicated in the tool schema; full 66-key validation preserved
-- [ ] History window tightened toward 6-8 turns (MAX_MESSAGES stays the hard cap)
-- [ ] Envelope/annotation/assessment compliance suite green (reorder proven behavior-neutral)
-- [ ] `cost_analysis.py --api` re-run; new per-session cost recorded; Sprint 16 `CLAUDE_TURN_CENTS` flagged for downward revision
-
-## Cost lever comparison (recorded for the decision)
-| Lever | Provider/model | Est. session cost | Behavioral risk | Effort | Reversible | Reopens locked stack |
-|---|---|---|---|---|---|---|
-| Today (no caching) | Haiku 4.5 | ~$0.108 | — | — | — | — |
-| **This sprint (caching + trims)** | **Haiku 4.5** | **~$0.04 (~60% off)** | **very low** | **~1 day** | **yes** | **no** |
-| Migration (Sprint 24 candidate) | GPT-4o-mini | ~$0.016 (~85% off) | high | ~4-5 days | partial | yes (ADR-038) |
-
-Caching captures the majority of the migration's savings without leaving
-Anthropic, changing model capability, or reopening ADR-008. Do this first.
+- [ ] ADR-045/046 written; pointers + architecture.md updated; sprint-24 cross-ref repointed to the caching commit
+- [ ] `npm run -w extension release` produces a versioned, addressable zip; no-secret gate passes on it; rollback runbook exists
+- [ ] /privacy + /terms render publicly; data-safety disclosure matches Sprints 16/17 collection exactly; export/delete linked
+- [ ] waitlist gains invited_at/invite_code/cohort (still deny-all, no FK-to-users); db reset clean
+- [ ] Signup is invite-gated: invited email proceeds, uninvited gets a soft waitlist state with no user created; admin invite route guarded
+- [ ] Invite notification sends the unlisted link + code (or returns a manual-send batch); credential server-only
+- [ ] Unlisted CWS item submitted with /privacy URL + data-safety form; review in-flight
+- [ ] Beta-launch acceptance passed end-to-end by a non-developer on a fresh machine → 🚀 DISTRIBUTE
 
 ## Risks
-**The reorder changes model behavior.** Mitigation: it is a reorder of
-byte-identical blocks, not a rewrite; the envelope-compliance suite (the Sprint 14
-Task 10 failure family) is the gate; ship behind the same forced-tool schema that
-already guarantees shape.
+**Chrome Web Store review rejects/delays over the broad `<all_urls>` host permission.**
+Mitigation: the manifest is minimized + justified (Sprint 18), the content script
+genuinely needs `<all_urls>` (a tutor on any math page), the data-safety form is
+truthful, and submission starts early so latency runs in parallel; if review pushes
+back, the justification is documented and `activeTab`-narrowing is the recorded fallback.
 
-**The cache silently never hits** (a `Date.now()`, a per-request id, or
-non-deterministic JSON ordering in the prefix). Mitigation: the prefix-stability
-test asserts byte-identity across turns; a runtime check logs when
-`cache_read_input_tokens` is 0 on turn 2+.
+**The unlisted link leaks and uninvited users flood in.** Mitigation: access is gated
+at signup by the invite allowlist, not the link — a leaked link installs the extension
+but an uninvited email can't onboard; the soft-waitlist state converts leakers into
+waitlist signups rather than turning them away.
 
-**5-minute TTL expires between slow turns.** Mitigation: sessions are ~5 min with
-turns closer than that; if measurement shows gaps, switch the breakpoint to `ttl:"1h"`
-(one-line change) — the doubled write cost still pays off within a session.
+**The privacy/data-safety disclosure drifts from what's actually collected.**
+Mitigation: generated from the Task-1 enumeration cross-checked against Sprints 16/17
+code; the data-safety doc maps 1:1; any future collection change must update both
+(flagged in the handoff).
 
-**Moving the key-subset out of OUTPUT FORMAT weakens its adjacency to the
-guidance.** Mitigation: keep a one-line in-block pointer; the keys were always a
-render-time splice, and the tail is still in the same system prompt the model reads
-in full.
+**Email sending is a new failure surface / spam risk.** Mitigation: send is
+service-role-only and admin/CRON-guarded; manual-send batch lets Darcy send the first
+cohort by hand; absent credentials no-op; volume is a bounded cohort, not open signup.
+
+**A bad beta build ships with no way back.** Mitigation: the release pipeline is
+versioned and keeps the last N artifacts addressable; rollback is re-uploading the prior
+version per the runbook; the no-secret gate runs on the exact artifact.
 
 ## What the next sprint needs to know
-**Per-turn Claude input cost is ~65% lower and cached.** The system prompt now has
-a stable-prefix / volatile-tail contract — **any new turn-invariant instruction goes
-in the stable prefix; anything per-turn goes in the tail after the breakpoint**, or
-caching regresses. Sprint 16's `CLAUDE_TURN_CENTS` should be revised to the cached
-rate. If the budget target is met by caching + the Sprint 16 guardrail, the GPT-4o-mini
-migration (Sprint 24 / ADR-038) can stay un-greenlit.
+**Calyxa is in beta.** An unlisted, invite-gated Chrome Web Store build is installable
+by invited testers; the release pipeline is versioned + rollback-able; /privacy +
+data-safety are truthful and hosted; the waitlist is now an allowlist with an invite
+send path; the telemetry funnel + feedback table are the live beta-health + issue
+signals.
+
+- **The post-beta sprints (21 study materials, 22 dashboard, 23 billing)** now build on
+  a live product with real users — each should watch the Sprint 17 telemetry funnel and
+  feedback inbox for what beta users need first.
+- **The unlisted→public transition** is a future decision (flip listing visibility, drop
+  the invite gate, add paid acquisition) — not built here; the invite allowlist is the
+  throttle until then.
+- **The data-safety disclosure is now load-bearing**: any new data collection (Sprint 21
+  artifacts, Sprint 23 billing/Stripe customer data) MUST update /privacy + the
+  data-safety form before it ships to beta users.
+- **The release runbook** is the standing path for every future extension update.
+- **Firefox/AMO** stays deferred (WXT keeps the multi-target door open); revisit
+  post-V1 only.

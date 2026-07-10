@@ -1,10 +1,12 @@
 # Sprint 22 — Mastery dashboard + data charts (post-login web)
 
-> **Post-beta sprint.** This runs after beta distribution (Sprint 19) and after
-> Sprints 18/19/21. Because those land first and will claim ADR numbers, the ADR
-> numbers below are **provisional** (written as ADR-046/047) — assign the next two
-> free numbers when this sprint actually executes, and fix the references in one
-> pass. Everything else is grounded in the code as it stands today.
+> **Post-beta sprint.** Runs after beta distribution (Sprint 19) and after Sprints
+> 18/19/21. ADR numbers are written concretely from the next free after those three
+> (Sprint 18→044, 19→045/046, 21→047, so this sprint = **048/049**) and the migration
+> is **0020** (19→0018, 21→0019, this→0020). All are **provisional** — the parallel
+> tracks (Sprint 24 migration candidate, Sprint 25 landing v2) may claim intervening
+> numbers, so confirm next-free at execution. Everything else is grounded in the code
+> as it stands today (latest ADR on disk = 043, latest migration = 0017).
 
 ## Goal
 Give a signed-in student a **web dashboard that shows the learning the extension
@@ -74,7 +76,7 @@ cannot be drawn from stored data; this sprint charts current state + real
 activity/accuracy history (from `session_interactions`) and *starts* a daily
 snapshot so a genuine mastery trend accrues from launch forward.
 
-### Decisions locked for this sprint (recorded in ADR-046/047)
+### Decisions locked for this sprint (recorded in ADR-048/047)
 1. **Reads are RLS-scoped, server-rendered, per-request-fresh — no cache layer.**
    The Sprint 11 audit fixed this: dashboard reads are eventually consistent with
    the last turn's `after()` apply (seconds), so a per-request server render is
@@ -158,8 +160,8 @@ this is a read-only web surface over data that already exists.
 
 ### Task 1 (ADRs + sprint pointers) creates or edits:
 ```
-/docs/adr/ADR-046-mastery-dashboard-reads.md ← new (PROVISIONAL number) — RLS-scoped, server-rendered, per-request-fresh, no cache; a dashboard-sized loadDashboard() reusing loadProfile's decay math; group-by page_url_hash not domain; the no-mastery-history reality → chart current state + activity-from-interactions + a forward-only snapshot trend.
-/docs/adr/ADR-047-chart-tokens-and-library.md ← new (PROVISIONAL number) — chart color palette as named @calyxa/ui tokens (additive, AA-validated); shadcn chart component over Recharts as the one charting substrate (tokens-native); the mastery_snapshot table + daily cron (reuses Sprint 16 cron infra) as the forward-only trend source.
+/docs/adr/ADR-048-mastery-dashboard-reads.md ← new (PROVISIONAL number) — RLS-scoped, server-rendered, per-request-fresh, no cache; a dashboard-sized loadDashboard() reusing loadProfile's decay math; group-by page_url_hash not domain; the no-mastery-history reality → chart current state + activity-from-interactions + a forward-only snapshot trend.
+/docs/adr/ADR-049-chart-tokens-and-library.md ← new (PROVISIONAL number) — chart color palette as named @calyxa/ui tokens (additive, AA-validated); shadcn chart component over Recharts as the one charting substrate (tokens-native); the mastery_snapshot table + daily cron (reuses Sprint 16 cron infra) as the forward-only trend source.
 /CLAUDE.md                                    ← edit one line: Current sprint → Sprint 22 — Mastery dashboard + data charts
 /docs/CLAUDE.md                               ← edit one line: Current phase → (phase at execution) Sprint 22
 /docs/sprint-22-plan.md                       ← this file
@@ -186,14 +188,15 @@ this is a read-only web surface over data that already exists.
 
 ### Task 5 (migration + cron — the forward-only mastery snapshot) creates / edits:
 ```
-/supabase/migrations/0016_mastery_snapshot.sql ← new (number at execution) — mastery_snapshot(id uuid pk, user_id uuid not null references users on delete cascade, concept_key text not null, day date not null, mastery real not null, state text not null, created_at) with a unique (user_id, concept_key, day); Shape 2 RLS (user_id-keyed, select own; writes are service-role from the cron). FK on delete cascade to users (Sprint 16 erasure reaches it) + add it to the export route. RLS-in-migration.
+/supabase/migrations/0020_mastery_snapshot.sql ← new (number at execution) — mastery_snapshot(id uuid pk, user_id uuid not null references users on delete cascade, concept_key text not null, day date not null, mastery real not null, state text not null, created_at) with a unique (user_id, concept_key, day); Shape 2 RLS (user_id-keyed, select own; writes are service-role from the cron). FK on delete cascade to users (Sprint 16 erasure reaches it) + add it to the export route. RLS-in-migration.
 /web/app/api/cron/mastery-snapshot/route.ts ← new — CRON_SECRET-gated (reuses Sprint 16's web/lib/cron/auth.ts): for every non-deleted user, upsert today's decay-adjusted mastery per active concept into mastery_snapshot (idempotent on the unique key). Service-role admin client. Bounded batches.
-/vercel.json ← edit — add the mastery-snapshot daily cron alongside Sprint 16's crons.
+/web/vercel.json ← edit — add the mastery-snapshot daily cron alongside Sprint 16's crons (the cron config lives under web/, not repo root).
 ```
 
 ### Task 6 (web — the dashboard shell + mastery/misconception/review views) creates / edits:
 ```
-/web/app/(dashboard)/layout.tsx            ← edit — fill the reserved <nav> slot with real navigation (Overview, Mastery, Misconceptions, Review, Activity, Account); keep the existing shell/container. Server component.
+/web/app/(dashboard)/layout.tsx            ← edit — fill the reserved <nav> slot with real navigation (Overview, Mastery, Misconceptions, Review, Activity, Study kits [if Sprint 21 landed], Account); keep the existing shell/container. Server component.
+/web/app/(dashboard)/study/page.tsx        ← new, CONDITIONAL on Sprint 21 — the "Study kits" list Sprint 21 explicitly deferred to the dashboard: reads GET /api/study/list (RLS-scoped), renders past kits (notes/problems/flashcards) newest-first. If Sprint 21 has NOT landed at execution, omit this page + its nav item (flagged, not blocking).
 /web/app/(dashboard)/dashboard/page.tsx    ← new — Overview: mastery-by-strand summary bars + state distribution donut/bar; calls loadDashboard(); force-dynamic per-request (matches account page).
 /web/app/(dashboard)/mastery/page.tsx      ← new — full per-concept grid grouped by strand, decay-adjusted, titles resolved.
 /web/app/(dashboard)/misconceptions/page.tsx ← new — active vs resolved, occurrence + streak per concept.
@@ -240,7 +243,7 @@ listed, add it to "What the next sprint needs to know" and ask before creating i
 ---
 
 ## Task 1 — Dashboard-read + chart-token ADRs + sprint pointers (planning / docs)
-Write ADR-046/047 (assign the actual next-free numbers at execution — 18/19/21
+Write ADR-048/047 (assign the actual next-free numbers at execution — 18/19/21
 land first). Fix: the no-cache/per-request read model, the dashboard-sized read
 reusing `loadProfile`'s decay, the shadcn-chart-over-Recharts choice, the additive
 AA-validated chart tokens, and the forward-only snapshot trend (no backfill).
@@ -277,7 +280,7 @@ Acceptance gate before Task 5:
     data never appears.
 
 ## Task 5 — Migration + cron: the forward-only mastery snapshot
-Scope: `0016_mastery_snapshot.sql` + the cron route + the `vercel.json` line.
+Scope: `0020_mastery_snapshot.sql` + the cron route + the `vercel.json` line.
 Reuses Sprint 16's cron auth.
 
 Acceptance gate before Task 6:
@@ -326,7 +329,7 @@ Signed in as a real dev user with real tutoring history:
      freshness confirmed (a new tutoring turn shows on refresh within seconds).
 
 ## Acceptance criteria (full checklist)
-- [ ] ADR-046/047 written (actual numbers assigned at execution); pointers + architecture.md updated
+- [ ] ADR-048/047 written (actual numbers assigned at execution); pointers + architecture.md updated
 - [ ] Chart color tokens added to theme.css (additive, AA-validated); shadcn chart over Recharts installed; a tokened chart renders green-on-brand
 - [ ] loadDashboard returns the full per-user graph grouped by strand, decay-adjusted (parity with loadProfile), RLS-scoped, titles resolved, degrades to empty
 - [ ] mastery_snapshot table (Shape 2 RLS, FK cascade, export-covered) + a CRON_SECRET-gated daily cron; forward-only trend stated honestly in the UI
@@ -377,6 +380,10 @@ reads the full per-user graph server-side (RLS-scoped, per-request-fresh) via
 (on Sprint 16's cron infra) accrues the forward-only mastery trend; charts are
 shadcn-over-Recharts.
 
+- **Sprint 21 (study materials)**: if it shipped first, its `/api/study/list` feeds
+  the conditional `/study` "Study kits" page this sprint adds; if this dashboard
+  shipped first, Sprint 21's web surface is the `/study` route added here later.
+  Either order works — the persisted `study_artifact` table is the shared contract.
 - **Sprint 23 (billing)** inherits: the dashboard is where the Pro upsell / manage-
   subscription UI naturally lives (extend the nav + a `/billing` route); the Pro-
   gated analytics distinction (some views Pro-only) is an entitlements decision
