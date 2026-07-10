@@ -1,50 +1,53 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useInView, useReducedMotion } from 'motion/react'
 import { cn } from '@/lib/utils'
 import { Section } from '@/components/marketing/Section'
 import { Reveal } from '@/components/marketing/Reveal'
-import { reduceScene, type MasteryDelta } from '@/components/marketing/demo/scene'
-import { profileScene } from '@/components/marketing/demo/scripts'
+import { DemoPanel } from '@/components/marketing/demo/DemoPanel'
+import { reduceScene } from '@/components/marketing/demo/scene'
+import { checkinRecapAlts, checkinRecapFrames, checkinRecapScene } from '@/components/marketing/demo/scripts'
 
-// Sprint 20 Task 7: "It learns how you learn" — the same session the hero
-// and SessionShowcase just played (factoring quadratics, the sign-errors
-// gap), seen from a third angle: what the profile looked like walking in,
-// and what it looks like walking out. profileScene (scripts.ts) is the
-// single source of truth for every number and recap line here.
+// Sprint 25 Task 8 (originally Sprint 20 Task 7): "It learns how you learn",
+// rebuilt on the product's real bookends (ADR-040) — the check-in card the
+// session opens with (scanning orb → the one AI-prediction card) and the
+// recap card it closes with (What improved / Still needs practicing). The
+// mastery-bar panels this section used to recreate no longer exist in the
+// product. Both panels are Task 3's DemoPanel recreation driven by
+// checkinRecapScene (scripts.ts) — same session, same fixture, third angle.
 //
-// This section does NOT play profileScene through useSceneTimeline. That
-// hook's clock mode is built for the hero/showcase's looping demos; this
-// section's gate is the opposite — animate once on first in-view, then hold,
-// never replay on a later scroll-past. reduceScene (the shared pure reducer)
-// is still what turns time into state; only the "play once" driver below is
-// local to this component, the same way SessionShowcase hand-rolls its own
-// scroll-scrub source instead of extending the shared engine.
-
-// Not sourced from profileScene: the pre-session weak-spot/due-review lines
-// aren't part of that script (only heroSession's overview strip carries
-// them). Copy here mirrors heroSession's overview verbatim so the two
-// sections agree on the same profile snapshot.
-const BEFORE_WORKING_THROUGH = 'Sign errors — flagged last session'
-const BEFORE_DUE = 'Distributive property — due today'
+// The once-in-view driver survives the rebuild: this section still does NOT
+// play through useSceneTimeline. Its gate is the opposite of the hero's
+// looping clock — animate once on first in-view, then hold, never replay on
+// a later scroll-past. reduceScene (the shared pure reducer) still turns the
+// local clock into state. The BEFORE panel plays the scan → prediction arc
+// and holds the composed card (clamped at checkinRecapFrames.checkin); the
+// AFTER panel holds the composed recap end frame and fades in when the
+// timeline reaches the recap step — the card itself is static in the
+// product, so the reveal is the animation.
 
 const CALLBACK_QUOTE =
   'This connects to the factoring work from a few sessions ago — same move, same equation shape.'
 
-function formatComingBack(raw: string): string {
-  const [title, when] = raw.split(' — ')
-  return when ? `${title} comes back ${when}` : raw
-}
+// The real overlay's panel width (DemoStage's PANEL_W) — DemoPanel is a 1:1
+// recreation at this width; the viewport below scales it to fit the column.
+const PANEL_W = 420
 
-function deltaDirection(from: number, to: number): 'up' | 'down' | null {
-  if (to > from) return 'up'
-  if (to < from) return 'down'
-  return null
-}
+// One shared viewport height so the two bookend panels sit level; the
+// tallest composed state (the recap card, ~390px) sets it.
+const PANEL_VIEWPORT_H = 424
 
-/** Plays profileScene once when it first enters view, then holds the end frame. */
-function useProfilePlayback() {
+// The demo tree's file-local color exceptions, mirrored from DemoStage (see
+// its comment for why these two values are unreachable by token name inside
+// /web). Scoped to the bookends grid.
+const DEMO_SCOPE_VARS = {
+  '--cx-demo-hairline': '#e5e3de',
+  '--cx-demo-hairline-soft': '#eceae5',
+} as React.CSSProperties
+
+/** Plays checkinRecapScene once when it first enters view, then holds. */
+function useBookendsPlayback() {
   const reducedMotion = useReducedMotion() ?? false
   const ref = useRef<HTMLDivElement | null>(null)
   const inView = useInView(ref, { once: true, margin: '-80px' })
@@ -55,23 +58,30 @@ function useProfilePlayback() {
     let frame = 0
     const start = performance.now()
     const tick = (now: number) => {
-      const delta = Math.min(now - start, profileScene.durationMs)
+      const delta = Math.min(now - start, checkinRecapScene.durationMs)
       setElapsed(delta)
-      if (delta < profileScene.durationMs) frame = requestAnimationFrame(tick)
+      if (delta < checkinRecapScene.durationMs) frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
   }, [inView, reducedMotion])
 
-  const t = reducedMotion ? profileScene.durationMs : elapsed
-  const state = useMemo(() => reduceScene(profileScene, t), [t])
-  return { ref, state, reducedMotion }
+  const t = reducedMotion ? checkinRecapScene.durationMs : elapsed
+
+  // BEFORE plays up to the composed prediction card, then holds it (the
+  // scene itself clears the check-in at the recap step, which a held
+  // "before" bookend must never do).
+  const beforeState = useMemo(() => reduceScene(checkinRecapScene, Math.min(t, checkinRecapFrames.checkin)), [t])
+  // AFTER is the static composed recap frame, revealed when the live
+  // timeline actually reaches the recap step.
+  const afterState = useMemo(() => reduceScene(checkinRecapScene, checkinRecapFrames.recap), [])
+  const afterVisible = useMemo(() => reduceScene(checkinRecapScene, t).recap !== null, [t])
+
+  return { ref, beforeState, afterState, afterVisible, reducedMotion }
 }
 
 export function ProfileSection() {
-  const { ref, state, reducedMotion } = useProfilePlayback()
-  const afterActive = state.masteryDeltas.length > 0
-  const recap = state.strip?.variant === 'recap' ? state.strip : null
+  const { ref, beforeState, afterState, afterVisible, reducedMotion } = useBookendsPlayback()
 
   return (
     <Section
@@ -79,44 +89,26 @@ export function ProfileSection() {
       tone="wash"
       kicker="It learns how you learn"
       heading="Every session updates what Calyxa knows about you."
-      sub="Mastery levels, weak spots, and what's due for review — visible before and after every session."
+      sub="One prediction before you start, an honest recap when you finish — the profile working at both ends of every session."
     >
-      <div ref={ref} className="grid gap-8 lg:grid-cols-2">
+      <div ref={ref} className="grid gap-8 lg:grid-cols-2" style={DEMO_SCOPE_VARS}>
         <Reveal>
-          <ProfilePanel label="Before this session">
-            <MasteryBars
-              rows={
-                state.masteryDeltas.length > 0
-                  ? state.masteryDeltas.map((d) => ({ title: d.title, value: d.from }))
-                  : FALLBACK_BEFORE
-              }
-            />
-            <div className="mt-5 flex flex-col gap-1.5 text-sm text-muted-foreground">
-              <p className="m-0">Working through: {BEFORE_WORKING_THROUGH}</p>
-              <p className="m-0">Due for review: {BEFORE_DUE}</p>
-            </div>
-          </ProfilePanel>
+          <BookendPanel label="Before this session" alt={checkinRecapAlts.checkin}>
+            <DemoPanel state={beforeState} />
+          </BookendPanel>
         </Reveal>
 
         <Reveal delay={0.1}>
-          <ProfilePanel label="After this session">
-            <MasteryDeltaBars deltas={state.masteryDeltas} active={afterActive} reducedMotion={reducedMotion} />
+          <BookendPanel label="After this session" alt={checkinRecapAlts.recap}>
             <div
               className={cn(
-                'mt-5 flex flex-col gap-1.5 rounded-lg border border-(--mkt-border-faint) bg-surface p-4 text-sm',
                 !reducedMotion && 'transition-all duration-500 ease-out',
-                recap ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
+                afterVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'
               )}
             >
-              {recap?.resolved && (
-                <p className="m-0 font-medium text-accent-emphasis">✓ Gap closed: {recap.resolved}</p>
-              )}
-              {recap?.trend && <p className="m-0 font-medium text-accent-emphasis">{recap.trend}</p>}
-              {recap?.comingBack && (
-                <p className="m-0 text-muted-foreground">{formatComingBack(recap.comingBack)}</p>
-              )}
+              <DemoPanel state={afterState} />
             </div>
-          </ProfilePanel>
+          </BookendPanel>
         </Reveal>
       </div>
 
@@ -130,88 +122,82 @@ export function ProfileSection() {
           </figcaption>
         </figure>
       </Reveal>
+
+      {/* The demo-scoped keyframes + placeholder styling DemoPanel's
+          check-in/recap states depend on (the scanning ring/orb, the chip
+          dot, the "Generated for you" tiles), mirrored 1:1 from DemoStage's
+          scoped <style> — this section renders DemoPanel without DemoStage,
+          so it carries its own copy. Same reduced-motion discipline: looping
+          motion only under prefers-reduced-motion: no-preference. */}
+      <style>{`
+        @keyframes cx-demo-dot { 0%, 100% { transform: scale(0.65); opacity: 0.5; } 50% { transform: scale(1); opacity: 1; } }
+        @keyframes cx-demo-ring { 0% { transform: scale(0.7); opacity: 0.55; } 100% { transform: scale(1.9); opacity: 0; } }
+        @keyframes cx-demo-orb { 0%, 100% { transform: scale(0.86); opacity: 0.7; } 50% { transform: scale(1.1); opacity: 1; } }
+        @media (prefers-reduced-motion: no-preference) {
+          .cx-demo-dot { animation: cx-demo-dot 2.2s ease-in-out infinite; }
+          .cx-demo-ring { animation: cx-demo-ring 2.6s ease-out infinite; }
+          .cx-demo-orb { animation: cx-demo-orb 2.8s ease-in-out infinite; }
+        }
+        .cx-demo-placeholder {
+          border: 1px dashed var(--calyxa-placeholder-border);
+          background: repeating-linear-gradient(
+            135deg,
+            var(--calyxa-placeholder-stripe-a),
+            var(--calyxa-placeholder-stripe-a) 6px,
+            var(--calyxa-placeholder-stripe-b) 6px,
+            var(--calyxa-placeholder-stripe-b) 12px
+          );
+          color: var(--calyxa-placeholder-text);
+        }
+      `}</style>
     </Section>
   )
 }
 
-// Only used before profileScene's masteryDelta step has ever fired (the very
-// first frame, pre-animation) — reduceScene's own from-values take over the
-// instant the step activates, so this never drifts from the script.
-const FALLBACK_BEFORE = [
-  { title: 'Factoring quadratics', value: 0.45 },
-  { title: 'Distributive property', value: 0.72 },
-  { title: 'Linear equations', value: 0.88 },
-]
-
-function ProfilePanel({ label, children }: { label: string; children: React.ReactNode }) {
+function BookendPanel({ label, alt, children }: { label: string; alt: string; children: ReactNode }) {
   return (
     <div className="mkt-card-raised p-6 sm:p-8">
       <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <div className="mt-5">{children}</div>
+      <p className="sr-only">{alt}</p>
+      <div className="mt-5" aria-hidden="true">
+        <PanelViewport>{children}</PanelViewport>
+      </div>
     </div>
   )
 }
 
-function MasteryBars({ rows }: { rows: { title: string; value: number }[] }) {
-  return (
-    <div className="flex flex-col gap-3">
-      {rows.map((row) => (
-        <div key={row.title} className="flex items-center gap-3">
-          <span className="w-40 flex-none truncate text-sm text-foreground">{row.title}</span>
-          <span className="h-2 flex-1 overflow-hidden rounded-full bg-(--mkt-border-faint)">
-            <span
-              className="block h-full rounded-full bg-accent-glow-strong"
-              style={{ width: `${Math.round(row.value * 100)}%` }}
-            />
-          </span>
-          <span className="w-10 flex-none text-right text-sm text-muted-foreground">
-            {Math.round(row.value * 100)}%
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
+// DemoPanel at its real 420px width, scaled to fit the column and anchored
+// bottom-center — the overlay's resting position; the panel's height is
+// intrinsic (the scan orb state is shorter than the composed cards), so it
+// grows upward into the viewport. Third hand-rolled copy of this
+// scale-to-fit wiring (AdaptiveSection's PanelViewport, DemoStage's canvas
+// scale) — flagged in the sprint handoff for a dedup pass.
+function PanelViewport({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [scale, setScale] = useState(1)
 
-function MasteryDeltaBars({
-  deltas,
-  active,
-  reducedMotion,
-}: {
-  deltas: MasteryDelta[]
-  active: boolean
-  reducedMotion: boolean
-}) {
-  const rows = active ? deltas : FALLBACK_BEFORE.map((row) => ({ title: row.title, from: row.value, to: row.value }))
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = () => setScale(Math.min(1, el.clientWidth / PANEL_W))
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   return (
-    <div className="flex flex-col gap-3">
-      {rows.map((row) => {
-        const direction = deltaDirection(row.from, row.to)
-        const shownValue = active ? row.to : row.from
-        return (
-          <div key={row.title} className="flex items-center gap-3">
-            <span className="w-40 flex-none truncate text-sm text-foreground">{row.title}</span>
-            <span className="h-2 flex-1 overflow-hidden rounded-full bg-(--mkt-border-faint)">
-              <span
-                className={cn(
-                  'block h-full rounded-full bg-accent-glow-strong',
-                  !reducedMotion && 'transition-[width] duration-700 ease-out'
-                )}
-                style={{ width: `${Math.round(shownValue * 100)}%` }}
-              />
-            </span>
-            <span className="flex w-14 flex-none items-center justify-end gap-1 text-right text-sm text-muted-foreground">
-              {Math.round(shownValue * 100)}%
-              {direction && (
-                <span className={direction === 'up' ? 'text-accent-emphasis' : 'text-muted-foreground'}>
-                  {direction === 'up' ? '▲' : '▼'}
-                </span>
-              )}
-            </span>
-          </div>
-        )
-      })}
+    <div
+      ref={ref}
+      className="relative w-full overflow-hidden rounded-lg bg-surface"
+      style={{ height: Math.round(PANEL_VIEWPORT_H * scale) }}
+    >
+      <div
+        className="absolute bottom-0 left-1/2 pb-3.5"
+        style={{ width: PANEL_W, transform: `translateX(-50%) scale(${scale})`, transformOrigin: 'bottom center' }}
+      >
+        {children}
+      </div>
     </div>
   )
 }

@@ -312,11 +312,6 @@ export const checkinRecapAlts = {
     'The Calyxa recap card after the session: under Factoring quadratics, factoring and catching sign errors show as improved while negative coefficients is marked still needs practicing, above the Generated-for-you placeholder tiles.',
 } as const
 
-// TEMP alias (Sprint 25 Task 4): ProfileSection still imports profileScene;
-// Task 8 rebuilds it on checkinRecapScene + checkinRecapFrames and deletes
-// this line.
-export const profileScene = checkinRecapScene
-
 // ── The adaptive-section vignettes (Task 7 consumes, ADR-040 decision 4) ─
 // Four parallel systems, one script (or catalog) each. The scripts stay on
 // the one fixture story; the ping catalog is data for the tap-to-fire
