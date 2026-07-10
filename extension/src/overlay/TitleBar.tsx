@@ -1,6 +1,13 @@
+import { useState } from 'react';
 import { CalyxaMark } from '@calyxa/ui';
 import { WaveformBars } from './Composer';
 import type { TutorModeKey } from './tutor-modes';
+
+// Sprint 17 / Task 7 (ADR-039): the in-panel feedback capture kind -- mirrors
+// SendFeedbackPayload['kind'] (types/messages.ts) by convention, same
+// re-declaration discipline this file already follows for its own state
+// slots (a small literal union, not worth an import for).
+export type FeedbackKind = 'bug' | 'rating' | 'idea';
 
 // The design handoff's shared-header state slot (state 06b): the right side
 // of the header carries the recap's plain muted meta ("18 min · 5
@@ -59,6 +66,7 @@ export function TitleBar({
   onInterrupt,
   onMinimize,
   onCloseSession,
+  onSubmitFeedback,
 }: {
   playing: boolean;
   isDragging: boolean;
@@ -91,8 +99,147 @@ export function TitleBar({
   onInterrupt: () => void;
   onMinimize: () => void;
   onCloseSession: () => void;
+  // The report/rate affordance's submit (Sprint 17 Task 7, ADR-039): the
+  // popover's own open/kind/rating/message/phase state is LOCAL to this
+  // component (the CheckinScan precedent -- a small, purely presentational
+  // state machine that doesn't need to be shared with Overlay.tsx); this is
+  // the one callback out. Overlay.tsx wires it to onReportFeedback +
+  // attaches the current sessionId when one is active.
+  onSubmitFeedback: (payload: { kind: FeedbackKind; rating?: number; message?: string }) => Promise<void>;
 }) {
   const controlsDisabled = busy || recording || ending || closing;
+
+  // ---- The feedback popover's local state (Sprint 17 Task 7, ADR-039) ----
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackKind, setFeedbackKind] = useState<FeedbackKind>('idea');
+  const [feedbackRating, setFeedbackRating] = useState<number | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [feedbackPhase, setFeedbackPhase] = useState<'idle' | 'submitting' | 'sent' | 'error'>('idle');
+
+  function resetFeedbackForm() {
+    setFeedbackKind('idea');
+    setFeedbackRating(null);
+    setFeedbackMessage('');
+    setFeedbackPhase('idle');
+  }
+
+  function toggleFeedback() {
+    setFeedbackOpen((open) => {
+      if (open) resetFeedbackForm();
+      return !open;
+    });
+  }
+
+  async function handleFeedbackSend() {
+    setFeedbackPhase('submitting');
+    try {
+      await onSubmitFeedback({
+        kind: feedbackKind,
+        ...(feedbackKind === 'rating' && feedbackRating !== null ? { rating: feedbackRating } : {}),
+        ...(feedbackMessage.trim() ? { message: feedbackMessage.trim() } : {}),
+      });
+      setFeedbackPhase('sent');
+      window.setTimeout(() => {
+        setFeedbackOpen(false);
+        resetFeedbackForm();
+      }, 1400);
+    } catch {
+      setFeedbackPhase('error');
+    }
+  }
+
+  const feedbackButton = (
+    <span className="relative">
+      <button
+        type="button"
+        onClick={toggleFeedback}
+        disabled={closing}
+        aria-label="Send feedback"
+        aria-expanded={feedbackOpen}
+        className="flex h-6 w-6 flex-none cursor-pointer items-center justify-center rounded-full border border-border bg-background p-0 text-muted-foreground outline-none hover:border-accent hover:bg-accent-subtle hover:text-accent-emphasis focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <svg aria-hidden="true" width="11" height="10" viewBox="0 0 12 11" fill="none">
+          <path
+            d="M1.5 2.25C1.5 1.56 2.06 1 2.75 1h6.5c.69 0 1.25.56 1.25 1.25v4c0 .69-.56 1.25-1.25 1.25H4.75L2 9.5V7.5h-.25C1.56 7.5 1 6.94 1 6.25v-4Z"
+            stroke="currentColor"
+            strokeWidth="1"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
+      {feedbackOpen && (
+        <div className="absolute right-0 top-[34px] z-30 w-[230px] rounded-lg border border-border bg-background p-3 shadow-panel">
+          {feedbackPhase === 'sent' ? (
+            <p className="m-0 text-center text-[12.5px] font-medium text-foreground">Thanks for the feedback!</p>
+          ) : (
+            <>
+              <div className="mb-2 flex gap-1.5">
+                {(['bug', 'idea', 'rating'] as const).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => setFeedbackKind(kind)}
+                    className={`flex-1 cursor-pointer rounded-full border px-2 py-1 text-[11px] font-semibold outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
+                      feedbackKind === kind
+                        ? 'border-accent bg-accent-subtle text-accent-emphasis'
+                        : 'border-border bg-background text-muted-foreground hover:border-accent'
+                    }`}
+                  >
+                    {kind === 'bug' ? 'Bug' : kind === 'idea' ? 'Idea' : 'Rate'}
+                  </button>
+                ))}
+              </div>
+              {feedbackKind === 'rating' && (
+                <div className="mb-2 flex justify-center gap-1">
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setFeedbackRating(value)}
+                      aria-label={`Rate ${value} of 5`}
+                      className={`h-6 w-6 cursor-pointer rounded-full border text-[11px] font-semibold outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
+                        feedbackRating === value
+                          ? 'border-accent bg-accent text-accent-foreground'
+                          : 'border-border bg-background text-muted-foreground hover:border-accent'
+                      }`}
+                    >
+                      {value}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <textarea
+                value={feedbackMessage}
+                onChange={(event) => setFeedbackMessage(event.target.value)}
+                placeholder="Optional details…"
+                rows={2}
+                className="mb-2 w-full resize-none rounded-md border border-border bg-background p-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+              />
+              {feedbackPhase === 'error' && <p className="mb-2 text-[11px] text-danger">Could not send — try again.</p>}
+              <div className="flex justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={toggleFeedback}
+                  className="cursor-pointer rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleFeedbackSend()}
+                  disabled={feedbackPhase === 'submitting' || (feedbackKind === 'rating' && feedbackRating === null)}
+                  className="cursor-pointer rounded-full border-0 bg-accent px-2.5 py-1 text-[11px] font-semibold text-accent-foreground outline-none hover:bg-[var(--calyxa-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Send
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </span>
+  );
 
   // The identity cluster: the live tutor mode (8c) when a session is
   // running -- chip and name recolor with a calm .45s transition on every
@@ -170,6 +317,7 @@ export function TitleBar({
     <span className="ml-auto flex items-center gap-1.5">
       {accessorySlot && <span className="mr-1 flex items-center">{accessorySlot}</span>}
       {clockSlot}
+      {feedbackButton}
       <button
         type="button"
         onClick={onMinimize}

@@ -3,6 +3,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { Overlay, type TurnResult } from './Overlay';
 import type {
   Annotation,
+  AssessmentResult,
+  OnboardingStatusReplyPayload,
   PageTopic,
   SendFeedbackPayload,
   StickingCandidate,
@@ -70,6 +72,24 @@ export type OverlayTransports = {
    */
   onSendTelemetry?: (events: TelemetryEvent[]) => Promise<void>;
   onReportFeedback?: (payload: SendFeedbackPayload) => Promise<void>;
+  /**
+   * Cold-start onboarding transports (Sprint 17 Task 7, ADR-042). The
+   * background owns the /api/onboarding GET (status + items) and POST
+   * (submit) calls -- the extension has no @calyxa/curriculum dependency, so
+   * the item bank itself never ships in the bundle. Optional for the same
+   * reason as the telemetry/feedback transports above. onFetchOnboardingStatus
+   * degrades to {needed:false} on any failure (never rejects); onSubmitOnboarding
+   * rejects on failure so Onboarding.tsx can offer a retry.
+   */
+  onFetchOnboardingStatus?: () => Promise<OnboardingStatusReplyPayload>;
+  onSubmitOnboarding?: (results: AssessmentResult[]) => Promise<{ seededCount: number }>;
+  /**
+   * The feedback affordance's sessionId lookup (Sprint 17 Task 7, ADR-039):
+   * reuses the existing GET_STATE message (content/index.ts), read fresh at
+   * submit time. undefined on failure or when no session is active --
+   * feedback.session_id is optional, so this degrades to an unlinked capture.
+   */
+  onGetActiveSessionId?: () => Promise<string | undefined>;
 };
 
 export type MountOverlayOptions = OverlayTransports;

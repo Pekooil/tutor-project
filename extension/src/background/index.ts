@@ -3,6 +3,9 @@ import type {
   AiTurnPayload,
   CalyxaMessage,
   LogErrorPayload,
+  OnboardingStatusReplyPayload,
+  OnboardingSubmitPayload,
+  OnboardingSubmitReplyPayload,
   OpeningScanPayload,
   PageContext,
   SendFeedbackPayload,
@@ -148,6 +151,16 @@ export default defineBackground(() => {
         // `timestamp` (the route rejects extra keys).
         void api.reportError(message.payload as LogErrorPayload);
         return false;
+      // (Sprint 17 Task 7, ADR-042) Cold-start onboarding transport. The
+      // overlay has no @calyxa/curriculum dependency and cannot reach the
+      // network itself (ADR-006), so it relays these two; the worker owns
+      // the /api/onboarding GET (status + items) and POST (submit) calls.
+      case 'ONBOARDING_STATUS':
+        void handleOnboardingStatus().then(sendResponse);
+        return true;
+      case 'ONBOARDING_SUBMIT':
+        void handleOnboardingSubmit(message.payload as OnboardingSubmitPayload).then(sendResponse);
+        return true;
       default:
         return false;
     }
@@ -586,6 +599,45 @@ async function handleSendFeedback(payload: SendFeedbackPayload): Promise<CalyxaM
   } catch (error) {
     const reply: SendFeedbackReplyPayload = { error: toErrorMessage(error) };
     return { type: 'SEND_FEEDBACK', payload: reply };
+  }
+}
+
+/**
+ * Relays the cold-start onboarding status check (Sprint 17 Task 7, ADR-042)
+ * to GET /api/onboarding. Degrades to {needed:false} on ANY failure (auth,
+ * network, or a malformed response) rather than surfacing an error -- the
+ * overlay has no meaningful retry UI for "is onboarding needed", and a
+ * missed check must never block the tutor's existing live-calibration
+ * fallback, same posture as handleOpeningScan's silent EMPTY_REPLY degrade
+ * above.
+ */
+async function handleOnboardingStatus(): Promise<CalyxaMessage> {
+  try {
+    const status = await api.getOnboardingStatus();
+    return { type: 'ONBOARDING_STATUS', payload: status };
+  } catch (error) {
+    console.warn('Calyxa SW: onboarding status check failed, degrading to not-needed', toErrorMessage(error));
+    const payload: OnboardingStatusReplyPayload = { needed: false };
+    return { type: 'ONBOARDING_STATUS', payload };
+  }
+}
+
+/**
+ * Relays a completed onboarding self-check (Sprint 17 Task 7, ADR-042) to
+ * POST /api/onboarding, which seeds the caller's graph through the existing
+ * FSRS apply path and writes onboarding_completed_at. Unlike the status
+ * check above, a failure here IS surfaced ({error}) -- losing an already-
+ * answered self-check silently would be a real loss of student input, so
+ * Onboarding.tsx gets the chance to offer a retry.
+ */
+async function handleOnboardingSubmit(payload: OnboardingSubmitPayload): Promise<CalyxaMessage> {
+  try {
+    const { seededCount } = await api.submitOnboarding(payload.results);
+    const reply: OnboardingSubmitReplyPayload = { seededCount };
+    return { type: 'ONBOARDING_SUBMIT', payload: reply };
+  } catch (error) {
+    const reply: OnboardingSubmitReplyPayload = { error: toErrorMessage(error) };
+    return { type: 'ONBOARDING_SUBMIT', payload: reply };
   }
 }
 

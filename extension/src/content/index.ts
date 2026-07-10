@@ -17,8 +17,11 @@ import type {
   AiReplyPayload,
   AnswerField,
   Annotation,
+  AssessmentResult,
   CalyxaMessage,
   LogErrorPayload,
+  OnboardingStatusReplyPayload,
+  OnboardingSubmitReplyPayload,
   OpeningScanReplyPayload,
   PageContext,
   PageTopic,
@@ -420,6 +423,64 @@ function sendLogError(event: LogErrorPayload): void {
   });
 }
 
+// The overlay's onboarding transports (Sprint 17 Task 7, ADR-042): same
+// "sole chrome.* surface for the overlay" role as the transports above --
+// the extension has no @calyxa/curriculum dependency, so the item bank
+// itself lives server-side; these relay to the background, which owns the
+// /api/onboarding GET (status + items) and POST (submit) calls.
+
+/**
+ * Fetches the cold-start onboarding status. Never throws -- a worker-
+ * unreachable sendMessage rejection degrades to {needed:false}, same as the
+ * background's own degrade-on-failure posture (handleOnboardingStatus), so
+ * Overlay.tsx never needs a separate error path for this check.
+ */
+async function fetchOnboardingStatus(): Promise<OnboardingStatusReplyPayload> {
+  const message: CalyxaMessage = { type: 'ONBOARDING_STATUS' };
+  try {
+    const response: CalyxaMessage = await chrome.runtime.sendMessage(message);
+    return (response?.payload as OnboardingStatusReplyPayload | undefined) ?? { needed: false };
+  } catch {
+    return { needed: false };
+  }
+}
+
+/**
+ * Submits the completed onboarding self-check. Unlike fetchOnboardingStatus
+ * above, THROWS on failure -- Onboarding.tsx surfaces a retry rather than
+ * silently stranding the student's answers (the background's own handler
+ * mirrors this asymmetry).
+ */
+async function submitOnboarding(results: AssessmentResult[]): Promise<{ seededCount: number }> {
+  const message: CalyxaMessage = { type: 'ONBOARDING_SUBMIT', payload: { results } };
+  const response: CalyxaMessage = await chrome.runtime.sendMessage(message);
+  const reply = response?.payload as OnboardingSubmitReplyPayload | undefined;
+  if (!reply || 'error' in reply) {
+    throw new Error(reply && 'error' in reply ? reply.error : 'onboarding submit did not reach the background');
+  }
+  return reply;
+}
+
+/**
+ * The feedback affordance's sessionId lookup (Sprint 17 Task 7, ADR-039):
+ * "wired to the current sessionId when one is active". Reuses the EXISTING
+ * GET_STATE message (no new message type -- background/index.ts's
+ * buildSessionState already returns `activeSession`) rather than adding a
+ * dedicated one; read FRESH at submit time, never cached, since the active
+ * session can start/end at any point in the panel's lifetime. undefined on
+ * any failure or when no session is active -- feedback.session_id is
+ * optional (nullable FK), so this degrades to an unlinked capture, never a
+ * blocked submission.
+ */
+async function getActiveSessionId(): Promise<string | undefined> {
+  try {
+    const response: CalyxaMessage = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
+    return (response?.payload as SessionStatePayload | undefined)?.activeSession?.sessionId;
+  } catch {
+    return undefined;
+  }
+}
+
 // Set by sendAiTurn's voice-path branch above when a reply arrives, and
 // consumed the moment TTS playback actually starts (handleVoicePlaybackStart
 // below) -- the gap between the two is exactly the onSynthesize + audio-
@@ -708,6 +769,11 @@ export default defineContentScript({
           // props.onSendTelemetry / props.onReportFeedback.
           onSendTelemetry: sendTelemetry,
           onReportFeedback: sendFeedback,
+          // Sprint 17 Task 7 (ADR-042): the onboarding status/submit transports.
+          onFetchOnboardingStatus: fetchOnboardingStatus,
+          onSubmitOnboarding: submitOnboarding,
+          // Sprint 17 Task 7 (ADR-039): the feedback affordance's sessionId lookup.
+          onGetActiveSessionId: getActiveSessionId,
         });
       },
       onRemove: (root) => {

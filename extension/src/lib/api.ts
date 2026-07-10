@@ -12,7 +12,10 @@ import {
 import type {
   AnswerField,
   Annotation,
+  AssessmentItem,
+  AssessmentResult,
   LogErrorPayload,
+  OnboardingStatusReplyPayload,
   PageContext,
   PageTopic,
   SendFeedbackPayload,
@@ -691,4 +694,50 @@ export async function reportError(event: LogErrorPayload): Promise<void> {
     // function must never throw back into the global error capture that
     // invoked it (which would loop).
   }
+}
+
+/**
+ * GETs the cold-start onboarding status (Sprint 17 Task 7, ADR-042):
+ * `{needed:false}` when the caller already has a graph or has already run
+ * onboarding, `{needed:true, items}` otherwise -- `items` is the 8-12
+ * assessment items /api/onboarding's GET selects fresh each check (the
+ * extension has no @calyxa/curriculum dependency, so this is the one place
+ * the item bank's output crosses the wire). Uses authorizedFetch, so a dead
+ * refresh token surfaces SignedOutError like every other helper; the
+ * background handler that calls this (background/index.ts) catches ANY
+ * failure and degrades to {needed:false} rather than propagating it, since
+ * onboarding is a nice-to-have gate, never a hard requirement.
+ */
+export async function getOnboardingStatus(): Promise<OnboardingStatusReplyPayload> {
+  const res = await authorizedFetch('/api/onboarding', { method: 'GET' });
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body.error ?? `onboarding status failed: ${res.status}`);
+  }
+  if (body.needed) {
+    return { needed: true, items: body.items as AssessmentItem[] };
+  }
+  return { needed: false };
+}
+
+/**
+ * POSTs the completed onboarding self-check to /api/onboarding (Task 3),
+ * which seeds the caller's graph through the existing FSRS apply path and
+ * writes onboarding_completed_at. Uses authorizedFetch; THROWS on a non-2xx
+ * so the caller (Onboarding.tsx, via the background's request/reply) can
+ * surface a retry -- unlike telemetry, a lost onboarding submission would
+ * silently strand the student's answered self-check, so this is NOT
+ * swallowed.
+ */
+export async function submitOnboarding(results: AssessmentResult[]): Promise<{ seededCount: number }> {
+  const res = await authorizedFetch('/api/onboarding', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ results }),
+  });
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body.error ?? `onboarding submit failed: ${res.status}`);
+  }
+  return { seededCount: body.seededCount };
 }

@@ -12,8 +12,12 @@ import './Overlay.css';
 import type {
   AnswerField,
   Annotation,
+  AssessmentItem,
+  AssessmentResult,
+  OnboardingStatusReplyPayload,
   PageTopic,
   ProfileOverview,
+  SendFeedbackPayload,
   SessionCompletion,
   SessionRecap,
   SessionStartInfo,
@@ -21,11 +25,13 @@ import type {
   StatusPinKind,
   StickingCandidate,
   StrugglePrediction,
+  TelemetryEvent,
   TurnMessage,
 } from '../types/messages';
 import { AnnotationLayer } from './AnnotationLayer';
 import { CheckinCard, CheckinScan } from './CheckinCard';
 import { Composer } from './Composer';
+import { Onboarding } from './Onboarding';
 import { PingToast } from './PingToast';
 import { MILESTONE_KINDS, PIN_TONE, milestoneLine, type MilestoneMeta } from './pings';
 import { RecapCard } from './RecapCard';
@@ -468,6 +474,11 @@ export function Overlay({
   onVoicePlaybackStart,
   onEndSession,
   onOpeningScan,
+  onSendTelemetry,
+  onReportFeedback,
+  onFetchOnboardingStatus,
+  onSubmitOnboarding,
+  onGetActiveSessionId,
 }: {
   // `sessionStart` rides ONLY the session's first turn (the check-in
   // confirm / reframe start), always with an empty `messages` array: the
@@ -530,6 +541,21 @@ export function Overlay({
     topic?: PageTopic;
     stickingCandidates?: StickingCandidate[];
   } | null>;
+  // Sprint 17 Task 6 (ADR-043): fire-and-forget telemetry. Optional (a test
+  // harness or a mount that predates this wiring can omit it); this file
+  // only ever calls it once, on a real onboarding completion (never on skip).
+  onSendTelemetry?: (events: TelemetryEvent[]) => Promise<void>;
+  // Sprint 17 Task 6 (ADR-039): the feedback-affordance transport (Task 7's
+  // TitleBar report/rate control). Rejects on a save failure so the popover
+  // can surface a retry.
+  onReportFeedback?: (payload: SendFeedbackPayload) => Promise<void>;
+  // Sprint 17 Task 7 (ADR-042): the cold-start onboarding transports. Both
+  // optional for the same reason as onSendTelemetry above.
+  onFetchOnboardingStatus?: () => Promise<OnboardingStatusReplyPayload>;
+  onSubmitOnboarding?: (results: AssessmentResult[]) => Promise<{ seededCount: number }>;
+  // The feedback affordance's sessionId lookup (Task 7, ADR-039) -- read
+  // fresh at submit time (handleFeedbackSubmit below), never cached.
+  onGetActiveSessionId?: () => Promise<string | undefined>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -719,6 +745,19 @@ export function Overlay({
   // detection).
   const [showEndConfirm, setShowEndConfirm] = useState(false);
 
+  // ---- Sprint 17 Task 7 state (ADR-042) ----
+  // Cold-start onboarding. Checked ONCE per page load (onboardingCheckedRef
+  // never resets, unlike the opening-scan's own ref below which re-arms on
+  // collapse) -- this is "does this account need it", not "does this page
+  // need it", so a re-open must never re-ask mid-page-load.
+  // `onboardingItems` non-null is the render gate (showOnboarding below);
+  // `onboardingResolved` gates the opening-scan effect until the check has
+  // settled either way, so a brand-new user always sees the assessment
+  // FIRST, never a live-calibrating scan racing it.
+  const [onboardingItems, setOnboardingItems] = useState<AssessmentItem[] | null>(null);
+  const [onboardingResolved, setOnboardingResolved] = useState(false);
+  const onboardingCheckedRef = useRef(false);
+
   function clearCloseTimers() {
     for (const timer of closeTimersRef.current) window.clearTimeout(timer);
     closeTimersRef.current = [];
@@ -729,6 +768,13 @@ export function Overlay({
   // produces no student turn at all). Gates the check-in, the session
   // header identity, the clock, and the board strip.
   const sessionLive = kickoffStarted || messages.some((message) => message.role === 'user');
+
+  // The onboarding assessment (Sprint 17 Task 7, ADR-042): takes priority
+  // over the check-in/scanning/composer -- a brand-new user answers this
+  // ONCE before anything else. Yields the same way showCheckin does once a
+  // session actually starts, a recap arrives, or the close choreography
+  // begins.
+  const showOnboarding = !!onboardingItems && !sessionLive && !recap && closeState === 'idle';
 
   // The check-in (design 5a, "one prediction, not a menu") shows until the
   // conversation starts. It only renders once the opening scan has
@@ -1005,6 +1051,76 @@ export function Overlay({
     window.dispatchEvent(new CustomEvent(PANEL_EXPANDED_EVENT));
   }, [expanded]);
 
+  // The cold-start onboarding status check (Sprint 17 Task 7, ADR-042):
+  // fires on the FIRST real expand only (onboardingCheckedRef never resets --
+  // a genuine re-expand does not re-check, unlike the opening scan's own ref
+  // below). Degrades to "not needed" on any failure or if the transport is
+  // unwired at all (a test harness, or a mount that predates this wiring) --
+  // never blocking the panel. `onboardingResolved` flips true either way, so
+  // the opening-scan effect below (which must never race a not-yet-decided
+  // onboarding gate) knows when it's safe to proceed.
+  useEffect(() => {
+    if (!expanded || onboardingCheckedRef.current) return;
+    onboardingCheckedRef.current = true;
+    if (!onFetchOnboardingStatus) {
+      setOnboardingResolved(true);
+      return;
+    }
+    let cancelled = false;
+    onFetchOnboardingStatus()
+      .then((status) => {
+        if (cancelled) return;
+        if (status.needed && status.items.length > 0) setOnboardingItems(status.items);
+      })
+      .catch(() => {
+        // Degrade silently -- treated as not-needed, same posture as the
+        // opening scan's own catch below.
+      })
+      .finally(() => {
+        if (!cancelled) setOnboardingResolved(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Deliberately fires at most once per page load; onFetchOnboardingStatus
+    // is a stable prop, same convention as the other effects here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
+
+  // Dismisses the onboarding gate WITHOUT ever calling onSubmitOnboarding --
+  // the plan's "skipping just leaves the profile empty and the tutor
+  // calibrates live exactly as today" fallback. Client-side only for this
+  // page's lifetime: onboarding_completed_at is never written, so a fresh
+  // page load offers it again (no persisted "don't ask again").
+  function handleOnboardingSkip() {
+    setOnboardingItems(null);
+  }
+
+  // Fired ONLY on a real completion (never on skip, per ADR-043's "not on
+  // skip -- a skip is simply the absence of this event"). onSendTelemetry is
+  // fire-and-forget and optional; a missing transport just means no event.
+  function handleOnboardingComplete(info: { itemCount: number; ms: number }) {
+    setOnboardingItems(null);
+    void onSendTelemetry?.([{ kind: 'onboarding_completed', itemCount: info.itemCount, ms: info.ms }]);
+  }
+
+  // The report/rate affordance's submit (Sprint 17 Task 7, ADR-039): looks up
+  // the CURRENT active sessionId fresh (never cached -- a session can start
+  // or end at any point in the panel's lifetime) and attaches it when one is
+  // active, per the plan's "wired to the current sessionId when one is
+  // active". Rethrows on failure so TitleBar's popover can show its own
+  // retry state; a missing onReportFeedback transport (a test harness, or a
+  // mount that predates this wiring) rejects the same way.
+  async function handleFeedbackSubmit(payload: {
+    kind: 'bug' | 'rating' | 'idea';
+    rating?: number;
+    message?: string;
+  }): Promise<void> {
+    if (!onReportFeedback) throw new Error('feedback unavailable');
+    const sessionId = await onGetActiveSessionId?.();
+    await onReportFeedback({ ...payload, ...(sessionId ? { sessionId } : {}) });
+  }
+
   // Guards the opening scan (below) against React StrictMode's dev-only
   // double-invoke of effects (mount -> cleanup -> mount again, same
   // `expanded` value). onOpeningScan triggers a real, billable
@@ -1031,6 +1147,11 @@ export function Overlay({
     }
     if (messages.length > 0) return;
     if (openingScanFiredRef.current) return;
+    // Sprint 17 Task 7 (ADR-042): never race the onboarding gate -- wait
+    // until the status check has settled, and never fire at all while
+    // onboarding is actually showing (a completion/skip clears
+    // onboardingItems, which re-runs this effect via the dependency below).
+    if (!onboardingResolved || onboardingItems) return;
     openingScanFiredRef.current = true;
     let cancelled = false;
     // The 5a scanning state holds the panel body for exactly this window.
@@ -1077,9 +1198,11 @@ export function Overlay({
       cancelled = true;
       setScanPending(false);
     };
-    // Deliberately keyed to `expanded` alone: "fresh on each panel open".
+    // Keyed to `expanded` ("fresh on each panel open") PLUS the onboarding
+    // gate (Task 7 addition) -- a completion/skip flips onboardingItems back
+    // to null, which must re-run this effect so the scan can finally fire.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded]);
+  }, [expanded, onboardingResolved, onboardingItems]);
 
   // The reframe tool never survives a collapse -- a re-expand lands back on
   // the check-in (the crop's viewport coordinates are stale by then anyway).
@@ -1838,6 +1961,7 @@ export function Overlay({
           onInterrupt={handleInterrupt}
           onMinimize={handleMinimize}
           onCloseSession={() => void handleEndSessionClick()}
+          onSubmitFeedback={handleFeedbackSubmit}
         />
 
         {/* The board strip (design 8a): pins the current equation just
@@ -1906,7 +2030,14 @@ export function Overlay({
                 5b reframe tool (5a's single correction path), and any turn
                 path still consumes the held scan question into the
                 transcript the moment the conversation starts. ── */}
-            {showScanning ? (
+            {showOnboarding ? (
+              <Onboarding
+                items={onboardingItems!}
+                onSubmit={onSubmitOnboarding ?? (() => Promise.reject(new Error('onboarding submit unavailable')))}
+                onSkip={handleOnboardingSkip}
+                onComplete={handleOnboardingComplete}
+              />
+            ) : showScanning ? (
               <CheckinScan />
             ) : showCheckin && scan && scan.topic ? (
               <CheckinCard
