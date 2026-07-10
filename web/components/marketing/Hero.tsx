@@ -1,7 +1,8 @@
 import { WaitlistForm } from '@/components/marketing/WaitlistForm'
 import { Reveal } from '@/components/marketing/Reveal'
 import { ParallaxGround } from '@/components/marketing/ParallaxGround'
-import { AmbientSignals, HeadlineAnnotations } from '@/components/marketing/HeadlineAnnotations'
+import { HeadlineAnnotations } from '@/components/marketing/HeadlineAnnotations'
+import { PlatformMarquee } from '@/components/marketing/PlatformMarquee'
 import { DemoStage } from '@/components/marketing/demo/DemoStage'
 import { heroSession, heroSessionAlt } from '@/components/marketing/demo/scripts'
 import { FREE_SESSIONS_PER_MONTH } from '@/components/marketing/Pricing'
@@ -12,8 +13,8 @@ import { FREE_SESSIONS_PER_MONTH } from '@/components/marketing/Pricing'
 // Sprint 25 Task 5 (ADR-040 decision 3): the H1 itself is annotated — Meadow
 // marks draw onto it once after paint via HeadlineAnnotations (the spans
 // below are its measurement targets; they add no styling and never move the
-// text) — and the AmbientSignals row cycles a ping toast + the tutor-mode
-// capsule above the fold. Still a server component — the H1 ships as static
+// text) — and the PlatformMarquee rolls the compatible-platform pills below
+// the CTA. Still a server component — the H1 ships as static
 // HTML so it paints immediately and stays the LCP element (the mark layer
 // mounts after paint); only the demo enters through Reveal (opacity/
 // transform-only, space reserved by DemoStage's aspect-ratio, so CLS stays
@@ -37,7 +38,7 @@ export function Hero() {
         </p>
         <WaitlistForm source="hero" className="mt-9 w-full max-w-md" />
         <p className="mt-4 text-sm text-muted-foreground">Free for {FREE_SESSIONS_PER_MONTH} sessions a month · Chrome</p>
-        <AmbientSignals />
+        <PlatformMarquee />
       </div>
       <div className="relative mx-auto mt-16 max-w-5xl sm:mt-20">
         <div aria-hidden="true" className="mkt-halo" />

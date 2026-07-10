@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { CalyxaMark } from '@calyxa/ui'
 import { Section } from '@/components/marketing/Section'
 import { Reveal } from '@/components/marketing/Reveal'
 import { DemoPanel } from '@/components/marketing/demo/DemoPanel'
 import { DemoPing } from '@/components/marketing/demo/DemoPing'
 import { DemoAnnotations, type TargetRect } from '@/components/marketing/demo/DemoAnnotations'
+import { DEMO_TUTOR_MODES, type TutorModeKey } from '@/components/marketing/demo/scene'
 import { useSceneTimeline } from '@/components/marketing/demo/useSceneTimeline'
 import {
   adaptiveVignetteAlts,
@@ -98,10 +100,15 @@ function VignetteCard({
   title,
   body,
   children,
+  fillContent,
 }: {
   title: string
   body: string
   children: ReactNode
+  // When set, the content area grows to fill the card's height (a flex
+  // column) instead of pinning to the bottom — lets a vignette space its own
+  // pieces top-to-bottom (the modes tile: title card up top, panel below).
+  fillContent?: boolean
 }) {
   return (
     <div className="mkt-card flex h-full flex-col gap-5 p-5 sm:p-6">
@@ -109,7 +116,7 @@ function VignetteCard({
         <h3 className="m-0 text-lg font-semibold tracking-[-0.01em] text-foreground">{title}</h3>
         <p className="mb-0 mt-1.5 text-sm text-pretty text-muted-foreground">{body}</p>
       </div>
-      <div className="mt-auto">{children}</div>
+      <div className={fillContent ? 'flex flex-1 flex-col' : 'mt-auto'}>{children}</div>
     </div>
   )
 }
@@ -171,20 +178,126 @@ function PredictionVignette() {
 }
 
 // ── Vignette 2 — tutor modes ─────────────────────────────────────────────
+// The mode title card (design 8c): as modesVignette walks the eight modes,
+// the card cross-fades to the live mode's identity — glyph chip (with the 8c
+// gradient glow), name, LIVE marker, its one-line brief, and the "Enters"
+// trigger. The catalog copy is design 8c's modeList, kept local to this
+// marketing vignette rather than widened into the shared scene vocabulary.
+
+const MODE_CARDS: Record<TutorModeKey, { blurb: string; enters: string }> = {
+  explore: {
+    blurb: 'Open ground — Calyxa maps what you already know and lets you poke at the problem before steering.',
+    enters: 'session start, or a brand-new topic',
+  },
+  coach: {
+    blurb: 'Tight guidance — smaller steps, more hints, one question at a time until the block clears.',
+    enters: 'a misconception fires or hints ramp up',
+  },
+  build: {
+    blurb: 'Assembling the method together — Calyxa scaffolds, but every step on the board is yours.',
+    enters: 'a key concept lands and it’s time to use it',
+  },
+  practice: {
+    blurb: 'Reps with the guardrails off — Calyxa goes quiet and only steps in on a slip.',
+    enters: 'the method works without help',
+  },
+  challenge: {
+    blurb: 'A stretch problem above the current level — no hints unless asked; earn the level-up.',
+    enters: 'practice is clean and confidence runs high',
+  },
+  verify: {
+    blurb: 'Quick checks — a few fast questions to prove the concept stuck before moving on.',
+    enters: 'before a level-up, or a claim of “got it”',
+  },
+  review: {
+    blurb: 'Looking back — recap the wins, name the pattern, connect it to last session.',
+    enters: 'a section closes or the clock runs low',
+  },
+  recover: {
+    blurb: 'A soft reset — easier ground and a quick win first; no new material until footing returns.',
+    enters: 'two misses in a row or frustration shows',
+  },
+}
+
+function ModeTitleCard({ modeKey }: { modeKey: TutorModeKey }) {
+  const reduceMotion = useReducedMotion() ?? false
+  const mode = DEMO_TUTOR_MODES[modeKey]
+  const card = MODE_CARDS[modeKey]
+  const text = `var(--calyxa-mode-${mode.key}-text)`
+  const bg = `var(--calyxa-mode-${mode.key}-bg)`
+  const border = `var(--calyxa-mode-${mode.key}-border)`
+
+  return (
+    // Fixed height so the cross-fade never shifts the tile (blurbs differ in
+    // length across modes).
+    <div className="relative min-h-[192px]">
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={mode.key}
+          initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8 }}
+          transition={{ duration: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
+          className="flex flex-col gap-2.5 rounded-xl border bg-background p-4 sm:p-5"
+          style={{ borderColor: `color-mix(in srgb, ${border} 55%, var(--mkt-border-faint))` }}
+        >
+          <div className="flex items-center gap-2.5">
+            <span
+              aria-hidden="true"
+              className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[9px] border text-[15px] font-bold"
+              style={{
+                color: text,
+                background: bg,
+                borderColor: border,
+                // The mode glyphs are geometric symbols that only render
+                // correctly in the overlay's system stack — Geist (web's
+                // display font) malforms several (● shrinks, ↺/✓ distort). Pin
+                // the extension font so they match the extension exactly.
+                fontFamily: 'var(--font-sans)',
+                boxShadow: `0 0 0 1px color-mix(in srgb, ${border} 35%, transparent), 0 3px 10px -2px color-mix(in srgb, ${border} 60%, transparent), 0 0 16px 3px color-mix(in srgb, ${border} 30%, transparent)`,
+              }}
+            >
+              {mode.glyph}
+            </span>
+            <span className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">{mode.name}</span>
+            <span
+              className="ml-auto flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.1em]"
+              style={{ color: text }}
+            >
+              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: border }} />
+              Live
+            </span>
+          </div>
+          <p className="m-0 text-[13px] leading-[1.55] text-pretty text-muted-foreground">{card.blurb}</p>
+          <p className="m-0 mt-auto text-[11.5px] leading-[1.5] text-(--calyxa-hint-text)">
+            <span className="font-semibold text-secondary-foreground">Enters:</span> {card.enters}
+          </p>
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  )
+}
 
 function ModesVignette() {
   const { ref, state } = useSceneTimeline(modesVignette)
   return (
     <VignetteCard
       title="Eight ways to teach, switched live."
-      body="The session header always shows which mode is driving — Exploring, Coaching, Verifying — and it changes mid-session as you do."
+      body="Each mode gets its own title card — Exploring, Coaching, Verifying — and the session header switches to match, mid-session, as you do."
+      fillContent
     >
       <p className="sr-only">{adaptiveVignetteAlts.modes}</p>
-      <div ref={ref} aria-hidden="true">
-        {/* Header + board strip + composer only — the mode identity is the show. */}
-        <PanelViewport designHeight={172}>
-          <DemoPanel state={state} />
-        </PanelViewport>
+      <div ref={ref} aria-hidden="true" className="flex flex-1 flex-col gap-5">
+        {/* The mode title card fills the space up top; the original session
+            panel keeps its place at the bottom. Both read the same live mode,
+            so they cross-fade / recolor together as the session walks the
+            eight modes. */}
+        <ModeTitleCard modeKey={state.mode} />
+        <div className="mt-auto">
+          <PanelViewport designHeight={172}>
+            <DemoPanel state={state} />
+          </PanelViewport>
+        </div>
       </div>
     </VignetteCard>
   )
@@ -339,7 +452,7 @@ function PingCatalogVignette() {
                 color: `var(--calyxa-ping-${entry.tone}-text)`,
               }}
             >
-              <span aria-hidden="true" className="mr-1.5 font-bold">
+              <span aria-hidden="true" className="mr-1.5 font-bold" style={{ fontFamily: 'var(--font-sans)' }}>
                 {entry.glyph}
               </span>
               {entry.label.split(' · ')[0]}

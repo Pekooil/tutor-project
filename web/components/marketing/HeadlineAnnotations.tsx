@@ -1,39 +1,48 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { annotDeep, annotStroke } from '@/components/marketing/demo/DemoAnnotations'
-import { DEMO_TUTOR_MODES, type AnnotOrdinal, type ScenePing, type TutorModeKey } from '@/components/marketing/demo/scene'
-import { pingCatalog } from '@/components/marketing/demo/scripts'
+import type { AnnotOrdinal } from '@/components/marketing/demo/scene'
 
-// The hero's above-the-fold chrome (Sprint 25 Task 5, ADR-040 decision 3):
-// marketing decoration in the product's Meadow vocabulary, NOT a product
-// recreation. Two exports, one file (the Task-5 file list is Hero.tsx +
-// this file, so the ambient elements live here with the mark layer):
+// The hero's above-the-fold flagship chrome (Sprint 25 Task 5, ADR-040
+// decision 3): marketing decoration in the product's Meadow vocabulary, NOT
+// a product recreation.
 //
-// 1. HeadlineAnnotations — an absolutely-positioned, aria-hidden SVG layer
-//    over the server-rendered H1: an ordinal-1 circle + label pill and an
-//    ordinal-2 underline + why-note (leader line to a side card), drawing
-//    on ONCE after first paint with the product's M1 timings. The layer
-//    mounts post-paint (double rAF) so the static H1 stays the LCP element;
-//    pointer-events-none so it never blocks selection; measured against
-//    [data-h1-mark] spans so it never reflows the text. The headline wins
-//    every conflict: a phrase that wraps across lines drops its mark
-//    (drop-don't-guess), and the why-note renders only when the viewport
-//    leaves real room beside the headline column.
+// HeadlineAnnotations — an absolutely-positioned, aria-hidden SVG layer over
+// the server-rendered H1 that recreates the extension's on-page annotation
+// system so the page's flagship feature reads as flagship: an ordinal-1
+// circle and an ordinal-2 underline, each carrying the full extension
+// anatomy — a numbered ordinal badge, a tint label pill ("no naked marks"),
+// and, on the underline, the leader-lined why-note that carries the
+// point-at-the-page teaching payload. The marks draw on ONCE after first
+// paint with the product's M1 timings. The layer mounts post-paint (double
+// rAF) so the static H1 stays the LCP element; pointer-events-none so it
+// never blocks selection; measured against [data-h1-mark] spans so it never
+// reflows the text. The headline wins every conflict: a phrase that wraps
+// across lines drops its mark (drop-don't-guess), and the why-note renders
+// only when the viewport leaves real room beside the headline column.
 //
-// 2. AmbientSignals — the cycling ping toast + tutor-mode capsule row, so
-//    pings and modes are above the fold before the hero demo ever reaches
-//    those beats. One element animates at a time, on a slow beat; both
-//    slots are fixed-size so nothing around them ever shifts. Reduced
-//    motion renders one composed static frame (no timers, no cycling).
-//
-// Colors read the product's --calyxa-annot/mode/ping-* tokens (reachable in
-// /web via the @calyxa/ui theme import — the Task 3 finding); the tint/fill
-// accessors mirror DemoAnnotations' non-exported helpers rather than adding
-// exports to a file outside this task's scope.
+// Colors read the product's --calyxa-annot-* tokens (reachable in /web via
+// the @calyxa/ui theme import — the Task 3 finding); the tint/fill accessors
+// mirror DemoAnnotations' non-exported helpers rather than adding exports to
+// a file outside this task's scope.
 
 const DRAW_EASE = [0.2, 0.8, 0.2, 1] as const
+
+// Below this headline-column width the H1 wraps to 3+ lines and the target
+// phrases stop fitting on single lines, so the marks would crowd rather than
+// point. The layer is decorative flagship chrome for the wide desktop hero —
+// under it, the sub-paragraph already carries the message — so it simply
+// doesn't draw on narrow columns.
+const MARK_MIN_COLUMN = 760
+
+// Both marks now pull their label + why-note out into the side margins (mark
+// 1 left, mark 2 right). The layer only draws when BOTH margins can hold at
+// least the label pill — otherwise a mark would be a bare shape. This lands
+// the full point + teach anatomy on wide desktops and hides it below.
+const SIDE_MARGIN = 20
+const SIDE_MIN = 14 + 152 + SIDE_MARGIN
 
 function annotTint(ordinal: AnnotOrdinal): string {
   return `var(--calyxa-annot-${ordinal}-tint)`
@@ -53,13 +62,19 @@ function annotFill(ordinal: AnnotOrdinal): string {
 // at the page, not as part of the typography.
 const LABEL_HEIGHT = 26
 const LABEL_PAD_X = 11
-const LABEL_GAP = 10
 const NOTE_WIDTH = 216
-const NOTE_MARGIN = 24
-const LEADER_LEN = 46
+const NOTE_GAP = 8
 
-function labelWidth(text: string): number {
-  return Math.max(32, Math.round(text.length * 6.2) + LABEL_PAD_X * 2)
+// The ordinal number rides inside the label pill as an 18px coin (the
+// extension's numbered step badge, adapted for the headline's tight leading
+// where a corner badge would climb into the line above). White fill so the
+// number reads crisply on the tint pill; stroke + deep text per ordinal.
+const BADGE_R = 9
+const PILL_LEAD = 4
+const PILL_BADGE_GAP = 6
+
+function numberedPillWidth(text: string): number {
+  return PILL_LEAD + BADGE_R * 2 + PILL_BADGE_GAP + Math.round(text.length * 6.2) + LABEL_PAD_X
 }
 
 function noteHeight(text: string): number {
@@ -75,13 +90,28 @@ type H1Mark = {
   target: string
   ordinal: AnnotOrdinal
   shape: 'circle' | 'underline'
-  label?: string
+  step: number
+  label: string
   note?: string
 }
 
 const H1_MARKS: H1Mark[] = [
-  { target: 'tutor', ordinal: 1, shape: 'circle', label: 'Talks out loud' },
-  { target: 'screen', ordinal: 2, shape: 'underline', note: "It reads the page you're on and draws right on the problem." },
+  {
+    target: 'tutor',
+    ordinal: 1,
+    shape: 'circle',
+    step: 1,
+    label: 'Adaptive tutoring',
+    note: 'Switches how it teaches — coaching, practice, challenge — to match where you are.',
+  },
+  {
+    target: 'screen',
+    ordinal: 2,
+    shape: 'underline',
+    step: 2,
+    label: 'Draws on the page',
+    note: "It reads the page you're on and marks the exact step you're missing.",
+  },
 ]
 
 type MarkRect = { x: number; y: number; w: number; h: number }
@@ -91,7 +121,7 @@ export function HeadlineAnnotations() {
   const reduceMotion = useReducedMotion() ?? false
   const [ready, setReady] = useState(false)
   const [rects, setRects] = useState<Record<string, MarkRect>>({})
-  const [frame, setFrame] = useState({ w: 0, h: 0, noteRoom: false })
+  const [frame, setFrame] = useState({ w: 0, h: 0, leftSpace: 0, rightSpace: 0 })
 
   // Mount after paint (double rAF): the H1 has already painted as plain
   // static HTML before this layer exists, so it can never become the LCP.
@@ -121,10 +151,12 @@ export function HeadlineAnnotations() {
       setFrame({
         w: wrap.width,
         h: wrap.height,
-        // The why-note floats in the whitespace right of the headline
-        // column; without room out there it hides rather than crowd the
-        // text or the sections below.
-        noteRoom: window.innerWidth - wrap.right >= LEADER_LEN + 10 + NOTE_WIDTH + NOTE_MARGIN,
+        // Each mark's label (and, when it fits, its why-note) sits in the
+        // whitespace beside the headline column — mark 1 left, mark 2 right.
+        // Pass the raw room on each side so a mark can choose pill-only vs
+        // pill+note rather than ever crowding the text or the sections below.
+        leftSpace: wrap.left,
+        rightSpace: window.innerWidth - wrap.right,
       })
     }
 
@@ -144,7 +176,10 @@ export function HeadlineAnnotations() {
 
   return (
     <div ref={rootRef} aria-hidden="true" className="pointer-events-none absolute inset-0">
-      {ready && frame.w > 0 && drawable.length > 0 && (
+      {ready &&
+        frame.w >= MARK_MIN_COLUMN &&
+        Math.min(frame.leftSpace, frame.rightSpace) >= SIDE_MIN &&
+        drawable.length > 0 && (
         <svg
           focusable="false"
           width={frame.w}
@@ -157,7 +192,9 @@ export function HeadlineAnnotations() {
               key={mark.target}
               mark={mark}
               rect={rects[mark.target]}
-              noteRoom={frame.noteRoom}
+              frameW={frame.w}
+              leftSpace={frame.leftSpace}
+              rightSpace={frame.rightSpace}
               // Draw once on load, sequenced like co-arriving product marks:
               // a beat after paint, then the 600ms co-arrival stagger.
               delay={reduceMotion ? 0 : 0.4 + index * 0.6}
@@ -177,13 +214,17 @@ export function HeadlineAnnotations() {
 function HeadlineMark({
   mark,
   rect,
-  noteRoom,
+  frameW,
+  leftSpace,
+  rightSpace,
   delay,
   reduceMotion,
 }: {
   mark: H1Mark
   rect: MarkRect
-  noteRoom: boolean
+  frameW: number
+  leftSpace: number
+  rightSpace: number
   delay: number
   reduceMotion: boolean
 }) {
@@ -208,9 +249,21 @@ function HeadlineMark({
     const cy = rect.y + rect.h / 2
     const rx = rect.w / 2 + 10
     const ry = rect.h / 2 + 6
-    const pillW = mark.label ? labelWidth(mark.label) : 0
-    const pillX = cx - pillW / 2
-    const pillY = rect.y - 6 - LABEL_GAP - LABEL_HEIGHT
+    // The circle's label + why-note are pulled out to the LEFT on a leader:
+    // the stack right-aligns against the column's left edge (so it stays in
+    // the clean left margin) and the leader reaches in to the circle.
+    const pillW = numberedPillWidth(mark.label)
+    const noteH = mark.note ? noteHeight(mark.note) : 0
+    const showPill = leftSpace >= 14 + pillW + SIDE_MARGIN
+    const showNote = Boolean(mark.note) && leftSpace >= 14 + NOTE_WIDTH + SIDE_MARGIN
+    const stackH = LABEL_HEIGHT + (showNote ? NOTE_GAP + noteH : 0)
+    const stackTop = cy - stackH / 2
+    const stackRight = -14
+    const pillX = stackRight - pillW
+    const noteX = stackRight - NOTE_WIDTH
+    const leaderFrom = { x: cx - rx - 2, y: cy }
+    const leaderTo = { x: stackRight + 6, y: stackTop + LABEL_HEIGHT / 2 }
+    const leaderMid = { x: (leaderFrom.x + leaderTo.x) / 2, y: Math.min(leaderFrom.y, leaderTo.y) - 8 }
 
     return (
       <g>
@@ -226,29 +279,19 @@ function HeadlineMark({
           {...drawProps}
           transition={drawTransition}
         />
-        {mark.label && (
+        {showPill && (
           <motion.g {...metaProps} transition={metaTransition}>
-            <rect
-              x={pillX}
-              y={pillY}
-              width={pillW}
-              height={LABEL_HEIGHT}
-              rx={LABEL_HEIGHT / 2}
-              fill={annotTint(ordinal)}
-              stroke={annotTintBorder(ordinal)}
-              strokeWidth={1}
-              style={{ filter: 'drop-shadow(0 1px 2px rgba(15,23,42,0.06))' }}
+            <path
+              d={`M ${leaderFrom.x} ${leaderFrom.y} Q ${leaderMid.x} ${leaderMid.y} ${leaderTo.x} ${leaderTo.y}`}
+              fill="none"
+              stroke={stroke}
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              opacity={0.45}
             />
-            <text
-              x={pillX + pillW / 2}
-              y={pillY + LABEL_HEIGHT / 2}
-              textAnchor="middle"
-              dominantBaseline="central"
-              fill={annotDeep(ordinal)}
-              style={{ fontSize: 12, fontWeight: 600, userSelect: 'none' }}
-            >
-              {mark.label}
-            </text>
+            <circle cx={leaderFrom.x} cy={leaderFrom.y} r={3} fill={stroke} />
+            <NumberedPill x={pillX} y={stackTop} ordinal={ordinal} step={mark.step} label={mark.label} />
+            {showNote && mark.note && <WhyNote x={noteX} y={stackTop + LABEL_HEIGHT + NOTE_GAP} note={mark.note} stroke={stroke} />}
           </motion.g>
         )}
       </g>
@@ -256,17 +299,24 @@ function HeadlineMark({
   }
 
   // Underline: the 3px rounded bar under the baseline + the soft tint block
-  // over the phrase, with the why-note as a side card on a leader line —
-  // the Meadow leader earns its place here because the display type leaves
-  // no adjacent room (the demo's marks never needed one).
+  // over the phrase. Its numbered label pill (and, when the margin is wide
+  // enough, its why-note) sits just right of the headline column on a leader
+  // — the extension's leader earns its place here because the display type
+  // leaves no adjacent room. The stack anchors to the wrapper's right edge
+  // (not the phrase's, which runs nearly full-width), so it always lands in
+  // the clean margin beside line 2, never over the sub below. If even the
+  // pill won't fit the margin, the mark stays label-less rather than crowd.
   const barY = rect.y + rect.h + 4
   const noteH = mark.note ? noteHeight(mark.note) : 0
-  const noteX = rect.x + rect.w + LEADER_LEN + 10
-  const noteY = rect.y + rect.h / 2 - noteH / 2
-  const showNote = Boolean(mark.note) && noteRoom
-  const leaderFrom = { x: rect.x + rect.w + 8, y: barY }
-  const leaderTo = { x: noteX - 6, y: noteY + noteH / 2 }
-  const leaderMid = { x: (leaderFrom.x + leaderTo.x) / 2, y: Math.min(leaderFrom.y, leaderTo.y) - 10 }
+  const pillW = numberedPillWidth(mark.label)
+  const sideX = frameW + 14
+  const showPill = rightSpace >= 14 + pillW + SIDE_MARGIN
+  const showNote = Boolean(mark.note) && rightSpace >= 14 + NOTE_WIDTH + SIDE_MARGIN
+  const stackH = LABEL_HEIGHT + (showNote ? NOTE_GAP + noteH : 0)
+  const sideTop = rect.y + rect.h / 2 - stackH / 2
+  const leaderFrom = { x: rect.x + rect.w + 6, y: rect.y + rect.h / 2 }
+  const leaderTo = { x: sideX - 6, y: sideTop + LABEL_HEIGHT / 2 }
+  const leaderMid = { x: (leaderFrom.x + leaderTo.x) / 2, y: Math.min(leaderFrom.y, leaderTo.y) - 8 }
 
   return (
     <g>
@@ -292,7 +342,7 @@ function HeadlineMark({
         {...drawProps}
         transition={drawTransition}
       />
-      {showNote && (
+      {showPill && (
         <motion.g {...metaProps} transition={metaTransition}>
           <path
             d={`M ${leaderFrom.x} ${leaderFrom.y} Q ${leaderMid.x} ${leaderMid.y} ${leaderTo.x} ${leaderTo.y}`}
@@ -300,138 +350,98 @@ function HeadlineMark({
             stroke={stroke}
             strokeWidth={1.5}
             strokeLinecap="round"
-            opacity={0.8}
+            opacity={0.45}
           />
-          <foreignObject x={noteX} y={noteY} width={NOTE_WIDTH} height={noteH + 4}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 6,
-                background: 'rgba(255,255,255,0.94)',
-                border: '1px solid var(--mkt-border-faint)',
-                borderRadius: 12,
-                padding: '9px 12px',
-                boxShadow: '0 4px 14px rgba(15,23,42,0.08)',
-                maxWidth: NOTE_WIDTH,
-              }}
-            >
-              <span
-                style={{ marginTop: 6, width: 6, height: 6, flex: 'none', borderRadius: 99, background: stroke }}
-              />
-              <span style={{ fontSize: 12.5, lineHeight: 1.55, color: '#46463f', textAlign: 'left' }}>{mark.note}</span>
-            </div>
-          </foreignObject>
+          <circle cx={leaderFrom.x} cy={leaderFrom.y} r={3} fill={stroke} />
+          <NumberedPill x={sideX} y={sideTop} ordinal={ordinal} step={mark.step} label={mark.label} />
+          {showNote && mark.note && <WhyNote x={sideX} y={sideTop + LABEL_HEIGHT + NOTE_GAP} note={mark.note} stroke={stroke} />}
         </motion.g>
       )}
     </g>
   )
 }
 
-// ── The ambient signals row ──────────────────────────────────────────────
-
-// A calm subset of the ping catalog (scripts.ts): tones that read as wins
-// and teaching moves next to the CTA — the full three-tone catalog lives in
-// Task 7's interactive vignette.
-const AMBIENT_PING_KINDS = ['pattern-broken', 'callback', 'confidence-up', 'teaching-decompose'] as const
-const AMBIENT_PINGS: ScenePing[] = pingCatalog.filter((entry) =>
-  (AMBIENT_PING_KINDS as readonly string[]).includes(entry.kind)
-)
-
-const AMBIENT_MODES: TutorModeKey[] = ['explore', 'coach', 'challenge', 'review']
-
-// The beat: every 4s one element takes a turn — even ticks switch the mode
-// capsule (450ms color crossfade, the title bar's timing), odd ticks drop a
-// ping toast in for 3s. Reduced motion: one composed static frame.
-const TICK_MS = 4000
-const PING_HOLD_MS = 3000
-
-export function AmbientSignals() {
-  const reduceMotion = useReducedMotion() ?? false
-  const [tick, setTick] = useState(0)
-  const [modeIndex, setModeIndex] = useState(0)
-  const [pingIndex, setPingIndex] = useState(0)
-  const [pingVisible, setPingVisible] = useState(false)
-
-  useEffect(() => {
-    if (reduceMotion) return
-    const id = setInterval(() => setTick((t) => t + 1), TICK_MS)
-    return () => clearInterval(id)
-  }, [reduceMotion])
-
-  useEffect(() => {
-    if (reduceMotion || tick === 0) return
-    if (tick % 2 === 1) {
-      setPingVisible(true)
-      const id = setTimeout(() => {
-        setPingVisible(false)
-        setPingIndex((p) => (p + 1) % AMBIENT_PINGS.length)
-      }, PING_HOLD_MS)
-      return () => clearTimeout(id)
-    }
-    setModeIndex((m) => (m + 1) % AMBIENT_MODES.length)
-  }, [tick, reduceMotion])
-
-  const mode = DEMO_TUTOR_MODES[AMBIENT_MODES[reduceMotion ? 1 : modeIndex]]
-  const ping = AMBIENT_PINGS[pingIndex] ?? AMBIENT_PINGS[0]
-  const showPing = reduceMotion || pingVisible
-
+// The why-note card (the extension's teaching payload) — a white card with a
+// stroke-colored dot and the note text, rendered as real HTML inside a
+// foreignObject so it wraps. Left-margin (mark 1) and right-margin (mark 2)
+// stacks share it.
+function WhyNote({ x, y, note, stroke }: { x: number; y: number; note: string; stroke: string }) {
   return (
-    // Both slots are fixed-size and the row reserves its height, so the
-    // cycle never moves anything around it. Decorative (the hero demo's
-    // sr-only alt covers pings and modes for readers) — aria-hidden,
-    // nothing focusable.
-    <div aria-hidden="true" className="mt-7 flex min-h-10 flex-wrap items-center justify-center gap-x-3 gap-y-2">
-      <span className="flex h-10 w-40 items-center justify-center gap-2 rounded-full border border-(--mkt-border-faint) bg-white/65 px-3 shadow-(--mkt-shadow-1) backdrop-blur-[8px]">
-        <span
-          className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-[7px] border text-[11.5px] font-bold transition-[color,background-color,border-color] duration-[450ms]"
-          style={{
-            color: `var(--calyxa-mode-${mode.key}-text)`,
-            background: `var(--calyxa-mode-${mode.key}-bg)`,
-            borderColor: `var(--calyxa-mode-${mode.key}-border)`,
-          }}
-        >
-          {mode.glyph}
-        </span>
-        <span className="flex min-w-0 flex-col items-start gap-0 leading-none">
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.span
-              key={mode.key}
-              initial={reduceMotion ? false : { opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={reduceMotion ? undefined : { opacity: 0, y: -4 }}
-              transition={{ duration: 0.3, ease: DRAW_EASE }}
-              className="text-[13px] font-semibold transition-colors duration-[450ms]"
-              style={{ color: `var(--calyxa-mode-${mode.key}-text)` }}
-            >
-              {mode.name}
-            </motion.span>
-          </AnimatePresence>
-          <span className="text-[9.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Tutor mode</span>
-        </span>
-      </span>
-      <span className="relative flex h-10 w-60 items-center justify-center">
-        <AnimatePresence initial={false}>
-          {showPing && (
-            <motion.span
-              key={ping.label}
-              initial={reduceMotion ? false : { opacity: 0, y: -12, scale: 0.94 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={reduceMotion ? undefined : { opacity: 0, y: -9, scale: 0.96, transition: { duration: 0.3 } }}
-              transition={{ duration: 0.45, ease: DRAW_EASE }}
-              className="absolute flex items-center gap-[7px] whitespace-nowrap rounded-full border py-[7px] pl-[11px] pr-3.5 text-[12.5px] font-semibold shadow-[0_8px_22px_rgba(15,23,42,0.12)]"
-              style={{
-                background: `var(--calyxa-ping-${ping.tone}-bg)`,
-                borderColor: `var(--calyxa-ping-${ping.tone}-border)`,
-                color: `var(--calyxa-ping-${ping.tone}-text)`,
-              }}
-            >
-              <span className="text-[13.5px] font-bold leading-none">{ping.glyph}</span>
-              <span>{ping.label}</span>
-            </motion.span>
-          )}
-        </AnimatePresence>
-      </span>
-    </div>
+    <foreignObject x={x} y={y} width={NOTE_WIDTH} height={noteHeight(note) + 4}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 6,
+          background: 'rgba(255,255,255,0.94)',
+          border: '1px solid var(--mkt-border-faint)',
+          borderRadius: 12,
+          padding: '9px 12px',
+          boxShadow: '0 4px 14px rgba(15,23,42,0.08)',
+          maxWidth: NOTE_WIDTH,
+        }}
+      >
+        <span style={{ marginTop: 6, width: 6, height: 6, flex: 'none', borderRadius: 99, background: stroke }} />
+        <span style={{ fontSize: 12.5, lineHeight: 1.55, color: '#46463f', textAlign: 'left' }}>{note}</span>
+      </div>
+    </foreignObject>
+  )
+}
+
+// The label pill (required on every mark — "no naked marks") with the ordinal
+// number carried as a leading coin. Tint bg + tint-border + deep text per the
+// brand's dark-on-light rule; the coin is white-filled with the ordinal
+// stroke + deep number so it reads as the extension's numbered step badge.
+function NumberedPill({
+  x,
+  y,
+  ordinal,
+  step,
+  label,
+}: {
+  x: number
+  y: number
+  ordinal: AnnotOrdinal
+  step: number
+  label: string
+}) {
+  const w = numberedPillWidth(label)
+  const badgeCx = x + PILL_LEAD + BADGE_R
+  const midY = y + LABEL_HEIGHT / 2
+  const textX = x + PILL_LEAD + BADGE_R * 2 + PILL_BADGE_GAP
+  return (
+    <g>
+      <rect
+        x={x}
+        y={y}
+        width={w}
+        height={LABEL_HEIGHT}
+        rx={LABEL_HEIGHT / 2}
+        fill={annotTint(ordinal)}
+        stroke={annotTintBorder(ordinal)}
+        strokeWidth={1}
+        style={{ filter: 'drop-shadow(0 1px 2px rgba(15,23,42,0.06))' }}
+      />
+      <circle cx={badgeCx} cy={midY} r={BADGE_R} fill="#ffffff" stroke={annotStroke(ordinal)} strokeWidth={1.5} />
+      <text
+        x={badgeCx}
+        y={midY}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fill={annotDeep(ordinal)}
+        style={{ fontSize: 11, fontWeight: 700, userSelect: 'none' }}
+      >
+        {step}
+      </text>
+      <text
+        x={textX}
+        y={midY}
+        dominantBaseline="central"
+        fill={annotDeep(ordinal)}
+        style={{ fontSize: 12, fontWeight: 600, userSelect: 'none' }}
+      >
+        {label}
+      </text>
+    </g>
   )
 }

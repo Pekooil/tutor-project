@@ -75,7 +75,7 @@ const MARK_TERM_C: SceneAnnotation = {
 // annotations, chips, pings, a live mode switch, and milestone markers →
 // recap card → rest → loop.
 export const heroSession: SceneScript = {
-  durationMs: 25200,
+  durationMs: 28000,
   restMs: 3000,
   steps: [
     // The opening scan (CheckinCard.tsx's two scan lines), then the one
@@ -176,12 +176,16 @@ export const heroSession: SceneScript = {
       },
     },
     { at: 23600, do: { kind: 'waveform', active: false } },
-    { at: 24100, do: { kind: 'recap', recap: RECAP } },
+    // The problem is solved: the panel frame blooms sage (SectionBloom's
+    // "congratulation, not confetti") for 2.8s while the transcript stays
+    // readable, then hands off to the recap exactly as the glow fades.
+    { at: 23800, do: { kind: 'bloom', line: 'Factoring quadratics · every step was yours', durationMs: 2800 } },
+    { at: 26600, do: { kind: 'recap', recap: RECAP } },
   ],
 }
 
 export const heroSessionAlt =
-  'Animated recreation of the Calyxa overlay running a full session on a math practice page: it scans the page, predicts sign errors as the likely sticking point, tutors through factoring x squared plus 5x plus 6 with color-coded annotations, answer chips, and status pings, switches into coaching when the predicted mistake happens, marks the breakthrough as a milestone, and ends with a recap card of what improved.'
+  'Animated recreation of the Calyxa overlay running a full session on a math practice page: it scans the page, predicts sign errors as the likely sticking point, tutors through factoring x squared plus 5x plus 6 with color-coded annotations, answer chips, and status pings, switches into coaching when the predicted mistake happens, marks the breakthrough as a milestone, lights the panel with a sage completion glow when the problem is solved, and ends with a recap card of what improved.'
 
 // ── The scrollytelling cut (Task 6 consumes) ─────────────────────────────
 // The same session compressed into four scrub-addressable beats of 1000ms
@@ -330,20 +334,23 @@ export const predictionVignette: SceneScript = {
 
 // Vignette 2 — tutor modes: the header identity cycling through all eight
 // modes mid-session (starts and ends on Explore, so the loop is seamless).
+// One full pass over the eight modes, holding each for exactly 2s (the title
+// card and the session header recolor together on this beat). The session
+// starts on Explore (the reducer's default), so the first switch is at 2s;
+// after Recover (14–16s) the loop wraps back to Explore.
 export const modesVignette: SceneScript = {
-  durationMs: 10400,
+  durationMs: 16000,
   restMs: 0,
   steps: [
-    { at: 200, do: { kind: 'stage', label: 'Factoring quadratics · Stage 2 of 3' } },
-    { at: 200, do: { kind: 'board', expression: '(x + 2)(x + 3) = 0' } },
-    { at: 500, do: { kind: 'mode', mode: 'coach' } },
-    { at: 1800, do: { kind: 'mode', mode: 'build' } },
-    { at: 3100, do: { kind: 'mode', mode: 'practice' } },
-    { at: 4400, do: { kind: 'mode', mode: 'challenge' } },
-    { at: 5700, do: { kind: 'mode', mode: 'verify' } },
-    { at: 7000, do: { kind: 'mode', mode: 'review' } },
-    { at: 8300, do: { kind: 'mode', mode: 'recover' } },
-    { at: 9600, do: { kind: 'mode', mode: 'explore' } },
+    { at: 0, do: { kind: 'stage', label: 'Factoring quadratics · Stage 2 of 3' } },
+    { at: 0, do: { kind: 'board', expression: '(x + 2)(x + 3) = 0' } },
+    { at: 2000, do: { kind: 'mode', mode: 'coach' } },
+    { at: 4000, do: { kind: 'mode', mode: 'build' } },
+    { at: 6000, do: { kind: 'mode', mode: 'practice' } },
+    { at: 8000, do: { kind: 'mode', mode: 'challenge' } },
+    { at: 10000, do: { kind: 'mode', mode: 'verify' } },
+    { at: 12000, do: { kind: 'mode', mode: 'review' } },
+    { at: 14000, do: { kind: 'mode', mode: 'recover' } },
   ],
 }
 

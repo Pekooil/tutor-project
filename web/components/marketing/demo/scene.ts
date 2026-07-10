@@ -127,6 +127,11 @@ export type SceneAction =
   | { kind: 'checkin'; checkin: SceneCheckin | null }
   | { kind: 'recap'; recap: SceneRecap | null }
   | { kind: 'ping'; ping: ScenePing; durationMs: number }
+  // The section-complete congratulation (SectionBloom.tsx): the panel frame
+  // lights up with the sage bloom for durationMs while the card stays
+  // readable, then hands off to the recap. `line` is the sr-only completion
+  // line ("… · every step was yours").
+  | { kind: 'bloom'; line: string; durationMs: number }
   | { kind: 'waveform'; active: boolean }
   | { kind: 'masteryDelta'; deltas: MasteryDelta[] }
   | { kind: 'artifact'; artifact: ArtifactKind }
@@ -162,6 +167,8 @@ export type SceneState = {
   checkin: SceneCheckin | null
   recap: SceneRecap | null
   ping: ScenePing | null
+  /** The section-complete bloom's sr-only line while the glow is up; null otherwise. */
+  bloom: string | null
   waveform: boolean
   masteryDeltas: MasteryDelta[]
   artifacts: ArtifactKind[]
@@ -198,6 +205,7 @@ export function reduceScene(script: SceneScript, tMs: number): SceneState {
     checkin: null,
     recap: null,
     ping: null,
+    bloom: null,
     waveform: false,
     masteryDeltas: [],
     artifacts: [],
@@ -207,6 +215,7 @@ export function reduceScene(script: SceneScript, tMs: number): SceneState {
   }
 
   let activePing: { at: number; ping: ScenePing; durationMs: number } | null = null
+  let activeBloom: { at: number; line: string; durationMs: number } | null = null
 
   for (const step of script.steps) {
     if (step.at > t) break
@@ -256,6 +265,9 @@ export function reduceScene(script: SceneScript, tMs: number): SceneState {
         // One at a time — a new ping replaces the current (the real toast).
         activePing = { at: step.at, ping: action.ping, durationMs: action.durationMs }
         break
+      case 'bloom':
+        activeBloom = { at: step.at, line: action.line, durationMs: action.durationMs }
+        break
       case 'waveform':
         state.waveform = action.active
         break
@@ -270,6 +282,13 @@ export function reduceScene(script: SceneScript, tMs: number): SceneState {
 
   if (activePing && t < activePing.at + activePing.durationMs) {
     state.ping = activePing.ping
+  }
+
+  // The bloom holds for its window, then hands off (the recap step lands as
+  // it ends). Transient like the ping — the reduced-motion end frame is past
+  // it, so the composed final frame is the recap, never the glow.
+  if (activeBloom && t < activeBloom.at + activeBloom.durationMs) {
+    state.bloom = activeBloom.line
   }
 
   // pendingReply looks at SPEAKERS, not raw entries — a milestone settling

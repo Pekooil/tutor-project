@@ -182,6 +182,84 @@
   padding-left: 1rem;
 }
 
+/* ---- Platform marquee (hero compatibility strip) ----
+ * A rolling line of brand-tinted platform pills. The track holds two
+ * identical halves and slides -50% for a seamless loop; the edges fade under
+ * a mask. Reduced motion stops the slide and wraps the pills into a static,
+ * centered set (the duplicate half is removed). */
+
+.mkt-marquee {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 7%,
+    #000 93%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 93%, transparent 100%);
+}
+
+.mkt-marquee-track {
+  display: flex;
+  width: max-content;
+  gap: 0.5rem;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mkt-marquee-track {
+    animation: mkt-marquee 46s linear infinite;
+  }
+
+  .mkt-marquee:hover .mkt-marquee-track {
+    animation-play-state: paused;
+  }
+}
+
+@keyframes mkt-marquee {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mkt-marquee {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .mkt-marquee-track {
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+    gap: 0.5rem 0.5rem;
+  }
+
+  .mkt-marquee-dup {
+    display: none;
+  }
+}
+
+.mkt-platform-pill {
+  flex: none;
+  white-space: nowrap;
+  border-radius: 999px;
+  padding: 0.3125rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.1;
+  background: color-mix(in srgb, var(--pill) 11%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--pill) 30%, #ffffff);
+  color: color-mix(in srgb, var(--pill) 62%, #1c1c1a);
+}
+
 .mkt-connector {
   width: 1px;
   height: 2.5rem;

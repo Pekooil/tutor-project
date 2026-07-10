@@ -238,6 +238,48 @@ export function DemoStage({
           );
           color: var(--calyxa-placeholder-text);
         }
+        /* SectionBloom.tsx's frame glow, mirrored (design 06 "a bloom, not
+           confetti"): a rotating sage conic ring on a 2px border, a soft
+           green halo behind, and a one-shot burst pulse — all fading in and
+           back out over --cx-bloom-duration, the same shared-duration
+           discipline as the extension so the glow recedes rather than blinks.
+           Gradient stops are theme aliases, never bare hex. */
+        @property --cx-bloom-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+        @keyframes cx-demo-bloom-rotate { to { --cx-bloom-angle: 360deg; } }
+        @keyframes cx-demo-bloom-fade { 0% { opacity: 0; } 12% { opacity: 1; } 82% { opacity: 1; } 100% { opacity: 0; } }
+        @keyframes cx-demo-bloom-burst {
+          0% { transform: scale(0.98); opacity: 0.95; box-shadow: 0 0 0 0 rgba(134, 239, 172, 0.55); }
+          65% { opacity: 0.4; }
+          100% { transform: scale(1.07); opacity: 0; box-shadow: 0 0 30px 12px rgba(134, 239, 172, 0); }
+        }
+        .cx-demo-bloom-ring {
+          opacity: 0;
+          padding: 2px;
+          background: conic-gradient(
+            from var(--cx-bloom-angle),
+            var(--color-accent-fill),
+            var(--calyxa-ai-tag-to) 25%,
+            var(--calyxa-ai-tag-from) 50%,
+            var(--calyxa-ai-tag-to) 75%,
+            var(--color-accent-fill) 100%
+          );
+          -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          -webkit-mask-composite: xor;
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask-composite: exclude;
+        }
+        .cx-demo-bloom-halo { opacity: 0; box-shadow: 0 0 26px 5px rgba(134, 239, 172, 0.55); }
+        @media (prefers-reduced-motion: no-preference) {
+          .cx-demo-bloom-ring {
+            animation: cx-demo-bloom-rotate 4.5s linear infinite,
+              cx-demo-bloom-fade var(--cx-bloom-duration, 2800ms) ease-out both;
+          }
+          .cx-demo-bloom-halo { animation: cx-demo-bloom-fade var(--cx-bloom-duration, 2800ms) ease-out both; }
+          .cx-demo-bloom-burst { animation: cx-demo-bloom-burst 1.1s ease-out 1; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .cx-demo-bloom-ring, .cx-demo-bloom-halo { opacity: 1; }
+        }
       `}</style>
     </div>
   )

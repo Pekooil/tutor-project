@@ -40,12 +40,29 @@ function formatClock(elapsedMs: number): string {
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`
 }
 
+// The section-complete bloom window (SectionBloom.tsx's BLOOM_MS, mirrored).
+// MUST equal the heroSession bloom step's durationMs so the CSS fade envelope
+// (cx-demo-bloom-fade, driven off --cx-bloom-duration) closes exactly as the
+// scene retires the glow and the recap takes over.
+const DEMO_BLOOM_MS = 2800
+
 export function DemoPanel({ state }: { state: SceneState }) {
   const hasContent = state.transcript.length > 0
   const sessionLive = !state.checkin && !state.recap && (hasContent || state.stage !== null || state.board !== null)
 
   return (
     <div className="relative flex flex-col items-stretch">
+      {/* The bloom's soft sage halo sits BEHIND the card (design 06 "a bloom,
+          not confetti") — recreated as decoration layers around the live
+          card rather than a wrapper, so the transcript never remounts when
+          the glow lands. */}
+      {state.bloom && (
+        <div
+          aria-hidden="true"
+          className="cx-demo-bloom-halo pointer-events-none absolute -inset-1 rounded-[16px]"
+          style={{ '--cx-bloom-duration': `${DEMO_BLOOM_MS}ms` } as React.CSSProperties}
+        />
+      )}
       <motion.div
         layout
         transition={{ duration: 0.25, ease: [0, 0, 0.2, 1] }}
@@ -66,6 +83,27 @@ export function DemoPanel({ state }: { state: SceneState }) {
           </>
         )}
       </motion.div>
+      {/* Edge layers, above the card (center is transparent, so the card
+          stays fully readable): a rotating sage conic ring on a 2px border
+          and a one-shot burst pulse — SectionBloom.tsx's cx-bloom-spin +
+          cx-bloom-burst. */}
+      {state.bloom && (
+        <>
+          <span role="status" className="sr-only">
+            Section complete. {state.bloom}
+          </span>
+          <div
+            aria-hidden="true"
+            className="cx-demo-bloom-ring pointer-events-none absolute -inset-px rounded-[13px]"
+            style={{ '--cx-bloom-duration': `${DEMO_BLOOM_MS}ms` } as React.CSSProperties}
+          />
+          <div
+            aria-hidden="true"
+            className="cx-demo-bloom-burst pointer-events-none absolute -inset-0.5 rounded-[15px] border-[2.5px] opacity-0"
+            style={{ borderColor: 'var(--color-accent-fill)' }}
+          />
+        </>
+      )}
     </div>
   )
 }
@@ -92,6 +130,10 @@ function PanelTitleBar({ state, sessionLive }: { state: SceneState; sessionLive:
           color: `var(--calyxa-mode-${mode.key}-text)`,
           background: `var(--calyxa-mode-${mode.key}-bg)`,
           borderColor: `var(--calyxa-mode-${mode.key}-border)`,
+          // Geometric mode glyphs render correctly only in the overlay's
+          // system stack; web's Geist display font malforms several. Pin the
+          // extension font so the demo header matches the extension.
+          fontFamily: 'var(--font-sans)',
           // The 8c gradient glow: edge + soft drop + wide bloom, tinted
           // from the mode border (Overlay.css's --cx-mode-glow, mirrored).
           boxShadow: `0 0 0 1px color-mix(in srgb, var(--calyxa-mode-${mode.key}-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--calyxa-mode-${mode.key}-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--calyxa-mode-${mode.key}-border) 30%, transparent)`,
@@ -218,7 +260,7 @@ function Entry({ entry }: { entry: SceneEntry }) {
       <motion.div {...entryMotion} className="my-0.5 flex flex-none items-center gap-2.5" style={{ color: colors.text }}>
         <span aria-hidden="true" className="h-px flex-1" style={{ background: colors.rule }} />
         <span className="flex items-center gap-1.5 whitespace-nowrap text-[11px] font-semibold">
-          <span aria-hidden="true" className="text-[12px] leading-none">
+          <span aria-hidden="true" className="text-[12px] leading-none" style={{ fontFamily: 'var(--font-sans)' }}>
             {entry.milestone.glyph}
           </span>
           {entry.milestone.line}

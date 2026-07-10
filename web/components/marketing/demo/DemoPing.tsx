@@ -26,7 +26,9 @@ export function DemoPing({ ping }: { ping: ScenePing | null }) {
         color: `var(--calyxa-ping-${ping.tone}-text)`,
       }}
     >
-      <span aria-hidden="true" className="text-[13.5px] font-bold leading-none">
+      {/* Pin the overlay system stack — web's Geist display font malforms
+          the geometric ping glyphs (● ↺ ✓ …), same as the mode glyphs. */}
+      <span aria-hidden="true" className="text-[13.5px] font-bold leading-none" style={{ fontFamily: 'var(--font-sans)' }}>
         {ping.glyph}
       </span>
       <span>{ping.label}</span>
