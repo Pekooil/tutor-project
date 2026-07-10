@@ -80,6 +80,21 @@ alter table public.<table> enable row level security;
 | `reinforcement_schedule` | 2 (`user_id`) | `0008_reinforcement_schedule.sql` |
 | `waitlist` | 3 (deny-all) | `0012_waitlist.sql` |
 | `cost_ledger` | 3 (deny-all) | `0013_cost_ledger_and_erasure.sql` |
+| `feedback` | 2 (`user_id`)* | `0017_feedback_and_telemetry.sql` |
+| `telemetry_event` | 2 (`user_id`), insert-only** | `0017_feedback_and_telemetry.sql` |
+
+\* `feedback` follows Shape 2 but has **no `deleted_at` column**, so its
+policies omit the `deleted_at is null` clause — it is write-once capture with
+no soft-delete concept (ADR-039). Erasure is the `user_id` FK cascade, not a
+soft-delete flag.
+
+\** `telemetry_event` is Shape 2 keyed on `user_id` but **insert-only from the
+owner** (ADR-043): a single `for insert with check (auth.uid() = user_id)`
+policy and **no select/update/delete policy**, so clients write their own
+events but can never read them back. Analysis reads are service-role only.
+The insert `with check` also structurally enforces "`user_id` from the
+session, never from the body" — a client can only ever write a row attributed
+to itself.
 
 ## Additive columns (no policy change)
 

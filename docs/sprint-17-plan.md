@@ -266,6 +266,44 @@ Acceptance gate before Task 3:
     with regenerated types; a note added so Sprint 16's export/erasure lists gain
     the two tables (or a follow-up filed if that code must change).
 
+> **Task 2 done-notes (2026-07-09):**
+> - **Renumbered `0015` → `0017`** — 0015/0016 were already committed by the
+>   parallel Sprint-16 track (`0015_cascade_deletes.sql`,
+>   `0016_queue_own_erasure_rpc.sql`). File is `0017_feedback_and_telemetry.sql`.
+> - **Typecheck / regenerated types is a no-op here** — the Supabase clients in
+>   this repo are **untyped** (no `Database` generic anywhere), so `.from('feedback')`
+>   is a plain string call; there are no generated types to regenerate and adding
+>   tables cannot break typecheck.
+> - **`supabase db reset` DEFERRED to deploy-time (Darcy's call, 2026-07-09).**
+>   The Supabase CLI was installed this session (v2.109.1, `~/.local/bin/supabase`),
+>   but the machine has **no container runtime** (no Docker/Colima/OrbStack), which
+>   a local `db reset` requires. Rather than install a hypervisor or spin up a
+>   paid cloud branch, verification is deferred: the SQL is authored reset-clean
+>   (plain `create`, additive, 0001→0017; 9 well-formed DDL statements reviewed by
+>   hand) and will be exercised when 0017 is applied on deploy. **Before Task 9
+>   acceptance / before wiring the export follow-up, 0017 must actually be applied
+>   to the live project.**
+> - **Erasure coverage needs NO code change** — both tables declare
+>   `on delete cascade` to `users` inline, so the existing hard-delete sweep
+>   (`/api/cron/hard-delete-sweep`) removes them for free when it deletes the
+>   `auth.users` root. Nothing in the sweep enumerates child tables.
+> - **FOLLOW-UP FILED — export route (do when 0017 is applied to the live
+>   project, or alongside Task 4):** the Sprint-16 export route
+>   (`web/app/api/account/export/route.ts`) was **not** edited in Task 2 on
+>   purpose — it is a **live-Supabase integration test target** (`web/tests/account.test.ts`),
+>   and referencing a table that doesn't yet exist remotely would 502 that test
+>   pre-deploy.
+>   - `feedback`: add `'feedback'` to `EXPORTED_TABLES` (one line — its Shape 2
+>     `select_own` policy makes the existing RLS-scoped read Just Work) **after**
+>     0017 is live.
+>   - `telemetry_event`: it is **insert-only (no client SELECT)**, so it cannot
+>     be exported via the pure-RLS read the route is built on. GDPR export of a
+>     user's own telemetry needs a **scoped service-role read** (`.eq('user_id',
+>     uid)`) added as a deliberate one-table exception to the route's
+>     "never the admin client" invariant — best wired when the telemetry route
+>     lands (Task 4). Until then a user's telemetry is erasable (cascade) but not
+>     yet in the export payload.
+
 ## Task 3 — Web: onboarding item bank + seeding
 Scope: `/web/lib/onboarding/*` + `/api/onboarding`. Seeds via the existing apply
 path; propagates priors; writes `onboarding_completed_at`.
