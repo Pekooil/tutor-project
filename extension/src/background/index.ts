@@ -2,16 +2,22 @@ import { defineBackground } from '#imports';
 import type {
   AiTurnPayload,
   CalyxaMessage,
+  LogErrorPayload,
   OpeningScanPayload,
   PageContext,
+  SendFeedbackPayload,
+  SendFeedbackReplyPayload,
+  SendTelemetryPayload,
   SessionStatePayload,
   SignInPayload,
   StartSessionPayload,
+  TelemetryEvent,
   TurnMessage,
   VoiceSttPayload,
   VoiceTtsPayload,
 } from '../types/messages';
 import * as api from '../lib/api';
+import { installGlobalErrorCapture } from '../lib/monitoring';
 import {
   clearRunningTranscript,
   getActiveSession,
@@ -39,6 +45,19 @@ export default defineBackground(() => {
     console.log('Calyxa SW: installed');
     void chrome.storage.local.set({ wakeCount: 0 });
   });
+
+  // (1b) Error monitoring (Sprint 17 Task 6, ADR-043). Capture uncaught
+  // errors + unhandled rejections in the WORKER's own global scope (`self`)
+  // and relay them, already scrubbed by monitoring.ts, straight to
+  // /api/errors via api.reportError. The background is the sole
+  // network-egress context (ADR-006), so it forwards directly -- there is no
+  // LOG_ERROR hop here (that hop is the CONTENT script's, which cannot reach
+  // the network and relays to the background instead). api.reportError never
+  // throws and holds no DSN (the secret lives only in the /api/errors route),
+  // so this can neither feed back into itself nor leak a key into the bundle.
+  // Registered synchronously on every wake so it is in place before any later
+  // handler here can throw.
+  installGlobalErrorCapture(self, (event) => void api.reportError(event), { context: 'background' });
 
   // (3) Log every inbound message. No specific message types are handled yet,
   // and nothing here calls sendResponse, so the listener must NOT return true —
@@ -104,6 +123,31 @@ export default defineBackground(() => {
         void handleOpeningScan(payload, deriveTabDomain(sender.tab?.url)).then(sendResponse);
         return true;
       }
+      // (Sprint 17 Task 6, ADR-043) Beta-instrumentation egress. The overlay
+      // and content script never reach the network (ADR-006); they relay these
+      // three, and the worker owns the /api/telemetry, /api/feedback, and
+      // /api/errors calls.
+      case 'SEND_TELEMETRY': {
+        // Fire-and-forget: buffered + flushed + failure-swallowed by
+        // enqueueTelemetry. No response awaited, so return false (never true)
+        // -- the sender's sendMessage promise resolves immediately.
+        const { events } = message.payload as SendTelemetryPayload;
+        void enqueueTelemetry(events);
+        return false;
+      }
+      case 'SEND_FEEDBACK':
+        // Request/reply, unlike the other two: feedback is user-initiated, so
+        // the affordance (Task 7) gets an { ok } / { error } back to surface a
+        // save failure.
+        void handleSendFeedback(message.payload as SendFeedbackPayload).then(sendResponse);
+        return true;
+      case 'LOG_ERROR':
+        // Fire-and-forget relay of an ALREADY-scrubbed content-script error
+        // (monitoring.ts scrubbed it before it left the content script) to
+        // /api/errors. api.reportError never throws and drops the scrub's
+        // `timestamp` (the route rejects extra keys).
+        void api.reportError(message.payload as LogErrorPayload);
+        return false;
       default:
         return false;
     }
@@ -370,6 +414,181 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'unknown error';
 }
 
+// ---------------------------------------------------------------------------
+// Telemetry batching (Sprint 17 Task 6, ADR-043)
+//
+// The overlay/content relay one event at a time (SEND_TELEMETRY), and the
+// background's own funnel emissions (session_started) add more. The worker
+// accumulates them and flushes as a SINGLE /api/telemetry POST on either of
+// two triggers -- the buffer reaching TELEMETRY_BATCH_MAX events, or the
+// OLDEST buffered event aging past TELEMETRY_BATCH_MAX_AGE_MS -- so a busy
+// session is a handful of requests, not one per event (the plan's "flush on N
+// or interval"). A lost or late event never affects the student (every flush
+// swallows its own failure), which is exactly what lets the buffer live in
+// chrome.storage.session (survives worker wakes, cleared on browser close)
+// instead of needing durable storage.
+//
+// The flush DECISION is a pure reducer (reduceTelemetryBatch) -- state in,
+// {next state, events-to-flush} out, no chrome/network -- so Task 8's
+// telemetry-routing spec can test the N-and-age logic directly (the
+// isPlausibleProblem export-for-test precedent).
+// ---------------------------------------------------------------------------
+
+export const TELEMETRY_BATCH_MAX = 20;
+export const TELEMETRY_BATCH_MAX_AGE_MS = 5_000;
+
+export type TelemetryBatchState = {
+  events: TelemetryEvent[];
+  // When the currently-buffered run started (the age clock). null iff the
+  // buffer is empty.
+  oldestAt: number | null;
+};
+
+export const EMPTY_TELEMETRY_BATCH: TelemetryBatchState = { events: [], oldestAt: null };
+
+/**
+ * Pure batch/flush reducer. Appends `incoming` to the buffered state and
+ * decides whether to flush: on reaching `maxBatch` events, OR when the oldest
+ * buffered event has aged past `maxAgeMs` as of `now`. On a flush it returns
+ * the whole buffer to send plus an empty next state; otherwise the grown
+ * buffer and no flush. Deterministic in `now` (no Date.now() inside), so it is
+ * directly unit-testable. Passing `incoming: []` is the age-only re-check the
+ * flush timer uses.
+ */
+export function reduceTelemetryBatch(
+  state: TelemetryBatchState,
+  incoming: TelemetryEvent[],
+  now: number,
+  maxBatch: number = TELEMETRY_BATCH_MAX,
+  maxAgeMs: number = TELEMETRY_BATCH_MAX_AGE_MS,
+): { next: TelemetryBatchState; flush: TelemetryEvent[] } {
+  const events = incoming.length > 0 ? [...state.events, ...incoming] : state.events;
+  // Keep an already-running clock; start one only when the buffer first holds
+  // something.
+  const oldestAt = state.oldestAt ?? (events.length > 0 ? now : null);
+
+  const full = events.length >= maxBatch;
+  const aged = oldestAt !== null && now - oldestAt >= maxAgeMs;
+
+  if (events.length > 0 && (full || aged)) {
+    return { next: { ...EMPTY_TELEMETRY_BATCH }, flush: events };
+  }
+  return { next: { events, oldestAt }, flush: [] };
+}
+
+const TELEMETRY_BATCH_KEY = 'calyxa_telemetry_batch';
+
+// Within-wake only: a pending best-effort flush timer for a PARTIAL batch. Not
+// persisted -- a worker death drops it, but the buffer survives in
+// chrome.storage.session and the next enqueue's age check flushes it. This is
+// the one sanctioned transient timer in this file (never a top-level or
+// persistent one, per the MV3 discipline at the top) precisely because losing
+// it only DELAYS a telemetry event, never the student.
+let telemetryFlushTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function readTelemetryBatch(): Promise<TelemetryBatchState> {
+  const stored = await chrome.storage.session.get(TELEMETRY_BATCH_KEY);
+  return (stored[TELEMETRY_BATCH_KEY] as TelemetryBatchState | undefined) ?? { ...EMPTY_TELEMETRY_BATCH };
+}
+
+async function writeTelemetryBatch(state: TelemetryBatchState): Promise<void> {
+  await chrome.storage.session.set({ [TELEMETRY_BATCH_KEY]: state });
+}
+
+/**
+ * Buffers telemetry events and flushes per reduceTelemetryBatch. Called by the
+ * SEND_TELEMETRY handler (overlay/content events) and by the background's own
+ * funnel emissions (reportSessionStarted). Reads/writes the buffer through
+ * chrome.storage.session, never a module variable, matching this file's
+ * ephemeral-worker discipline.
+ */
+async function enqueueTelemetry(events: TelemetryEvent[]): Promise<void> {
+  if (events.length === 0) return;
+  const state = await readTelemetryBatch();
+  const { next, flush } = reduceTelemetryBatch(state, events, Date.now());
+  await writeTelemetryBatch(next);
+
+  if (flush.length > 0) {
+    clearTelemetryFlushTimer();
+    void flushTelemetry(flush);
+    return;
+  }
+
+  // A partial batch remains: arm the best-effort age-flush so a trailing event
+  // (e.g. a lone session_started) still lands without waiting for the next one.
+  scheduleTelemetryFlush();
+}
+
+function scheduleTelemetryFlush(): void {
+  if (telemetryFlushTimer) return;
+  telemetryFlushTimer = setTimeout(() => {
+    telemetryFlushTimer = undefined;
+    void flushDueTelemetry();
+  }, TELEMETRY_BATCH_MAX_AGE_MS);
+}
+
+function clearTelemetryFlushTimer(): void {
+  if (telemetryFlushTimer) {
+    clearTimeout(telemetryFlushTimer);
+    telemetryFlushTimer = undefined;
+  }
+}
+
+/** The flush timer fired: flush the buffer if it has actually aged out; otherwise re-arm. */
+async function flushDueTelemetry(): Promise<void> {
+  const state = await readTelemetryBatch();
+  const { next, flush } = reduceTelemetryBatch(state, [], Date.now());
+  if (flush.length === 0) {
+    // Not yet aged (a size-flush in between reset the clock) -- re-arm if a
+    // partial batch still remains.
+    if (next.events.length > 0) scheduleTelemetryFlush();
+    return;
+  }
+  await writeTelemetryBatch(next);
+  void flushTelemetry(flush);
+}
+
+/** POSTs a flushed batch, swallowing any failure -- a lost event never affects the student (ADR-043). */
+async function flushTelemetry(events: TelemetryEvent[]): Promise<void> {
+  try {
+    await api.sendTelemetry(events);
+  } catch (error) {
+    console.warn('Calyxa SW: telemetry flush failed, dropping batch', toErrorMessage(error));
+  }
+}
+
+/**
+ * Fire-and-forget funnel emission: records the session_started event when the
+ * background actually starts a session (ADR-043). This is the ONE telemetry
+ * event the background originates itself -- session start is a background-owned
+ * fact (ensureSessionStarted / handleOpeningScan / handleStartSession) -- so it
+ * belongs here rather than in the overlay. Batched + swallowed like all
+ * telemetry. onboarding_completed / turn_latency / annotation_rendered
+ * originate where THEIR data lives (the overlay's completion + voice-timing +
+ * annotation-draw paths) and are wired by Task 7, not here.
+ */
+function reportSessionStarted(mode: 'voice' | 'text'): void {
+  void enqueueTelemetry([{ kind: 'session_started', mode }]);
+}
+
+/**
+ * Relays one overlay feedback capture to /api/feedback (Task 4). Request/reply
+ * (unlike telemetry): returns { ok } on a successful insert and { error } on
+ * failure, so Task 7's affordance can surface a retry -- feedback is
+ * user-initiated, so a failure is NOT silently swallowed. `message` is the one
+ * deliberate user-authored free-text field this sprint (ADR-043).
+ */
+async function handleSendFeedback(payload: SendFeedbackPayload): Promise<CalyxaMessage> {
+  try {
+    await api.sendFeedback(payload);
+    const reply: SendFeedbackReplyPayload = { ok: true };
+    return { type: 'SEND_FEEDBACK', payload: reply };
+  } catch (error) {
+    const reply: SendFeedbackReplyPayload = { error: toErrorMessage(error) };
+    return { type: 'SEND_FEEDBACK', payload: reply };
+  }
+}
+
 // Two-part public suffixes this heuristic knows about. Not a full Public
 // Suffix List implementation -- pageDomain is a display/grouping hint
 // stored alongside a session row, not something the server gates access
@@ -498,7 +717,9 @@ async function broadcastToAllTabs(state: CalyxaMessage): Promise<void> {
 
 async function handleStartSession(payload: StartSessionPayload): Promise<CalyxaMessage> {
   try {
-    await api.startSession({ pageDomain: payload.pageDomain, mode: payload.mode ?? 'voice' });
+    const mode = payload.mode ?? 'voice';
+    await api.startSession({ pageDomain: payload.pageDomain, mode });
+    reportSessionStarted(mode);
     return buildSessionState();
   } catch (error) {
     return buildSessionState(toErrorMessage(error));
@@ -558,6 +779,7 @@ async function ensureSessionStarted(pageDomain: string | null, mode: 'voice' | '
   if (await getActiveSession()) return;
   try {
     await api.startSession({ pageDomain, mode });
+    reportSessionStarted(mode);
   } catch (error) {
     console.warn('Calyxa SW: auto-start-on-send failed, continuing sessionless', toErrorMessage(error));
   }
@@ -663,6 +885,7 @@ async function handleOpeningScan(payload: OpeningScanPayload, pageDomain: string
 
   try {
     await api.startSession({ pageDomain, mode: 'text' });
+    reportSessionStarted('text');
   } catch (error) {
     console.warn('Calyxa SW: opening scan startSession failed, degrading to a silent open', toErrorMessage(error));
     return { type: 'OPENING_SCAN', payload: EMPTY_REPLY };

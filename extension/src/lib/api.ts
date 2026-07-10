@@ -12,14 +12,17 @@ import {
 import type {
   AnswerField,
   Annotation,
+  LogErrorPayload,
   PageContext,
   PageTopic,
+  SendFeedbackPayload,
   SessionCompletion,
   SessionRecap,
   SessionStartInfo,
   StatusPin,
   StickingCandidate,
   StrugglePrediction,
+  TelemetryEvent,
   TurnMessage,
 } from '../types/messages';
 
@@ -597,4 +600,95 @@ export async function ttsSynthesizeStream(
   }
 
   return { ttsMs };
+}
+
+// Sprint 17 / Task 6 (ADR-043): the three beta-instrumentation egress
+// helpers. Like every other helper in this file, they run ONLY in the
+// background service worker (the sole network-egress context, ADR-006) --
+// the overlay/content reach them by relaying SEND_TELEMETRY / SEND_FEEDBACK /
+// LOG_ERROR messages to the worker (background/index.ts), never by importing
+// this module.
+
+/**
+ * POSTs a batch of typed, content-free telemetry events to /api/telemetry
+ * (Task 4). Uses authorizedFetch, so the caller's own access token auths the
+ * insert and a dead refresh token surfaces SignedOutError exactly as every
+ * other helper does. THROWS on a non-2xx (so the caller can log), but the
+ * background handler that calls this SWALLOWS the throw -- a lost telemetry
+ * event must never affect the student (ADR-043 / the sprint's batching
+ * posture). Never surfaces the DB/route error text to the student.
+ */
+export async function sendTelemetry(events: TelemetryEvent[]): Promise<void> {
+  const res = await authorizedFetch('/api/telemetry', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ events }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `telemetry failed: ${res.status}`);
+  }
+}
+
+/**
+ * POSTs one feedback capture to /api/feedback (Task 4), RLS-scoped to the
+ * caller server-side. `message` is the single deliberate user-authored
+ * free-text field this sprint (ADR-043). Uses authorizedFetch (feedback is
+ * always an authed action, unlike error reporting below); THROWS on a
+ * non-2xx so the affordance (Task 7) can surface a retry -- feedback is
+ * user-initiated, so a failure is NOT silently swallowed the way telemetry
+ * is.
+ */
+export async function sendFeedback(payload: SendFeedbackPayload): Promise<void> {
+  const res = await authorizedFetch('/api/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `feedback failed: ${res.status}`);
+  }
+}
+
+/**
+ * Relays an already-scrubbed extension error to /api/errors (Task 5).
+ *
+ * Deliberately NOT authorizedFetch, unlike every other helper here: the
+ * whole point of error monitoring is to catch failures that happen WITHOUT a
+ * valid session too (a crashed worker on startup, a failed token refresh),
+ * and authorizedFetch throws SignedOutError when signed out -- which would
+ * blackhole exactly the errors most worth seeing. So this uses a PLAIN fetch,
+ * attaches a stored access token ONLY best-effort (so the route can tag a
+ * coarse userId when one happens to exist) and never refreshes it, and NEVER
+ * throws -- a failed error-report must not itself become an error (and, in
+ * the background, must not re-enter the global error handler that called it).
+ *
+ * Only {message, stack?, context?} are sent: /api/errors rejects any extra
+ * key (its allow-list validation), so the scrub's own `timestamp` field is
+ * dropped here rather than sent and 400'd.
+ */
+export async function reportError(event: LogErrorPayload): Promise<void> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const current = await getAuth();
+    if (current) headers.Authorization = `Bearer ${current.access_token}`;
+
+    const { message, stack, context } = event;
+    await fetch(`${API_BASE}/api/errors`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        message,
+        ...(stack ? { stack } : {}),
+        ...(context ? { context } : {}),
+      }),
+    });
+  } catch {
+    // Best-effort only -- a dropped error report is acceptable, and this
+    // function must never throw back into the global error capture that
+    // invoked it (which would loop).
+  }
 }

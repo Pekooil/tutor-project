@@ -1,7 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Overlay, type TurnResult } from './Overlay';
-import type { Annotation, PageTopic, StickingCandidate, TurnMessage } from '../types/messages';
+import type {
+  Annotation,
+  PageTopic,
+  SendFeedbackPayload,
+  StickingCandidate,
+  TelemetryEvent,
+  TurnMessage,
+} from '../types/messages';
 import type { Utterance } from './VoiceController';
 
 // Framework plumbing only. The content script calls these from WXT's
@@ -49,6 +56,20 @@ export type OverlayTransports = {
     topic?: PageTopic;
     stickingCandidates?: StickingCandidate[];
   } | null>;
+  /**
+   * Beta-instrumentation transports (Sprint 17 Task 6, ADR-043). The content
+   * script wires these to the background (the sole network-egress context,
+   * ADR-006), which owns the /api/telemetry + /api/feedback calls. Both are
+   * OPTIONAL so the overlay can render without them (e.g. a test harness or a
+   * mount that predates this wiring); Task 7's UI consumes them -- the
+   * onboarding-completion event fires onSendTelemetry, and the report/rate
+   * affordance calls onReportFeedback. onSendTelemetry is fire-and-forget (a
+   * dropped event is invisible to the student); onReportFeedback rejects on a
+   * save failure so the affordance can surface a retry. Telemetry events are
+   * the typed, content-free union (no free-text field, ADR-043).
+   */
+  onSendTelemetry?: (events: TelemetryEvent[]) => Promise<void>;
+  onReportFeedback?: (payload: SendFeedbackPayload) => Promise<void>;
 };
 
 export type MountOverlayOptions = OverlayTransports;

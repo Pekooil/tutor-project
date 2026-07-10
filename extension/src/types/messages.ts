@@ -1,4 +1,5 @@
 import type { ActiveSession, AuthUser } from '../lib/storage';
+import type { ScrubbedErrorEvent } from '../lib/monitoring';
 
 // Shared message types exchanged between the content script, the popup, and
 // the background service worker.
@@ -73,6 +74,33 @@ import type { ActiveSession, AuthUser } from '../lib/storage';
 //                  api.startSession BEFORE the AI call (ADR-030 Decision 3)
 //                  and degrades silently -- an empty/whitespace reply here
 //                  is the content script's cue to open with no message.
+//   SEND_TELEMETRY (Sprint 17 Task 6, ADR-043) — overlay/content ->
+//                  background, no reply awaited: SendTelemetryPayload
+//                  ({events}). The background is the sole network-egress
+//                  context (ADR-006), so the overlay never posts to
+//                  /api/telemetry itself -- it hands the typed, content-free
+//                  events here and the worker BATCHES them (flush on N or on
+//                  an age interval) and swallows any POST failure (a lost
+//                  telemetry event never affects the student). Fire-and-forget
+//                  by design: nothing is returned and the sender never awaits
+//                  a result.
+//   SEND_FEEDBACK  (Sprint 17 Task 6, ADR-039) — overlay -> background:
+//                  SendFeedbackPayload ({kind, rating?, message?, sessionId?}).
+//                  Unlike telemetry this is USER-initiated, so it is
+//                  request/reply (SendFeedbackReplyPayload {ok}|{error}) --
+//                  the affordance (Task 7) can surface a save failure. The
+//                  worker owns the /api/feedback call; `message` is the one
+//                  deliberate user-authored free-text field this sprint
+//                  (ADR-043), RLS-scoped + export/erasure-covered server-side.
+//   LOG_ERROR      (Sprint 17 Task 6, ADR-043) — content -> background, no
+//                  reply awaited: LogErrorPayload (a ScrubbedErrorEvent,
+//                  ALREADY scrubbed by monitoring.ts's scrubError in the
+//                  content script before it ever crosses this boundary). The
+//                  content script cannot reach the network (ADR-006), so it
+//                  relays the scrubbed shape here and the background forwards
+//                  it to POST /api/errors -- the extension holds no monitoring
+//                  secret/DSN of any kind (the locked "no key in the extension
+//                  bundle" rule). Fire-and-forget, like SEND_TELEMETRY.
 //
 //   Binary-over-messaging caveat (ADR-010): chrome.runtime.sendMessage
 //   payloads are structured-cloned/JSON, so a raw ArrayBuffer/Blob is not a
@@ -96,7 +124,10 @@ export type MessageType =
   | 'VOICE_TTS'
   | 'VOICE_TTS_REPLY'
   | 'SESSION_ENDED'
-  | 'OPENING_SCAN';
+  | 'OPENING_SCAN'
+  | 'SEND_TELEMETRY'
+  | 'SEND_FEEDBACK'
+  | 'LOG_ERROR';
 
 export interface CalyxaMessage {
   type: MessageType;
@@ -513,3 +544,59 @@ export type LatencyTrace = {
   networkMs: number;
   totalMs: number;
 };
+
+// Sprint 17 / Task 6 (ADR-043): the client-side mirror of
+// web/lib/telemetry/events.ts's TelemetryEvent union -- the same
+// by-convention re-declaration as LatencyTrace/PageContext/Annotation above
+// (no shared module spans the extension/web boundary). This is what the
+// overlay/content build and SEND_TELEMETRY carries to the background, which
+// relays it to POST /api/telemetry; the route re-validates every event
+// against ITS own copy of the union (validateEvent), so this mirror is a
+// convenience type for the client, never the trust boundary.
+//
+// Like the web copy, EVERY field below is a number, a boolean, or a closed
+// string-literal enum -- there is deliberately NO free-text field anywhere in
+// the union (the ADR-043 privacy guarantee), so a transcript, a page URL, or
+// any student/tutor string literally cannot be attached to a telemetry event
+// without changing this type (and its web source of truth, and tripping the
+// telemetry test). Keep this union field-for-field identical to
+// web/lib/telemetry/events.ts.
+export type TelemetryEvent =
+  | { kind: 'onboarding_completed'; itemCount: number; ms: number }
+  | { kind: 'session_started'; mode: 'voice' | 'text' }
+  | { kind: 'turn_latency'; sttMs: number; aiMs: number; ttsMs: number; networkMs: number; totalMs: number }
+  | { kind: 'annotation_rendered'; count: number; fallback: boolean }
+  | { kind: 'voice_used' }
+  | { kind: 'degraded_hit'; cap: 'soft' | 'hard'; source: 'claude_turn' | 'whisper_stt' | 'elevenlabs_tts' };
+
+// SEND_TELEMETRY payload (overlay/content -> background). A batch of one or
+// more events; the background accumulates across messages and flushes on N or
+// on an age interval (background/index.ts), so callers can send singly.
+export type SendTelemetryPayload = { events: TelemetryEvent[] };
+
+// SEND_FEEDBACK payload (overlay -> background). Mirrors /api/feedback's
+// accepted body exactly (web/app/api/feedback/route.ts): `kind` is required,
+// the rest optional. `message` is the one deliberate user-authored free-text
+// field this sprint (ADR-043) -- passed through verbatim, RLS-scoped +
+// export/erasure-covered server-side. `sessionId`, when present, is the
+// active session the feedback is about (wired by Task 7's affordance).
+export type SendFeedbackPayload = {
+  kind: 'bug' | 'rating' | 'idea';
+  rating?: number;
+  message?: string;
+  sessionId?: string;
+};
+
+// SEND_FEEDBACK reply (background -> caller). Feedback is user-initiated, so
+// unlike telemetry a failure IS surfaced -- the affordance (Task 7) shows a
+// retry on { error }. `{ ok: true }` on a successful insert.
+export type SendFeedbackReplyPayload = { ok: true } | { error: string };
+
+// LOG_ERROR payload (content -> background). Exactly the already-scrubbed
+// shape monitoring.ts's scrubError produces in the content script -- the
+// scrub happens BEFORE this crosses the boundary (there is nothing to scrub
+// on the background side, only relay). The background forwards it to
+// POST /api/errors, which alone holds the monitoring secret (ADR-043); the
+// route accepts only {message, stack?, context?}, so the scrub's `timestamp`
+// is dropped by the api.ts relay, not sent.
+export type LogErrorPayload = ScrubbedErrorEvent;

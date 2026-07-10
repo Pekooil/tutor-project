@@ -12,20 +12,25 @@ import {
   type EquationRegistry,
 } from './annotations';
 import { extractPageContext } from './pageExtractor';
+import { installGlobalErrorCapture } from '../lib/monitoring';
 import type {
   AiReplyPayload,
   AnswerField,
   Annotation,
   CalyxaMessage,
+  LogErrorPayload,
   OpeningScanReplyPayload,
   PageContext,
   PageTopic,
+  SendFeedbackPayload,
+  SendFeedbackReplyPayload,
   SessionEndedPayload,
   SessionStartInfo,
   SessionStatePayload,
   StatusPin,
   StickingCandidate,
   StrugglePrediction,
+  TelemetryEvent,
   TurnMessage,
   VoiceSttReplyPayload,
   VoiceTtsReplyPayload,
@@ -360,6 +365,61 @@ async function endSessionFromOverlay(): Promise<void> {
   }
 }
 
+// The overlay's telemetry + feedback transports (Sprint 17 Task 6, ADR-043):
+// the SAME "sole chrome.* surface threaded into the overlay" role as
+// sendAiTurn above -- Overlay.tsx never imports chrome.*, so these are its
+// only window onto the background. Both relay to the background, which is the
+// sole network-egress context (ADR-006) and owns the /api/telemetry +
+// /api/feedback calls. Threaded through mountOverlay below; Task 7's UI (the
+// onboarding-completion event + the report/rate affordance) calls them.
+
+/**
+ * Fire-and-forget telemetry relay. A telemetry event that never lands is
+ * invisible to the student -- the background batches and swallows POST
+ * failures, and sendMessage itself can reject if the worker is unreachable
+ * (swallowed here too). The events are the typed, content-free union
+ * (no free-text field, ADR-043); nothing the student typed or the tutor said
+ * can ride here.
+ */
+async function sendTelemetry(events: TelemetryEvent[]): Promise<void> {
+  const message: CalyxaMessage = { type: 'SEND_TELEMETRY', payload: { events } };
+  try {
+    await chrome.runtime.sendMessage(message);
+  } catch {
+    // Worker asleep/unreachable -- a dropped telemetry event is acceptable.
+  }
+}
+
+/**
+ * Feedback relay. Unlike telemetry this is USER-initiated, so a failure IS
+ * surfaced: the background replies { ok } / { error } and this rethrows on
+ * error so the affordance (Task 7) can show a retry. `message` is the one
+ * deliberate user-authored free-text field this sprint (ADR-043).
+ */
+async function sendFeedback(payload: SendFeedbackPayload): Promise<void> {
+  const message: CalyxaMessage = { type: 'SEND_FEEDBACK', payload };
+  const response: CalyxaMessage = await chrome.runtime.sendMessage(message);
+  const reply = response?.payload as SendFeedbackReplyPayload | undefined;
+  if (reply && 'error' in reply) {
+    throw new Error(reply.error);
+  }
+}
+
+/**
+ * The `send` seam wired into monitoring.ts's installGlobalErrorCapture below
+ * (Sprint 17 Task 6, ADR-043). The content script cannot reach the network
+ * (ADR-006), so a captured, ALREADY-scrubbed error is relayed to the
+ * background via LOG_ERROR, which forwards it to /api/errors. Fire-and-forget
+ * and must never itself throw -- a failed error report becoming an error
+ * would be its own bug (and, worse, could re-enter the capture).
+ */
+function sendLogError(event: LogErrorPayload): void {
+  const message: CalyxaMessage = { type: 'LOG_ERROR', payload: event };
+  void chrome.runtime.sendMessage(message).catch(() => {
+    // Worker asleep/unreachable -- a dropped error report is acceptable.
+  });
+}
+
 // Set by sendAiTurn's voice-path branch above when a reply arrives, and
 // consumed the moment TTS playback actually starts (handleVoicePlaybackStart
 // below) -- the gap between the two is exactly the onSynthesize + audio-
@@ -509,6 +569,18 @@ export default defineContentScript({
     // (2) Confirm injection.
     console.log(`Calyxa content: injected on ${window.location.hostname}`);
 
+    // (2b) Error monitoring (Sprint 17 Task 6, ADR-043). Capture uncaught
+    // errors + unhandled rejections in THIS content script's isolated world
+    // (`window`) and relay them, scrubbed, to the background via LOG_ERROR
+    // (sendLogError). Registered first thing so an error during the awaits
+    // below is still caught. The content script runs in an isolated JS world,
+    // so this sees the extension's own errors, never the host page's scripts
+    // -- exactly right: host-page errors are neither ours to report nor free
+    // of the page content we must not capture. The scrub (monitoring.ts) has
+    // already stripped everything but message/stack + a coarse `context`
+    // BEFORE anything crosses to the background.
+    installGlobalErrorCapture(window, sendLogError, { context: 'content' });
+
     // (3) Two listeners, registered FIRST and synchronously — before any
     // `await` below — because the awaits that follow (CONTENT_READY,
     // GET_STATE, createShadowRootUi's stylesheet fetch) take real time and
@@ -630,6 +702,12 @@ export default defineContentScript({
           onVoicePlaybackStart: handleVoicePlaybackStart,
           onEndSession: endSessionFromOverlay,
           onOpeningScan: requestOpeningScan,
+          // Sprint 17 Task 6 (ADR-043): the telemetry + feedback transports.
+          // Threaded now so the overlay-origin path is live; Task 7's UI (the
+          // onboarding-completion event + the report/rate affordance) consumes
+          // props.onSendTelemetry / props.onReportFeedback.
+          onSendTelemetry: sendTelemetry,
+          onReportFeedback: sendFeedback,
         });
       },
       onRemove: (root) => {
