@@ -156,6 +156,27 @@ async function applyMasteryUpdate(
   return { stability: next.stability, state: next.state }
 }
 
+// Sprint 17 seeding entry point (ADR-042). Onboarding (`web/lib/onboarding/
+// seed.ts`) seeds knowledge_nodes through the SAME FSRS write a tutoring turn
+// uses -- applyMasteryUpdate -- rather than a parallel seeder, so a seeded node
+// is byte-identical in shape to a tutored one and `loadProfile` reads it with
+// zero special-casing. It deliberately runs ONLY the node write: NOT the
+// misconception + scheduleReinforcement steps applyInteraction adds around it,
+// and NOT applyInteraction's session_interactions claim -- onboarding is a
+// pre-panel gate, not a turn (ADR-042), and has no interaction row to claim.
+// The caller owns the seed-if-absent / prerequisite-propagation policy; this
+// is just the shared write. The observation is assembled by the caller exactly
+// as any other apply-path caller does (Omit<FsrsObservation, timeSinceLastDays>
+// -- the read-derived time-since is filled in by computeNodeUpdate).
+export async function seedNodeObservation(
+  supabase: SupabaseClient,
+  userId: string,
+  conceptKey: string,
+  observation: Omit<FsrsObservation, 'timeSinceLastDays'>
+): Promise<void> {
+  await applyMasteryUpdate(supabase, userId, conceptKey, observation)
+}
+
 // Exact-category match first; else `pg_trgm` trigram similarity > 0.6 on
 // `description` via the `match_misconception_trigram` RPC (0006,
 // ADR-017) -- PostgREST has no filterable similarity() operator, so the
