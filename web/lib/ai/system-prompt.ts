@@ -868,6 +868,15 @@ export function buildSystemPrompt(
 // clears the 4096-token minimum cacheable prefix; the text-format streaming path
 // sends no tools and a small OUTPUT FORMAT, so its prefix falls below the
 // minimum and simply isn't cached (no error, just no cache write).
+//
+// TTL is `1h`, not the default 5m: the stable prefix carries NO user/session
+// data, so it is byte-identical for every user and session and the cache entry
+// is shared org-wide. A 1h window keeps it warm across sparse/bursty traffic and
+// hour-long gaps between short sessions -- so a session that starts long after
+// the last one still READS the prefix instead of re-paying the write. The 1h
+// write costs 2x (vs 1.25x for 5m) but is written rarely and read many times, so
+// it wins for the low-volume / far-apart-sessions pattern; revisit if steady
+// high-volume traffic makes the 5m window always-warm on its own.
 export function buildSystemPromptBlocks(
   profile: LearningProfile,
   pageContext?: PageContext,
@@ -875,7 +884,7 @@ export function buildSystemPromptBlocks(
 ): Anthropic.TextBlockParam[] {
   const { stable, tail } = buildSystemPromptParts(profile, pageContext, opts)
   return [
-    { type: 'text', text: stable, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: stable, cache_control: { type: 'ephemeral', ttl: '1h' } },
     { type: 'text', text: tail },
   ]
 }

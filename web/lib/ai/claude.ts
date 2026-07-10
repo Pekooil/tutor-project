@@ -27,6 +27,18 @@ function createClient(): Anthropic {
   return new Anthropic({ apiKey })
 }
 
+// TEMPORARY (ADR-037 acceptance): when CALYXA_LOG_USAGE is set, logs each Claude
+// call's token usage so a local `next dev` session's terminal shows, per turn,
+// input (uncached) vs cache_read (served from the cached stable prefix) vs
+// cache_creation (the first-turn write). `label` names the call site so a whole
+// session (opening-scan / session-start / turn / voice-stream) is legible in one
+// log stream. Remove this + its call sites once caching is confirmed live.
+export function logTurnUsage(label: string, usage: unknown): void {
+  if (process.env.CALYXA_LOG_USAGE) {
+    console.log(`[ADR-037 usage:${label}]`, JSON.stringify(usage))
+  }
+}
+
 // Sprint 14 Task 10 live-find: a real acceptance session showed the model
 // (relied on, until now, to voluntarily include "assessment"/
 // "solution_progress" in a freeform JSON reply per system-prompt.ts's OUTPUT
@@ -554,6 +566,7 @@ async function runSessionStartTool({
 
   for (let attempt = 0; attempt < 2 && !isCleanOpeningQuestion(openingQuestion); attempt++) {
     const response = await call()
+    logTurnUsage('session-start', response.usage) // TEMPORARY (ADR-037) -- remove once verified
     const toolUse = response.content.find(
       (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use' && block.name === SESSION_START_TOOL_NAME
     )
@@ -632,15 +645,7 @@ export async function runTutorTurn({
     tool_choice: { type: 'tool', name: ENVELOPE_TOOL_NAME },
   })
 
-  // TEMPORARY (ADR-037 acceptance): confirm prompt caching is live. Set
-  // CALYXA_LOG_USAGE=1 and run a couple of regular turns -- expect
-  // cache_creation_input_tokens > 0 on turn 1 and cache_read_input_tokens ≈ the
-  // stable-prefix size on turn 2+ (a profile/page change between turns must NOT
-  // drop the read, proving the volatile tail is after the breakpoint). Remove
-  // this log once verified.
-  if (process.env.CALYXA_LOG_USAGE) {
-    console.log('[ADR-037 usage]', JSON.stringify(response.usage))
-  }
+  logTurnUsage('turn', response.usage) // TEMPORARY (ADR-037) -- remove once verified
 
   const toolUse = response.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use' && block.name === ENVELOPE_TOOL_NAME
@@ -780,6 +785,8 @@ export async function* runTutorTurnEnvelopeStream({
   }
 
   const final = await stream.finalMessage()
+
+  logTurnUsage('voice-stream', final.usage) // TEMPORARY (ADR-037) -- remove once verified
 
   const toolUse = final.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use' && block.name === ENVELOPE_TOOL_NAME

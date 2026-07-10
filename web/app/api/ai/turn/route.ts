@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getConcept } from '@calyxa/curriculum'
 import { clientFromBearer } from '@/lib/auth/bearer'
-import { runTutorTurn, type TurnEnvelope, type TurnMessage } from '@/lib/ai/claude'
+import { logTurnUsage, runTutorTurn, type TurnEnvelope, type TurnMessage } from '@/lib/ai/claude'
 import { parseEnvelope } from '@/lib/ai/envelope'
 import { buildSystemPromptBlocks } from '@/lib/ai/system-prompt'
 import type { LearningProfile } from '@/lib/ai/profile'
@@ -82,6 +82,8 @@ async function runOpeningScanTurn({
     system: buildSystemPromptBlocks(profile, pageContext, { format: 'envelope', opening: true }),
     messages: [OPENING_SCAN_PLACEHOLDER_MESSAGE],
   })
+
+  logTurnUsage('opening-scan', response.usage) // TEMPORARY (ADR-037) -- remove once verified
 
   const textBlock = response.content.find((block) => block.type === 'text')
   const raw = textBlock?.type === 'text' ? textBlock.text : ''
