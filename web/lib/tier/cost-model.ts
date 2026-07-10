@@ -37,8 +37,16 @@ export const ELEVENLABS_PER_CHAR_CENTS = 0.006
 // letting the bill run away. Both are placeholder starting points; Task 9
 // drives these deliberately low during its manual soft/hard-cap acceptance
 // pass, then restores them to a real operating ceiling before beta.
-export const SOFT_CAP_CENTS = 2000 // $20.00/day
-export const HARD_CAP_CENTS = 5000 // $50.00/day
+//
+// The optional env overrides (Sprint 16 / Task 8) exist so that pass — and
+// cost-guard.test.ts's automated soft/hard-cap route tests — can drive the
+// caps down for a single spawned dev-server process without touching the
+// hardcoded default any real deployment uses, and without needing to push
+// the shared global cost_ledger anywhere near its real threshold to
+// exercise the branch. Unset (the deployed default), each falls back to its
+// real value below.
+export const SOFT_CAP_CENTS = Number(process.env.COST_SOFT_CAP_CENTS_OVERRIDE) || 2000 // $20.00/day
+export const HARD_CAP_CENTS = Number(process.env.COST_HARD_CAP_CENTS_OVERRIDE) || 5000 // $50.00/day
 
 export type CostKind = 'claude_turn' | 'whisper_stt' | 'elevenlabs_tts'
 
