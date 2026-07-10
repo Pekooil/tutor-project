@@ -151,10 +151,18 @@ package (read-only as the item pool).
 ## Files in scope
 
 ### Task 1 (ADRs + sprint pointers) creates or edits:
+> **ADR renumber (done 2026-07-09):** the plan's 037/038 were stale — both were
+> already taken by the prompt-caching track (037 prompt-caching, 038
+> reopen-Anthropic-only), and 040/041 by landing-demo-v2 + the cost guardrail. Only
+> the two collided numbers move; the feedback ADR **keeps its plan number 039** (it
+> was the one Sprint 17 number still free, and was recorded as reserved for it).
+> Mapping: cold-start-onboarding **037 → 042**, telemetry-and-error-privacy
+> **038 → 043**, in-app-feedback **039 (unchanged)**. In-text references to
+> "ADR-037/038/039" below should be read against this mapping.
 ```
-/docs/adr/ADR-037-cold-start-onboarding.md ← new — the 8–12 item assessment: item bank over @calyxa/curriculum, difficultyPrior selection, prerequisite prior propagation via prerequisitesOf, writes through the EXISTING apply.ts FSRS path (no parallel seeder), writes onboarding_completed_at, skippable (fallback to today's live calibration preserved).
-/docs/adr/ADR-038-telemetry-and-error-privacy.md ← new — typed content-free event union (no free-text field, structurally enforced); LatencyTrace as the first sink; error-monitoring scrub (beforeSend strips content + identifiers; traces + route names only); everything routes through the background worker (ADR-006); no audio, no say/student text, no raw URL (Sprint 16 hash only if ever needed).
-/docs/adr/ADR-039-in-app-feedback.md         ← new — one overlay affordance → RLS-scoped feedback table (Shape 2) → manual triage; capture not ticketing; optional session-id link; no PII beyond the authed user_id.
+/docs/adr/ADR-042-cold-start-onboarding.md ← new (was plan's 037) — the 8–12 item assessment: item bank over @calyxa/curriculum, difficultyPrior selection, prerequisite prior propagation via prerequisitesOf, writes through the EXISTING apply.ts FSRS path (no parallel seeder), writes onboarding_completed_at, skippable (fallback to today's live calibration preserved).
+/docs/adr/ADR-043-telemetry-and-error-privacy.md ← new (was plan's 038) — typed content-free event union (no free-text field, structurally enforced); LatencyTrace as the first sink; error-monitoring scrub (beforeSend strips content + identifiers; traces + route names only); everything routes through the background worker (ADR-006); no audio, no say/student text, no raw URL (Sprint 16 hash only if ever needed).
+/docs/adr/ADR-039-in-app-feedback.md         ← new (KEEPS plan's 039) — one overlay affordance → RLS-scoped feedback table (Shape 2) → manual triage; capture not ticketing; optional session-id link; no PII beyond the authed user_id.
 /CLAUDE.md                                    ← edit one line: Current sprint → Sprint 17 — Onboarding + beta instrumentation
 /docs/CLAUDE.md                               ← edit one line: Current phase → Phase 2, Sprint 17
 /docs/sprint-17-plan.md                       ← this file

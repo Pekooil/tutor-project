@@ -250,6 +250,50 @@ rows. This deliberately supersedes PLAN §2.7's "keep `page_domain` for coarse
 analytics" — the future dashboard (Sprint 22) groups by hash, and a coarse-domain
 display is a later explicit reopening, not a silent default. See ADR-036.
 
+## Onboarding + beta instrumentation (Sprint 17)
+The second pre-beta gate: make first-run **guided, not cold**, and make the beta
+**observable to us** without asking a tester to file anything. **Cold-start
+onboarding** — a brand-new user (zero `knowledge_nodes`) runs a short **8–12 item
+adaptive assessment** on first use that **seeds the knowledge graph** instead of
+the tutor calibrating live against an empty profile. The item bank
+(`web/lib/onboarding/item-bank.ts`) is a pure data structure over
+`@calyxa/curriculum` — `selectAssessmentItems()` picks 8–12 concepts spanning the
+6 strands by `difficultyPrior` (an easy anchor per strand + a few reaches); no
+migration. Seeding (`web/lib/onboarding/seed.ts`) writes through the **existing
+FSRS apply path** (`apply.ts`), so a seeded node is byte-identical to one a
+tutoring turn writes and `loadProfile` reads it with zero special-casing; a
+confident-correct propagates a **modest, seed-if-absent** prior to
+`prerequisitesOf(C)` so 8–12 items cover far more than 8–12 nodes. It writes the
+dormant `users.onboarding_completed_at` (unused since 0001). It is **skippable** —
+a skip leaves the profile empty and the tutor calibrates live exactly as today
+(the `CALIBRATING_PROFILE` fallback in `profile-read.ts` is preserved). The UI is
+a new `Onboarding.tsx` overlay surface mounted by `Overlay.tsx` when `calibrating
+&& onboarding_completed_at is null`; it does not touch the tutoring state machine.
+See ADR-042.
+
+**Privacy-safe observability, content-free by construction.** Three event streams
+all route through the background worker (sole egress, ADR-006). **Telemetry**
+(`web/lib/telemetry/events.ts`) is a typed discriminated union with **no free-text
+field** — `onboarding_completed`, `session_started`, `turn_latency`,
+`annotation_rendered`, `voice_used`, `degraded_hit`, … — validated at
+`/api/telemetry`, which rejects unknown shapes; a contributor cannot attach a
+transcript/URL without changing the type and tripping a test. The Sprint 15
+`LatencyTrace` (`web/lib/voice/latency.ts`) is its first real sink
+(`turn_latency`). `telemetry_event` is Shape 2 RLS but **insert-only from the
+owner** (reads are service-role for analysis); `user_id` comes from the session,
+never the body; the background **batches** events and **swallows** failures.
+**Error monitoring** (`web/lib/monitoring/init.ts` + the extension's
+`monitoring.ts`) scrubs before it sends — `beforeSend` strips message bodies,
+transcript fragments, and page content/URLs, keeping stack traces + route/handler
+names + a coarse user id at most; a missing DSN is a no-op; the extension holds
+**no monitoring secret** (public DSN or the `/api/errors` relay). **Feedback** —
+one unobtrusive overlay affordance → the RLS-scoped `feedback` table (Shape 2,
+`user_id`-keyed, optional `session_id` link) → manual triage; `feedback.message`
+is the **one** deliberate user-authored free-text field this sprint, export- and
+erasure-covered. Both new tables FK-cascade to `users` and join Sprint 16's
+export + erasure paths (migration 0015). See ADR-043 (telemetry + error privacy)
+and ADR-039 (feedback).
+
 ## Marketing site (Sprint 20, revised by Sprint 25)
 `/web/app/page.tsx` is the public landing page, built as a **parallel
 track** alongside the product-roadmap sprints — it shares no files with them
@@ -392,8 +436,32 @@ See `/docs/adr/`. Notably:
   browser TTS (§2.8 reuse), hard cap refuses gracefully (never a 500 or a
   provider call); per-provider estimate constants (budget- not invoice-accurate);
   retunes `FREE_SESSION_LIMIT` from Sprint 15 data with a test-bound Pricing sync
-- ADR-040 (provisional number — Sprint 17 claims 039; renumber at whichever
-  sprint lands second) — Landing page v2: the marketing demo recreates the
+- ADR-039 — In-app feedback is capture, not ticketing (Sprint 17; KEEPS the plan's
+  number — 039 was the one Sprint 17 ADR number still free): one overlay affordance
+  → RLS-scoped `feedback` table (Shape 2, `user_id`-keyed, optional `session_id`) →
+  manual triage; `feedback.message` is the ONE deliberate user-authored free-text
+  field this sprint (export/erasure-covered); no status workflow/reply/email;
+  FK-cascades to `users` and joins Sprint 16's export + erasure paths
+- ADR-042 — Cold-start onboarding (Sprint 17; the plan's ADR-037, renumbered —
+  037/038 were taken by the prompt-caching track, 040/041 by
+  landing-demo-v2 + the cost guardrail): an 8–12 item adaptive assessment on first
+  run (zero `knowledge_nodes`) seeds the graph via `difficultyPrior` selection
+  across the 6 strands + `prerequisitesOf` prior propagation (modest,
+  seed-if-absent), writing through the EXISTING `apply.ts` FSRS path (no parallel
+  seeder) and the dormant `onboarding_completed_at`; skippable to today's
+  live-calibration fallback; a new `Onboarding.tsx` overlay surface gated on the
+  empty profile; no IRT/item calibration (V1 defers it)
+- ADR-043 — Telemetry + error monitoring content-free by construction (Sprint 17;
+  the plan's ADR-038, renumbered): a typed `TelemetryEvent` discriminated union
+  with NO free-text field (the structural privacy guarantee — the route rejects
+  unknown shapes; a test fails the build if a string field is added), `LatencyTrace`
+  as the first sink, error `beforeSend` scrub (traces + route names + coarse id
+  only), no monitoring secret in the extension bundle (public DSN or `/api/errors`
+  relay), all three streams through the background worker (ADR-006), batched +
+  failure-swallowing telemetry, service-role-read-only `telemetry_event`
+- ADR-040 (Sprint 25 — provisional number now resolved: Sprint 17 claimed 039 as
+  anticipated and Sprint 25 kept 040, so no renumber was needed) — Landing page
+  v2: the marketing demo recreates the
   REDESIGNED overlay (modes/pings/milestones/board strip/check-in/recap/
   Meadow annotations), retired scene vocabulary deleted with a
   no-retired-features test; the hero plays the full session arc and the H1
