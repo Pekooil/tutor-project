@@ -7,26 +7,23 @@ import { cn } from '@/lib/utils'
 import { Section } from '@/components/marketing/Section'
 import { Reveal } from '@/components/marketing/Reveal'
 import { reduceScene, type ArtifactKind } from '@/components/marketing/demo/scene'
-import { studyLoopScene } from '@/components/marketing/demo/scripts'
+import { studyLoopAlt, studyLoopScene } from '@/components/marketing/demo/scripts'
 
-// Sprint 20 Task 8: "One session in. A study kit out." The same factoring
-// session (x² + 5x + 6 = 0, the sign-errors gap) that the hero, showcase, and
-// profile sections already played fans out into three artifact cards, timed
-// by studyLoopScene (scripts.ts, written in Task 4).
+// Sprint 25 Task 9 (originally Sprint 20 Task 8): the study loop, REFRAMED
+// as roadmap (ADR-040 decision 5, reversing ADR-031 §4's marketed-as-live
+// call). Generation is deferred post-beta, so the copy says it's on the way
+// — and never promises the beta. The section now chains visually off the
+// recap card's "Generated for you" placeholder slot (RecapCard.tsx's
+// reserved tiles, recreated above the fan-out): the page and the product
+// tell the same story about the same empty seat. The same factoring session
+// (x² + 5x + 6 = 0) still fans out into the three artifact cards, timed by
+// studyLoopScene (scripts.ts — the artifact vocabulary survived the Sprint
+// 25 cut).
 //
-// Like ProfileSection (Task 7), this hand-rolls a local one-shot driver
-// instead of useSceneTimeline: the acceptance gate wants the fan-out to play
-// ONCE on first in-view, not loop (the hero) or scrub (the showcase).
-// reduceScene — the shared pure reducer — still turns that local clock into
-// state; only the "play once" wiring is duplicated from Task 7's, since
-// adding a one-shot mode to the shared engine was out of both tasks' file
-// scope. Worth a real dedup pass if a third section ever needs this same
-// shape (flagged in the sprint plan's handoff).
-
-const SESSION_SUMMARY = {
-  title: 'Session complete — Factoring quadratics',
-  detail: 'x² + 5x + 6 = 0 · Gap closed: sign errors',
-}
+// Like ProfileSection, this hand-rolls a local one-shot driver instead of
+// useSceneTimeline: the gate wants the fan-out to play ONCE on first
+// in-view, not loop (the hero) or scrub (the showcase). reduceScene — the
+// shared pure reducer — still turns that local clock into state.
 
 const NOTES_STEPS = [
   'Factor by finding two numbers that multiply to 6 and add to 5 → 2 and 3.',
@@ -72,13 +69,13 @@ export function StudyLoopSection() {
   return (
     <Section
       id="study-loop"
-      kicker="The study loop"
-      heading="Notes, practice problems, and flashcards from every session."
-      sub="Built from the exact steps you worked through — closing the loop back into your next session."
+      kicker="The study loop · on the way"
+      heading="Every session will leave a study kit behind."
+      sub="Notes, practice problems, and flashcards, generated from the exact steps you worked through — on the way, with its seat already saved in the recap card."
     >
       <div ref={ref} className="flex flex-col">
         <Reveal>
-          <SessionCard />
+          <RecapSlotCard />
         </Reveal>
 
         <div aria-hidden="true" className="mkt-connector my-2" />
@@ -112,7 +109,7 @@ export function StudyLoopSection() {
 
         <Reveal delay={0.1}>
           <p className="mt-10 mb-0 text-center text-sm font-medium text-accent-emphasis">
-            Session → profile update → study kit → your next session.
+            Session → recap card → study kit → your next session. That&apos;s the loop this slot is waiting for.
           </p>
         </Reveal>
       </div>
@@ -120,11 +117,46 @@ export function StudyLoopSection() {
   )
 }
 
-function SessionCard() {
+// The recap card's "Generated for you" slot (RecapCard.tsx's reserved
+// placeholder tiles, mirrored from DemoPanel's RecapBody) — the visual
+// anchor the fan-out chains off: these dashed tiles are what the cards
+// below will one day fill. Decorative recreation, aria-hidden with the
+// drafted alt; the .cx-demo-placeholder styling is the same DemoStage
+// mirror ProfileSection carries (the --calyxa-placeholder-* tokens are
+// reachable by name via the @calyxa/ui theme import).
+function RecapSlotCard() {
   return (
     <div className="mkt-card mx-auto w-full max-w-2xl px-6 py-5">
-      <p className="m-0 text-sm font-semibold text-foreground">{SESSION_SUMMARY.title}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{SESSION_SUMMARY.detail}</p>
+      <p className="sr-only">{studyLoopAlt}</p>
+      <div aria-hidden="true">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-[10.5px] font-semibold uppercase tracking-[0.11em] text-muted-foreground">
+            Generated for you
+          </span>
+          <span className="text-xs text-muted-foreground">the reserved slot on every session&apos;s recap card</span>
+        </div>
+        <div className="mt-2.5 grid grid-cols-2 gap-2">
+          <span className="cx-demo-placeholder flex h-[52px] items-center justify-center rounded-[10px] px-1.5 text-center font-mono text-[10px]">
+            study material
+          </span>
+          <span className="cx-demo-placeholder flex h-[52px] items-center justify-center rounded-[10px] px-1.5 text-center font-mono text-[10px]">
+            study material
+          </span>
+        </div>
+      </div>
+      <style>{`
+        .cx-demo-placeholder {
+          border: 1px dashed var(--calyxa-placeholder-border);
+          background: repeating-linear-gradient(
+            135deg,
+            var(--calyxa-placeholder-stripe-a),
+            var(--calyxa-placeholder-stripe-a) 6px,
+            var(--calyxa-placeholder-stripe-b) 6px,
+            var(--calyxa-placeholder-stripe-b) 12px
+          );
+          color: var(--calyxa-placeholder-text);
+        }
+      `}</style>
     </div>
   )
 }
