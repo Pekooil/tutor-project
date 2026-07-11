@@ -13,8 +13,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // asserts both that repeated posts return identical success bodies and that
 // the ignoreDuplicates option (the mechanism) is actually passed.
 
-const { upsert } = vi.hoisted(() => ({
+// The route now imports @/lib/rate-limit/limiter, which carries
+// `import 'server-only'`; neutralize it for the node test env (predict.test.ts
+// convention). The limiter itself runs for real against the mocked admin
+// client's `rpc` below.
+vi.mock('server-only', () => ({}))
+
+const { upsert, rpc } = vi.hoisted(() => ({
   upsert: vi.fn<(values: unknown, options: unknown) => Promise<{ error: unknown }>>(),
+  rpc: vi.fn<(fn: string, params: unknown) => Promise<{ data: unknown; error: unknown }>>(),
 }))
 
 vi.mock('@/lib/supabase/admin', () => ({
@@ -23,6 +30,7 @@ vi.mock('@/lib/supabase/admin', () => ({
       if (table !== 'waitlist') throw new Error(`unexpected table: ${table}`)
       return { upsert }
     },
+    rpc,
   }),
 }))
 
@@ -41,6 +49,10 @@ function post(body: unknown) {
 beforeEach(() => {
   upsert.mockReset()
   upsert.mockResolvedValue({ error: null })
+  rpc.mockReset()
+  // Default: the rate-limit RPC reports this is the 1st hit in the window
+  // (well under the limit), so every existing test proceeds as before.
+  rpc.mockResolvedValue({ data: 1, error: null })
 })
 
 describe('POST /api/waitlist', () => {
@@ -119,6 +131,23 @@ describe('POST /api/waitlist', () => {
     expect(response.status).toBe(500)
     const body = await response.json()
     expect(JSON.stringify(body)).not.toContain('connection refused')
+  })
+
+  it('returns 429 when the per-IP rate limit is exceeded, without touching the table', async () => {
+    rpc.mockResolvedValue({ data: 999, error: null }) // count past the limit
+    const response = await post({ email: 'darcy@gmail.com', source: 'hero' })
+
+    expect(response.status).toBe(429)
+    expect(response.headers.get('Retry-After')).toBeTruthy()
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('fails OPEN (still inserts) when the rate-limit RPC errors', async () => {
+    rpc.mockResolvedValue({ data: null, error: { message: 'rpc down' } })
+    const response = await post({ email: 'darcy@gmail.com', source: 'hero' })
+
+    expect(response.status).toBe(200)
+    expect(upsert).toHaveBeenCalledOnce()
   })
 
   it('exposes no GET handler (the table is never readable through this route)', () => {

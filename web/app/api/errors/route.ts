@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { clientFromBearerOrCookie } from '@/lib/auth/bearer'
 import { captureError } from '@/lib/monitoring/init'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { checkRateLimit, clientBucket, tooManyRequests } from '@/lib/rate-limit/limiter'
 
 // Sprint 17 / Task 5 (ADR-043): the relay for extension-originated errors.
 // The background worker (sole egress, ADR-006) scrubs an error CLIENT-SIDE
@@ -54,6 +56,13 @@ function isValidEvent(value: unknown): value is ExtensionErrorEvent {
 }
 
 export async function POST(request: Request) {
+  // Rate-limit first (Sprint 18 security review §7.1 follow-up). This route
+  // never 401s, so the per-IP limit is its only bound on repeated posts. Fails
+  // OPEN on any RPC error — a limiter fault must not blackhole real error
+  // reports, the exact thing this route exists to capture.
+  const rate = await checkRateLimit(createAdminClient(), 'errors', clientBucket(request, 'errors'))
+  if (!rate.allowed) return tooManyRequests(rate.retryAfterSeconds)
+
   let body: unknown
   try {
     body = await request.json()

@@ -82,6 +82,7 @@ alter table public.<table> enable row level security;
 | `cost_ledger` | 3 (deny-all) | `0013_cost_ledger_and_erasure.sql` |
 | `feedback` | 2 (`user_id`)* | `0017_feedback_and_telemetry.sql` |
 | `telemetry_event` | 2 (`user_id`), insert-only** | `0017_feedback_and_telemetry.sql` |
+| `rate_limit` | 3 (deny-all) | `0018_rate_limit.sql` |
 
 \* `feedback` follows Shape 2 but has **no `deleted_at` column**, so its
 policies omit the `deleted_at is null` clause — it is write-once capture with

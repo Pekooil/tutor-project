@@ -33,6 +33,7 @@ function testEmail(label: string) {
 // touches a real waitlist signup or the live daily cost ledger cost_guard uses.
 const SENTINEL_WAITLIST_EMAIL = `rls-sweep-sentinel-${Date.now()}@example.invalid`
 const SENTINEL_LEDGER_DAY = '1971-01-01'
+const SENTINEL_RATELIMIT_BUCKET = `rls-sweep-sentinel-${Date.now()}`
 
 // Service-role client: fixture setup/teardown ONLY (sprint-03-plan.md Task 7).
 // It bypasses RLS, so it must never appear in an assertion below.
@@ -111,6 +112,12 @@ beforeAll(async () => {
     .from('waitlist')
     .insert({ email: SENTINEL_WAITLIST_EMAIL, source: 'rls-sweep' })
   if (waitlistSeedErr) throw new Error(`waitlist seed failed: ${waitlistSeedErr.message}`)
+
+  await admin.from('rate_limit').delete().eq('bucket', SENTINEL_RATELIMIT_BUCKET)
+  const { error: rateLimitSeedErr } = await admin
+    .from('rate_limit')
+    .insert({ bucket: SENTINEL_RATELIMIT_BUCKET, window_start: '2000-01-01T00:00:00Z', count: 1 })
+  if (rateLimitSeedErr) throw new Error(`rate_limit seed failed: ${rateLimitSeedErr.message}`)
 })
 
 afterAll(async () => {
@@ -131,6 +138,7 @@ afterAll(async () => {
   }
   await admin.from('waitlist').delete().eq('email', SENTINEL_WAITLIST_EMAIL)
   await admin.from('cost_ledger').delete().eq('day', SENTINEL_LEDGER_DAY)
+  await admin.from('rate_limit').delete().eq('bucket', SENTINEL_RATELIMIT_BUCKET)
 
   if (interactionAId) {
     await admin.from('session_interactions').delete().eq('id', interactionAId)
@@ -604,6 +612,28 @@ describe('RLS: deny-all tables reject every client key (Shape 3)', () => {
       const { data, error } = await client
         .from('cost_ledger')
         .insert({ day: '1972-02-02', spent_cents: 999 })
+        .select()
+      expect(error, `${who} insert must be denied`).not.toBeNull()
+      expect(data, `${who} insert`).toBeNull()
+    }
+  })
+
+  // rate_limit (migration 0018, the security-review §7.1 follow-up) — same
+  // Shape 3 deny-all as above: the rate-limit counter is written only by the
+  // service role via the check_rate_limit RPC, never by a client key.
+  it('rate_limit — neither anon nor authenticated can SELECT (a seeded row stays hidden)', async () => {
+    for (const [who, client] of clients()) {
+      const { data, error } = await client.from('rate_limit').select().eq('bucket', SENTINEL_RATELIMIT_BUCKET)
+      expect(error, `${who} select`).toBeNull()
+      expect(data, `${who} select`).toHaveLength(0)
+    }
+  })
+
+  it('rate_limit — neither anon nor authenticated can INSERT', async () => {
+    for (const [who, client] of clients()) {
+      const { data, error } = await client
+        .from('rate_limit')
+        .insert({ bucket: `intruder-${who}-${Date.now()}`, window_start: '2000-01-01T00:00:00Z', count: 1 })
         .select()
       expect(error, `${who} insert must be denied`).not.toBeNull()
       expect(data, `${who} insert`).toBeNull()
