@@ -35,21 +35,41 @@ export default defineConfig({
   entrypointsDir: 'src',
   // Emit the build into /extension/dist (WXT nests per target: dist/chrome-mv3/).
   outDir: 'dist',
-  // Manifest V3 permissions (Task 3). Each line is justified; do not add any
-  // permission that is not listed in the sprint plan.
   manifest: {
+    // Store-review metadata (Sprint 18 Task 6, ADR-044). Before this, WXT
+    // derived name/version from package.json (`@calyxa/extension`, `0.0.0`) —
+    // not review-ready. These are the real listing values. (package.json's
+    // version stays `0.0.0`: it is monorepo-internal, not the shipped manifest
+    // version, which this override now owns.)
+    name: 'Calyxa — AI math tutor',
+    description:
+      'A patient AI math tutor for any web page — Calyxa guides you through problems step by step instead of just giving the answer.',
+    version: '0.1.0',
+    // Manifest V3 permissions. Each is justified below; nothing here that the
+    // content script + background worker don't use, and deliberately NO
+    // tabCapture / desktopCapture (the beta OCR path stays deferred).
     permissions: [
-      'storage', // persists service worker state across wake cycles
-      'activeTab', // reads the current tab's content on user gesture
-      'scripting', // injects the content script programmatically
-      'tabs', // gets the active tab URL for session logging (hashed)
+      'storage', // background-worker state across service-worker wake cycles (lib/storage.ts)
+      'activeTab', // the current tab on user gesture (the toggle-overlay command relay)
+      'scripting', // programmatic content-script injection (MV3)
+      // Read the sender/active tab URL to derive the session's page domain
+      // (hashed server-side, ADR-036). Possibly droppable — <all_urls> below
+      // may already expose sender.tab.url / tabs.query URLs without it — but a
+      // wrong drop silently breaks URL→hash logging, so it is FILED for
+      // real-session verification in Task 7, not dropped blind (security review).
+      'tabs',
     ],
     host_permissions: [
       '<all_urls>', // content script must run on any page the student visits
-      // Backend origin (Sprint 04 Task 6) so the background worker's fetch
-      // calls in src/lib/api.ts are cross-origin-clean. Dev only -- the
-      // production origin is added alongside this at launch, not replacing it.
+      // Backend origins the background worker's fetch calls in src/lib/api.ts
+      // reach (ADR-006). Dev localhost + the production Vercel origin, ADDED
+      // ALONGSIDE (not replacing) the dev one per this sprint's plan.
+      // NOTE: api.ts's API_BASE constant still points at localhost:3000;
+      // flipping it to the prod origin for the shipped build is a Sprint 19
+      // (launch) task — this is the manifest half, added now so that flip is a
+      // one-line constant change, never a permissions change needing re-review.
       'http://localhost:3000/*',
+      'https://tutor-project-web.vercel.app/*',
     ],
     // Keyboard command (Sprint 02, rebound Sprint 10). A custom command,
     // separate from the popup's reserved _execute_action. The key is
