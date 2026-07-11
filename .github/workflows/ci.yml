@@ -84,6 +84,27 @@ jobs:
         # extension's `wxt prepare` postinstall.
         run: npm ci
 
+      - name: Preflight — required secrets present
+        # The web live-integration suite fails at IMPORT (vitest reports the
+        # file as "0 test") if a Supabase/provider credential is empty, because
+        # each file constructs a module-scope Supabase client. Turn that cryptic
+        # signal into a clear, early failure that names the missing secrets
+        # (names only — values are never printed). MONITORING_DSN is optional
+        # (absent-tolerant, ADR-043) and deliberately not required here.
+        run: |
+          missing=()
+          for v in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY \
+                   SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY OPENAI_API_KEY \
+                   ELEVENLABS_API_KEY ELEVENLABS_VOICE_ID CRON_SECRET URL_HASH_SALT; do
+            if [ -z "${!v}" ]; then missing+=("$v"); fi
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing or empty required Actions secrets: ${missing[*]}"
+            echo "Add them as REPOSITORY secrets (Settings → Secrets and variables → Actions), non-empty."
+            exit 1
+          fi
+          echo "All required secrets are present (values not shown)."
+
       - name: Write web/.env.local for the live-integration tests
         # The web test suite reads credentials from web/.env.local via each
         # file's loadEnvLocal() — vitest doesn't auto-load it the way `next
