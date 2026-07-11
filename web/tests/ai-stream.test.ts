@@ -207,7 +207,10 @@ beforeAll(async () => {
   const { data: signIn, error: signInErr } = await client.auth.signInWithPassword({ email, password: PASSWORD })
   if (signInErr || !signIn.session) throw new Error(`sign-in failed: ${signInErr?.message}`)
   token = signIn.session.access_token
-}, 45000)
+  // A cold `next dev` compile on a 2-core CI runner can exceed the old 45s
+  // hook budget (Sprint 18 CI); 120s is CI-slowness headroom, not a
+  // correctness signal (cf. testTimeout).
+}, 120000)
 
 afterAll(async () => {
   if (user) {

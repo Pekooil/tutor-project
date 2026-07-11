@@ -704,7 +704,10 @@ beforeAll(async () => {
     throw new Error(`sign-in failed (sticking user): ${signInStickingErr?.message}`)
   }
   tokenSticking = signInSticking.session.access_token
-}, 45000)
+  // A cold `next dev` compile on a 2-core CI runner can exceed the old 45s
+  // hook budget (Sprint 18 CI, ai-turn is the heaviest spawn suite); 120s
+  // is CI-slowness headroom, not a correctness signal (cf. testTimeout).
+}, 120000)
 
 afterAll(async () => {
   // No FK in this schema cascades (0007's comment: erasure is an explicit,

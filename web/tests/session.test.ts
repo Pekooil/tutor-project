@@ -337,7 +337,10 @@ beforeAll(async () => {
   })
   if (signInCErr || !signInC.session) throw new Error(`sign-in failed for C: ${signInCErr?.message}`)
   tokenC = signInC.session.access_token
-}, 45000)
+  // A cold `next dev` compile on a 2-core CI runner can exceed the old 45s
+  // hook budget (Sprint 18 CI); 120s is CI-slowness headroom, not a
+  // correctness signal (cf. testTimeout).
+}, 120000)
 
 afterAll(async () => {
   // Teardown via the service role only, mirroring rls.test.ts. Child-first
