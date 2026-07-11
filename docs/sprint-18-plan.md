@@ -2,7 +2,7 @@
 
 > **Provisional ADR/number note.** ADR numbers here are written concretely from the
 > next free number at time of writing (latest on disk = ADR-043). Parallel tracks
-> (Sprint 24 migration candidate, Sprint 25 landing v2) may claim intervening
+> (Sprint 24 tutor-quality, Sprint 25 landing v2) may claim intervening
 > numbers — confirm the next-free number at execution and fix references in one pass.
 
 ## Goal
@@ -32,6 +32,15 @@ the end:
 5. **A cross-site QA matrix** on real math pages, exercising the degradation paths
    (Sprint 16 caps, free-tier over-limit) and the SPA re-capture fix under real DOM
    churn.
+6. **The telemetry funnel actually emits.** Sprint 17 defined `turn_latency`,
+   `annotation_rendered`, `voice_used`, and `degraded_hit` in the `TelemetryEvent`
+   union but only `session_started`/`onboarding_completed` are ever *sent* (Sprint 17
+   handoff, KEY OPEN GAP). A release candidate cannot go to beta **blind to its own
+   latency and annotation-render health** — the two signals that tell you whether the
+   top user complaints (slow turns, sparse annotations) are real, and the baseline the
+   Sprint 24 tutor-quality work will move. This sprint wires those four kinds to emit,
+   plus an annotation **rendered-vs-dropped** counter, changing **no** tutoring
+   behavior.
 
 ```
 CI (new .github/workflows/ci.yml)
@@ -129,18 +138,22 @@ script). Confirm **no `tabCapture`** crept in (the beta OCR path stays deferred)
 
 ## Execution model
 A **single code session** owns this sprint end to end, worked **strictly in order
-(1 → 8)**. The chain: ADR (Task 1); CI scaffold (Task 2) is the home the later jobs
+(1 → 9)**. The chain: ADR (Task 1); CI scaffold (Task 2) is the home the later jobs
 plug into; the no-secret job (Task 3) needs the build wired; the a11y extension
 (Task 4) and the RLS sweep (Task 5) are independent audit jobs; the security review +
 manifest cleanup (Task 6) fixes findings; the cross-site QA (Task 7) is manual and
-exercises the whole; the release-candidate sign-off (Task 8) is the gate. One session
-— no handoff.
+exercises the whole; the telemetry emission (Task 8) completes the Sprint 17
+observability funnel so the gate can *see* latency/annotation health; the
+release-candidate sign-off (Task 9) is the gate. One session — no handoff.
 
 This sprint touches: a new `/.github/workflows/`, `web/tests/` (a11y + RLS specs),
-`extension/tests/` (overlay/popup axe), `extension/wxt.config.ts` (manifest), and
-small fixes across whatever the security review flags (expected: a missing RLS
-policy, the manifest origin, a permission comment). It does **not** add product
-features, touch the AI/learning paths, or build store assets/submission (Sprint 19).
+`extension/tests/` (overlay/popup axe + telemetry emission), `extension/wxt.config.ts`
+(manifest), the overlay/content telemetry-emission sites (Task 8 only), and small
+fixes across whatever the security review flags (expected: a missing RLS policy, the
+manifest origin, a permission comment). It does **not** change any tutoring or
+learning *behavior* — the single carve-out is Task 8, which only *emits* telemetry
+kinds Sprint 17 already defined (no decision logic touched) — and it does not build
+store assets/submission (Sprint 19).
 
 ## Files in scope
 
@@ -189,9 +202,23 @@ features, touch the AI/learning paths, or build store assets/submission (Sprint 
 /docs/qa-matrix-sprint18.md ← new — the manual matrix: real tutoring sessions on Khan Academy (exercising the Sprint 14 SPA re-capture-on-expand fix under client-side navigation) + 2–3 other real math sites (a static page, a MathJax page, a KaTeX page); for each, confirm overlay renders in the shadow root with no host-DOM mutation, annotations resolve or drop cleanly, the opening scan fires appropriately, and BOTH degradation paths behave: free-tier over-limit (Sprint 07/16 `degraded`) and the Sprint 16 cost hard-cap ("resting" message), verified with a temporarily low cap.
 ```
 
+### Task 8 (telemetry emission — completes the Sprint 17 funnel) edits:
+```
+/extension/src/overlay/Overlay.tsx        ← edit — in handleMicStop, assemble the LatencyTrace across the voice legs (mic-stop → STT final → turn TTFT → first-audio) already timed in voice-timing.ts, and EMIT `turn_latency` via the Sprint-17 onSendTelemetry prop; emit `voice_used` on a completed voice turn. Emission only — no change to the turn/voice control flow.
+/extension/src/overlay/voice-timing.ts    ← edit (if needed) — expose the per-leg timings the LatencyTrace needs; the sentence accumulator/timing already exists, this just surfaces the marks.
+/extension/src/content/annotations.ts     ← edit — the resolver already knows which targets rendered vs dropped ("DROP, NEVER GUESS", MAX_ANNOTATIONS_PER_TURN=3); EMIT `annotation_rendered` with a rendered/dropped/requested count. THIS is the diagnostic that tells whether sparse annotations are an EMISSION problem (model under-annotates) or a RESOLUTION problem (targets drop) — the fork Sprint 24 needs answered.
+/extension/src/lib/api.ts + background     ← edit — emit `degraded_hit` when a route returns `{degraded:true}` (STT/TTS/turn), reusing the Sprint-17 sendTelemetry egress. No new message types if the existing SEND_TELEMETRY path covers it.
+/extension/tests/telemetry-routing.test.ts ← edit — assert all four kinds now emit with the correct TYPED shape; validateEvent still rejects any extra/free-text field (Sprint 17 no-content invariant); a completed voice turn produces turn_latency + voice_used, an annotated turn produces annotation_rendered with counts.
+```
+NOTE: this is the one Task that touches overlay/content product code. It is scoped to
+**emission of already-defined telemetry** — zero change to tutoring, grading, annotation
+selection, or the voice pipeline's behavior. It exists because a release candidate must
+not be signed off blind to its own latency/annotation health (Sprint 17 KEY OPEN GAP).
+
 ### Files explicitly out of scope
 ```
-Product features / AI / learning paths   (this is an audit + gate sprint, not feature work)
+Product features / AI / learning BEHAVIOR   (audit + gate sprint; Task 8's telemetry EMISSION is the sole product-code carve-out, and it changes no behavior)
+Fixing latency / annotation frequency / correctness itself  (Task 8 only MEASURES them; the fixes are Sprint 19 cheap-wins + Sprint 24 tutor-quality)
 Store listing assets, privacy page, wxt zip/release, waitlist→invite  (Sprint 19)
 Visual-regression tooling (Storybook/Chromatic/Percy)  (optional, deferred — see below)
 /web/components/marketing/**             (Sprint 25's landing v2 owns marketing surfaces; audit them only for gross a11y, don't restyle)
@@ -269,14 +296,35 @@ Acceptance gate before Task 8:
   - Every matrix row passes or has a filed follow-up; no host-DOM mutation observed;
     both degradation paths behave gracefully.
 
-## Task 8 — Release-candidate sign-off
+## Task 8 — Telemetry emission (completes the Sprint 17 funnel)
+Scope: wire the four defined-but-never-emitted telemetry kinds — `turn_latency`,
+`annotation_rendered`, `voice_used`, `degraded_hit` — to actually emit, plus an
+annotation rendered-vs-dropped counter (see the Task 8 file block). Emission only;
+no tutoring/learning/voice **behavior** changes. This turns the Sprint 17 funnel from
+"union defined" into "signal flowing," so the RC sign-off (and the Sprint 24
+tutor-quality baseline) can see real latency and annotation-render rates instead of
+guessing.
+
+Rationale for its inclusion in an audit sprint: a release candidate cannot be
+responsibly signed off while blind to the two metrics behind the top user
+complaints. This is completing observability, not adding a feature.
+
+Acceptance gate before Task 9:
+  - A real voice turn emits `turn_latency` (full leg breakdown) + `voice_used`; an
+    annotated turn emits `annotation_rendered` with rendered/dropped/requested counts;
+    a capped route emits `degraded_hit`; `validateEvent` still rejects any extra or
+    free-text field (Sprint 17 no-content invariant); no change to any turn's behavior.
+
+## Task 9 — Release-candidate sign-off
 Scope: confirm all CI jobs green, all audit docs complete, all one-line findings
-fixed. This is the gate into Sprint 19 (store + distribution).
+fixed, and the four telemetry kinds emitting (Task 8). This is the gate into Sprint 19
+(store + distribution).
 
 Acceptance gate (sprint close):
   - `turbo run typecheck lint build test` + the new CI jobs all green; a11y/security/
-    QA docs complete; the manifest is review-ready; the filed-not-fixed list is the
-    only carried debt, each item with a reason.
+    QA docs complete; the manifest is review-ready; the four telemetry kinds emit with
+    typed no-content shape; the filed-not-fixed list is the only carried debt, each
+    item with a reason.
 
 ## Acceptance criteria (full checklist)
 - [ ] ADR-044 written; pointers + architecture.md updated
@@ -287,6 +335,7 @@ Acceptance gate (sprint close):
 - [ ] Manifest: production backend origin added, real name/description/version, justified permissions, no tabCapture
 - [ ] Security review doc: RLS + bearer + cron-auth results, permission table, filed-not-fixed list with reasons
 - [ ] Cross-site QA matrix passed on ≥3 real math sites; both degradation paths exercised; SPA re-capture confirmed; no host-DOM mutation
+- [ ] Telemetry emission: `turn_latency`, `annotation_rendered` (with rendered/dropped counts), `voice_used`, `degraded_hit` all emit on a real turn, typed + no-content; no tutoring behavior change
 - [ ] `turbo run typecheck lint build test` + all CI jobs green
 
 ## Risks
@@ -324,6 +373,12 @@ permissions); the security + a11y + QA records exist.
   **proven no-secret bundle** — the two things store submission depends on — so it can
   focus on the assets it must still build (privacy page, listing screenshots, release
   pipeline, waitlist→invite). The filed-not-fixed list is its pre-submission checklist.
+  It also inherits the newly-live telemetry funnel and, in its Task 8, the **cheap
+  beta-readiness latency fixes** (mic cold-start, text streaming, history window).
+- **The telemetry funnel now emits** `turn_latency` + `annotation_rendered` (with
+  drop counts) + `voice_used` + `degraded_hit`. This is the **baseline** Sprint 24's
+  tutor-quality work reads to decide whether sparse annotations are an emission or a
+  resolution problem, and to measure the latency/correctness fixes against real numbers.
 - **The CI home** is now where every future sprint's gates live — add a job, don't
   rely on "remember to run it."
 - **Visual-regression tooling** stays deliberately unbuilt; if a UI-heavy sprint wants

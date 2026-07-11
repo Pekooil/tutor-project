@@ -4,9 +4,13 @@
 > (Darcy's call, 2026-07-09 — "overwrite 19 with Store+Beta"). That proposal
 > self-labelled "renumber to fit your roadmap" and is already superseded by shipped
 > work: prompt caching landed as `e9cb3bf feat: enabled prompt caching` +
-> `docs/adr/ADR-037-prompt-caching-tutor-prefix.md`. The candidate model-migration
-> (`docs/sprint-24-plan.md`, ADR-038) that cross-referenced the old sprint-19 should
-> be repointed at that caching commit/ADR instead of this file.
+> `docs/adr/ADR-037-prompt-caching-tutor-prefix.md`. Sprint 24 (now the tutor-quality
+> sprint, no longer the GPT-4o-mini migration candidate) that cross-referenced the old
+> sprint-19 should be repointed at that caching commit/ADR instead of this file.
+>
+> **Task 8 added (2026-07-10):** the cheap pre-beta latency + history-window fixes now
+> gate distribution — see Task 8. These are the beta-readiness slice of the tutor-fix
+> program (measure = Sprint 18 Task 8; deep model work = Sprint 24).
 >
 > **Provisional ADR numbers** (latest on disk = ADR-043; parallel tracks 24/25 may
 > claim intervening numbers — confirm next-free at execution).
@@ -32,6 +36,14 @@ gate sprint. By the end:
    to actually notify testers.
 5. **Submission to review is initiated** — the long-pole latency — as early in the
    sprint as the assets allow.
+6. **The tutor feels fast enough for a first impression.** Three cheap, mostly
+   extension-side fixes land before invites widen, because a beta that opens with a
+   ~5s mic cold-start and buffered text replies wastes the beta: (a) the mic
+   cold-start (~5s click→recording, ADR-033) pre-warmed toward <500ms; (b) the text
+   path switched from the buffered `/api/ai/turn` to the existing streaming
+   `/api/ai/turn/stream` so text replies stream too; (c) the conversation history
+   trimmed to the PLAN §2.5 6–8 turn window (today unbounded up to 40 messages),
+   cutting per-turn tokens — cheaper AND faster every turn. No model/pedagogy change.
 
 ```
 build:  wxt zip (versioned) ──▶ .zip ──▶ Chrome Web Store (UNLISTED)
@@ -121,20 +133,23 @@ supports a **manual-send batch** (return the cohort for Darcy to email by hand f
 
 ## Execution model
 A **single code session** owns this sprint end to end, worked **strictly in order
-(1 → 8)**. The chain: ADRs (Task 1); the release pipeline (Task 2) is first so a
+(1 → 9)**. The chain: ADRs (Task 1); the release pipeline (Task 2) is first so a
 buildable artifact exists; the privacy page + data-safety (Task 3) unblock submission;
 the waitlist invite migration (Task 4) precedes the invite route + signup allowlist
 (Task 5) and the notification path (Task 6); submission is initiated once Tasks 2–3
-land (Task 7, parallel with 4–6); the beta-launch acceptance is the gate (Task 8). One
-session — no handoff.
+land (Task 7, parallel with 4–6); the pre-beta latency + history fixes (Task 8) land
+before the gate so testers get a fast tutor; the beta-launch acceptance is the gate
+(Task 9). One session — no handoff.
 
 This sprint touches: `extension/package.json` (a zip/release script) + `wxt.config.ts`
 (version bump only), a new `web/app/privacy/page.tsx` (+ terms), a new
 `supabase/migrations/0018_waitlist_invite.sql`, new `web/app/api/admin/invite/` +
 `web/app/api/invite/claim/` routes, `web/app/api/auth/signup/route.ts` (the allowlist
-check), `web/public/store/` (screenshots), and `/docs/` (listing copy + runbook). It
-does **not** touch the AI/learning paths, the extension overlay, or any billing (Sprint
-23).
+check), `web/public/store/` (screenshots), `/docs/` (listing copy + runbook), and — for
+Task 8 only — the extension overlay/mic + `turn-request.ts` history window. It does
+**not** touch the AI/learning **grading or pedagogy** paths or any billing (Sprint 23);
+Task 8's overlay work is latency/token plumbing (mic warm-up, stream vs buffer, history
+trim), not tutoring behavior.
 
 ## Files in scope
 
@@ -187,14 +202,26 @@ does **not** touch the AI/learning paths, the extension overlay, or any billing 
 /docs/store-listing.md  ← new — listing copy: title, short + full description, category, the /privacy URL, screenshot captions — the source Darcy pastes into the CWS dashboard. Submission is INITIATED here (upload the Task-2 zip as unlisted, fill the Task-3 data-safety form); review latency starts while Tasks 4–6 finish.
 ```
 
-### Task 8 (beta-launch acceptance — manual, the real gate) creates:
+### Task 8 (pre-beta latency + history-window fixes) creates / edits:
+```
+/extension/src/overlay/Overlay.tsx (+ the mic-capture module) ← edit — PRE-WARM the mic: acquire/keep the getUserMedia stream (and permission) warm so click→recording is <500ms instead of the ~5s ADR-033 cold-start. Client-only; no persisted audio (ADR-011 unchanged — a warm stream is not a stored recording).
+/extension/src/lib/api.ts + /extension/src/overlay/Overlay.tsx ← edit — route TEXT-mode turns through the existing streaming `aiTurnStream` (`/api/ai/turn/stream`, envelope SSE) instead of the buffered `/api/ai/turn`, so text replies stream token-by-token like voice already does. The stream route + runTutorTurnEnvelopeStream already exist (Sprint 15); this is a client switch, no new server route.
+/extension/src/overlay/Overlay.tsx (stripHistory) + /web/lib/ai/turn-request.ts ← edit — enforce the PLAN §2.5 6–8 turn window: trim the history the client sends (and defensively clamp server-side under the existing MAX_MESSAGES=40 ceiling) to the last ~8 turns. Fewer input tokens every turn → lower cost + faster TTFT. Pure windowing, no summary/pedagogy change.
+/extension/tests/*.test.ts (+ /web/tests/turn-request or equivalent) ← edit/new — assert: text mode consumes the stream (sayDelta events observed); history is capped to the window before send; the mic warm-up path degrades safely if permission is absent. Latency itself is verified manually in Task 9 + read off the Sprint 18 telemetry.
+```
+NOTE: Task 8 is the beta-readiness slice only — mic warm-up, stream-vs-buffer, history
+trim. It does NOT change grading, annotation selection, model, or pedagogy (that is
+Sprint 24). It is placed before the acceptance gate so Task 9 verifies a fast tutor.
+
+### Task 9 (beta-launch acceptance — manual, the real gate) creates:
 ```
 /docs/beta-launch-acceptance.md ← new — the record of the end-to-end gate (below). Distribution proceeds only when this passes.
 ```
 
 ### Files explicitly out of scope
 ```
-AI / learning / overlay feature code   (distribution sprint, not feature work)
+AI / learning grading + pedagogy code  (Task 8's mic/stream/history plumbing is the sole overlay carve-out; grading, model, annotation selection stay untouched → Sprint 24)
+Deep latency work (STT streaming, tiering, verification)  (Task 8 is only the cheap wins; the rest is Sprint 24 tutor-quality)
 Billing / Stripe / entitlements        (Sprint 23; the beta is free)
 Study materials generation             (Sprint 21)
 Dashboard                              (Sprint 22)
@@ -270,7 +297,19 @@ Acceptance gate before Task 8:
   - The unlisted item is uploaded with the /privacy URL and the data-safety form
     filled; review is in-flight.
 
-## Task 8 — Beta-launch acceptance (manual, the real gate)
+## Task 8 — Pre-beta latency + history-window fixes
+Scope: the three cheap beta-readiness fixes (see the Task 8 file block): mic
+pre-warm (<500ms click→recording), text-mode routed through the existing streaming
+turn, and history trimmed to the 6–8 turn window. Extension-side latency/token
+plumbing only — no grading/model/pedagogy change.
+
+Acceptance gate before Task 9:
+  - Mic starts recording in <500ms on a warm session; text replies stream (sayDelta
+    observed) rather than arriving whole; the client sends at most ~8 turns of history;
+    `turbo`/extension tests green; the Sprint 18 `turn_latency` telemetry shows the
+    improved legs.
+
+## Task 9 — Beta-launch acceptance (manual, the real gate)
 A tester who was NOT part of development, on a fresh machine:
   1. Receives an invite (email on an invited waitlist row) with the unlisted link.
   2. Installs the extension from the link.
@@ -280,6 +319,8 @@ A tester who was NOT part of development, on a fresh machine:
   5. Opens a second session — mastery from session one is still there.
   6. An uninvited stranger with the same link gets the soft waitlist state, not access.
   7. The tester's telemetry funnel events and any feedback appear server-side.
+  8. The session **feels responsive**: mic starts near-instantly, replies stream in
+     (voice and text), no multi-second dead air on turn start (Task 8 verified live).
 
 ## Acceptance criteria (full checklist)
 - [ ] ADR-045/046 written; pointers + architecture.md updated; sprint-24 cross-ref repointed to the caching commit
@@ -289,7 +330,8 @@ A tester who was NOT part of development, on a fresh machine:
 - [ ] Signup is invite-gated: invited email proceeds, uninvited gets a soft waitlist state with no user created; admin invite route guarded
 - [ ] Invite notification sends the unlisted link + code (or returns a manual-send batch); credential server-only
 - [ ] Unlisted CWS item submitted with /privacy URL + data-safety form; review in-flight
-- [ ] Beta-launch acceptance passed end-to-end by a non-developer on a fresh machine → 🚀 DISTRIBUTE
+- [ ] Pre-beta latency fixes: mic cold-start <500ms, text mode streams, history trimmed to ~8 turns; extension tests green
+- [ ] Beta-launch acceptance passed end-to-end by a non-developer on a fresh machine, session feels responsive → 🚀 DISTRIBUTE
 
 ## Risks
 **Chrome Web Store review rejects/delays over the broad `<all_urls>` host permission.**
@@ -316,6 +358,19 @@ cohort by hand; absent credentials no-op; volume is a bounded cohort, not open s
 versioned and keeps the last N artifacts addressable; rollback is re-uploading the prior
 version per the runbook; the no-secret gate runs on the exact artifact.
 
+**Mic pre-warm looks like always-on recording (a privacy/trust regression).**
+Mitigation: keeping a `getUserMedia` stream warm is not persistence — ADR-011
+(audio never persisted, real-time STT only) is unchanged; the mic indicator/UX must
+still make capture state obvious, and the warm stream releases on session end. If
+warm-hold proves too aggressive, warming on overlay-open (not page-load) is the
+recorded fallback. Task 8 is the *cheap* latency slice only; the sequential
+STT→turn→TTS legs and any deeper latency work stay in Sprint 24.
+
+**Task 8 latency work slips the beta.** Mitigation: all three fixes are small and
+independent (mic warm, stream switch, history trim); any one can be dropped to a
+fast-follow beta build without blocking distribution — the acceptance gate (Task 9)
+verifies whichever landed, and the Sprint 18 telemetry quantifies the rest.
+
 ## What the next sprint needs to know
 **Calyxa is in beta.** An unlisted, invite-gated Chrome Web Store build is installable
 by invited testers; the release pipeline is versioned + rollback-able; /privacy +
@@ -326,6 +381,12 @@ signals.
 - **The post-beta sprints (21 study materials, 22 dashboard, 23 billing)** now build on
   a live product with real users — each should watch the Sprint 17 telemetry funnel and
   feedback inbox for what beta users need first.
+- **Sprint 24 (tutor quality & cost)** inherits the residual tutor problems this sprint
+  only partly addressed: correctness (wrong answers accepted/produced), sparse
+  annotations, deeper latency (sequential voice legs), and cost. Task 8 handled the
+  *cheap* latency wins; the eval-driven model tiering + answer verification are Sprint
+  24. The `turn_latency`/`annotation_rendered` telemetry now flowing from beta is its
+  input data — decide it against real usage, not guesses.
 - **The unlisted→public transition** is a future decision (flip listing visibility, drop
   the invite gate, add paid acquisition) — not built here; the invite allowlist is the
   throttle until then.
