@@ -137,19 +137,48 @@ jobs:
         run: npx turbo run typecheck lint build test
 
   # ---------------------------------------------------------------------------
-  # PLACEHOLDER — filled by Task 3.
-  # Will: `npm --prefix extension run build`, then grep
-  # extension/dist/chrome-mv3/**/*.{js,html,json} for each of
-  # ANTHROPIC_API_KEY / OPENAI_API_KEY / ELEVENLABS_API_KEY (their VALUES from
-  # Actions secrets) and the MONITORING_DSN value; ANY hit fails the job.
-  # Implemented as scripts/check-no-secrets.mjs so it also runs locally.
+  # Task 3 — proves the locked "never put any key in the extension bundle"
+  # invariant against the BUILT artifact. Builds extension/dist/chrome-mv3,
+  # then scripts/check-no-secrets.mjs greps every emitted file for the ACTUAL
+  # VALUES of the provider keys + monitoring DSN (from the env below) and for
+  # backstop literals (key shapes, DSN shapes, the secret var names). Any hit
+  # fails the job. The same script runs locally:  node scripts/check-no-secrets.mjs
   # ---------------------------------------------------------------------------
   no-secret-in-bundle:
     name: no secret in extension bundle (Task 3)
     runs-on: ubuntu-latest
+    env:
+      # The real values must be in the env so the VALUE scan can search for
+      # them in the built bundle — that is the actual proof. A clean bundle
+      # never contains them (the extension holds no keys); the guard fails
+      # only if a build ever inlines one. SUPABASE_SERVICE_ROLE_KEY is scanned
+      # defensively (highest-severity key). Public/anon values are NOT listed.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      MONITORING_DSN: ${{ secrets.MONITORING_DSN }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
-      - name: Placeholder
-        run: echo "no-secret-in-bundle job — implemented in Sprint 18 Task 3"
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the extension
+        # Produces extension/dist/chrome-mv3 — the exact artifact Darcy loads
+        # unpacked. Provider keys are in env but must NOT be inlined (they are
+        # not VITE_-prefixed and never referenced); the next step proves it.
+        run: npm --prefix extension run build
+
+      - name: Assert no secret reached the bundle
+        run: node scripts/check-no-secrets.mjs
 
   # ---------------------------------------------------------------------------
   # PLACEHOLDER — filled by Task 4.
