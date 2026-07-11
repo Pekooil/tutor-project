@@ -561,8 +561,15 @@ async function flushDueTelemetry(): Promise<void> {
   void flushTelemetry(flush);
 }
 
-/** POSTs a flushed batch, swallowing any failure -- a lost event never affects the student (ADR-043). */
-async function flushTelemetry(events: TelemetryEvent[]): Promise<void> {
+/**
+ * POSTs a flushed batch, swallowing any failure -- a lost event never
+ * affects the student (ADR-043). Exported (Sprint 17 Task 8) so
+ * telemetry-routing.test.ts can assert the swallow directly, the same
+ * "exported for the test task" convention as reduceTelemetryBatch,
+ * isPlausibleProblem, and easeProgress/nextCloseState elsewhere in this
+ * workspace.
+ */
+export async function flushTelemetry(events: TelemetryEvent[]): Promise<void> {
   try {
     await api.sendTelemetry(events);
   } catch (error) {
@@ -931,20 +938,34 @@ async function handleAiTurn(
 async function handleOpeningScan(payload: OpeningScanPayload, pageDomain: string | null): Promise<CalyxaMessage> {
   const EMPTY_REPLY = { reply: '' };
 
-  if (await getActiveSession()) {
-    return { type: 'OPENING_SCAN', payload: EMPTY_REPLY };
+  // The opening scan REUSES an already-active session rather than bailing to
+  // an empty reply. The active session lives in chrome.storage.session for
+  // the whole browser session and is only cleared on END_SESSION, so a fresh
+  // panel open after a page reload/navigation (or any re-open that never
+  // ended the prior session) inherits a lingering session. Bailing there left
+  // the overlay with no scan result -- so it dropped straight to the bare
+  // composer instead of the check-in starting screen (the detected topic +
+  // predicted sticking point). The client only ever requests OPENING_SCAN
+  // while its own transcript is empty (Overlay.tsx's messages.length === 0
+  // gate + per-open openingScanFiredRef), so reusing the session here can
+  // never interrupt or double-fire against a live conversation -- it just
+  // re-grounds the proactive scan against the session already open. Only a
+  // genuinely sessionless open starts (and counts as quota, ADR-030) a new
+  // one and emits the session_started funnel event.
+  let active = await getActiveSession();
+
+  if (!active) {
+    try {
+      await api.startSession({ pageDomain, mode: 'text' });
+      reportSessionStarted('text');
+    } catch (error) {
+      console.warn('Calyxa SW: opening scan startSession failed, degrading to a silent open', toErrorMessage(error));
+      return { type: 'OPENING_SCAN', payload: EMPTY_REPLY };
+    }
+    active = await getActiveSession();
   }
 
   try {
-    await api.startSession({ pageDomain, mode: 'text' });
-    reportSessionStarted('text');
-  } catch (error) {
-    console.warn('Calyxa SW: opening scan startSession failed, degrading to a silent open', toErrorMessage(error));
-    return { type: 'OPENING_SCAN', payload: EMPTY_REPLY };
-  }
-
-  try {
-    const active = await getActiveSession();
     const { reply, annotations, prediction, topic, stickingCandidates } = await api.openingScan(
       payload.pageContext,
       active?.sessionId,

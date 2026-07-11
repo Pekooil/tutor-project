@@ -182,6 +182,19 @@ beforeAll(async () => {
       ELEVENLABS_API_KEY: 'el-test-fake-key-not-real',
       ELEVENLABS_VOICE_ID: 'fake-voice-id',
       ELEVENLABS_API_BASE_URL: `http://localhost:${FAKE_PROVIDERS_PORT}/text-to-speech`,
+      // Sprint 16's cost guardrail (ADR-041): both voice routes check
+      // costGuard() and short-circuit to `{ degraded: true }` (never
+      // reaching Whisper/ElevenLabs at all) once the GLOBAL, day-scoped
+      // `cost_ledger` counter crosses its cap -- a counter shared with every
+      // other process hitting this same live Supabase project today, real
+      // usage included. This file tests the STT/TTS relay itself, not the
+      // cost guardrail (that's cost-guard.test.ts's job, which deliberately
+      // tunes these same two env vars the other direction to test
+      // degradation on purpose). Set effectively infinite so this suite's
+      // calls are never degraded regardless of the day's real cumulative
+      // spend.
+      COST_SOFT_CAP_CENTS_OVERRIDE: '999999999',
+      COST_HARD_CAP_CENTS_OVERRIDE: '999999999',
     },
   })
   const startupLog: string[] = []

@@ -311,6 +311,21 @@ beforeAll(async () => {
       // route to api.anthropic.com from this process.
       ANTHROPIC_API_KEY: 'sk-ant-test-fake-key-not-real',
       ANTHROPIC_BASE_URL: `http://localhost:${FAKE_ANTHROPIC_PORT}`,
+      // Sprint 16's cost guardrail (ADR-041) keys off `cost_ledger`, a
+      // GLOBAL day-scoped counter shared by every process hitting this same
+      // live Supabase project -- real usage AND every other test run of
+      // this exact suite, all day. This file tests /api/ai/turn's reply/
+      // annotation/pin logic, not the cost guardrail (that's cost-guard.
+      // test.ts's job, which deliberately tunes these same two env vars the
+      // other direction -- a tiny cap -- to test degradation on purpose).
+      // Without an override here, a big enough cumulative day-total makes
+      // costGuard() return softExceeded/hardExceeded for every fresh test
+      // user too, riding an unexpected `degraded` key onto responses this
+      // suite asserts are exactly `{ reply }`. Set effectively infinite so
+      // this suite's turns are never degraded regardless of the day's real
+      // spend.
+      COST_SOFT_CAP_CENTS_OVERRIDE: '999999999',
+      COST_HARD_CAP_CENTS_OVERRIDE: '999999999',
     },
   })
   const startupLog: string[] = []
