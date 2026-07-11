@@ -18,10 +18,17 @@ function loadEnvLocal() {
 
 loadEnvLocal()
 
-// web/app/api/account/export and .../delete only import clientFromBearer-
-// OrCookie (no `server-only` module anywhere in their chain), so -- unlike
-// url-hash.test.ts / cron-auth.test.ts -- these two can be imported and
-// called directly, bearer-authed, with no dev server and no mocking.
+// web/app/api/account/delete only imports clientFromBearerOrCookie (no
+// `server-only` module in its chain), so it can be imported + called directly,
+// bearer-authed, with no dev server. web/app/api/account/export USED to be the
+// same, but Sprint 17 (ADR-043) added a service-role read for telemetry_event
+// (the one insert-only table with no client SELECT policy), so it now imports
+// `@/lib/supabase/admin` -- which carries `import 'server-only'`. That is
+// neutralized by the SAME two mocks the sweep route already needs below
+// (`vi.mock('server-only', ...)` and `vi.mock('@/lib/supabase/admin', ...)`),
+// so the export route stays importable + directly callable here; its
+// telemetry read resolves to the mocked admin client, whose `from(table)`
+// returns the real service-role builder for any table other than 'users'.
 const exportRoute = await import('../app/api/account/export/route')
 const deleteRoute = await import('../app/api/account/delete/route')
 
@@ -136,11 +143,25 @@ async function seedAllTables(userId: string) {
     .insert({ user_id: userId, concept_key: 'algebra.test.fixture', due_at: new Date().toISOString() })
   if (scheduleErr) throw new Error(`seed reinforcement_schedule failed: ${scheduleErr.message}`)
 
+  // Sprint 17 (ADR-039/ADR-043): the two beta-observability tables must be
+  // export- AND erasure-covered. `feedback` carries the one user-authored
+  // free-text field (message); `telemetry_event` is insert-only (exported via
+  // the route's scoped service-role read, not RLS).
+  const { error: feedbackErr } = await admin
+    .from('feedback')
+    .insert({ user_id: userId, session_id: session.id, kind: 'idea', message: 'fixture feedback' })
+  if (feedbackErr) throw new Error(`seed feedback failed: ${feedbackErr.message}`)
+
+  const { error: telemetryErr } = await admin
+    .from('telemetry_event')
+    .insert({ user_id: userId, kind: 'session_started', payload: { mode: 'text' } })
+  if (telemetryErr) throw new Error(`seed telemetry_event failed: ${telemetryErr.message}`)
+
   return { sessionId: session.id as string }
 }
 
 async function existsInAnyTable(userId: string): Promise<Record<string, number>> {
-  const tables = ['users', 'sessions', 'knowledge_nodes', 'misconceptions', 'session_interactions', 'reinforcement_schedule']
+  const tables = ['users', 'sessions', 'knowledge_nodes', 'misconceptions', 'session_interactions', 'reinforcement_schedule', 'feedback', 'telemetry_event']
   const counts: Record<string, number> = {}
 
   for (const table of tables) {
@@ -245,6 +266,12 @@ describe('GET /api/account/export', () => {
     expect(body.session_interactions).toHaveLength(1)
     expect(body.session_interactions[0].session_id).toBe(seedA.sessionId)
     expect(body.reinforcement_schedule).toHaveLength(1)
+    // Sprint 17: feedback (RLS-scoped read) + telemetry_event (scoped
+    // service-role read) both land in the export.
+    expect(body.feedback).toHaveLength(1)
+    expect(body.feedback[0].message).toBe('fixture feedback')
+    expect(body.telemetry_event).toHaveLength(1)
+    expect(body.telemetry_event[0].kind).toBe('session_started')
   })
 
   it("never includes a second user's rows (RLS proven, not a query we could get wrong)", async () => {
@@ -262,6 +289,13 @@ describe('GET /api/account/export', () => {
 
     expect(allIds).not.toContain(userB.id)
     expect(allIds).not.toContain(seedB.sessionId)
+
+    // Sprint 17: telemetry_event is exported via a service-role read scoped
+    // ONLY by an explicit `.eq('user_id', ...)` (it bypasses RLS), so the
+    // scoping is the route's own code, not the database's -- assert it
+    // directly. feedback (RLS-scoped) is checked the same way for symmetry.
+    for (const row of body.feedback) expect(row.user_id).toBe(userA.id)
+    for (const row of body.telemetry_event) expect(row.user_id).toBe(userA.id)
   })
 
   it('rejects an invalid bearer token', async () => {
@@ -338,5 +372,9 @@ describe('GET /api/cron/hard-delete-sweep', () => {
     expect(eCounts.misconceptions).toBe(1)
     expect(eCounts.session_interactions).toBe(1)
     expect(eCounts.reinforcement_schedule).toBe(1)
+    // Sprint 17: the two new tables cascade-delete for D (its all-zero check
+    // above already covers them via existsInAnyTable) and stay for E.
+    expect(eCounts.feedback).toBe(1)
+    expect(eCounts.telemetry_event).toBe(1)
   })
 })

@@ -1,27 +1,41 @@
 import { NextResponse } from 'next/server'
 import { clientFromBearerOrCookie } from '@/lib/auth/bearer'
+import { createAdminClient } from '@/lib/supabase/admin'
 
-// Sprint 16 / Task 5 (ADR-035): GDPR data portability. Reads as the
-// AUTHENTICATED caller (clientFromBearerOrCookie) — never the service-role
-// admin client — so RLS is the guarantee that this can only ever return the
-// caller's own rows, not a `select` we could get wrong. Every table is
-// `select('*')` with no hand-listed column subset, deliberately: a future
-// column added to any of these six tables is exported automatically, with
-// nothing here to fall out of date. `users`/`sessions`/`knowledge_nodes`/
-// `misconceptions`/`session_interactions`/`reinforcement_schedule` are the
-// complete set of user-scoped tables today (per docs/architecture.md);
-// any new user-scoped table this sprint's "what the next sprint needs to
-// know" flags MUST be added here too.
+// Sprint 16 / Task 5 (ADR-035): GDPR data portability. The RLS-scoped tables
+// below are read as the AUTHENTICATED caller (clientFromBearerOrCookie) —
+// never the service-role admin client — so RLS is the guarantee that this can
+// only ever return the caller's own rows, not a `select` we could get wrong.
+// Every table is `select('*')` with no hand-listed column subset,
+// deliberately: a future column added to any of these tables is exported
+// automatically, with nothing here to fall out of date.
+//
+// Sprint 17 (ADR-039/ADR-043) adds the two beta-observability tables:
+//   - `feedback` joins the RLS-scoped set — its `feedback_select_own` policy
+//     makes the same authenticated read Just Work.
+//   - `telemetry_event` is the ONE deliberate exception to the "never the
+//     admin client, RLS is the guarantee" rule (see the block below): it is
+//     insert-only for its owner (no client SELECT policy — ADR-043), so the
+//     RLS-scoped read would return zero rows; GDPR export still owes the user
+//     their own telemetry, so it is read via the service role, explicitly
+//     scoped by user_id.
 
 const EXPORT_SCHEMA_VERSION = 1
 
-const EXPORTED_TABLES = [
+// Read through the caller's own RLS-scoped client (`auth.supabase`), where the
+// database is the scoping guarantee. `users`/`sessions`/`knowledge_nodes`/
+// `misconceptions`/`session_interactions`/`reinforcement_schedule` (per
+// docs/architecture.md) plus `feedback` (Sprint 17) are the complete set of
+// user-scoped tables that expose an owner SELECT policy; any new such table a
+// future sprint adds MUST be added here too.
+const RLS_SCOPED_TABLES = [
   'users',
   'sessions',
   'knowledge_nodes',
   'misconceptions',
   'session_interactions',
   'reinforcement_schedule',
+  'feedback',
 ] as const
 
 export async function GET(request: Request) {
@@ -32,8 +46,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    const rows = await Promise.all(
-      EXPORTED_TABLES.map(async (table) => {
+    const rlsRows = await Promise.all(
+      RLS_SCOPED_TABLES.map(async (table) => {
         const { data, error } = await auth.supabase.from(table).select('*')
 
         if (error) {
@@ -44,11 +58,32 @@ export async function GET(request: Request) {
       })
     )
 
+    // telemetry_event: the ONE deliberate departure from this route's
+    // "never the admin client" invariant (Sprint 17, ADR-043). The table is
+    // insert-only for its owner — it has NO client SELECT policy, by design —
+    // so an RLS-scoped read of it returns nothing, yet a GDPR export still
+    // owes the user their own telemetry. It is therefore read through the
+    // service-role client with an EXPLICIT `.eq('user_id', auth.user.id)`:
+    // that filter (not RLS) is what scopes it to the caller, so it is written
+    // out literally and is the single line in this route where correct
+    // scoping is the code's responsibility rather than the database's. The
+    // service-role key is server-only (createAdminClient carries the
+    // `server-only` import) and never reaches the client.
+    const { data: telemetry, error: telemetryError } = await createAdminClient()
+      .from('telemetry_event')
+      .select('*')
+      .eq('user_id', auth.user.id)
+
+    if (telemetryError) {
+      throw telemetryError
+    }
+
     const payload = {
       schemaVersion: EXPORT_SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
       userId: auth.user.id,
-      ...Object.fromEntries(rows),
+      ...Object.fromEntries(rlsRows),
+      telemetry_event: telemetry ?? [],
     }
 
     return new NextResponse(JSON.stringify(payload, null, 2), {

@@ -426,15 +426,19 @@ On a real page, as a brand-new dev user (fresh account, zero nodes):
   5. Use the report/rate affordance → a `feedback` row appears, tied to the
      session; confirm it exports (Sprint 16) and would erase (FK cascade).
 
-## Acceptance criteria (full checklist)
-- [ ] ADR-037/038/039 written; pointers + architecture.md updated
-- [ ] feedback + telemetry_event tables (Shape 2 RLS, FK cascade to users) land in 0015; both added to Sprint 16's export + erasure coverage
-- [ ] Onboarding: 8–12 adaptive items across 6 strands; seeds knowledge_nodes via the existing apply path; propagates prerequisite priors; writes onboarding_completed_at; skippable to today's fallback
-- [ ] Telemetry: typed content-free event union (no free-text field, enforced); LatencyTrace wired as an event; user_id from the session; batched via the background worker
-- [ ] Error monitoring in web API + background + content, scrubbed (no transcript/audio/URL); no monitoring secret in the extension bundle; missing-DSN is a no-op
-- [ ] Feedback: one overlay affordance → RLS-scoped feedback table; the single user-authored free-text field is export/erasure-covered
-- [ ] All three event streams route through the background (sole egress, ADR-006)
-- [ ] `turbo run typecheck lint build test` green; Task 9 manual pass complete
+## Acceptance criteria (full checklist)  — SPRINT COMPLETE 2026-07-10
+- [x] ADR-039/042/043 written (renumbered off the plan's 037/038/039); pointers + architecture.md updated
+- [x] feedback + telemetry_event tables (Shape 2 RLS, FK cascade to users) land in **0017** (renumbered from 0015; APPLIED LIVE 2026-07-10); both added to Sprint 16's export + erasure coverage (export route wired: feedback RLS-scoped, telemetry_event via a scoped service-role read; erasure = FK cascade; account.test.ts covers both LIVE)
+- [x] Onboarding: 8–12 adaptive items across 6 strands; seeds knowledge_nodes via the existing apply path; propagates prerequisite priors; writes onboarding_completed_at; skippable to today's fallback (Darcy confirmed working 2026-07-10)
+- [x] Telemetry: typed content-free event union (no free-text field, enforced); LatencyTrace wired as an event (`turn_latency` emitted from the voice path; `annotation_rendered` from the annotation-draw path); user_id from the session; batched via the background worker
+- [x] Error monitoring in web API + background + content, scrubbed (no transcript/audio/URL); no monitoring secret in the extension bundle; missing-DSN is a no-op — code complete + tested. NOTE: no vendor SDK/DSN configured this sprint (Task 5's recorded decision), so errors are visibly relayed to `/api/errors` but "appears in an external sink" awaits a `MONITORING_DSN` (carry-forward, not a defect)
+- [x] Feedback: one overlay affordance → RLS-scoped feedback table; the single user-authored free-text field is export/erasure-covered
+- [x] All three event streams route through the background (sole egress, ADR-006)
+- [x] `turbo run typecheck lint build test` green; Task 9 manual pass: onboarding confirmed by Darcy; telemetry/feedback mechanisms proven by live tests (account.test.ts) + the funnel now emits all three step-3 events
+
+### Residual carry-forwards (not Sprint 17 deliverables)
+- `voice_used` / `degraded_hit` telemetry kinds exist in the union but are not yet emitted (not named by goal #3 / Task 9 step 3; trivially wireable when wanted — `voice_used` in handleMicStop, `degraded_hit` from the Sprint 16 cost-cap path).
+- Error monitoring external sink needs a `MONITORING_DSN` (Sprint 18/19 store-launch tooling).
 
 ## Risks
 **Onboarding friction makes first-run worse, not better.** A 12-item quiz before

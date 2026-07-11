@@ -9,6 +9,7 @@ import {
   showTurnAnnotations,
   showTurnAnnotationsSequenced,
   teardown as teardownAnnotations,
+  type AnnotationRenderStats,
   type EquationRegistry,
 } from './annotations';
 import { extractPageContext } from './pageExtractor';
@@ -158,7 +159,7 @@ async function requestOpeningScan(): Promise<{
     return null;
   }
 
-  showTurnAnnotations(payload.annotations ?? [], registry);
+  emitAnnotationRendered(payload.annotations?.length ?? 0, showTurnAnnotations(payload.annotations ?? [], registry));
   return {
     reply: payload.reply,
     ...(payload.annotations && payload.annotations.length > 0 ? { annotations: payload.annotations } : {}),
@@ -239,7 +240,10 @@ async function sendAiTurn(
             port.disconnect();
             // New turn's annotations replace the previous turn's drawings
             // (controller behaviour); a turn with none is a no-op there.
-            showTurnAnnotations(msg.annotations ?? [], registry);
+            emitAnnotationRendered(
+              msg.annotations?.length ?? 0,
+              showTurnAnnotations(msg.annotations ?? [], registry),
+            );
             resolve({
               reply: msg.reply ?? '',
               ...(msg.pins && msg.pins.length > 0 ? { pins: msg.pins } : {}),
@@ -498,7 +502,19 @@ function handleVoicePlaybackStart(durationMs: number): void {
   if (!pendingVoiceAnnotations) return;
   const { annotations, registry } = pendingVoiceAnnotations;
   pendingVoiceAnnotations = undefined;
-  showTurnAnnotationsSequenced(annotations, registry, durationMs);
+  emitAnnotationRendered(annotations.length, showTurnAnnotationsSequenced(annotations, registry, durationMs));
+}
+
+// Sprint 17 (ADR-043): emit the content-free `annotation_rendered` telemetry
+// event ONLY when a turn actually carried annotations. `count` is how many
+// resolved + drew -- a `count` of 0 with a non-zero `carried` is exactly the
+// "the model sent annotations but none rendered" signal (the drop rate the
+// annotation-precision work cares about); `fallback` flags a bbox last-resort
+// anchor. Relayed through the same background egress (sendTelemetry) as every
+// other event; fire-and-forget, never blocks the draw.
+function emitAnnotationRendered(carried: number, stats: AnnotationRenderStats): void {
+  if (carried === 0) return;
+  void sendTelemetry([{ kind: 'annotation_rendered', count: stats.count, fallback: stats.fallback }]);
 }
 
 // The overlay's VOICE_STT/VOICE_TTS transports (Sprint 06). Same role as

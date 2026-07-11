@@ -17,7 +17,7 @@
 - TTS: ElevenLabs streaming API
 
 ## Current phase
-Phase 2, Sprint 17 — Onboarding + beta instrumentation (Task 1 of 9 — ADRs + pointers — done 2026-07-09; ADRs 039/042/043 — feedback KEEPS plan's 039; onboarding 037→042 and telemetry 038→043 renumbered off the prompt-caching track's collision). Sprint 16 — Cost control + compliance hardening (parallel track) — IN PROGRESS. Sprint 20's marketing landing page (parallel track) is COMPLETE (2026-07-06). Sprint 25 — landing page v2 to match the redesigned extension (parallel track, `/docs/sprint-25-plan.md`) — IN PROGRESS (Task 1 of 10 done 2026-07-09).
+Phase 2, Sprint 17 — Onboarding + beta instrumentation — **COMPLETE (2026-07-10, all 9 tasks; ADRs 039/042/043; migration 0017 applied live)**. Sprint 16 — Cost control + compliance hardening (parallel track) — IN PROGRESS. Sprint 20's marketing landing page (parallel track) is COMPLETE (2026-07-06). Sprint 25 — landing page v2 to match the redesigned extension (parallel track, `/docs/sprint-25-plan.md`) — IN PROGRESS (Task 1 of 10 done 2026-07-09).
 
 ## File structure reference
 See /docs/architecture.md

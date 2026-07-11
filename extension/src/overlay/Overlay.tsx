@@ -1645,8 +1645,17 @@ export function Overlay({
     clearStreamTokens();
 
     try {
+      // Sprint 17 (ADR-043): felt-latency clock start -- the moment the
+      // student finished speaking, through utterance finalization, STT, AI,
+      // and TTS, to first audio. Used by the turn_latency telemetry event.
+      const turnStartAt = performance.now();
       const utterance = await handle.stop();
-      const { transcript } = await onTranscribe(utterance);
+      const sttStartAt = performance.now();
+      const { transcript, sttMs } = await onTranscribe(utterance);
+      // networkMs: the STT relay/upload overhead the server's own Whisper time
+      // (`sttMs`) does NOT include -- the round-trip wall-clock minus the
+      // server-measured leg. Never negative.
+      const networkMs = Math.max(0, Math.round(performance.now() - sttStartAt) - sttMs);
 
       // Swap the live interim bubble for the accurate Whisper result atomically.
       setLiveTranscript('');
@@ -1666,13 +1675,27 @@ export function Overlay({
       // On the streamed path that is turn-done, which lands DURING playback
       // (text generates faster than it is spoken); on the buffered fallback it
       // is playback start, as before.
+      // Sprint 17 (ADR-043): per-leg voice-latency capture for the
+      // turn_latency event. These are INDEPENDENT honest measurements, NOT a
+      // strict additive decomposition -- the streamed path overlaps AI
+      // generation and TTS by design, so aiMs and ttsMs can overlap and the
+      // fields deliberately need not sum to totalMs. Each is captured once, at
+      // its natural moment, through the hooks that already exist here.
+      let firstSayAt: number | null = null; // streamed: the first spoken-text delta
+      let envelopeAt: number | null = null; // reply envelope delivered (both paths)
+      let firstAudioAt: number | null = null; // first audio actually played (both paths)
+      let bufferedTtsMs: number | null = null; // buffered path only: server-measured TTS ms
+      const aiStartAt = performance.now();
+
       const ttsRequestAt = performance.now();
       const markFirstAudio = (label: string) => () => {
+        if (firstAudioAt === null) firstAudioAt = performance.now();
         if (import.meta.env.DEV) {
           console.debug(`[calyxa voice] tts request→first audio (${label}): ${Math.round(performance.now() - ttsRequestAt)}ms`);
         }
       };
       const deliverEnvelope = (delivered: TurnResult, durationMs: number) => {
+        if (envelopeAt === null) envelopeAt = performance.now();
         showPins(delivered.pins);
         onVoicePlaybackStart(durationMs);
       };
@@ -1686,7 +1709,11 @@ export function Overlay({
       let result: TurnResult;
       try {
         result = await playVoiceTurnStreamedEnvelope(
-          (onSayDelta) => onSendVoiceStreaming(outbound, onSayDelta),
+          (onSayDelta) =>
+            onSendVoiceStreaming(outbound, (text) => {
+              if (firstSayAt === null) firstSayAt = performance.now();
+              onSayDelta(text);
+            }),
           onSynthesizeStream,
           appendStreamToken,
           setPlaying,
@@ -1703,7 +1730,8 @@ export function Overlay({
         clearStreamTokens();
         result = await onSend(outbound);
         if (!result.reply.trim()) throw new Error('The tutor returned an empty reply.');
-        const { audio } = await onSynthesize(stripMathDelimiters(result.reply));
+        const { audio, ttsMs } = await onSynthesize(stripMathDelimiters(result.reply));
+        bufferedTtsMs = ttsMs;
         // Buffered playback: onPlaybackStart fires showPins + onVoicePlaybackStart
         // at playback start with the real duration, exactly as the old path did.
         await playAudioWithTextReveal(audio, result.reply, appendStreamToken, setPlaying, audioRef, (durationMs) => {
@@ -1727,6 +1755,26 @@ export function Overlay({
       // Task 8: AnnotationLayer's box-stroke lookup reads the SAME map.
       setAnnotationColors(assignAnnotationColors(result.annotations));
       applyProgressAndCompletion(result);
+
+      // Sprint 17 (ADR-043): the LatencyTrace finally gets a sink. Emitted
+      // ONLY when audio actually played (firstAudioAt) and the envelope was
+      // delivered (envelopeAt) -- a failed or silent turn never reports a
+      // bogus latency. ttsMs is the server-measured buffered value when the
+      // fallback ran, else the streamed first-audio lag after the first
+      // spoken delta (the TTS synthesis+buffer time), 0 only if neither is
+      // observable. Fire-and-forget through the threaded telemetry prop;
+      // content-free by construction (no field can hold text/URL/audio).
+      if (firstAudioAt !== null && envelopeAt !== null) {
+        const totalMs = Math.max(0, Math.round(firstAudioAt - turnStartAt));
+        const aiMs = Math.max(0, Math.round(envelopeAt - aiStartAt));
+        const ttsMs =
+          bufferedTtsMs !== null
+            ? bufferedTtsMs
+            : firstSayAt !== null
+              ? Math.max(0, Math.round(firstAudioAt - firstSayAt))
+              : 0;
+        void onSendTelemetry?.([{ kind: 'turn_latency', sttMs, aiMs, ttsMs, networkMs, totalMs }]);
+      }
     } catch (error) {
       setLiveTranscript('');
       clearStreamTokens();

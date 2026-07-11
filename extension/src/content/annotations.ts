@@ -89,6 +89,17 @@ export type DrawInstruction = {
 
 export type AnnotationsEventDetail = { annotations: DrawInstruction[] };
 
+// Sprint 17 (ADR-043): the content-free legibility signal the
+// `annotation_rendered` telemetry event carries -- how many of a turn's
+// annotations actually RESOLVED to an on-page rect and drew (`count`, which
+// can be < the number the model sent when some were dropped as
+// unresolvable), and whether any of them had to fall back to the `bbox`
+// last-resort anchor (`fallback`) rather than a precise selector/text/
+// sub-term match. Never any of the annotation's own text, target, or label.
+export type AnnotationRenderStats = { count: number; fallback: boolean };
+
+const NO_RENDER: AnnotationRenderStats = { count: 0, fallback: false };
+
 // One captured equation paired with its live source element -- the zip of
 // capturedPageContext.equations[i] with capturedEquationElements[i] (Task
 // 4's parallel arrays; Task 7 builds this). The equation strings here are
@@ -941,10 +952,10 @@ function expire(entry: ActiveAnnotation): void {
  * clear-flicker on the common annotation-less turn). Never throws into the
  * caller: the reply flow must not break because drawing failed.
  */
-export function showTurnAnnotations(annotations: Annotation[], registry: EquationRegistry): void {
+export function showTurnAnnotations(annotations: Annotation[], registry: EquationRegistry): AnnotationRenderStats {
   try {
     const hadActive = active.length > 0;
-    if (annotations.length === 0 && !hadActive) return;
+    if (annotations.length === 0 && !hadActive) return NO_RENDER;
 
     resetActive();
     currentRegistry = registry;
@@ -960,11 +971,15 @@ export function showTurnAnnotations(annotations: Annotation[], registry: Equatio
 
     setListeners(active.length > 0);
     dispatchActive();
+    // Sprint 17 (ADR-043): report how many drew + whether any needed the bbox
+    // last-resort anchor -- the content-free `annotation_rendered` signal.
+    return { count: active.length, fallback: active.some((entry) => entry.anchor.kind === 'bbox') };
   } catch (err) {
     console.debug('[calyxa annotations] controller error; clearing', err);
     resetActive();
     setListeners(false);
     dispatchActive();
+    return NO_RENDER;
   }
 }
 
@@ -992,13 +1007,20 @@ export function showTurnAnnotationsSequenced(
   annotations: Annotation[],
   registry: EquationRegistry,
   totalDurationMs: number,
-): void {
+): AnnotationRenderStats {
   try {
     resetActive();
     currentRegistry = registry;
     turnCounter += 1;
 
     const resolved = resolveCappedAnnotations(annotations, registry, turnCounter);
+    // Sprint 17 (ADR-043): every resolved entry WILL draw (each gets its own
+    // slice, or all at once when ≤1), so the count is the resolved total
+    // regardless of which sequencing branch runs below.
+    const stats: AnnotationRenderStats = {
+      count: resolved.length,
+      fallback: resolved.some((entry) => entry.anchor.kind === 'bbox'),
+    };
 
     if (resolved.length <= 1 || !(totalDurationMs > 0)) {
       for (const { annotation, rect, anchor } of resolved) {
@@ -1006,7 +1028,7 @@ export function showTurnAnnotationsSequenced(
       }
       setListeners(active.length > 0);
       dispatchActive();
-      return;
+      return stats;
     }
 
     const sliceMs = totalDurationMs / resolved.length;
@@ -1022,11 +1044,13 @@ export function showTurnAnnotationsSequenced(
     for (let i = 1; i < resolved.length; i++) {
       sequenceTimers.push(setTimeout(() => showSlice(i), sliceMs * i));
     }
+    return stats;
   } catch (err) {
     console.debug('[calyxa annotations] sequenced controller error; clearing', err);
     resetActive();
     setListeners(false);
     dispatchActive();
+    return NO_RENDER;
   }
 }
 
