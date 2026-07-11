@@ -294,6 +294,39 @@ erasure-covered. Both new tables FK-cascade to `users` and join Sprint 16's
 export + erasure paths (migration 0015). See ADR-043 (telemetry + error privacy)
 and ADR-039 (feedback).
 
+## Hardening: security, privacy & accessibility audit (Sprint 18)
+The third pre-beta gate turns a working product into a **release candidate** and,
+for the first time, gives the audit an **automation home**. Before this sprint there
+was **no `.github/`** — every gate ran only when a human remembered. This sprint adds
+the **first CI** (`.github/workflows/ci.yml`, GitHub Actions): the existing `turbo`
+gate (typecheck · lint · build · test, all workspaces) on every push/PR, plus three
+new jobs. **No-secret-in-bundle** (`scripts/check-no-secrets.mjs`) builds
+`extension/dist/chrome-mv3` and greps the **emitted** JS/HTML/JSON for the three
+provider-key **values** (from CI env) **and** the Sprint 17 monitoring DSN — any hit
+fails the build, making the locked "no key in the extension bundle" rule enforceable
+against the artifact Darcy loads unpacked, not just the source. **A11y** extends the
+existing `axe` harness (`web/tests/axe-web-surfaces.test.ts`) to the extension:
+`extension/tests/a11y-overlay.test.ts` runs axe (jsdom) over the overlay's mounted
+tree + popup — the Sprint 14 surfaces, the Sprint 17 Onboarding + feedback affordance,
+and the recording/degraded/calibrating states — at WCAG 2.1 A/AA; contrast (the one
+thing jsdom can't compute) is a **manual pass** against `/docs/brand.md`'s AA pairs
+recorded in `docs/a11y-contrast-audit.md`. **RLS coverage** (`web/tests/rls-coverage.
+test.ts`) proves every user-scoped table isolated between two fixture users, the
+deny-all tables (`waitlist`, `cost_ledger`) closed to any client, and
+`telemetry_event` insert-only. A **security review** (`docs/security-review-sprint18.
+md`) sweeps RLS across all 17 migrations, confirms `bearer.ts` + the `CRON_SECRET`
+cron auth fail closed, and **cleans the manifest for review** (`extension/wxt.config.
+ts`): the production backend origin **added alongside** the dev `localhost:3000`, a
+real `name`/`description`/starting `version` (replacing `0.0.0`), a one-line
+justification per permission, and confirmation that **no `tabCapture`** crept in. A
+**cross-site QA matrix** (`docs/qa-matrix-sprint18.md`) exercises real sessions on ≥3
+math sites plus both degradation paths and the SPA re-capture fix. One-line findings
+are fixed in-sprint; larger ones are **filed with a reason** — the filed-not-fixed
+list is Sprint 19's pre-submission checklist. This sprint **hardens**; the store
+*submission* (privacy page, listing assets, release pipeline, waitlist→invite) is
+Sprint 19 — it inherits a review-ready manifest and a proven no-secret bundle. See
+ADR-044.
+
 ## Marketing site (Sprint 20, revised by Sprint 25)
 `/web/app/page.tsx` is the public landing page, built as a **parallel
 track** alongside the product-roadmap sprints — it shares no files with them
@@ -469,6 +502,18 @@ See `/docs/adr/`. Notably:
   reframed as roadmap with no beta promise (amends ADR-031 §4, resolving its
   fuse); tokens consumed from `@calyxa/ui` or the DemoStage-scoped mirror,
   `theme.css` read-only
+- ADR-044 — Hardening + CI gate (Sprint 18; next free number at execution, no
+  renumber): the first CI (GitHub Actions) is the audit's home — the existing `turbo`
+  gate plus three new jobs on every push/PR; the no-secret guarantee proven against
+  the BUILT `extension/dist/chrome-mv3` (grep the emitted output for the 3 provider
+  key values + the monitoring DSN, from CI env), a11y coverage extended to the
+  extension overlay/popup + Sprint 14/17 surfaces (jsdom structure + a manual
+  contrast pass, jsdom's one documented limit), an RLS coverage sweep (user-scoped
+  tables isolated, deny-all tables closed, `telemetry_event` insert-only); the
+  security review fixes one-liners in-sprint (manifest cleaned for review: prod origin
+  added, real name/version/description, justified permissions, no tabCapture) and
+  files larger findings with a reason; submission is Sprint 19, this sprint produces
+  its prerequisites (review-ready manifest + proven no-secret bundle)
 
 ## To be documented
 - System context diagram

@@ -17,7 +17,7 @@
 - TTS: ElevenLabs streaming API
 
 ## Current phase
-Phase 2, Sprint 17 — Onboarding + beta instrumentation — **COMPLETE (2026-07-10, all 9 tasks; ADRs 039/042/043; migration 0017 applied live)**. Sprint 16 — Cost control + compliance hardening (parallel track) — IN PROGRESS. Sprint 20's marketing landing page (parallel track) is COMPLETE (2026-07-06). Sprint 25 — landing page v2 to match the redesigned extension (parallel track, `/docs/sprint-25-plan.md`) — IN PROGRESS (Task 1 of 10 done 2026-07-09).
+Phase 2, Sprint 18 — Hardening: security, privacy & accessibility audit (release-candidate gate) — **IN PROGRESS (started 2026-07-10; ADR-044)**. First CI (GitHub Actions) with the audit gates: turbo + no-secret-in-bundle + extension a11y + RLS coverage sweep; security review + manifest cleaned for review; cross-site QA matrix. Task 1 done. Sprint 17 — Onboarding + beta instrumentation — **COMPLETE (2026-07-10, all 9 tasks; ADRs 039/042/043; migration 0017 applied live)**. Sprint 16 — Cost control + compliance hardening (parallel track) — IN PROGRESS. Sprint 20's marketing landing page (parallel track) is COMPLETE (2026-07-06). Sprint 25 — landing page v2 to match the redesigned extension (parallel track, `/docs/sprint-25-plan.md`) — IN PROGRESS (Task 1 of 10 done 2026-07-09).
 
 ## File structure reference
 See /docs/architecture.md
