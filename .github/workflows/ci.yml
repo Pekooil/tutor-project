@@ -1,0 +1,130 @@
+# Calyxa CI — the audit's home (ADR-044, Sprint 18).
+#
+# This is the FIRST CI workflow in the repo. Before this, every check was a
+# local `turbo`/`npm` script run only when someone remembered. This workflow
+# makes the release-candidate gates run on every push/PR.
+#
+# Task 2 (this file, scaffold): the `gate` job runs the existing local gate
+#   — `turbo run typecheck lint build test` across all workspaces — on CI.
+#   The three audit jobs below it (no-secret-in-bundle, a11y, rls-coverage)
+#   are PLACEHOLDERS: structurally present so later tasks plug into them, but
+#   currently no-ops that pass, so CI is green today.
+#
+# Sprint 18 fills the placeholders in order:
+#   - Task 3 → no-secret-in-bundle  (grep the BUILT extension bundle for key values + the monitoring DSN)
+#   - Task 4 → a11y                 (axe over the extension overlay/popup + Sprint 14/17 surfaces)
+#   - Task 5 → rls-coverage         (every user-scoped table isolated; deny-all tables closed; telemetry insert-only)
+#
+# SECRETS: every value the gate needs comes from GitHub Actions secrets
+# (Settings → Secrets and variables → Actions), never inlined here. See the
+# `env:` block on the gate job and the "needs your attention" note in the
+# Task 2 handoff about pointing these at a DEDICATED TEST Supabase project and
+# test provider keys — the suite runs LIVE integration tests that write rows
+# and spend real provider budget, and must not touch the production "calyxa"
+# project or its shared cost_ledger cap.
+
+name: CI
+
+on:
+  # PRs cover every feature branch (this repo uses a PR-based workflow), and
+  # the push filter guards direct commits to main. Together they gate every
+  # change that lands, without double-running each branch push.
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same ref cancels the in-progress run for that ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Turbo runs fine without a remote cache; keep telemetry quiet in CI.
+  TURBO_TELEMETRY_DISABLED: 1
+  NEXT_TELEMETRY_DISABLED: 1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # The existing local gate, now automated. Mirrors what Darcy runs by hand:
+  #   turbo run typecheck lint build test   (all workspaces)
+  # ---------------------------------------------------------------------------
+  gate:
+    name: turbo gate (typecheck · lint · build · test)
+    runs-on: ubuntu-latest
+    env:
+      # Public Supabase config (safe in the browser bundle; needed by next build
+      # and by the tests that spin up next dev).
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      # Server-only secrets. Point these at a TEST Supabase project + test
+      # provider keys (see the header note) — the integration tests hit them live.
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      URL_HASH_SALT: ${{ secrets.URL_HASH_SALT }}
+      # Absent-tolerant by design (ADR-043); left unset it is a no-op. Wired so
+      # the monitoring relay is exercised when a test DSN is configured.
+      MONITORING_DSN: ${{ secrets.MONITORING_DSN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Matches package.json `engines: node >=20` and `packageManager: npm@11`.
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        # `npm ci` honors the committed package-lock.json and runs the
+        # extension's `wxt prepare` postinstall.
+        run: npm ci
+
+      - name: Turbo gate
+        run: npx turbo run typecheck lint build test
+
+  # ---------------------------------------------------------------------------
+  # PLACEHOLDER — filled by Task 3.
+  # Will: `npm --prefix extension run build`, then grep
+  # extension/dist/chrome-mv3/**/*.{js,html,json} for each of
+  # ANTHROPIC_API_KEY / OPENAI_API_KEY / ELEVENLABS_API_KEY (their VALUES from
+  # Actions secrets) and the MONITORING_DSN value; ANY hit fails the job.
+  # Implemented as scripts/check-no-secrets.mjs so it also runs locally.
+  # ---------------------------------------------------------------------------
+  no-secret-in-bundle:
+    name: no secret in extension bundle (Task 3)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder
+        run: echo "no-secret-in-bundle job — implemented in Sprint 18 Task 3"
+
+  # ---------------------------------------------------------------------------
+  # PLACEHOLDER — filled by Task 4.
+  # Will: run the extension-side axe spec (jsdom) over the mounted overlay tree
+  # + popup and the Sprint 14/17 surfaces, plus the web axe surfaces; zero
+  # violations at WCAG 2.1 A/AA (contrast disabled — jsdom, done manually).
+  # ---------------------------------------------------------------------------
+  a11y:
+    name: a11y (axe) (Task 4)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder
+        run: echo "a11y job — implemented in Sprint 18 Task 4"
+
+  # ---------------------------------------------------------------------------
+  # PLACEHOLDER — filled by Task 5.
+  # Will: run web/tests/rls-coverage.test.ts against a test Supabase — every
+  # user-scoped table isolated between two fixture users, deny-all tables
+  # (waitlist, cost_ledger) closed to any client key, telemetry_event
+  # insert-only. Test Supabase creds come from Actions secrets.
+  # ---------------------------------------------------------------------------
+  rls-coverage:
+    name: RLS coverage sweep (Task 5)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder
+        run: echo "rls-coverage job — implemented in Sprint 18 Task 5"
