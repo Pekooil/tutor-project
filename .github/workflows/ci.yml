@@ -84,6 +84,28 @@ jobs:
         # extension's `wxt prepare` postinstall.
         run: npm ci
 
+      - name: Write web/.env.local for the live-integration tests
+        # The web test suite reads credentials from web/.env.local via each
+        # file's loadEnvLocal() — vitest doesn't auto-load it the way `next
+        # dev`/`next build` do, and turbo runs in STRICT env mode, so the
+        # job-level env above is NOT forwarded into the `test` child process.
+        # This file is how the creds reach vitest (and `next build`), exactly
+        # as in local dev. Values come from the job env (masked in logs);
+        # the file is ephemeral and gitignored, never committed or uploaded.
+        run: |
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}"
+            echo "SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}"
+            echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
+            echo "OPENAI_API_KEY=${OPENAI_API_KEY}"
+            echo "ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}"
+            echo "ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID}"
+            echo "CRON_SECRET=${CRON_SECRET}"
+            echo "URL_HASH_SALT=${URL_HASH_SALT}"
+            echo "MONITORING_DSN=${MONITORING_DSN}"
+          } > web/.env.local
+
       - name: Turbo gate
         run: npx turbo run typecheck lint build test
 
