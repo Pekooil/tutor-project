@@ -66,7 +66,11 @@ function ErrorBanner({ message }: { message: string }) {
   );
 }
 
-function App() {
+// Exported for the Sprint 18 Task 4 a11y spec (extension/tests/a11y-overlay.
+// test.ts) — the same "export internals for the test task" convention this
+// repo already uses (Overlay.tsx's stripHistory, background's reduceTelemetry
+// Batch). The auto-mount below is unchanged; App renders identically.
+export function App() {
   const [state, setState] = useState<SessionStatePayload | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

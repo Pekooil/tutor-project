@@ -160,4 +160,31 @@ describe('web surfaces — WCAG 2.1 A/AA structural smoke (axe-core)', () => {
     const { violations } = await axeCheck('/account', sessionCookie)
     expect(violations).toEqual([])
   })
+
+  // Sprint 18 Task 4 (ADR-044): the account page is the only web surface a
+  // real user hits that carries the Sprint 16 GDPR controls (export + delete,
+  // ADR-035). axeCheck above already ran the whole /account HTML through axe,
+  // so those controls are covered for name/role/label violations; this makes
+  // the audit of them EXPLICIT and guards against either silently vanishing
+  // (a regression that would otherwise pass the "no violations" check on an
+  // empty page). axeCheck writes the /account HTML into this jsdom document,
+  // so it is queryable here. The delete-CONFIRM step is client-only state
+  // (delete-account-button.tsx's useState) so it isn't in this server HTML;
+  // it composes the same Alert + Button primitives already audited on /login
+  // and /signup, and a component-level render of it is a filed follow-up.
+  it('account exposes the export + delete controls with accessible names', async () => {
+    expect(sessionCookie).toBeTruthy()
+    await axeCheck('/account', sessionCookie)
+
+    const exportLink = Array.from(document.querySelectorAll('a')).find(
+      (a) => a.getAttribute('href') === '/api/account/export',
+    )
+    expect(exportLink, 'the "Export my data" link must be present').toBeTruthy()
+    expect(exportLink?.textContent?.trim()).toBe('Export my data')
+
+    const deleteButton = Array.from(document.querySelectorAll('button')).find((b) =>
+      /delete my account/i.test(b.textContent ?? ''),
+    )
+    expect(deleteButton, 'the "Delete my account" control must be present and named').toBeTruthy()
+  })
 })
