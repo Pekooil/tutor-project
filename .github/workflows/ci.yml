@@ -181,28 +181,15 @@ jobs:
         run: node scripts/check-no-secrets.mjs
 
   # ---------------------------------------------------------------------------
-  # PLACEHOLDER — filled by Task 4.
-  # Will: run the extension-side axe spec (jsdom) over the mounted overlay tree
-  # + popup and the Sprint 14/17 surfaces, plus the web axe surfaces; zero
-  # violations at WCAG 2.1 A/AA (contrast disabled — jsdom, done manually).
-  # ---------------------------------------------------------------------------
-  a11y:
-    name: a11y (axe) (Task 4)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Placeholder
-        run: echo "a11y job — implemented in Sprint 18 Task 4"
-
-  # ---------------------------------------------------------------------------
-  # PLACEHOLDER — filled by Task 5.
-  # Will: run web/tests/rls-coverage.test.ts against a test Supabase — every
-  # user-scoped table isolated between two fixture users, deny-all tables
-  # (waitlist, cost_ledger) closed to any client key, telemetry_event
-  # insert-only. Test Supabase creds come from Actions secrets.
-  # ---------------------------------------------------------------------------
-  rls-coverage:
-    name: RLS coverage sweep (Task 5)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Placeholder
-        run: echo "rls-coverage job — implemented in Sprint 18 Task 5"
+  # a11y (Task 4) and the RLS coverage sweep (Task 5) are NOT separate jobs.
+  # Both are vitest suites — extension/tests/a11y-overlay.test.ts +
+  # web/tests/axe-web-surfaces.test.ts (a11y) and web/tests/rls.test.ts (RLS) —
+  # so they already run, and gate, inside the `gate` job's `turbo run … test`
+  # above. A dedicated concurrent job would re-run rls.test.ts a second time
+  # against the same live Supabase, racing the gate's run on shared fixtures
+  # (Date.now()-keyed fixture emails, a shared cost_ledger sentinel day). So
+  # the audit gates once, in the gate job — no redundant, flaky second run.
+  # (Sprint 18 Task 5 decision; the plan's separate-job layout was reconciled
+  # to this repo's live-Supabase test design.) The no-secret-in-bundle guard
+  # above stays its own job because it is NOT a vitest suite — it builds the
+  # extension bundle and greps the emitted artifact.

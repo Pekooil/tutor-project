@@ -28,6 +28,12 @@ function testEmail(label: string) {
   return `darcy20080911+calyxarls${label}${Date.now()}@gmail.com`
 }
 
+// Sprint 18 Task 5 (ADR-044): deny-all fixtures. Admin-seeded rows the
+// RLS-scoped clients must never see — unique/inert values so the sweep never
+// touches a real waitlist signup or the live daily cost ledger cost_guard uses.
+const SENTINEL_WAITLIST_EMAIL = `rls-sweep-sentinel-${Date.now()}@example.invalid`
+const SENTINEL_LEDGER_DAY = '1971-01-01'
+
 // Service-role client: fixture setup/teardown ONLY (sprint-03-plan.md Task 7).
 // It bypasses RLS, so it must never appear in an assertion below.
 const admin = createClient(url, serviceRoleKey, {
@@ -46,6 +52,11 @@ let misconceptionAId: string
 // Sprint 11 (ADR-019/ADR-020): the two new tables, same owner-only shape.
 let interactionAId: string
 let scheduleAId: string
+// Sprint 18 Task 5 (ADR-044): extend the sweep to the Sprint 16/17 tables.
+let feedbackAId: string
+// An anonymous (never-signed-in) client — the deny-all tables (Shape 3) must
+// reject anon AND authenticated alike, so both are exercised below.
+let anonClient: SupabaseClient
 
 beforeAll(async () => {
   const emailA = testEmail('a')
@@ -81,6 +92,25 @@ beforeAll(async () => {
     password: PASSWORD,
   })
   if (signInBErr) throw new Error(`sign-in failed for B: ${signInBErr.message}`)
+
+  // Never signed in — exercises the anon role against the deny-all tables.
+  anonClient = createClient(url, anonKey)
+
+  // Seed one hidden row into each deny-all table via the service role (which
+  // bypasses RLS), so the deny-all SELECT assertions prove a REAL row is
+  // invisible to clients, not merely that the table is empty on a fresh test
+  // project. delete-before-insert makes a leftover from a crashed run a no-op.
+  await admin.from('cost_ledger').delete().eq('day', SENTINEL_LEDGER_DAY)
+  const { error: ledgerSeedErr } = await admin
+    .from('cost_ledger')
+    .insert({ day: SENTINEL_LEDGER_DAY, spent_cents: 1 })
+  if (ledgerSeedErr) throw new Error(`cost_ledger seed failed: ${ledgerSeedErr.message}`)
+
+  await admin.from('waitlist').delete().eq('email', SENTINEL_WAITLIST_EMAIL)
+  const { error: waitlistSeedErr } = await admin
+    .from('waitlist')
+    .insert({ email: SENTINEL_WAITLIST_EMAIL, source: 'rls-sweep' })
+  if (waitlistSeedErr) throw new Error(`waitlist seed failed: ${waitlistSeedErr.message}`)
 })
 
 afterAll(async () => {
@@ -89,6 +119,19 @@ afterAll(async () => {
   // session_interactions before its session, and every user_id-keyed table
   // (knowledge_nodes/misconceptions/reinforcement_schedule) before the
   // users delete, or the deletes below them fail with FK violations.
+  // Sprint 18 Task 5 tables. feedback/telemetry_event also cascade on the
+  // users delete below, but clean them explicitly first (the file's child-
+  // first discipline); the deny-all sentinels have no user FK, so they must
+  // be removed here.
+  if (feedbackAId) {
+    await admin.from('feedback').delete().eq('id', feedbackAId)
+  }
+  if (userA) {
+    await admin.from('telemetry_event').delete().eq('user_id', userA.id)
+  }
+  await admin.from('waitlist').delete().eq('email', SENTINEL_WAITLIST_EMAIL)
+  await admin.from('cost_ledger').delete().eq('day', SENTINEL_LEDGER_DAY)
+
   if (interactionAId) {
     await admin.from('session_interactions').delete().eq('id', interactionAId)
   }
@@ -424,5 +467,146 @@ describe('RLS isolation: session_interactions and reinforcement_schedule', () =>
 
     expect(error).toBeNull()
     expect(data).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Sprint 17 tables (migration 0017). Sprint 18 Task 5 (ADR-044) extends the
+// sweep to every table added after Sprint 11.
+// ---------------------------------------------------------------------------
+
+// feedback — Shape 2 (user_id-keyed) but with NO deleted_at column (ADR-039),
+// so its policies omit the `deleted_at is null` clause. Owner reads/writes
+// only their own rows; a cross-user forge is denied by WITH CHECK.
+describe('RLS isolation: feedback (Shape 2, no deleted_at — ADR-039)', () => {
+  it("A can insert and read A's own feedback row", async () => {
+    const { data: inserted, error: insertErr } = await clientA
+      .from('feedback')
+      .insert({ user_id: userA.id, kind: 'idea', message: 'more worked examples please' })
+      .select()
+      .single()
+    expect(insertErr).toBeNull()
+    expect(inserted).toBeTruthy()
+    feedbackAId = inserted!.id
+
+    const { data: ownRead, error: ownReadErr } = await clientA.from('feedback').select().eq('id', feedbackAId)
+    expect(ownReadErr).toBeNull()
+    expect(ownRead).toHaveLength(1)
+  })
+
+  it("B cannot SELECT A's feedback row", async () => {
+    const { data, error } = await clientB.from('feedback').select().eq('id', feedbackAId)
+    expect(error).toBeNull()
+    expect(data).toHaveLength(0)
+  })
+
+  it("B cannot UPDATE A's feedback row", async () => {
+    const { data, error } = await clientB
+      .from('feedback')
+      .update({ message: 'tampered' })
+      .eq('id', feedbackAId)
+      .select()
+    expect(error).toBeNull()
+    expect(data).toHaveLength(0)
+  })
+
+  it("B cannot forge a feedback row attributed to A (WITH CHECK denies it)", async () => {
+    const { data, error } = await clientB
+      .from('feedback')
+      .insert({ user_id: userA.id, kind: 'bug', message: 'forged' })
+      .select()
+    expect(error).not.toBeNull()
+    expect(data).toBeNull()
+  })
+})
+
+// telemetry_event — Shape 2 keyed on user_id but INSERT-ONLY from the owner
+// (ADR-043): a single `for insert with check (auth.uid() = user_id)` policy
+// and NO select/update/delete policy. Clients write their own events and can
+// never read ANY row back (analysis is service-role only). Inserts therefore
+// use no `.select()` — a RETURNING clause would be filtered by the absent
+// select policy and mask the successful write.
+describe('RLS isolation: telemetry_event (insert-only, owner-scoped — ADR-043)', () => {
+  it("A can INSERT its own telemetry event", async () => {
+    const { error } = await clientA
+      .from('telemetry_event')
+      .insert({ user_id: userA.id, kind: 'session_started', payload: {} })
+    expect(error).toBeNull()
+  })
+
+  it("A CANNOT read its own telemetry back — no select policy (insert-only)", async () => {
+    const { data, error } = await clientA.from('telemetry_event').select().eq('user_id', userA.id)
+    expect(error).toBeNull()
+    expect(data).toHaveLength(0)
+  })
+
+  it("B cannot forge a telemetry event attributed to A (WITH CHECK)", async () => {
+    const { data, error } = await clientB
+      .from('telemetry_event')
+      .insert({ user_id: userA.id, kind: 'session_started', payload: {} })
+      .select()
+    expect(error).not.toBeNull()
+    expect(data).toBeNull()
+  })
+
+  it("A cannot write an event attributed to another user or to no user", async () => {
+    const asB = await clientA
+      .from('telemetry_event')
+      .insert({ user_id: userB.id, kind: 'session_started', payload: {} })
+    expect(asB.error, "attributing to B must fail the WITH CHECK").not.toBeNull()
+
+    const asNull = await clientA
+      .from('telemetry_event')
+      .insert({ user_id: null, kind: 'session_started', payload: {} })
+    expect(asNull.error, "a null-user event must fail the WITH CHECK").not.toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Sprint 16 deny-all tables (Shape 3): waitlist (0012), cost_ledger (0013).
+// RLS is enabled with ZERO policies, so NO client key — anon OR authenticated
+// — may read or write; only the service role (which bypasses RLS) can. Each
+// has an admin-seeded hidden row (beforeAll), so "SELECT returns nothing"
+// proves a real row is invisible rather than that the table is empty.
+// ---------------------------------------------------------------------------
+describe('RLS: deny-all tables reject every client key (Shape 3)', () => {
+  const clients = () => [['anon', anonClient] as const, ['authed', clientA] as const]
+
+  it('waitlist — neither anon nor authenticated can SELECT (a seeded row stays hidden)', async () => {
+    for (const [who, client] of clients()) {
+      const { data, error } = await client.from('waitlist').select().eq('email', SENTINEL_WAITLIST_EMAIL)
+      expect(error, `${who} select`).toBeNull()
+      expect(data, `${who} select`).toHaveLength(0)
+    }
+  })
+
+  it('waitlist — neither anon nor authenticated can INSERT', async () => {
+    for (const [who, client] of clients()) {
+      const { data, error } = await client
+        .from('waitlist')
+        .insert({ email: `intruder-${who}-${Date.now()}@example.invalid` })
+        .select()
+      expect(error, `${who} insert must be denied`).not.toBeNull()
+      expect(data, `${who} insert`).toBeNull()
+    }
+  })
+
+  it('cost_ledger — neither anon nor authenticated can SELECT (a seeded row stays hidden)', async () => {
+    for (const [who, client] of clients()) {
+      const { data, error } = await client.from('cost_ledger').select().eq('day', SENTINEL_LEDGER_DAY)
+      expect(error, `${who} select`).toBeNull()
+      expect(data, `${who} select`).toHaveLength(0)
+    }
+  })
+
+  it('cost_ledger — neither anon nor authenticated can INSERT', async () => {
+    for (const [who, client] of clients()) {
+      const { data, error } = await client
+        .from('cost_ledger')
+        .insert({ day: '1972-02-02', spent_cents: 999 })
+        .select()
+      expect(error, `${who} insert must be denied`).not.toBeNull()
+      expect(data, `${who} insert`).toBeNull()
+    }
   })
 })
