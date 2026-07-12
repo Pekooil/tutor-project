@@ -113,7 +113,7 @@ built `dist/chrome-mv3/manifest.json`):
 | `storage` | Background-worker state across service-worker wake cycles (`lib/storage.ts`). |
 | `activeTab` | The current tab on user gesture (the toggle-overlay command relay). |
 | `scripting` | Programmatic MV3 content-script injection. |
-| `tabs` | Read the sender/active tab URL to derive the session's page domain (hashed server-side, ADR-036). **Possibly droppable** — filed (§5), see below. |
+| ~~`tabs`~~ | **DROPPED (Task 7, confirmed live 2026-07-12).** Was: read the sender/active tab URL to derive the session's page domain. Removed — the code reads only `sender.tab.url` (covered by `<all_urls>`) and `tab.id` (ungated); a live session confirmed `page_url_hash` still resolves without it. |
 | `<all_urls>` (host) | The content script must run on any page the student visits. |
 | `http://localhost:3000/*`, `https://tutor-project-web.vercel.app/*` (host) | The background worker's `fetch` to the backend (`lib/api.ts`, ADR-006). |
 
@@ -121,8 +121,12 @@ built `dist/chrome-mv3/manifest.json`):
 
 - Manifest metadata (`name`/`description`/`version`) set, and the production
   backend origin added to `host_permissions` — the manifest cleanup itself.
+- **`tabs` permission dropped (Task 7, confirmed live 2026-07-12).** The one
+  permission §7.2 flagged as possibly droppable was verified in a real session
+  (a new session still wrote a non-null `page_url_hash` with `tabs` removed) and
+  is now gone from the manifest — a smaller review footprint. See §7.2.
 - No other one-line security fix was warranted: RLS is complete (§1), auth is
-  sound (§2), and no permission was safely droppable without verification (§7).
+  sound (§2).
 
 ## 7. Filed — not fixed, with reasons
 
@@ -132,13 +136,13 @@ built `dist/chrome-mv3/manifest.json`):
    limiting. Deferred: it needs real traffic data to size and a rate-limit
    primitive (edge middleware / Upstash) this sprint does not introduce.
    *Spawned as a follow-up task.*
-2. **`tabs` permission minimization.** The background reads the page URL via
-   `sender.tab.url` and `chrome.tabs.query()` results — both of which the
-   `<all_urls>` host permission may already expose *without* the `tabs`
-   permission. If so, `tabs` is droppable (smaller review footprint). Not
-   dropped blind: a wrong removal silently breaks `sessions.page_url_hash`
-   logging. **Verify in Task 7's real cross-site session; drop only if URL→hash
-   still resolves.**
+2. ~~**`tabs` permission minimization.**~~ **RESOLVED (Task 7, 2026-07-12) —
+   dropped.** The background reads the page URL via `sender.tab.url` (exposed by
+   the `<all_urls>` host permission, not `tabs`) and only `tab.id` from
+   `chrome.tabs.query()` (ungated). Verified in a real session: with `tabs`
+   removed and the extension reloaded, a new session still wrote a non-null
+   `sessions.page_url_hash` and the toggle/broadcast paths still worked. The
+   permission is now removed from `wxt.config.ts` (moved to §6, fixed-in-sprint).
 3. **Extension `API_BASE` still `http://localhost:3000`.** The manifest now
    carries the prod origin, but `lib/api.ts`'s `API_BASE` constant still targets
    localhost, so the shipped build does not yet talk to prod. Flipping it is a

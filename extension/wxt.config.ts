@@ -52,12 +52,12 @@ export default defineConfig({
       'storage', // background-worker state across service-worker wake cycles (lib/storage.ts)
       'activeTab', // the current tab on user gesture (the toggle-overlay command relay)
       'scripting', // programmatic content-script injection (MV3)
-      // Read the sender/active tab URL to derive the session's page domain
-      // (hashed server-side, ADR-036). Possibly droppable — <all_urls> below
-      // may already expose sender.tab.url / tabs.query URLs without it — but a
-      // wrong drop silently breaks URL→hash logging, so it is FILED for
-      // real-session verification in Task 7, not dropped blind (security review).
-      'tabs',
+      // 'tabs' DROPPED (Sprint 18 Task 7, security-review §7.2): background/index.ts
+      // reads only sender.tab.url (deriveTabDomain — exposed by <all_urls> host
+      // permission, not 'tabs') and tab.id from chrome.tabs.query (id is ungated).
+      // CONFIRMED in a live session 2026-07-12: with 'tabs' removed, new sessions
+      // still write a non-null page_url_hash and the toggle/broadcast paths still
+      // work. Smaller review footprint.
     ],
     host_permissions: [
       '<all_urls>', // content script must run on any page the student visits
