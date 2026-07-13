@@ -47,7 +47,15 @@ function isPublicPath(pathname: string) {
     pathname.startsWith('/api/profile') ||
     pathname.startsWith('/api/waitlist') ||
     pathname.startsWith('/api/cron') ||
-    pathname.startsWith('/api/account')
+    pathname.startsWith('/api/account') ||
+    // Sprint 19 (ADR-045), same class as /api/cron above: /api/admin/invite is
+    // CRON_SECRET-guarded (a Bearer secret, never our cookie) and would
+    // otherwise be silently redirected to /login before assertCronSecret runs.
+    // /api/invite/claim is a public signed-out endpoint (a tester validating a
+    // code before signup), like /api/waitlist. Both do their own auth; the
+    // cookie gate must not run for them.
+    pathname.startsWith('/api/admin') ||
+    pathname.startsWith('/api/invite')
   )
 }
 

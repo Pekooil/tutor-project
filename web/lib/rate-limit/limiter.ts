@@ -13,6 +13,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export const RATE_LIMITS = {
   errors: { limit: 30, windowSeconds: 60 },
   waitlist: { limit: 5, windowSeconds: 60 },
+  // Sprint 19 (ADR-045): the public invite-claim endpoint. Rate-limited like
+  // the other public unauthenticated routes (Sprint 18 security review §7.1),
+  // defense-in-depth over the 128-bit codes that already make guessing
+  // infeasible.
+  invite: { limit: 10, windowSeconds: 60 },
 } as const
 
 export type RateLimitResult = {
