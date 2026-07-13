@@ -29,6 +29,41 @@ import { estimateCost } from '@/lib/tier/cost-model'
 // untouched).
 const COST_RESTING_MESSAGE = 'Calyxa is resting for today — the tutor is back tomorrow.'
 
+// TEMPORARY DIAGNOSTIC (set CALYXA_DEBUG_TURN=1). The `turn_latency` telemetry
+// only ever fires on the voice path when audio plays, so a slow/degraded TEXT
+// turn produces no signal at all — this fills that gap. When the flag is set,
+// each real turn logs to the dev-server console WHERE the wall-clock went
+// (cost guard / profile read / model / persistence) and WHAT the model saw and
+// produced (page-context size, detection/answer, annotation count) — the exact
+// breakdown needed to localize a "latency up / detection worse / annotations
+// dropped" report. Best-effort and side-effect-free; remove once diagnosed.
+function debugTurn(label: string, fields: Record<string, unknown>): void {
+  if (process.env.CALYXA_DEBUG_TURN) {
+    console.log(`[calyxa debug:${label}]`, JSON.stringify(fields))
+  }
+}
+
+// A compact, log-safe view of the page context the extension actually sent —
+// its SIZE and shape, never the full text (kept small + PII-light for the log).
+function pageContextSummary(pc: PageContext | undefined): Record<string, unknown> | null {
+  if (!pc) return null
+  return {
+    title: pc.title ? pc.title.slice(0, 60) : undefined,
+    textChars: pc.text?.length ?? 0,
+    equations: pc.equations.length,
+  }
+}
+
+// Wall-clock a promise-returning stage without swallowing its error/result.
+async function timed<T>(bucket: { ms: number }, run: () => Promise<T>): Promise<T> {
+  const start = Date.now()
+  try {
+    return await run()
+  } finally {
+    bucket.ms = Date.now() - start
+  }
+}
+
 // This route reads the live learning profile (ADR-014) and WRITES one
 // session_interactions row per gradable turn (text only, no audio -- ADR-011).
 // pageContext + profile are rendered into the prompt for this turn only and
@@ -141,11 +176,22 @@ async function handleOpeningScan(
     return NextResponse.json({ reply: '' })
   }
 
+  const profileTimer = { ms: 0 }
   const topicKeys = detectTopicKeys(pageContext, [])
-  const profile = await loadProfile(auth.supabase, { topicKeys })
+  const profile = await timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys }))
 
   try {
-    const envelope = await runOpeningScanTurn({ pageContext, profile })
+    const modelTimer = { ms: 0 }
+    const envelope = await timed(modelTimer, () => runOpeningScanTurn({ pageContext, profile }))
+
+    debugTurn('opening-scan', {
+      page: pageContextSummary(pageContext),
+      topicKeys,
+      detected: envelope.say ? envelope.say.slice(0, 120) : '(empty — no detection)',
+      annotationsEmitted: envelope.annotations?.length ?? 0,
+      profileMs: profileTimer.ms,
+      modelMs: modelTimer.ms,
+    })
 
     await persistOpeningInteraction(auth.supabase, auth.user.id, sessionId, envelope)
 
@@ -239,7 +285,10 @@ export async function POST(request: Request) {
   // does NOT block a text turn (only the voice legs degrade, ADR-041
   // Decision 2); it threads `degraded: true` onto the normal response below
   // so the client knows to skip STT/TTS for this turn.
-  const { softExceeded, hardExceeded } = await costGuard(auth.supabase, estimateCost('claude_turn'))
+  const costGuardTimer = { ms: 0 }
+  const { softExceeded, hardExceeded } = await timed(costGuardTimer, () =>
+    costGuard(auth.supabase, estimateCost('claude_turn'))
+  )
 
   if (hardExceeded) {
     // `degradedCap` (Sprint 18 Task 8, ADR-043): annotates WHICH cap fired so
@@ -257,28 +306,50 @@ export async function POST(request: Request) {
   // The live profile (ADR-014), biased to page-relevant topicKeys. A read,
   // not a write -- loadProfile never throws, so it sits outside the try/catch
   // reserved for the Anthropic call.
-  const profile = await loadProfile(auth.supabase, { topicKeys })
+  const profileTimer = { ms: 0 }
+  const profile = await timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys }))
 
   try {
-    const envelope = await runTutorTurn({
-      messages,
-      pageContext,
-      profile,
-      ...(sessionStart ? { sessionStart } : {}),
-    })
+    const modelTimer = { ms: 0 }
+    const envelope = await timed(modelTimer, () =>
+      runTutorTurn({
+        messages,
+        pageContext,
+        profile,
+        ...(sessionStart ? { sessionStart } : {}),
+      })
+    )
 
     // The shared persistence + grounding + ping tail (turn-complete.ts) --
     // identical to the streamed route's terminal event, so the two turn paths
     // never drift.
-    const payload = await completeTurn(
-      auth.supabase,
-      auth.user.id,
-      sessionId,
-      messages[messages.length - 1].content,
-      envelope,
-      responseLatencyMs,
-      profile
+    const completeTimer = { ms: 0 }
+    const payload = await timed(completeTimer, () =>
+      completeTurn(
+        auth.supabase,
+        auth.user.id,
+        sessionId,
+        messages[messages.length - 1].content,
+        envelope,
+        responseLatencyMs,
+        profile
+      )
     )
+
+    debugTurn(sessionStart ? 'turn:session-start' : 'turn', {
+      page: pageContextSummary(pageContext),
+      topicKeys,
+      profileNodes: profile.masteryNodes.length,
+      answer: envelope.say ? envelope.say.slice(0, 120) : '(empty)',
+      assessment: envelope.assessment?.outcome,
+      annotationsEmitted: envelope.annotations?.length ?? 0,
+      softExceeded,
+      costGuardMs: costGuardTimer.ms,
+      profileMs: profileTimer.ms,
+      modelMs: modelTimer.ms,
+      persistMs: completeTimer.ms,
+      totalMs: costGuardTimer.ms + profileTimer.ms + modelTimer.ms + completeTimer.ms,
+    })
 
     return NextResponse.json({ ...payload, ...(softExceeded ? { degraded: true, degradedCap: 'soft' } : {}) })
   } catch {

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "vitest run",
     "eval": "vitest run --config vitest.eval.config.ts",
     "eval:mock": "EVAL_MODE=mock vitest run --config vitest.eval.config.ts"

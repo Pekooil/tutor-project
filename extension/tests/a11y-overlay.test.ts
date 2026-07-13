@@ -30,7 +30,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Onboarding } from '../src/overlay/Onboarding';
 import { TitleBar } from '../src/overlay/TitleBar';
 import { Composer } from '../src/overlay/Composer';
-import { CheckinScan, CheckinCard } from '../src/overlay/CheckinCard';
+import { CheckinScan, CheckinCard, CheckinFallbackCard } from '../src/overlay/CheckinCard';
 import { PingToast } from '../src/overlay/PingToast';
 import { Transcript } from '../src/overlay/Transcript';
 import { App as PopupApp } from '../src/popup/main';
@@ -128,6 +128,11 @@ describe('overlay a11y — Sprint 14 surfaces', () => {
       }),
     );
     await expectNoAxeViolations(c, 'CheckinCard');
+  });
+
+  it('CheckinFallbackCard (opening scan named no topic — screen-capture fallback)', async () => {
+    const c = await mount(h(CheckinFallbackCard, { disabled: false, onFrame: noop }));
+    await expectNoAxeViolations(c, 'CheckinFallbackCard');
   });
 
   it('Composer (resting state)', async () => {

@@ -29,7 +29,7 @@ import type {
   TurnMessage,
 } from '../types/messages';
 import { AnnotationLayer } from './AnnotationLayer';
-import { CheckinCard, CheckinScan } from './CheckinCard';
+import { CheckinCard, CheckinFallbackCard, CheckinScan } from './CheckinCard';
 import { Composer } from './Composer';
 import { Onboarding } from './Onboarding';
 import { PingToast } from './PingToast';
@@ -648,6 +648,13 @@ export function Overlay({
   // panel body shows the orb + "Reading the page…" line and the header the
   // pulsing "Scanning" chip only inside this window.
   const [scanPending, setScanPending] = useState(false);
+  // Whether the opening scan has actually RUN and settled this open (Sprint
+  // 19 no-detection fallback fix): distinct from `!scanPending`, which is also true in the
+  // window BEFORE the scan fires. The no-detection fallback (showCheckinFallback
+  // below) keys on this so it never flashes in that pre-scan gap -- it only
+  // appears once a scan has genuinely finished without naming a topic. Reset
+  // when the panel collapses (the scan effect's `!expanded` branch).
+  const [scanSettled, setScanSettled] = useState(false);
   // The 5b reframe tool: while open, the whole panel yields to the crop
   // layer; Back returns to the check-in, Start session fires the kickoff
   // turn with the student's own framing (startSessionTurn).
@@ -807,11 +814,36 @@ export function Overlay({
     closeState === 'idle' &&
     !showCheckin;
 
+  // The no-detection fallback (Sprint 19): the opening scan finished
+  // but named no topic -- either it resolved null (nothing plausible, the
+  // request failed, or the model wasn't confident) or it returned a reply
+  // without a structured topic to build the check-in from. Rather than drop
+  // straight to the bare composer (the old behavior, which hid the whole
+  // starting screen when "no obvious question is on the page"), we surface a
+  // starting card that routes into the SAME screen-capture reframe tool the
+  // check-in's "No, other" uses -- the student frames the exact spot
+  // themselves -- with the composer still available below to just type.
+  // Keyed on scanSettled (not merely !scanPending) so it never flashes in the
+  // pre-scan window; the check-in (topic detected) always wins over it.
+  const showCheckinFallback =
+    scanSettled &&
+    !scan?.topic &&
+    !sessionLive &&
+    !recap &&
+    !busy &&
+    !recording &&
+    !connecting &&
+    !liveTranscript &&
+    closeState === 'idle' &&
+    !showOnboarding &&
+    !showCheckin;
+
   // The pre-session header chip (design 5a): "Scanning" with the pulsing
-  // dot while the scan runs, "New session" while the check-in card is up.
+  // dot while the scan runs, "New session" while the check-in card (or the
+  // no-detection fallback card) is up.
   const headerChip: HeaderChip | null = showScanning
     ? { label: 'Scanning', pulsing: true }
-    : showCheckin
+    : showCheckin || showCheckinFallback
       ? { label: 'New session', pulsing: false }
       : null;
 
@@ -1022,6 +1054,7 @@ export function Overlay({
     setCheckinTopic(null);
     setStickingPoint(null);
     setScanPending(false);
+    setScanSettled(false);
     setReframeOpen(false);
     setAutoStartArmed(true);
     setKickoffStarted(false);
@@ -1143,6 +1176,10 @@ export function Overlay({
   useEffect(() => {
     if (!expanded) {
       openingScanFiredRef.current = false;
+      // A fresh open re-runs the scan, so the no-detection fallback must not
+      // survive the collapse -- clear its "a scan settled without a topic"
+      // signal here (the panel re-arms on the next expand).
+      setScanSettled(false);
       return;
     }
     if (messages.length > 0) return;
@@ -1192,7 +1229,13 @@ export function Overlay({
         console.debug('Calyxa overlay: opening scan unavailable, opening empty', error);
       })
       .finally(() => {
-        if (!cancelled) setScanPending(false);
+        // The scan has genuinely run and settled this open (whatever it
+        // found) -- this, not merely `!scanPending`, is what arms the
+        // no-detection fallback when no topic came back.
+        if (!cancelled) {
+          setScanPending(false);
+          setScanSettled(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -1456,23 +1499,36 @@ export function Overlay({
     setReframeOpen(true);
   }
 
-  // The reframe tool's exits: Back returns to the check-in (still
-  // disarmed -- the student was mid-correction, don't restart a countdown
-  // under them); Start session fires the SAME structured kickoff as the
-  // confirm button, with the student's own words as the sticking point and
-  // the cropped snippet riding along when the crop found plain text.
+  // The reframe tool's exits: Back returns to the check-in / no-detection
+  // fallback (still disarmed -- the student was mid-correction, don't restart
+  // a countdown under them); Start session fires the SAME structured kickoff
+  // as the confirm button, with the student's own words as the sticking point
+  // and the cropped snippet riding along when the crop found plain text.
   function handleReframeCancel() {
     setReframeOpen(false);
   }
 
   function handleReframeStart(framing: { snippet: string; struggle: string }) {
-    if (busy || closeState !== 'idle' || !scan) return;
+    if (busy || closeState !== 'idle') return;
     setReframeOpen(false);
     const snippet = framing.snippet.trim();
+    const struggle = framing.struggle.trim();
+    // With a held scan (topic detected), the scan's own one-line read is the
+    // question and the crop is the exact spot WITHIN it. Reached from the
+    // no-detection fallback there is no scan, so the crop IS the problem: use
+    // it as the question (the server requires a non-empty `question`), falling
+    // back to the student's own words when the crop found no text (e.g. an
+    // image). ReframeTool guarantees a non-empty struggle, so `question` is
+    // always non-empty on that path.
+    const question = scan?.question ?? (snippet || struggle);
+    if (!question) return;
     void startSessionTurn({
-      question: scan.question,
-      stickingPoint: framing.struggle.trim(),
-      ...(snippet ? { snippet } : {}),
+      question,
+      stickingPoint: struggle,
+      // Only send the crop as a separate snippet when it's an addition to a
+      // distinct scan question -- in the fallback the crop is already the
+      // question, so don't duplicate it.
+      ...(scan && snippet ? { snippet } : {}),
     });
   }
 
@@ -2084,7 +2140,11 @@ export function Overlay({
                 deliberately ABSENT while either shows; "No, other" opens the
                 5b reframe tool (5a's single correction path), and any turn
                 path still consumes the held scan question into the
-                transcript the moment the conversation starts. ── */}
+                transcript the moment the conversation starts. When the scan
+                names NO topic, the no-detection fallback card renders ABOVE
+                the composer instead (routing into the same reframe tool) so
+                the starting screen is never hidden — the student can frame the
+                spot OR just type below. ── */}
             {showOnboarding ? (
               <Onboarding
                 items={onboardingItems!}
@@ -2105,8 +2165,15 @@ export function Overlay({
                 onReframe={handleCheckinReframe}
               />
             ) : (
-              /* ── Input row — border-t only when chat area is present above ── */
-              <Composer
+              <>
+                {showCheckinFallback && (
+                  <CheckinFallbackCard
+                    disabled={busy || ending || closeState !== 'idle'}
+                    onFrame={handleCheckinReframe}
+                  />
+                )}
+                {/* ── Input row — border-t only when chat area is present above ── */}
+                <Composer
                 hasContent={hasContent}
                 recording={recording}
                 connecting={connecting}
@@ -2142,7 +2209,8 @@ export function Overlay({
                 }}
                 onInputBlur={() => setInputFocused(false)}
                 onMicClick={handleMicClick}
-              />
+                />
+              </>
             )}
           </>
         )}

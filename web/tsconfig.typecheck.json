@@ -1,0 +1,31 @@
+{
+  // Standalone `tsc --noEmit` config for the `typecheck` script / CI gate.
+  //
+  // WHY THIS EXISTS: the main tsconfig.json (and next-env.d.ts) are Next-
+  // managed and couple type-checking to the `.next` build directory:
+  //   - Next rewrites tsconfig.json's `include` to add `.next/types/**/*.ts`
+  //     (the generated typed-routes validator), and
+  //   - next-env.d.ts carries a generated `import "./.next/.../routes.d.ts"`
+  //     whose path differs between `next dev` (.next/dev/types/...) and
+  //     `next build` (.next/types/...).
+  // In the turbo gate, `typecheck` runs CONCURRENTLY with `build` and `test`
+  // (each web test suite spawns its own `next dev`), all writing `.next`. So a
+  // standalone `tsc --noEmit` reading tsconfig.json either (a) picks up a half-
+  // written `.next/types/validator.ts` that imports a not-yet-emitted
+  // `./routes.js` (TS2307), or (b) on a fresh CI checkout follows next-env.d.ts
+  // to a `.next` path `next build` never creates. Both made CI flaky/red.
+  //
+  // THE FIX: extend the real config but (1) override `include` to source only
+  // — an extending config REPLACES `include`, so `.next/types/**/*.ts` is
+  // dropped — and (2) `exclude` the whole `.next` dir, which also neutralizes
+  // next-env.d.ts's generated `.next` side-effect import (it is never pulled
+  // into the program). next-env.d.ts's `/// <reference types="next" />` global
+  // types ARE still applied, so ambient Next typing is unchanged.
+  //
+  // Route-type validation is NOT lost: `next build` still type-checks
+  // `.next/types` via the Next-managed tsconfig.json during the gate's build
+  // step, so a bad `<Link href>` is still caught in CI.
+  "extends": "./tsconfig.json",
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", ".next"]
+}

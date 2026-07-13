@@ -160,3 +160,59 @@ export function CheckinCard({
     </div>
   );
 }
+
+// The no-detection fallback starting screen (Sprint 19): shown when
+// the opening scan settles without naming a topic -- either it found nothing
+// plausible / the model wasn't confident, OR "no obvious question is on the
+// page". The old behavior dropped straight to the bare composer, hiding the
+// starting screen entirely; instead this card keeps a real starting screen up
+// and routes into the SAME screen-capture reframe tool the check-in's
+// "No, other" uses (Overlay.tsx wires onFrame -> handleCheckinReframe), so the
+// student frames the exact part they're working on. It renders ABOVE the
+// composer (not instead of it), so typing a question directly is still one
+// tap away -- the card doesn't trap the student in the crop flow.
+// Presentational only, like the rest of this file.
+export function CheckinFallbackCard({
+  disabled,
+  // "Point me to it" -- opens the 5b reframe tool (crop the exact problem on
+  // the page and say what's tripping you up).
+  onFrame,
+}: {
+  disabled: boolean;
+  onFrame: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2.5 px-4 pb-3.5 pt-[15px]">
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[7px] border border-[var(--calyxa-sage-border)] bg-accent-subtle">
+          <CalyxaMark className="h-[15px] w-[15px]" />
+        </span>
+        <p className="m-0 text-[14.5px] font-semibold tracking-[-0.01em] text-foreground">
+          Point me to your problem
+        </p>
+      </div>
+      <p className="m-0 text-[12.5px] leading-[1.45] text-muted-foreground">
+        I couldn&rsquo;t spot a specific problem on this page. Frame the part you&rsquo;re working on and I&rsquo;ll
+        pick it up &mdash; or just type your question below.
+      </p>
+      <button
+        type="button"
+        onClick={onFrame}
+        disabled={disabled}
+        className="mt-0.5 flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-full border-0 bg-accent text-[13.5px] font-semibold text-accent-foreground outline-none hover:bg-[var(--calyxa-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="h-4 w-4"
+        >
+          <path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4" strokeLinecap="round" />
+        </svg>
+        Frame the problem
+      </button>
+    </div>
+  );
+}
