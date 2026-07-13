@@ -343,3 +343,38 @@ Whichever:
   per-provider schema duplication to maintain; ADR-038 stays Declined.
 - **Cost is tier-aware**: the Sprint 16 guardrail estimate now depends on the escalation
   rate; a future prompt/model change that shifts escalation must update `cost-model.ts`.
+
+## Filed for this sprint — deferred UX from Sprint 18 Task 7 (not in the locked 1–7 chain)
+
+> Assigned here by Darcy (2026-07-12) from the Sprint 18 cross-site QA matrix
+> (`docs/qa-matrix-sprint18.md`, rows S2/S4 / follow-up FU-1). This is a UX
+> addition, **not** part of the eval-gated Task 1–7 flow above — slot it into its
+> own task (or fold into Task 5's recognition work) when this sprint executes,
+> and confirm the design before building. Kept here so it isn't lost.
+
+**F1 — Crop-tool fallback when the opening scan recognizes no problem.**
+
+*Finding:* on pages with math but **no problem tied to a curriculum concept**
+(tested against `https://www.mathjax.org/` — the MathJax homepage — and
+`https://accessibility.psu.edu/math/mathml/` — a MathML demo), the opening scan
+correctly produces **no** concept/misconception starting screen (CheckinCard):
+there is no problem to map to a knowledge-graph node. This is the **correct
+empty-scan result** (ADR-012/ADR-030), **not** an extraction bug —
+`extension/src/content/pageExtractor.ts` reads these renderers fine. But the
+fallback UX is poor: the student is left at a blank composer with no guidance.
+
+*Requested behavior:* when no problem is recognized, instead of the bare
+composer, **offer the existing crop/reframe ("screen crop") flow** — the same one
+reachable today via the "no, other" option on the check-in screen — so the
+student can select the on-screen region they want help with.
+
+*Reuse the existing crop flow (do NOT rebuild it):*
+- `extension/src/overlay/ReframeTool.tsx` — the crop/reframe UI (design "5b").
+- `extension/src/content/pageExtractor.ts` — `extractTextInRect(rect)` + `MAX_SNIPPET_CHARS` (read-only, shadow-DOM-aware crop read).
+- `extension/src/overlay/session-flow.ts` — `buildReframeStartMessage` (crop → session-start turn).
+- `extension/src/overlay/CheckinCard.tsx` — the "no, other" option is the current entry point into the reframe flow.
+- Hook point: the null/empty-scan branch of `requestOpeningScan()` / `isPlausibleProblem()` in `extension/src/content/index.ts`.
+
+*Why it's a fit here:* it's a recognition-adjacent UX change, and Sprint 24 is
+the tutor-quality sprint. It does not depend on the eval harness, so it can run
+independently of the Task 1–7 gate.

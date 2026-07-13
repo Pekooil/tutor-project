@@ -396,3 +396,41 @@ signals.
 - **The release runbook** is the standing path for every future extension update.
 - **Firefox/AMO** stays deferred (WXT keeps the multi-target door open); revisit
   post-V1 only.
+
+## Filed for this sprint — deferred UX from Sprint 18 Task 7 (not in the locked 1–9 chain)
+
+> Assigned here by Darcy (2026-07-12) from the Sprint 18 cross-site QA matrix
+> (`docs/qa-matrix-sprint18.md`, degradation path D2 / test T5 / follow-up FU-2).
+> A small beta-readiness UX fix — natural companion to Task 8's cheap-wins slice,
+> but its own item (touches the cost-guard read + overlay, not mic/stream/history).
+> Slot it into Task 8 or run it standalone; confirm the approach before building.
+> Kept here so it isn't lost.
+
+**F1 — Proactive "resting" display when the cost hard cap is in effect.**
+
+*Finding:* when the global cost hard cap fires (ADR-041), the resting refusal —
+`COST_RESTING_MESSAGE = "Calyxa is resting for today — the tutor is back tomorrow."`
+(`web/app/api/ai/turn/route.ts`, `.../turn/stream/route.ts`, `.../ai/stream/route.ts`)
+— is delivered only as the **reply to a turn the student already sent**. So the
+student types a full prompt, waits, and only then learns the tutor is unavailable
+today. The degradation path itself is correct + graceful (it PASSED the Sprint 18
+QA matrix, D2) — this is a proactive-UX improvement on top.
+
+*Requested behavior:* surface the resting state **proactively** — show the resting
+message on panel/session open while the hard cap is in effect, **before** the
+student spends a prompt.
+
+*Approach (confirm before building):* the client needs to learn the hard-cap
+state **without a Claude call**. Options:
+- (a) have `GET /api/session/start` (or a lightweight status endpoint) report a
+  `resting` flag derived from the same `costGuard`/`cost_ledger` check
+  (`web/lib/tier/cost-guard.ts`), and have the overlay show the resting banner on
+  open when set;
+- (b) a dedicated cheap "cap status" read.
+- Do **NOT** make a Claude call just to detect the cap. Overlay entry point: the
+  opening-scan / check-in path in `extension/src/overlay/Overlay.tsx` +
+  `extension/src/content/index.ts`.
+
+*Why it's a fit here:* it's a first-impression beta-readiness UX fix (a tester
+hitting the cap and wasting a prompt is exactly the beta friction Task 8 targets),
+and it's small + independent of the store/invite pipeline.
