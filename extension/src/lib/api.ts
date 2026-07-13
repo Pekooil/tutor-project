@@ -242,6 +242,13 @@ export async function aiTurn(
   session?: SessionCompletion;
   chips?: string[];
   answerFields?: AnswerField[];
+  // Sprint 18 Task 8 (ADR-043): the cost-cap degradation signal, surfaced so
+  // the background can emit a `degraded_hit` telemetry event. `degradedCap`
+  // distinguishes soft (voice→text) from hard (resting) -- `degraded` alone
+  // cannot. Field-by-field unwrap (same discipline as the arrays above): both
+  // are surfaced only when the route sent a well-formed pair, never guessed.
+  degraded?: true;
+  degradedCap?: 'soft' | 'hard';
 }> {
   const res = await authorizedFetch('/api/ai/turn', {
     method: 'POST',
@@ -273,6 +280,9 @@ export async function aiTurn(
     ...(Array.isArray(body.chips) && body.chips.length > 0 ? { chips: body.chips as string[] } : {}),
     ...(Array.isArray(body.answerFields) && body.answerFields.length > 0
       ? { answerFields: body.answerFields as AnswerField[] }
+      : {}),
+    ...(body.degraded === true && (body.degradedCap === 'soft' || body.degradedCap === 'hard')
+      ? { degraded: true as const, degradedCap: body.degradedCap }
       : {}),
   };
 }
@@ -422,6 +432,11 @@ type StreamEnvelopePayload = {
   session?: SessionCompletion;
   chips?: string[];
   answerFields?: AnswerField[];
+  // Sprint 18 Task 8 (ADR-043): the streamed voice turn's cost-cap signal,
+  // riding the terminal envelope (web/app/api/ai/turn/stream) the same way the
+  // buffered /api/ai/turn carries it -- surfaced for `degraded_hit` emission.
+  degraded?: true;
+  degradedCap?: 'soft' | 'hard';
 };
 
 export async function aiTurnEnvelopeStream(
@@ -502,6 +517,9 @@ export async function aiTurnEnvelopeStream(
     ...(Array.isArray(envelope.answerFields) && envelope.answerFields.length > 0
       ? { answerFields: envelope.answerFields }
       : {}),
+    ...(envelope.degraded === true && (envelope.degradedCap === 'soft' || envelope.degradedCap === 'hard')
+      ? { degraded: true as const, degradedCap: envelope.degradedCap }
+      : {}),
   };
 }
 
@@ -517,6 +535,12 @@ export async function aiTurnEnvelopeStream(
 export async function sttTranscribe(audio: { bytes: ArrayBuffer; mimeType: string }): Promise<{
   transcript: string;
   sttMs: number;
+  // Sprint 18 Task 8 (ADR-043): the cost-cap short-circuit signal. When the
+  // route degrades this leg (`{ degraded, degradedCap }`, no transcript), these
+  // are surfaced so the background can emit `degraded_hit`; the transcript/sttMs
+  // are absent exactly as before (unchanged degrade-to-text behavior).
+  degraded?: true;
+  degradedCap?: 'soft' | 'hard';
 }> {
   const res = await authorizedFetch('/api/voice/stt', {
     method: 'POST',
@@ -529,7 +553,13 @@ export async function sttTranscribe(audio: { bytes: ArrayBuffer; mimeType: strin
     throw new Error(body.error ?? `stt_transcribe failed: ${res.status}`);
   }
 
-  return { transcript: body.transcript, sttMs: body.sttMs };
+  return {
+    transcript: body.transcript,
+    sttMs: body.sttMs,
+    ...(body.degraded === true && (body.degradedCap === 'soft' || body.degradedCap === 'hard')
+      ? { degraded: true as const, degradedCap: body.degradedCap }
+      : {}),
+  };
 }
 
 /**
@@ -541,7 +571,9 @@ export async function sttTranscribe(audio: { bytes: ArrayBuffer; mimeType: strin
  * Reuses authorizedFetch verbatim, so a dead refresh token surfaces
  * SignedOutError exactly as the other helpers above do.
  */
-export async function ttsSynthesize(text: string): Promise<{ audio: ArrayBuffer; ttsMs: number }> {
+export async function ttsSynthesize(
+  text: string,
+): Promise<{ audio: ArrayBuffer; ttsMs: number; degraded?: true; degradedCap?: 'soft' | 'hard' }> {
   const res = await authorizedFetch('/api/voice/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -551,6 +583,24 @@ export async function ttsSynthesize(text: string): Promise<{ audio: ArrayBuffer;
   if (!res.ok) {
     const body = await res.json();
     throw new Error(body.error ?? `tts_synthesize failed: ${res.status}`);
+  }
+
+  // Sprint 18 Task 8 (ADR-043): the cost-cap degraded short-circuit returns
+  // JSON (`{ degraded, degradedCap }`) with a 200, NOT audio bytes
+  // (web/app/api/voice/tts). Detect it by content-type BEFORE reading the body
+  // as an ArrayBuffer -- reading a JSON body as audio would hand the overlay
+  // garbage bytes (a latent mishandle this guard also closes). No audio is
+  // produced this leg; the signal is surfaced for `degraded_hit` emission.
+  if (res.headers.get('content-type')?.includes('application/json')) {
+    const body = await res.json().catch(() => ({}));
+    if (body.degraded === true) {
+      return {
+        audio: new ArrayBuffer(0),
+        ttsMs: 0,
+        degraded: true,
+        degradedCap: body.degradedCap === 'hard' ? 'hard' : 'soft',
+      };
+    }
   }
 
   const ttsMs = Number(res.headers.get('x-tts-ms') ?? 0);
@@ -581,7 +631,7 @@ export async function ttsSynthesize(text: string): Promise<{ audio: ArrayBuffer;
 export async function ttsSynthesizeStream(
   text: string,
   onChunk: (chunk: Uint8Array) => void,
-): Promise<{ ttsMs: number }> {
+): Promise<{ ttsMs: number; degraded?: true; degradedCap?: 'soft' | 'hard' }> {
   const res = await authorizedFetch('/api/voice/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -591,6 +641,17 @@ export async function ttsSynthesizeStream(
   if (!res.ok) {
     const body = await res.json();
     throw new Error(body.error ?? `tts_synthesize failed: ${res.status}`);
+  }
+
+  // Sprint 18 Task 8 (ADR-043): same cost-cap degraded short-circuit guard as
+  // ttsSynthesize -- the degraded response is JSON, not a stream, so detect it
+  // by content-type before draining the body as audio chunks. No chunks are
+  // emitted this leg; the signal is surfaced for `degraded_hit`.
+  if (res.headers.get('content-type')?.includes('application/json')) {
+    const body = await res.json().catch(() => ({}));
+    if (body.degraded === true) {
+      return { ttsMs: 0, degraded: true, degradedCap: body.degradedCap === 'hard' ? 'hard' : 'soft' };
+    }
   }
 
   const ttsMs = Number(res.headers.get('x-tts-ms') ?? 0);

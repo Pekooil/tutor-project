@@ -330,19 +330,21 @@ describe('over the soft cap: voice degrades, text is flagged but still proceeds'
     expect(anthropicCalls).toBe(before + 1)
   })
 
-  it('STT degrades to text: no provider call, { degraded: true }', async () => {
+  it('STT degrades to text: no provider call, { degraded: true, degradedCap: soft }', async () => {
     const before = whisperCalls
     const { status, json } = await stt(Buffer.from('fake audio bytes'))
     expect(status).toBe(200)
-    expect(json).toEqual({ degraded: true })
+    // Sprint 18 Task 8: `degradedCap` annotates which cap fired (soft here) so
+    // the extension can emit an accurate `degraded_hit.cap`.
+    expect(json).toEqual({ degraded: true, degradedCap: 'soft' })
     expect(whisperCalls).toBe(before)
   })
 
-  it('TTS degrades to text: no provider call, { degraded: true }', async () => {
+  it('TTS degrades to text: no provider call, { degraded: true, degradedCap: soft }', async () => {
     const before = ttsCalls
     const { status, json } = await tts('hello there')
     expect(status).toBe(200)
-    expect(json).toEqual({ degraded: true })
+    expect(json).toEqual({ degraded: true, degradedCap: 'soft' })
     expect(ttsCalls).toBe(before)
   })
 })
@@ -367,7 +369,8 @@ describe('over the hard cap: new AI turns are refused, never a 500 or a provider
     const before = whisperCalls
     const { status, json } = await stt(Buffer.from('fake audio bytes'))
     expect(status).toBe(200)
-    expect(json).toEqual({ degraded: true })
+    // Sprint 18 Task 8: hard cap fired here, so degradedCap is 'hard'.
+    expect(json).toEqual({ degraded: true, degradedCap: 'hard' })
     expect(whisperCalls).toBe(before)
   })
 
@@ -375,7 +378,7 @@ describe('over the hard cap: new AI turns are refused, never a 500 or a provider
     const before = ttsCalls
     const { status, json } = await tts('hello there')
     expect(status).toBe(200)
-    expect(json).toEqual({ degraded: true })
+    expect(json).toEqual({ degraded: true, degradedCap: 'hard' })
     expect(ttsCalls).toBe(before)
   })
 })

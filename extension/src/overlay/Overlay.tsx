@@ -1773,7 +1773,14 @@ export function Overlay({
             : firstSayAt !== null
               ? Math.max(0, Math.round(firstAudioAt - firstSayAt))
               : 0;
-        void onSendTelemetry?.([{ kind: 'turn_latency', sttMs, aiMs, ttsMs, networkMs, totalMs }]);
+        // Sprint 18 Task 8 (ADR-043): `voice_used` rides the SAME completed-
+        // voice-turn signal as turn_latency (audio actually played) -- one
+        // batched emit, both content-free. voice_used is the usage-rate counter
+        // (fired once per turn that used voice I/O); it carries no fields.
+        void onSendTelemetry?.([
+          { kind: 'turn_latency', sttMs, aiMs, ttsMs, networkMs, totalMs },
+          { kind: 'voice_used' },
+        ]);
       }
     } catch (error) {
       setLiveTranscript('');

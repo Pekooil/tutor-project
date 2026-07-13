@@ -63,7 +63,10 @@ export async function POST(request: Request) {
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(sseChunk({ sayDelta: COST_RESTING_MESSAGE }))
-        controller.enqueue(sseChunk({ envelope: { reply: COST_RESTING_MESSAGE, degraded: true } }))
+        // `degradedCap` (Sprint 18 Task 8, ADR-043): same telemetry-support
+        // annotation as /api/ai/turn — lets the extension emit an accurate
+        // `degraded_hit.cap`. No change to the reply/`degraded` behavior.
+        controller.enqueue(sseChunk({ envelope: { reply: COST_RESTING_MESSAGE, degraded: true, degradedCap: 'hard' } }))
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         controller.close()
       },
@@ -108,7 +111,7 @@ export async function POST(request: Request) {
             responseLatencyMs,
             profile
           )
-          controller.enqueue(sseChunk({ envelope: { ...payload, ...(softExceeded ? { degraded: true } : {}) } }))
+          controller.enqueue(sseChunk({ envelope: { ...payload, ...(softExceeded ? { degraded: true, degradedCap: 'soft' } : {}) } }))
         }
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
       } catch {

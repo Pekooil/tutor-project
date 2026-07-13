@@ -79,6 +79,56 @@ describe('reduceTelemetryBatch — the flush-on-N-or-age reducer (Sprint 17 Task
   });
 });
 
+describe('the four Sprint-18-wired kinds carry their typed no-content shape through the batch (Task 8)', () => {
+  // Sprint 17 wired session_started/onboarding_completed/turn_latency/
+  // annotation_rendered; Sprint 18 Task 8 wired the remaining two (voice_used,
+  // degraded_hit). These assert each now-emitted kind is a well-formed
+  // TelemetryEvent (the `satisfies` is a compile-time shape check) and that the
+  // batch path carries it verbatim. The no-free-text INVARIANT for these exact
+  // kinds is proven server-side in web/tests/telemetry.test.ts (validateEvent
+  // accepts voice_used/degraded_hit and rejects a smuggled transcript/url on
+  // them) -- unchanged here, since Task 8 touched neither the union nor
+  // validateEvent, only the emission sites.
+  const turnLatency = { kind: 'turn_latency', sttMs: 120, aiMs: 800, ttsMs: 300, networkMs: 40, totalMs: 1260 } satisfies TelemetryEvent;
+  const annotationRendered = { kind: 'annotation_rendered', count: 2, fallback: false } satisfies TelemetryEvent;
+  const voiceUsed = { kind: 'voice_used' } satisfies TelemetryEvent;
+  const degradedHit = { kind: 'degraded_hit', cap: 'soft', source: 'whisper_stt' } satisfies TelemetryEvent;
+
+  it('a completed voice turn batches turn_latency + voice_used together, unchanged', () => {
+    // The exact pair Overlay.tsx emits in one call on a played voice turn.
+    const incoming: TelemetryEvent[] = [turnLatency, voiceUsed];
+    const { flush } = reduceTelemetryBatch(
+      { events: [], oldestAt: 1_000 },
+      incoming,
+      1_000 + TELEMETRY_BATCH_MAX_AGE_MS,
+    );
+    expect(flush).toEqual(incoming);
+  });
+
+  it('degraded_hit carries exactly {kind, cap, source} -- no other field', () => {
+    expect(Object.keys(degradedHit).sort()).toEqual(['cap', 'kind', 'source']);
+  });
+
+  it('voice_used carries only its kind -- a pure content-free usage counter', () => {
+    expect(Object.keys(voiceUsed)).toEqual(['kind']);
+  });
+
+  it('all four Sprint-17/18 turn/voice kinds flush intact once the batch fills', () => {
+    // Five copies of the four kinds = 20 events = the size cap, so this flushes
+    // and proves every kind survives the reducer verbatim.
+    const incoming: TelemetryEvent[] = Array.from({ length: 5 }, () => [
+      turnLatency,
+      annotationRendered,
+      voiceUsed,
+      degradedHit,
+    ]).flat();
+    expect(incoming).toHaveLength(TELEMETRY_BATCH_MAX);
+    const { flush, next } = reduceTelemetryBatch(EMPTY_TELEMETRY_BATCH, incoming, 1_000);
+    expect(flush).toEqual(incoming);
+    expect(next).toEqual(EMPTY_TELEMETRY_BATCH);
+  });
+});
+
 describe('flushTelemetry — a failed POST is swallowed (Sprint 17 Task 6/8, ADR-043)', () => {
   it('resolves normally even when api.sendTelemetry rejects -- no user-visible effect', async () => {
     vi.mocked(api.sendTelemetry).mockRejectedValueOnce(new Error('network down'));

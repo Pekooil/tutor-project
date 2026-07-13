@@ -200,7 +200,7 @@ export default defineBackground(() => {
     if (port.name !== 'VOICE_TTS_STREAM') return;
     port.onMessage.addListener(async (msg: VoiceTtsPayload) => {
       try {
-        const { ttsMs } = await api.ttsSynthesizeStream(msg.text, (chunk) => {
+        const { ttsMs, degraded, degradedCap } = await api.ttsSynthesizeStream(msg.text, (chunk) => {
           try {
             port.postMessage({ type: 'chunk', audio: uint8ArrayToBase64(chunk) });
           } catch {
@@ -209,6 +209,9 @@ export default defineBackground(() => {
             // dropped here too; caught again on the next postMessage.
           }
         });
+        // Sprint 18 Task 8 (ADR-043): a cost-capped TTS leg emits degraded_hit.
+        // On degrade no chunks were posted; the 'done' below carries ttsMs 0.
+        if (degraded && degradedCap) emitDegradedHit(degradedCap, 'elevenlabs_tts');
         try {
           port.postMessage({ type: 'done', ttsMs });
         } catch {
@@ -234,12 +237,10 @@ export default defineBackground(() => {
       try {
         await ensureSessionStarted(pageDomain, 'text');
         const turnContext = await getTurnContext();
-        const { reply, annotations, pins, solutionProgress, session, chips, answerFields } = await api.aiTurn(
-          msg.messages,
-          msg.pageContext,
-          turnContext,
-          msg.sessionStart,
-        );
+        const { reply, annotations, pins, solutionProgress, session, chips, answerFields, degraded, degradedCap } =
+          await api.aiTurn(msg.messages, msg.pageContext, turnContext, msg.sessionStart);
+        // Sprint 18 Task 8 (ADR-043): a cost-capped turn emits degraded_hit.
+        if (degraded && degradedCap) emitDegradedHit(degradedCap, 'claude_turn');
         // Split on whitespace boundaries, keeping trailing spaces attached to
         // the preceding token so the overlay reconstructs spacing correctly.
         const tokens = reply.match(/\S+\s*/g) ?? [];
@@ -297,7 +298,7 @@ export default defineBackground(() => {
       try {
         await ensureSessionStarted(pageDomain, 'voice');
         const turnContext = await getTurnContext();
-        const { reply, annotations, pins, solutionProgress, session, chips, answerFields } =
+        const { reply, annotations, pins, solutionProgress, session, chips, answerFields, degraded, degradedCap } =
           await api.aiTurnEnvelopeStream(msg.messages, msg.pageContext, turnContext, (text) => {
             try {
               port.postMessage({ type: 'say', text });
@@ -306,6 +307,8 @@ export default defineBackground(() => {
               // final envelope still lands (or is dropped on the done post).
             }
           });
+        // Sprint 18 Task 8 (ADR-043): a cost-capped voice turn emits degraded_hit.
+        if (degraded && degradedCap) emitDegradedHit(degradedCap, 'claude_turn');
         await setRunningTranscript(msg.messages);
         await stampTurnAnchor(turnContext.sessionId);
         if (session?.complete) void handleEndSession();
@@ -583,12 +586,31 @@ export async function flushTelemetry(events: TelemetryEvent[]): Promise<void> {
  * event the background originates itself -- session start is a background-owned
  * fact (ensureSessionStarted / handleOpeningScan / handleStartSession) -- so it
  * belongs here rather than in the overlay. Batched + swallowed like all
- * telemetry. onboarding_completed / turn_latency / annotation_rendered
+ * telemetry. onboarding_completed / turn_latency / annotation_rendered / voice_used
  * originate where THEIR data lives (the overlay's completion + voice-timing +
- * annotation-draw paths) and are wired by Task 7, not here.
+ * annotation-draw paths). `degraded_hit` is the OTHER background-originated
+ * event (emitDegradedHit below, Sprint 18 Task 8) -- the cost-cap signal is
+ * only observable here, where the api.ts responses land.
  */
 function reportSessionStarted(mode: 'voice' | 'text'): void {
   void enqueueTelemetry([{ kind: 'session_started', mode }]);
+}
+
+/**
+ * Fire-and-forget `degraded_hit` emission (Sprint 18 Task 8, ADR-043): fired
+ * when an AI/voice route degraded under the Sprint 16 cost cap (ADR-041).
+ * `cap` is the route's own `degradedCap` annotation (the client cannot tell
+ * soft from hard from the bare `degraded` flag); `source` is which leg
+ * degraded. Batched + swallowed like every other event -- a dropped
+ * beta-health signal never affects the student, and this changes NO turn/voice
+ * behavior (emission only). Exported for telemetry-routing.test.ts, the same
+ * "exported for the test task" convention as reduceTelemetryBatch/flushTelemetry.
+ */
+export function emitDegradedHit(
+  cap: 'soft' | 'hard',
+  source: 'claude_turn' | 'whisper_stt' | 'elevenlabs_tts',
+): void {
+  void enqueueTelemetry([{ kind: 'degraded_hit', cap, source }]);
 }
 
 /**
@@ -891,11 +913,13 @@ async function handleAiTurn(
   try {
     await ensureSessionStarted(pageDomain, 'voice');
     const turnContext = await getTurnContext();
-    const { reply, annotations, pins, solutionProgress, session, chips } = await api.aiTurn(
+    const { reply, annotations, pins, solutionProgress, session, chips, degraded, degradedCap } = await api.aiTurn(
       messages,
       pageContext,
       turnContext,
     );
+    // Sprint 18 Task 8 (ADR-043): a cost-capped turn emits degraded_hit.
+    if (degraded && degradedCap) emitDegradedHit(degradedCap, 'claude_turn');
     await setRunningTranscript(messages);
     await stampTurnAnchor(turnContext.sessionId);
     if (session?.complete) void handleEndSession();
@@ -1000,10 +1024,13 @@ async function handleOpeningScan(payload: OpeningScanPayload, pageDomain: string
  */
 async function handleVoiceStt(payload: VoiceSttPayload): Promise<CalyxaMessage> {
   try {
-    const { transcript, sttMs } = await api.sttTranscribe({
+    const { transcript, sttMs, degraded, degradedCap } = await api.sttTranscribe({
       bytes: base64ToArrayBuffer(payload.audio),
       mimeType: payload.mimeType,
     });
+    // Sprint 18 Task 8 (ADR-043): a cost-capped STT leg emits degraded_hit. The
+    // reply shape below is unchanged -- emission only.
+    if (degraded && degradedCap) emitDegradedHit(degradedCap, 'whisper_stt');
     return { type: 'VOICE_STT_REPLY', payload: { transcript, sttMs } };
   } catch (error) {
     return { type: 'VOICE_STT_REPLY', payload: { error: toErrorMessage(error) } };
@@ -1019,7 +1046,10 @@ async function handleVoiceStt(payload: VoiceSttPayload): Promise<CalyxaMessage> 
  */
 async function handleVoiceTts(payload: VoiceTtsPayload): Promise<CalyxaMessage> {
   try {
-    const { audio, ttsMs } = await api.ttsSynthesize(payload.text);
+    const { audio, ttsMs, degraded, degradedCap } = await api.ttsSynthesize(payload.text);
+    // Sprint 18 Task 8 (ADR-043): a cost-capped TTS leg emits degraded_hit. On
+    // degrade `audio` is empty (no speech this leg) -- reply shape unchanged.
+    if (degraded && degradedCap) emitDegradedHit(degradedCap, 'elevenlabs_tts');
     return { type: 'VOICE_TTS_REPLY', payload: { audio: arrayBufferToBase64(audio), ttsMs } };
   } catch (error) {
     return { type: 'VOICE_TTS_REPLY', payload: { error: toErrorMessage(error) } };

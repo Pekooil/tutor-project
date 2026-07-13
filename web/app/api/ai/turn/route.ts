@@ -242,7 +242,11 @@ export async function POST(request: Request) {
   const { softExceeded, hardExceeded } = await costGuard(auth.supabase, estimateCost('claude_turn'))
 
   if (hardExceeded) {
-    return NextResponse.json({ reply: COST_RESTING_MESSAGE, degraded: true })
+    // `degradedCap` (Sprint 18 Task 8, ADR-043): annotates WHICH cap fired so
+    // the extension can emit an accurate `degraded_hit.cap` — the client sees
+    // only `degraded: true` otherwise and cannot tell soft from hard. Telemetry
+    // support only; no change to the reply/`degraded` behavior.
+    return NextResponse.json({ reply: COST_RESTING_MESSAGE, degraded: true, degradedCap: 'hard' })
   }
 
   // Turn-time topic detection (ADR-021): deterministic keyword match, no model
@@ -276,7 +280,7 @@ export async function POST(request: Request) {
       profile
     )
 
-    return NextResponse.json({ ...payload, ...(softExceeded ? { degraded: true } : {}) })
+    return NextResponse.json({ ...payload, ...(softExceeded ? { degraded: true, degradedCap: 'soft' } : {}) })
   } catch {
     // Never relay the provider's error text or any key material to the client.
     return NextResponse.json({ error: 'Tutor is unavailable right now.' }, { status: 502 })

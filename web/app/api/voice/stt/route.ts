@@ -52,7 +52,10 @@ export async function POST(request: Request) {
   )
 
   if (softExceeded || hardExceeded) {
-    return NextResponse.json({ degraded: true })
+    // `degradedCap` (Sprint 18 Task 8, ADR-043): telemetry support so the
+    // extension can emit `degraded_hit.cap`. Hard takes precedence when both
+    // are crossed. No change to the degrade-to-text behavior.
+    return NextResponse.json({ degraded: true, degradedCap: hardExceeded ? 'hard' : 'soft' })
   }
 
   try {
