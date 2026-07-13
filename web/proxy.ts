@@ -3,7 +3,11 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 // Public routes everyone can reach without a session. Everything else
 // (e.g. the (dashboard) route group) requires an authenticated user.
-const PUBLIC_PATHS = ['/', '/login', '/signup']
+// /privacy and /terms (Sprint 19, ADR-046) are public like '/': a Chrome Web
+// Store reviewer and any signed-out visitor must reach the privacy policy
+// without an account (the policy URL is a hard store requirement), so they are
+// simply public, the same way the landing page is.
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/privacy', '/terms']
 
 function isPublicPath(pathname: string) {
   // /api/session/*, /api/ai/*, /api/voice/*, and /api/profile/* are
