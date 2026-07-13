@@ -26,11 +26,8 @@ export const metadata: Metadata = {
 // legal document should not silently change its own date on every request.
 const LAST_UPDATED = 'July 12, 2026'
 
-// NOTE (needs Darcy's confirmation before this page is public / before CWS
-// submission): no real support/privacy contact address exists in the repo yet.
-// This is a placeholder — replace with a monitored inbox. Flagged in the Task 3
-// report.
-const PRIVACY_CONTACT = 'privacy@calyxa.app'
+// Support/privacy contact (Darcy, 2026-07-12).
+const PRIVACY_CONTACT = 'calyxasupport@gmail.com'
 
 function Header() {
   return (
