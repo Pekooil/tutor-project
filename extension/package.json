@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
+    "zip": "wxt zip",
+    "release": "wxt build && mkdir -p release && V=$(node -p \"require('./dist/chrome-mv3/manifest.json').version\") && rm -f \"release/calyxa-$V.zip\" && (cd dist/chrome-mv3 && zip -qr \"../../release/calyxa-$V.zip\" .) && echo \"→ packaged release/calyxa-$V.zip\" && ls -1t release/calyxa-*.zip | tail -n +6 | while read -r f; do rm -- \"$f\" && echo \"pruned old build $f\"; done",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "postinstall": "wxt prepare"

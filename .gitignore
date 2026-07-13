@@ -9,6 +9,10 @@ dist/
 .next/
 *.tsbuildinfo
 
+# Release artifacts — versioned Chrome Web Store zips (Sprint 19, ADR-045).
+# Kept addressable on disk (last N) for rollback; never committed.
+extension/release/
+
 # Environment & secrets (but keep .env*.example templates tracked)
 .env
 .env.local

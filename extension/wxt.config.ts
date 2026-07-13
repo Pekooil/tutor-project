@@ -44,6 +44,13 @@ export default defineConfig({
     name: 'Calyxa — AI math tutor',
     description:
       'A patient AI math tutor for any web page — Calyxa guides you through problems step by step instead of just giving the answer.',
+    // Shipped manifest version — the SINGLE source of the release version.
+    // Sprint 18 set 0.1.0 as the starting value; Sprint 19 adopts it as the
+    // first RELEASED beta version (nothing has shipped, so 0.1.0 is the first
+    // beta — no bump: 0.1.1 would falsely imply 0.1.0 already went out). The
+    // `release` script (package.json) reads this value back out of the BUILT
+    // manifest.json to name the artifact `release/calyxa-<version>.zip`, so
+    // every future beta build bumps ONLY this line, per docs/release-runbook.md.
     version: '0.1.0',
     // Manifest V3 permissions. Each is justified below; nothing here that the
     // content script + background worker don't use, and deliberately NO
