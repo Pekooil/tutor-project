@@ -85,7 +85,7 @@ questions):**
 
 ## CWS other required fields
 
-- **Privacy policy URL:** `https://tutor-project-web.vercel.app/privacy`
+- **Privacy policy URL:** `https://calyxa.app/privacy`
   (public, no auth — verified in `web/proxy.ts`).
 - **Data encrypted in transit:** **Yes** — all traffic to our server (Vercel) and
   database (Supabase) is over HTTPS/TLS.

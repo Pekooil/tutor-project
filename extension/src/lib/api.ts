@@ -39,8 +39,10 @@ import type {
 // API_BASE is a plain build-time constant, not a Supabase key: the extension
 // holds no secret to put behind an env var. `http://localhost:3000` is the
 // Sprint 03/04 dev backend (same value documented in /web/.env.local.example).
-// The production origin is added at launch -- swap this constant then, and
-// add it to wxt.config.ts's host_permissions alongside the dev origin.
+// The production origin (https://calyxa.app -- the custom domain on the same
+// Vercel project, not the old tutor-project-web.vercel.app alias) is swapped
+// in here at launch; wxt.config.ts's host_permissions already carries the
+// same origin alongside the dev one (see docs/release-runbook.md).
 export const API_BASE = 'http://localhost:3000';
 
 // Thrown when the backend has rejected the refresh token itself (not just an

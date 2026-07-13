@@ -77,9 +77,11 @@ A bad beta build is rolled back by **re-uploading the previous artifact**:
 
 - **`API_BASE` still points at `localhost:3000`** (`extension/src/lib/api.ts`). The
   production origin is already in the manifest's `host_permissions` (Sprint 18), so
-  flipping `API_BASE` to `https://tutor-project-web.vercel.app` for a shipped build is
-  a **one-line constant change, not a permission change** — do it before packaging a
-  build meant for testers. (Tracked as a Sprint 19 launch item.)
+  flipping `API_BASE` to `https://calyxa.app` (the project's custom domain — the old
+  `tutor-project-web.vercel.app` alias is retired from every hardcoded reference as of
+  2026-07-13) for a shipped build is a **one-line constant change, not a permission
+  change** — do it before packaging a build meant for testers. (Tracked as a Sprint 19
+  launch item.)
 - The version in `extension/package.json` (`0.0.0`) is **monorepo-internal** and is
   deliberately NOT the shipped version — `wxt.config.ts` `manifest.version` owns that.
 - Cross-platform: `release` uses the system `zip` (present on macOS + the Ubuntu CI

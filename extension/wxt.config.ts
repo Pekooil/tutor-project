@@ -69,14 +69,17 @@ export default defineConfig({
     host_permissions: [
       '<all_urls>', // content script must run on any page the student visits
       // Backend origins the background worker's fetch calls in src/lib/api.ts
-      // reach (ADR-006). Dev localhost + the production Vercel origin, ADDED
-      // ALONGSIDE (not replacing) the dev one per this sprint's plan.
+      // reach (ADR-006). Dev localhost + the production origin (calyxa.app,
+      // the custom domain on the same Vercel project — the old
+      // tutor-project-web.vercel.app alias is being retired from every
+      // hardcoded reference, 2026-07-13), ADDED ALONGSIDE (not replacing) the
+      // dev one per this sprint's plan.
       // NOTE: api.ts's API_BASE constant still points at localhost:3000;
       // flipping it to the prod origin for the shipped build is a Sprint 19
       // (launch) task — this is the manifest half, added now so that flip is a
       // one-line constant change, never a permissions change needing re-review.
       'http://localhost:3000/*',
-      'https://tutor-project-web.vercel.app/*',
+      'https://calyxa.app/*',
     ],
     // Keyboard command (Sprint 02, rebound Sprint 10). A custom command,
     // separate from the popup's reserved _execute_action. The key is

@@ -68,7 +68,7 @@ What makes Calyxa different:
 Your privacy comes first. Your microphone audio is never stored. The pages you
 visit are recorded only as a one-way hash — never the URL or the contents. You
 can export or permanently delete everything Calyxa holds about you at any time.
-Full details: https://tutor-project-web.vercel.app/privacy
+Full details: https://calyxa.app/privacy
 
 Calyxa is currently in a private, invite-only beta.
 ```
@@ -95,7 +95,7 @@ on any web page, as an on-page overlay.
 
 **Privacy policy URL**
 ```
-https://tutor-project-web.vercel.app/privacy
+https://calyxa.app/privacy
 ```
 
 **Support / contact email**
