@@ -327,6 +327,32 @@ list is Sprint 19's pre-submission checklist. This sprint **hardens**; the store
 Sprint 19 — it inherits a review-ready manifest and a proven no-secret bundle. See
 ADR-044.
 
+## Store packaging + private beta distribution (Sprint 19)
+The final pre-beta gate turns the release candidate into an **installed, invite-gated
+beta**. **Release pipeline:** `wxt zip` is wired into a `release` script
+(`extension/package.json`) that builds + zips a **versioned** artifact to a predictable
+path (`extension/release/calyxa-<version>.zip`), keeping the last N so a bad build rolls
+back by re-uploading the prior one; the Sprint 18 no-secret gate runs on the **zipped**
+bytes (`docs/release-runbook.md` is the standing human path). **Distribution channel:**
+an **unlisted** Chrome Web Store item (ADR-006 / PLAN §2.11) — install is open-via-link,
+but **use is gated by an invite claim at signup, not link secrecy**. **Waitlist →
+invite pipeline:** the Sprint 20 `waitlist` table (capture-only, deny-all) gains
+**additive** `invited_at`/`invite_code`/`cohort` columns (`0019_waitlist_invite.sql`) —
+**still Shape 3 deny-all, still no FK-to-users** since pre-signup emails aren't users;
+`POST /api/admin/invite` (service-role, admin/`CRON_SECRET`-guarded) marks a cohort
+invited + mints codes and either sends (`web/lib/email/invite.ts`, server-only credential,
+no-op if absent) or returns a **manual-send batch**; `web/app/api/auth/signup/route.ts`
+adds the **invite allowlist** check after the age gate — an invited email proceeds, an
+uninvited one gets a **soft "you're on the waitlist" 200 with no user created** (same
+no-retention discipline as the age gate). **Listing:** the `/privacy` + `/terms` pages
+(public, marketing tokens) and `docs/data-safety-disclosure.md` are generated **truthfully
+from the verified collection surface** (ADR-046), with the privacy page linking the
+account export/erasure rights. **Pre-beta latency (Task 8):** mic pre-warm (<500ms
+click→recording), text turns routed through the existing streaming turn, and history
+trimmed to the PLAN §2.5 6–8 turn window — extension-side latency/token plumbing only, no
+grading/model/pedagogy change (that is Sprint 24). Submission starts mid-sprint (review
+latency is the long pole) while the invite pipeline finishes. See ADR-045 and ADR-046.
+
 ## Marketing site (Sprint 20, revised by Sprint 25)
 `/web/app/page.tsx` is the public landing page, built as a **parallel
 track** alongside the product-roadmap sprints — it shares no files with them
@@ -514,6 +540,33 @@ See `/docs/adr/`. Notably:
   added, real name/version/description, justified permissions, no tabCapture) and
   files larger findings with a reason; submission is Sprint 19, this sprint produces
   its prerequisites (review-ready manifest + proven no-secret bundle)
+- ADR-045 — Beta distribution channel (Sprint 19; next free number at execution, no
+  renumber): the beta ships as an **unlisted** Chrome Web Store item (ADR-006 / PLAN
+  §2.11 implemented) — install is open-via-link, but **use is gated by an invite CLAIM
+  at signup, not by link secrecy**; an uninvited email gets a soft "you're on the
+  waitlist" HTTP 200 with **no user created** (mirrors the age-gate no-retention rule),
+  an invited email proceeds as today; `waitlist` gains **additive** `invited_at`/
+  `invite_code`/`cohort` columns written service-role-only, **still Shape 3 deny-all**
+  and **no FK-to-users** (pre-signup emails aren't users, so the "new table joins the
+  export" rule deliberately does not apply); the release pipeline wires `wxt zip` into a
+  **versioned, rollback-first** artifact (`extension/release/calyxa-<version>.zip`, last
+  N kept) with the Sprint 18 no-secret gate run on the **zipped** bytes; email send is
+  the one new external capability — **server-only + admin/`CRON_SECRET`-guarded**,
+  absent-credential no-ops, **manual-send batch** supported; submission starts mid-sprint
+  (review latency is the long pole) while the invite pipeline is built in parallel.
+  Task-4's migration is renumbered from the plan's `0018` to `0019_waitlist_invite.sql`
+  (`0018_rate_limit.sql` already exists)
+- ADR-046 — Privacy policy + Chrome data-safety disclosure (Sprint 19): the `/privacy` +
+  `/terms` pages and `docs/data-safety-disclosure.md` are **generated from the actual
+  verified collection surface** (email/password, birth year + `age_verified`, GDPR
+  consent stamp, learning profile, **text** transcripts with **no audio** per ADR-011,
+  **hashed** page ids per ADR-036, **content-free typed** telemetry per ADR-043, and
+  user-authored feedback per ADR-039) — **truthful by construction**, the doc mapping
+  1:1 to the tables and the disclosure declaring providers as **processors not
+  recipients**; both pages are **public/no-auth** (joined to the Sprint 20 public-path
+  list) and the policy **links the account export/erasure rights** (ADR-035); the
+  disclosure is a **standing coupling** — any future collection (Sprint 21/23) must
+  update `/privacy` + the form before shipping to beta users
 
 ## To be documented
 - System context diagram

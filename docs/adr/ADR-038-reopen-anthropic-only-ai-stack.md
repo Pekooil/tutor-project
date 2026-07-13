@@ -29,7 +29,7 @@ But three facts constrain it:
 **Decision (proposed):** Reopen the "Anthropic only" constraint **conditionally
 and reversibly**, permitting the *tutor turn* to run on OpenAI GPT-4o-mini
 **only if all of the following hold**:
-- (a) **Caching first.** ADR-037 / Sprint 19 has shipped and been measured, and
+- (a) **Caching first.** ADR-037 (prompt caching, commit `e9cb3bf`) has shipped and been measured, and
   caching + the Sprint 16 guardrail **still miss the beta budget target.** If
   they meet it, this decision stays un-exercised.
 - (b) **Behind a provider abstraction.** The migration ships behind a thin
