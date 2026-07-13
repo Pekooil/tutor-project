@@ -78,6 +78,18 @@ checked at signup**.
    provider at all. Send is a **bounded cohort**, never open signup, so the spam/abuse
    surface stays small.
 
+   > **Amendment (Task 6, 2026-07-12) — resolved to a transactional provider, not
+   > Supabase invite.** Supabase Auth's invite/magic-link does **not** fit: the invite
+   > email must carry the **unlisted store link + the invite code** (the tester installs
+   > the extension, then signs up through our own age-gate/consent/allowlist flow), not a
+   > magic link into the web app, and it must **not** pre-create an auth user — both of
+   > which `inviteUserByEmail` does. So `sendInvite` sends a **custom transactional email
+   > via Resend over plain `fetch`** (no SDK dependency), credentialed by two server-only
+   > env vars — `RESEND_API_KEY` + a verified `INVITE_FROM_EMAIL` — with `CALYXA_STORE_URL`
+   > supplying the link (Task 7). Either credential absent → no-op → manual batch.
+   > Provider swap is a one-function change; `RESEND_API_KEY` is added to the Sprint 18
+   > no-secret bundle gate.
+
 6. **Submission starts as soon as the listing assets exist (mid-sprint).** CWS review
    latency — especially for a broad-host-permission (`<all_urls>`) extension — is the
    sprint's **long pole**, so the unlisted item is uploaded the moment Tasks 2–3 land (a

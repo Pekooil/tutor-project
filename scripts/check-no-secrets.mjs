@@ -44,6 +44,11 @@ const SECRET_VALUE_VARS = [
   'ELEVENLABS_API_KEY',
   'MONITORING_DSN',
   'SUPABASE_SERVICE_ROLE_KEY',
+  // Sprint 19 / Task 6 (ADR-045): the invite send credential. Server-only
+  // (web/lib/email/invite.ts) — the extension never imports it, so it cannot
+  // reach the bundle; listed here to keep the "every new secret joins the
+  // gate" rule (ADR-044) whole and to prove absence against the built output.
+  'RESEND_API_KEY',
 ]
 
 // A value must be at least this long to be VALUE-scanned — guards against a
@@ -61,7 +66,10 @@ const LITERAL_PATTERNS = [
   { name: 'elevenlabs-header', re: /xi-api-key/i },
   { name: 'sentry-dsn', re: /https:\/\/[A-Za-z0-9]+@[A-Za-z0-9.-]*ingest\.[A-Za-z0-9.-]*sentry\.io\/[0-9]+/ },
   { name: 'sentry-ingest-host', re: /[A-Za-z0-9-]+\.ingest\.[A-Za-z0-9.-]*sentry\.io/ },
-  { name: 'secret-var-name', re: /\b(?:ANTHROPIC_API_KEY|OPENAI_API_KEY|ELEVENLABS_API_KEY|SUPABASE_SERVICE_ROLE_KEY|MONITORING_DSN)\b/ },
+  // Resend API keys are `re_` + a long token; specific enough not to fire on a
+  // minified bundle (Sprint 19, ADR-045).
+  { name: 'resend-key', re: /re_[A-Za-z0-9]{20,}/ },
+  { name: 'secret-var-name', re: /\b(?:ANTHROPIC_API_KEY|OPENAI_API_KEY|ELEVENLABS_API_KEY|SUPABASE_SERVICE_ROLE_KEY|MONITORING_DSN|RESEND_API_KEY)\b/ },
 ]
 
 function walk(dir) {

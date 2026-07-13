@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertCronSecret } from '@/lib/cron/auth'
+import { sendInvite } from '@/lib/email/invite'
 
 // Sprint 19 / Task 5 (ADR-045): the admin invite route. Service-role,
 // CRON_SECRET-guarded (the SAME bearer gate as /api/cron/*, reused). Given a
@@ -101,20 +102,28 @@ export async function POST(request: Request) {
 
   const storeUrl = process.env.CALYXA_STORE_URL ?? null
 
+  // send:true → dispatch each invite (Task 6). sendInvite no-ops safely if no
+  // send credential is configured (returns not-sent), so send:true without
+  // RESEND_API_KEY simply falls back to the manual batch below — never throws.
+  let sentCount = 0
   if (send) {
-    // TODO(Task 6, ADR-045): dispatch each invite via
-    // sendInvite(email, code, storeUrl) here. sendInvite does not exist yet, so
-    // for now we still return the batch below — no invite is lost, and sending
-    // is wired in Task 6. `sent` stays false until then.
+    for (const inv of invited) {
+      const result = await sendInvite(inv.email, inv.code, storeUrl)
+      if (result.sent) sentCount++
+    }
   }
 
   return NextResponse.json({
     invited: invited.length,
     cohort,
     storeUrl,
-    // The batch for a manual send (send:false): email + code per invited row.
+    // Whether auto-send was requested, and how many actually dispatched. When
+    // send is false (manual mode) or a send fails, the batch below carries the
+    // codes so the cohort can always be emailed by hand.
+    send,
+    sent: sentCount,
+    // The batch (email + code per invited row) — the manual-send source and a
+    // record of every code minted this call.
     batch: invited,
-    // Task 6 flips this true once sendInvite dispatches. Not yet wired.
-    sent: false,
   })
 }
