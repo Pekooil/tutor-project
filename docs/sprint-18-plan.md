@@ -327,16 +327,34 @@ Acceptance gate (sprint close):
     item with a reason.
 
 ## Acceptance criteria (full checklist)
-- [ ] ADR-044 written; pointers + architecture.md updated
-- [ ] First CI (GitHub Actions) runs the full turbo gate on push/PR
-- [ ] No-secret-in-bundle CI job greps the BUILT extension for the 3 provider keys + monitoring DSN; a planted value fails it
-- [ ] Extension overlay + popup + Sprint 14/17 surfaces pass axe A/AA (jsdom); manual contrast pass recorded against brand.md AA pairs
-- [ ] RLS coverage sweep: every user-scoped table isolated, deny-all tables closed, telemetry_event insert-only — in CI
-- [ ] Manifest: production backend origin added, real name/description/version, justified permissions, no tabCapture
-- [ ] Security review doc: RLS + bearer + cron-auth results, permission table, filed-not-fixed list with reasons
-- [ ] Cross-site QA matrix passed on ≥3 real math sites; both degradation paths exercised; SPA re-capture confirmed; no host-DOM mutation
-- [ ] Telemetry emission: `turn_latency`, `annotation_rendered` (with rendered/dropped counts), `voice_used`, `degraded_hit` all emit on a real turn, typed + no-content; no tutoring behavior change
-- [ ] `turbo run typecheck lint build test` + all CI jobs green
+
+Task 9 sign-off status recorded 2026-07-12. `[x]` = verified; `[~]` = built +
+statically verified, **awaiting the live/CI run** (see the "needs a live run"
+note at the bottom).
+
+- [x] ADR-044 written; pointers + architecture.md updated (Task 1)
+- [~] First CI (GitHub Actions) workflow present + correct — `gate` (turbo) + `no-secret-in-bundle`, with a11y/RLS running inside the gate's `test`. **Not yet confirmed green ON GitHub**: needs Actions secrets (a DEDICATED test Supabase + test provider keys) configured and a push (Darcy — I cannot configure secrets or push).
+- [x] No-secret-in-bundle job + `scripts/check-no-secrets.mjs`; green locally (literal backstop). Planted-value failure proven in Task 3; the VALUE scan runs in CI with real env.
+- [x] Extension overlay + popup + Sprint 14/17 surfaces pass axe A/AA in jsdom (in the extension suite, 199/199); manual contrast pass recorded (`docs/a11y-contrast-audit.md`).
+- [~] RLS coverage sweep (`web/tests/rls.test.ts`) present + wired into the gate's `test`. **Green pending the live run** (live Supabase; Darcy/CI).
+- [x] Manifest: production origin added, real name/description/version, justified permissions, **no tabCapture**; `tabs` dropped + verified live (Task 7).
+- [x] Security review doc complete: RLS + bearer + cron-auth results, permission table, filed-not-fixed list with reasons; `tabs` finding resolved.
+- [x] Cross-site QA matrix run on 4 real sites (Task 7, live 2026-07-12): all sites + all three degradation paths pass; SPA re-capture confirmed; no host-DOM mutation. Two UX enhancements filed (crop-fallback, proactive-resting).
+- [~] Telemetry emission: `turn_latency`, `annotation_rendered`, `voice_used`, `degraded_hit` — code-complete + statically verified (typed shapes; no-content invariant unchanged + still tested in `web/tests/telemetry.test.ts`; extension suite green). **Live emission on a real turn not yet spot-checked** (browser; Darcy).
+- [~] `turbo run typecheck lint build test` + all CI jobs green — static/isolated gates green locally (extension typecheck·lint·build·test, web typecheck·lint, no-secret script). **The live web `test` suite + web `build` + CI-green-on-GitHub remain** (Darcy/CI).
+
+### Needs a live run before the sprint can be marked COMPLETE
+Four items above are `[~]` because they can only be confirmed against live infra
+or on GitHub, neither of which is safe/possible to do unilaterally from this
+session (the live web suite races a local dev server on port 3000 and pads the
+**shared** `cost_ledger`; CI needs repo secrets + a push):
+1. The full `turbo run … test` (the live web integration suite, incl. the RLS sweep) green — Darcy (dev server stopped) or CI.
+2. CI green on GitHub — Darcy configures Actions secrets (test Supabase + test keys) + pushes.
+3. Live telemetry spot-check: a real capped turn emits `degraded_hit`; a real voice turn emits `voice_used` (Task 8).
+4. (Optional) web `build` in isolation (races a running dev server on `.next/`).
+
+Once 1–3 are green, flip `/CLAUDE.md` + `/docs/CLAUDE.md` "Current sprint/phase"
+to **COMPLETE** and check the four `[~]` boxes.
 
 ## Risks
 **The audit finds a large problem late.** Mitigation: the review fixes one-liners in
