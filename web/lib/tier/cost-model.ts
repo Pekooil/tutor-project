@@ -30,6 +30,17 @@ export const WHISPER_PER_SEC_CENTS = 0.05
 // call site, unlike the audio-duration estimate above.
 export const ELEVENLABS_PER_CHAR_CENTS = 0.006
 
+// Sprint 21 / Task 4 (ADR-049): the study-kit generation call
+// (web/lib/study/generate.ts) — the one new paid Claude call this sprint
+// adds. A flat per-kit estimate like CLAUDE_TURN_CENTS, but larger: a kit is
+// a single call whose OUTPUT (notes + 2-3 worked problems + 3-5 flashcards,
+// STUDY_KIT_MAX_TOKENS) is several times a turn's ≤3-sentence reply, and its
+// input (the whole session transcript) is bigger than one turn's too. Three
+// cents is a deliberately rough over-a-turn placeholder grounded in that
+// size difference — same "budget-accurate, not invoice-accurate" bar as
+// every constant here, tuned in a one-line diff from Task 8's real numbers.
+export const STUDY_KIT_CENTS = 3
+
 // The global daily ceiling (UTC day, cost_ledger's key — migration 0013).
 // SOFT: the normal ceiling — voice degrades to text + browser TTS past this
 // point, text turns keep working. HARD: the spike/abuse backstop, set well
@@ -48,7 +59,7 @@ export const ELEVENLABS_PER_CHAR_CENTS = 0.006
 export const SOFT_CAP_CENTS = Number(process.env.COST_SOFT_CAP_CENTS_OVERRIDE) || 2000 // $20.00/day
 export const HARD_CAP_CENTS = Number(process.env.COST_HARD_CAP_CENTS_OVERRIDE) || 5000 // $50.00/day
 
-export type CostKind = 'claude_turn' | 'whisper_stt' | 'elevenlabs_tts'
+export type CostKind = 'claude_turn' | 'whisper_stt' | 'elevenlabs_tts' | 'study_kit'
 
 // web/overlay/VoiceController.ts's toWavUtterance: gpt-4o-mini-transcribe
 // rejects Chrome's native webm/opus recording, so every utterance is
@@ -76,5 +87,12 @@ export function estimateCost(kind: CostKind, size = 0): number {
     }
     case 'elevenlabs_tts':
       return Math.max(1, Math.ceil(ELEVENLABS_PER_CHAR_CENTS * size))
+    // Sprint 21 / Task 4 (ADR-049): a flat per-kit estimate, `size`-independent
+    // like 'claude_turn' — the study-kit generator is one call whose token
+    // shape (whole-session input, notes+problems+flashcards output) is roughly
+    // uniform per kit, so the route passes no `size` and STUDY_KIT_CENTS stands
+    // as the estimate. It refuses under the hard cap like every other paid call.
+    case 'study_kit':
+      return STUDY_KIT_CENTS
   }
 }

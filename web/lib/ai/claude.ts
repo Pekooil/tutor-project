@@ -17,7 +17,14 @@ export type TurnMessage = {
 const MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 600 // PLAN.md §2.5 per-turn response budget
 
-function createClient(): Anthropic {
+// Exported (Sprint 21 / Task 4, ADR-049) so the study-kit generator
+// (web/lib/study/generate.ts) reuses the exact client construction — including
+// the ANTHROPIC_API_KEY presence check — for its own forced-tool call, rather
+// than duplicating it the way the opening scan had to (createOpeningScanClient
+// in the turn route, when claude.ts was out of scope). runStudyKitTool lives in
+// generate.ts (study-domain prompt building belongs there, not here); this is
+// the one thing it needs from claude.ts. No change to runTutorTurn/envelope.
+export function createClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY
 
   if (!apiKey) {
