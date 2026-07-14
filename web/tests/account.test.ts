@@ -157,11 +157,27 @@ async function seedAllTables(userId: string) {
     .insert({ user_id: userId, kind: 'session_started', payload: { mode: 'text' } })
   if (telemetryErr) throw new Error(`seed telemetry_event failed: ${telemetryErr.message}`)
 
+  // Sprint 21 (ADR-049): the persisted study kit must be export- AND
+  // erasure-covered like every other user-scoped table (Sprint 16 invariant).
+  // One row per artifact kind (migration 0021); a 'notes' row (payload =
+  // ordered step strings) is enough to prove both. session_id links it to the
+  // seeded session (on delete set null), user_id is the erasure-cascade root.
+  const { error: studyErr } = await admin
+    .from('study_artifact')
+    .insert({
+      user_id: userId,
+      session_id: session.id,
+      kind: 'notes',
+      payload: ['Factor by finding two numbers that multiply to c and add to b.'],
+      concept_keys: ['algebra.test.fixture'],
+    })
+  if (studyErr) throw new Error(`seed study_artifact failed: ${studyErr.message}`)
+
   return { sessionId: session.id as string }
 }
 
 async function existsInAnyTable(userId: string): Promise<Record<string, number>> {
-  const tables = ['users', 'sessions', 'knowledge_nodes', 'misconceptions', 'session_interactions', 'reinforcement_schedule', 'feedback', 'telemetry_event']
+  const tables = ['users', 'sessions', 'knowledge_nodes', 'misconceptions', 'session_interactions', 'reinforcement_schedule', 'feedback', 'telemetry_event', 'study_artifact']
   const counts: Record<string, number> = {}
 
   for (const table of tables) {
@@ -272,6 +288,10 @@ describe('GET /api/account/export', () => {
     expect(body.feedback[0].message).toBe('fixture feedback')
     expect(body.telemetry_event).toHaveLength(1)
     expect(body.telemetry_event[0].kind).toBe('session_started')
+    // Sprint 21 (ADR-049): the persisted study kit (RLS-scoped read) lands in
+    // the export too.
+    expect(body.study_artifact).toHaveLength(1)
+    expect(body.study_artifact[0].kind).toBe('notes')
   })
 
   it("never includes a second user's rows (RLS proven, not a query we could get wrong)", async () => {
@@ -296,6 +316,9 @@ describe('GET /api/account/export', () => {
     // directly. feedback (RLS-scoped) is checked the same way for symmetry.
     for (const row of body.feedback) expect(row.user_id).toBe(userA.id)
     for (const row of body.telemetry_event) expect(row.user_id).toBe(userA.id)
+    // Sprint 21: study_artifact rides the RLS-scoped set -- same per-row
+    // owner check for symmetry (and to prove B's kit never leaks into A's).
+    for (const row of body.study_artifact) expect(row.user_id).toBe(userA.id)
   })
 
   it('rejects an invalid bearer token', async () => {
@@ -376,5 +399,10 @@ describe('GET /api/cron/hard-delete-sweep', () => {
     // above already covers them via existsInAnyTable) and stay for E.
     expect(eCounts.feedback).toBe(1)
     expect(eCounts.telemetry_event).toBe(1)
+    // Sprint 21 (ADR-049): the study kit cascade-deletes for D (its all-zero
+    // check above covers it via existsInAnyTable's added 'study_artifact') and
+    // stays for the never-queued E -- the FK `on delete cascade` to users
+    // (migration 0021) is the erasure path, no deletion code of its own.
+    expect(eCounts.study_artifact).toBe(1)
   })
 })

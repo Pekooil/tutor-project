@@ -25,9 +25,10 @@ const EXPORT_SCHEMA_VERSION = 1
 // Read through the caller's own RLS-scoped client (`auth.supabase`), where the
 // database is the scoping guarantee. `users`/`sessions`/`knowledge_nodes`/
 // `misconceptions`/`session_interactions`/`reinforcement_schedule` (per
-// docs/architecture.md) plus `feedback` (Sprint 17) and `mastery_snapshot`
-// (Sprint 22) are the complete set of user-scoped tables that expose an owner
-// SELECT policy; any new such table a future sprint adds MUST be added here too.
+// docs/architecture.md) plus `feedback` (Sprint 17), `mastery_snapshot`
+// (Sprint 22), and `study_artifact` (Sprint 21) are the complete set of
+// user-scoped tables that expose an owner SELECT policy; any new such table a
+// future sprint adds MUST be added here too.
 const RLS_SCOPED_TABLES = [
   'users',
   'sessions',
@@ -40,6 +41,14 @@ const RLS_SCOPED_TABLES = [
   // `mastery_snapshot_select_own` policy makes this authenticated read Just
   // Work; the FK cascade to users covers erasure (migration 0020).
   'mastery_snapshot',
+  // Sprint 21 (ADR-049): generated study kits -- the first *generated* content
+  // this product persists. Its `study_artifact_select_own` policy makes this
+  // authenticated read Just Work (like feedback above, not the service-role
+  // exception telemetry_event needs); the FK cascade to users covers erasure
+  // (migration 0021). Sprint 16's invariant: every new user-scoped table joins
+  // the export here + the erasure sweep (the FK cascade) -- both, asserted in
+  // tests/account.test.ts.
+  'study_artifact',
 ] as const
 
 export async function GET(request: Request) {
