@@ -259,9 +259,23 @@ Scope: `theme.css` (+ `globals.css` mapping only if shadcn needs it). Additive,
 AA-validated, mapped to existing hues.
 
 Acceptance gate before Task 3:
-  - New `--chart-*` tokens exist; no existing token changed; each chart hue passes
+  - [x] New `--chart-*` tokens exist; no existing token changed; each chart hue passes
     AA against its background per brand.md; the six strand colors are visually
-    distinct.
+    distinct. DONE 2026-07-13: 6 strand (`--chart-1..6`) + 5 state
+    (`--chart-state-*`) + 3 accuracy (`--chart-correct/partial/incorrect`) tokens
+    added to `packages/ui/src/theme.css`, all values reused verbatim from existing
+    hexes (no new color introduced). AA re-verified against `--color-background`
+    for chart use specifically: lowest is 5.47:1 (teal), highest 8.02:1 (rose) —
+    all clear 4.5:1. Distinctness: picked the best 6-of-8 existing tutor-mode hues
+    (≥32° min hue-angle gap after excluding sky/indigo, the closest pair);
+    documented as a disclosed near-optimal spread, not silently assumed perfect.
+    `mastered`/`correct` intentionally reuse the same green as strand-2 (geometry)
+    — flagged in the CSS comment as harmless since strand bars and state/accuracy
+    segments never share one chart. `web/app/globals.css` NOT touched — Task 3
+    hasn't installed shadcn's chart component yet, so there's nothing yet to map;
+    revisit there if its scaffold expects a specific `--chart-N` shape.
+    `turbo run typecheck lint build` green across `@calyxa/ui`, `web`, and
+    `@calyxa/extension` (extension bundle rebuilt, dist/chrome-mv3 current).
 
 ## Task 3 — Web: charting-library wiring gate
 Scope: recharts + shadcn chart component + one throwaway tokened chart.
@@ -330,7 +344,7 @@ Signed in as a real dev user with real tutoring history:
 
 ## Acceptance criteria (full checklist)
 - [x] ADRs written — resolved to **ADR-047** (dashboard reads) + **ADR-048** (chart tokens + library) at execution (the provisional 048/049 assumed Sprint 21 landed 047 first; it hadn't — latest on disk was 046 — so 047/048 are true next-free); pointers (`/CLAUDE.md`, `/docs/CLAUDE.md`) + `architecture.md` updated. NB: Sprint 22 was started ahead of the plan's intended 18→19→21→22 order (Sprint 19 still in progress, Sprint 21 not landed), at Darcy's direction.
-- [ ] Chart color tokens added to theme.css (additive, AA-validated); shadcn chart over Recharts installed; a tokened chart renders green-on-brand
+- [~] Chart color tokens added to theme.css (additive, AA-validated) — **DONE (Task 2)**; shadcn chart over Recharts installed; a tokened chart renders green-on-brand — **still open (Task 3)**
 - [ ] loadDashboard returns the full per-user graph grouped by strand, decay-adjusted (parity with loadProfile), RLS-scoped, titles resolved, degrades to empty
 - [ ] mastery_snapshot table (Shape 2 RLS, FK cascade, export-covered) + a CRON_SECRET-gated daily cron; forward-only trend stated honestly in the UI
 - [ ] (dashboard) nav slot filled; Overview/Mastery/Misconceptions/Review/Activity render for data + empty users; unauthed → /login

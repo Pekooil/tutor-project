@@ -326,3 +326,67 @@
   --calyxa-placeholder-stripe-b: #f2f0ea;
   --calyxa-placeholder-text: #9a988f;
 }
+
+/* ---- Calyxa dashboard: chart color tokens (Sprint 22 Task 2, ADR-048) ----
+ * The long-deferred "chart colors as named tokens" — every prior handoff
+ * since Sprint 10 said to add these; this is the first sprint that does.
+ * ADDITIVE only, no existing token changed. Every value below is REUSED
+ * verbatim from a hex already shipped elsewhere in this file (ADR-018
+ * discipline) — no new color is introduced for the dashboard.
+ *
+ * SIX STRAND COLORS (--chart-1..6) map the six `@calyxa/curriculum` strand
+ * files (algebra1/geometry/algebra2/trig-precalc/calculus/prob-stats, in
+ * that file order) onto six of the eight tutor-mode "text" hues already
+ * proven AA-safe on their own tint (Sprint 14 Task 7's block above) —
+ * explore (sky) and review (indigo) are the two EXCLUDED, because their hue
+ * angles (~201°/~244°) sit only ~19-26° from a neighbor once six are picked
+ * from eight, the closest pairing this file's eight mode hues allow; the
+ * kept six (~15°/143°/175°/263°/295°/343°, coach/practice/verify/build/
+ * challenge/recover) clear a ≥32° minimum pairwise hue gap, the best
+ * available spread — a deliberate, disclosed distinctness pass (not a
+ * hidden assumption), same as the border-strong near-miss documented
+ * elsewhere in this file. Re-verified AA (relative-luminance) against
+ * --color-background #FFFFFF specifically for chart use (the tutor-mode
+ * block only verified each against its OWN paired tint): #9a3412 7.31:1 ·
+ * #166534 7.13:1 (AAA, brand.md §4.1) · #0f766e 5.47:1 · #6d28d9 7.10:1 ·
+ * #a21caf 6.32:1 · #9f1239 8.02:1 — all clear the 4.5:1 AA text minimum
+ * (and trivially the 3:1 non-text minimum for a plain bar/segment fill).
+ *
+ * FIVE STATE COLORS (--chart-state-*) and the THREE ACCURACY COLORS
+ * (--chart-correct/partial/incorrect) are a separate, smaller palette —
+ * distinct from each other within their own chart, not from the strand set
+ * (strand bars and state/accuracy segments never share one chart, so a
+ * hex reused across the two groups is a harmless coincidence, not a
+ * distinctness bug): mastered/correct intentionally share
+ * --color-accent-emphasis (the brand's one blessed "positive" green,
+ * 7.13:1 AAA) — the same hex Chart-2 (geometry) also happens to reuse,
+ * flagged here rather than silently chosen; weak/partial share the
+ * ping-watch amber text (7.06:1 AAA, brand.md-adjacent "caution" hue);
+ * forgotten/incorrect share --color-danger (6.47:1 AA); learning reuses the
+ * existing --calyxa-tag-due blue (4.82:1 AA, already documented against
+ * --color-surface above); unseen reuses --color-muted-foreground (5.36:1
+ * AA, brand.md §4.2). Nothing here is remapped — every value already
+ * clears AA at its existing size, so no failing hue needed replacing.
+ */
+:root,
+:host {
+  /* Strand 1-6, in @calyxa/curriculum file order */
+  --chart-1: #9a3412; /* algebra1 — reuses calyxa-mode-coach-text */
+  --chart-2: var(--color-accent-emphasis); /* geometry — reuses the brand accent green; ALSO reused below as chart-state-mastered/chart-correct (different chart, disclosed above) */
+  --chart-3: #0f766e; /* algebra2 — reuses calyxa-mode-verify-text */
+  --chart-4: #6d28d9; /* trig-precalc — reuses calyxa-mode-build-text */
+  --chart-5: #a21caf; /* calculus — reuses calyxa-mode-challenge-text */
+  --chart-6: #9f1239; /* prob-stats — reuses calyxa-mode-recover-text */
+
+  /* Mastery state distribution (unseen → learning → weak → mastered, plus forgotten) */
+  --chart-state-unseen: var(--color-muted-foreground);
+  --chart-state-learning: var(--calyxa-tag-due);
+  --chart-state-weak: var(--calyxa-ping-watch-text);
+  --chart-state-mastered: var(--color-accent-emphasis);
+  --chart-state-forgotten: var(--color-danger);
+
+  /* Activity/accuracy trend (session_interactions outcome) */
+  --chart-correct: var(--color-accent-emphasis);
+  --chart-partial: var(--calyxa-ping-watch-text);
+  --chart-incorrect: var(--color-danger);
+}
