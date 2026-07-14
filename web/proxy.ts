@@ -55,7 +55,23 @@ function isPublicPath(pathname: string) {
     // code before signup), like /api/waitlist. Both do their own auth; the
     // cookie gate must not run for them.
     pathname.startsWith('/api/admin') ||
-    pathname.startsWith('/api/invite')
+    pathname.startsWith('/api/invite') ||
+    // Sprint 17 bearer-authed extension routes (ADR-042/043), the SAME class as
+    // /api/session, /api/ai, /api/voice above — the extension sends its Bearer
+    // token, never our cookie, and each route does its own auth
+    // (clientFromBearer). They were omitted from this list when added, so in
+    // production every extension call to them was silently redirected to /login
+    // (307) before the handler ran — telemetry/feedback never recorded and the
+    // onboarding status check degraded to {needed:false}, so onboarding never
+    // showed. Found during Sprint 19 Task 9 acceptance (the route-level tests
+    // import handlers directly and never traverse this middleware — the exact
+    // blind spot that hid the Sprint 16 /api/cron gap). /api/errors is bearer-
+    // best-effort (it also serves signed-out crash reports and never 401s), so
+    // it belongs here too.
+    pathname.startsWith('/api/telemetry') ||
+    pathname.startsWith('/api/feedback') ||
+    pathname.startsWith('/api/onboarding') ||
+    pathname.startsWith('/api/errors')
   )
 }
 

@@ -74,10 +74,11 @@ export default defineConfig({
       // tutor-project-web.vercel.app alias is being retired from every
       // hardcoded reference, 2026-07-13), ADDED ALONGSIDE (not replacing) the
       // dev one per this sprint's plan.
-      // NOTE: api.ts's API_BASE constant still points at localhost:3000;
-      // flipping it to the prod origin for the shipped build is a Sprint 19
-      // (launch) task — this is the manifest half, added now so that flip is a
-      // one-line constant change, never a permissions change needing re-review.
+      // NOTE: api.ts's API_BASE was flipped to the prod origin
+      // (https://calyxa.app) for the beta submission build in Sprint 19 Task 9.
+      // Both origins stay listed here: prod is what the shipped build calls, and
+      // localhost is kept so a dev revert of the API_BASE constant needs no
+      // permissions change / re-review.
       'http://localhost:3000/*',
       'https://calyxa.app/*',
     ],

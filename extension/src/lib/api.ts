@@ -37,13 +37,15 @@ import type {
 // talk to the worker via chrome.runtime messages (Task 7).
 //
 // API_BASE is a plain build-time constant, not a Supabase key: the extension
-// holds no secret to put behind an env var. `http://localhost:3000` is the
-// Sprint 03/04 dev backend (same value documented in /web/.env.local.example).
-// The production origin (https://calyxa.app -- the custom domain on the same
-// Vercel project, not the old tutor-project-web.vercel.app alias) is swapped
-// in here at launch; wxt.config.ts's host_permissions already carries the
-// same origin alongside the dev one (see docs/release-runbook.md).
-export const API_BASE = 'http://localhost:3000';
+// holds no secret to put behind an env var. Sprint 19 Task 9 (ADR-045): flipped
+// from the `http://localhost:3000` dev backend to the PRODUCTION origin for the
+// beta submission build -- https://calyxa.app is the custom domain on the same
+// Vercel project (not the old tutor-project-web.vercel.app alias), and
+// wxt.config.ts's host_permissions already carries it. This is the
+// "swap the prod origin in at launch" step in docs/release-runbook.md; to run
+// the extension against a local backend again, revert this to
+// http://localhost:3000 (the value documented in /web/.env.local.example).
+export const API_BASE = 'https://calyxa.app';
 
 // Thrown when the backend has rejected the refresh token itself (not just an
 // expired access token). Callers should treat this as "signed out": there is
