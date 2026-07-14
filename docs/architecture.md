@@ -451,6 +451,52 @@ ADR-048 (chart tokens + library).
 > Darcy's direction. The ADRs resolved to **047/048** (true next-free at execution — the
 > plan's provisional 048/049 assumed Sprint 21 would land 047 first; it hadn't).
 
+## Study-materials generator (Sprint 21)
+A completed tutoring session now leaves a **study kit** behind — persisted **notes**,
+**practice problems**, and **flashcards** — filling the "Generated for you" seat both
+the marketing landing page (Sprint 20) and the extension recap card reserved. This is a
+**post-beta feature**, not a pre-beta obligation: ADR-031 §4's "ship generation or add a
+qualifier" fuse already resolved on the qualifier branch (ADR-040 reframed the study-loop
+section to "on the way"), so Sprint 21 makes that roadmap promise true with **no
+marketing-copy change**.
+
+Generation is a **new forced-tool Claude call, a sibling of the tutoring turn — not a
+change to it**. It mirrors `runSessionStartTool`'s discipline (`claude.ts`): a `STUDY_KIT_
+TOOL` (`strict: true`, `additionalProperties: false`, every field length-capped, concept
+keys constrained to `CONCEPT_KEYS` via the `nullableEnum` form), forced via `tool_choice`,
+pulled from the `tool_use` block, validated by `parseStudyKit`, with a **deterministic
+empty/minimal-kit fallback** on any bad response — never a throw, never a half-parsed kit
+persisted. `runTutorTurn` and the envelope are untouched. The prompt is built by a new
+`web/lib/study/source.ts` (`loadSessionSource`) that **reuses `buildSessionRecap`'s read**
+(`web/lib/learning/recap.ts`) — the same per-session transcript + outcome + concept +
+misconceptions the recap shows — so the kit is grounded in the actual session, not free
+invention. Artifact shapes match the marketing `ArtifactKind = 'notes' | 'problems' |
+'flashcards'` union exactly, with **one deliberate superset**: practice problems carry
+worked **solutions** (the marketing card shows statements only, a usable feature needs
+answers).
+
+The kit is **persisted** — unlike the ephemeral recap — in a new **`study_artifact`**
+table (Shape 2 RLS, `user_id`-keyed, **FK `on delete cascade` to `users`**, a nullable
+`session_id` **`on delete set null`** so a deleted session never orphans a kept kit, one
+row per artifact kind), the **first *generated* content the product stores**, and it joins
+Sprint 16's **export + erasure** paths (ADR-035). Generation is **on-demand and
+cost-guarded, not automatic per session**: `POST /api/study/generate` calls
+`costGuard(estimateCost('study_kit'))` **before** the Claude call (a new `'study_kit'`
+`CostKind` + `STUDY_KIT_CENTS` — the one cost-model change), refusing gracefully on the
+hard cap **without a provider call** (ADR-041); `GET /api/study/list` returns the caller's
+persisted kits. The extension `RecapCard.tsx` placeholder (two dashed tiles) becomes real
+rendering — notes list, problems with revealable solutions, flip flashcards — over the
+single background egress (ADR-006), degrading to the placeholder on failure. Kits are
+**available to all beta users**; Pro-gating is a documented **one-line future add**
+(Sprint 23), not built here. The Sprint 19 data-safety disclosure + `/privacy` (ADR-046)
+must add **"generated study materials"** as a persisted data type before this reaches the
+beta cohort. See ADR-049.
+
+> **Numbering note:** the ADR resolved to **049** (the plan's provisional 047 was voided by
+> Sprint 22 taking 047/048 when it started ahead of order); the `study_artifact` migration
+> is **not** the plan's `0019` (`0019_waitlist_invite.sql` exists) — next-free is `0020`,
+> contended with Sprint 22 Task 5's `mastery_snapshot`; resolve at Task 2 execution.
+
 ## Architecture decision records
 See `/docs/adr/`. Notably:
 - ADR-001 — Extension framework (WXT)
@@ -641,6 +687,19 @@ See `/docs/adr/`. Notably:
   tokens-native substrate (wiring-gated before any view), and the mastery trend is fed by
   a new **forward-only `mastery_snapshot`** table + daily `CRON_SECRET`-gated cron
   (reusing Sprint 16's cron infra, FK-cascade + export-covered, no cost logic)
+- ADR-049 — Study-materials generation (Sprint 21; resolved to next-free **049** — the
+  plan's provisional 047 was voided by Sprint 22 taking 047/048 when started ahead of
+  order): a completed session becomes a persisted **study kit** (notes / practice problems
+  with worked solutions / flashcards, = the marketing `ArtifactKind` union + the one
+  solutions superset) via a **new forced-tool Claude call** (`STUDY_KIT_TOOL`, sibling of
+  `runSessionStartTool`, deterministic empty-kit fallback, `runTutorTurn`/envelope
+  untouched), grounded in `buildSessionRecap`'s read (`loadSessionSource`); **on-demand +
+  cost-guarded** (new `'study_kit'` `CostKind`, guard before the call, hard-cap refuses
+  without a Claude call); **persisted** in RLS-scoped `study_artifact` (Shape 2, FK-cascade
+  to `users`, `session_id on delete set null`, on the export + erasure lists — the first
+  *generated* content the product stores); the extension `RecapCard` placeholder becomes
+  real rendering; **available to all beta users**, Pro-gating a one-line Sprint 23 add; the
+  Sprint 19 data-safety disclosure must add "generated study materials" before beta
 
 ## To be documented
 - System context diagram
