@@ -329,7 +329,7 @@ Signed in as a real dev user with real tutoring history:
      freshness confirmed (a new tutoring turn shows on refresh within seconds).
 
 ## Acceptance criteria (full checklist)
-- [ ] ADR-048/047 written (actual numbers assigned at execution); pointers + architecture.md updated
+- [x] ADRs written — resolved to **ADR-047** (dashboard reads) + **ADR-048** (chart tokens + library) at execution (the provisional 048/049 assumed Sprint 21 landed 047 first; it hadn't — latest on disk was 046 — so 047/048 are true next-free); pointers (`/CLAUDE.md`, `/docs/CLAUDE.md`) + `architecture.md` updated. NB: Sprint 22 was started ahead of the plan's intended 18→19→21→22 order (Sprint 19 still in progress, Sprint 21 not landed), at Darcy's direction.
 - [ ] Chart color tokens added to theme.css (additive, AA-validated); shadcn chart over Recharts installed; a tokened chart renders green-on-brand
 - [ ] loadDashboard returns the full per-user graph grouped by strand, decay-adjusted (parity with loadProfile), RLS-scoped, titles resolved, degrades to empty
 - [ ] mastery_snapshot table (Shape 2 RLS, FK cascade, export-covered) + a CRON_SECRET-gated daily cron; forward-only trend stated honestly in the UI

@@ -27,7 +27,7 @@ during the run unless something below changes.
 | A4 | **Invite send path server-only + dev-safe.** | ✅ | `web/lib/email/invite.ts`: `sendInvite` uses `RESEND_API_KEY` + `INVITE_FROM_EMAIL` (server env); **absent → logs + no-ops, never throws**; admin route defaults to `send:false` (manual-batch). Covered by the Sprint 18 no-secret bundle gate. |
 | A5 | **`/privacy` + `/terms` render publicly (no auth).** | ✅ | `web/proxy.ts` `PUBLIC_PATHS` includes `/privacy` and `/terms`; pages exist (`web/app/privacy/page.tsx`, `web/app/terms/page.tsx`); privacy links account export/delete. |
 | A6 | **Data-safety disclosure matches actual collection.** | ✅ | `docs/data-safety-disclosure.md` + `docs/store-listing.md` enumerate email, birth year, GDPR stamp, text transcripts (no audio), hashed page ids, typed no-content telemetry, feedback — the Sprints 03/16/17 surface. |
-| A7 | **Release pipeline produces a versioned, addressable, secret-free zip.** | ✅ | `npm run -w extension release` → `extension/release/calyxa-0.1.0.zip`; no-secret grep clean on the **unzipped artifact**; keeps last 5 builds; runbook: `docs/release-runbook.md`. |
+| A7 | **Release pipeline produces a versioned, addressable, secret-free zip.** | ✅ | `npm run -w extension release` → `extension/release/calyxa-0.1.1.zip` (bumped from 0.1.0 — see B2); no-secret grep clean on the **unzipped artifact**; keeps last 5 builds; runbook: `docs/release-runbook.md`. |
 | A8 | **Task 8 latency fixes are in the build.** Mic pre-warm, text-mode streaming (`/api/ai/turn/stream` in the bundle), ≤8-turn history window. | ✅ | Extension 212 tests + web 427 tests green (2026-07-13); bundle grep confirms `/api/ai/turn/stream`; wall-clock confirmation is step C8 below. |
 | A9 | **Beta-health + issue signals live.** `telemetry_event` (typed, no content) and `feedback` tables receiving rows; export/erasure cover both. | ✅ | Supabase `calyxa`: `telemetry_event` (83 rows), `feedback` (1 row), both RLS-enabled and FK-cascading to `users` (Sprint 17). |
 
@@ -35,19 +35,23 @@ during the run unless something below changes.
 
 ## Part B — Release-critical launch step BEFORE the tester build 🔴
 
-**The current `calyxa-0.1.0.zip` points at `localhost` and cannot be used by a real
-tester.** This must be resolved, then the artifact rebuilt, before the run (and before
-the CWS upload if not already done).
+**Resolved (2026-07-13).** The prod-pointed build is now `calyxa-0.1.1.zip` (bumped from
+0.1.0, which had been submitted with the pre-flip localhost `API_BASE` and could not be
+used by a real tester). B1 below is done; the rebuilt zip calls only `https://calyxa.app`.
+What remains is uploading it (B2) and the human run (Part C).
 
 - [x] **B1 — Flip `API_BASE` to production.** ✅ Done 2026-07-13: `extension/src/lib/api.ts`
   now `https://calyxa.app`; `wxt.config.ts` NOTE updated; typecheck clean; `npm run -w
-  extension release` rebuilt `extension/release/calyxa-0.1.0.zip`; no-secret gate clean on
-  the new zip; built `background.js` calls **only** `https://calyxa.app` (the sole
-  remaining `localhost:3000` is the manifest host-permission entry, kept intentionally so
-  a dev revert needs no re-review).
-- [ ] **B2 — Confirm the uploaded artifact is the prod-pointed build.** The zip uploaded to
-  the CWS dashboard must be **the `calyxa-0.1.0.zip` rebuilt after B1** (the localhost-pointed
-  one is overwritten locally, but verify the dashboard build is the new one).
+  extension release` rebuilt the prod-pointed release zip (subsequently version-bumped to
+  `extension/release/calyxa-0.1.1.zip`, 2026-07-13); no-secret gate clean on the new zip;
+  built `background.js` calls **only** `https://calyxa.app` (the sole remaining
+  `localhost:3000` is the manifest host-permission entry, kept intentionally so a dev
+  revert needs no re-review).
+- [ ] **B2 — Confirm the uploaded artifact is the prod-pointed build.** Upload
+  **`calyxa-0.1.1.zip`** (verified 2026-07-13: manifest version `0.1.1`, zipped
+  `background.js` calls only `https://calyxa.app`, no secrets in the bundle) to the CWS
+  dashboard as an **Unlisted** item, and verify the dashboard shows that build (not the
+  earlier 0.1.0).
 - [ ] **B3 — (Optional, for automated invite email) set `RESEND_API_KEY` +
   `INVITE_FROM_EMAIL` in Vercel.** Absent → invite send no-ops and the admin route
   returns the batch for manual send (A4), which is a valid path for the first cohort.
@@ -109,8 +113,9 @@ re-run after the fix.
   update the sprint acceptance checklist and mark Sprint 19 complete.
 
 **Do not mark Sprint 19 complete until this box is checked.** As of the 2026-07-13 audit,
-Part A is green and **B1 (the `API_BASE` flip + rebuilt artifact) is done**; what remains is
-**B2** (upload the rebuilt, prod-pointed zip — the in-review build points at localhost and
-is non-functional), **B4** (deploy the `web/proxy.ts` fix to `calyxa.app`, without which
-onboarding/telemetry/feedback fail), the CWS submission being in-flight, and **Part C** (the
-human run). B2 + B4 are hard blockers for the acceptance run.
+Part A is green, **B1 (the `API_BASE` flip + prod-pointed `calyxa-0.1.1.zip`) is done**, and
+**B4 (the `web/proxy.ts` fix) is deployed and verified live on `calyxa.app`** — the four
+extension routes (`/api/telemetry`, `/api/feedback`, `/api/onboarding`, `/api/errors`) now
+answer with their own auth (401/400) instead of the 307→`/login` redirect. What remains is
+**B2** (upload the prod-pointed `calyxa-0.1.1.zip` and set the item Unlisted) and **Part C**
+(the human run on a fresh machine). B2 is the last hard blocker before the acceptance run.

@@ -395,6 +395,62 @@ section is reframed as roadmap — "on the way," no beta promise — chained
 visually off the recap card's "Generated for you" placeholder slot. See
 ADR-031 and ADR-040.
 
+## Mastery dashboard + data charts (Sprint 22)
+The post-login web surface that makes the learning the extension has been quietly
+tracking (Sprints 09–17) **visible to the student** — mastery per concept/strand,
+misconceptions and their resolution, the spaced-repetition due queue, and
+activity/accuracy over time — as clean, on-brand charts behind login. It is a
+**read-only web surface over data that already exists**: it does not touch the
+extension, the AI/learning write path, the curriculum, or the tutoring loop.
+
+**The reads are RLS-scoped, server-rendered, per-request-fresh, with no cache.** Each
+`(dashboard)` page is a `force-dynamic` server component on the `createClient()` cookie
+pattern from `(dashboard)/account` (RLS, not a `where` clause, is the isolation
+guarantee). A new **`loadDashboard()`** (`web/lib/learning/dashboard-read.ts`) reads the
+**full** per-user set — all `knowledge_nodes` (decay-adjusted by **reusing**
+`loadProfile`'s `retrievability()`, never a second implementation), all `misconceptions`,
+the `reinforcement_schedule` queue (priority DESC, due_at ASC — PLAN §2.3 query 2), and
+`session_interactions` aggregated by outcome by day — returned **grouped by the six
+curriculum strands** with concept `title`s resolved, degrading to empty sections (never
+throwing) like `loadProfile`. It is **dashboard-sized and server-only**; the overlay's
+`/api/profile/overview` (top-K weakest) is left untouched, not overloaded. Because
+dashboard reads are consistent-within-seconds of the last turn's off-critical-path
+`after()` apply, per-request freshness is *correct* and a cache would only mask the
+reconcile (Sprint 11 audit). Any "where you studied" dimension groups by
+`page_url_hash`, never a plaintext domain (ADR-036).
+
+**There is no mastery-history table, so the dashboard charts what exists and snapshots
+the rest.** Current state (mastery per concept/strand, state distribution, confidence
+bands) reads live and charts directly. Activity + accuracy over time is a **real,
+backfilled** trend from `session_interactions` (`created_at`/`outcome`), chart order
+keyed on `session_interactions.id` — *not* `(session_id, turn_index)`, which is display
+order not identity (the Sprint 11 audit's carried note). Mastery over time **cannot** be
+backfilled — a new `mastery_snapshot(user_id, concept_key, day, mastery, state)` table
+(Shape 2 RLS, FK-cascade to `users`, on the export + erasure lists) plus a daily
+`CRON_SECRET`-gated `/api/cron/mastery-snapshot` (reusing Sprint 16's cron auth +
+`vercel.json` batching, no cost logic) upserts today's decay-adjusted mastery per active
+concept, idempotent on the unique `(user_id, concept_key, day)`. The trend accrues
+**forward-only from launch**, renders **honestly sparse** at launch ("your mastery trend
+builds as you practice"), and is **never faked**.
+
+**Charts are on tokens, one substrate.** Chart colors land as **named `@calyxa/ui`
+tokens** in `packages/ui/src/theme.css` — the long-deferred "chart colors as tokens" —
+added **additively**, mapped to existing hues, **AA-validated** against surface/background
+per `/docs/brand.md` (`--chart-1…6` for the strands, `--chart-state-*`, `--chart-{correct,
+partial,incorrect}`), with a color-blind-safe distinctness pass; **nothing hard-codes a
+hex** (test-enforced). Charts use **shadcn's chart component over Recharts**
+(`web/components/ui/chart.tsx`), keeping data-viz on the same token + shadcn substrate as
+every other web surface (ADR-018), wiring-gated by one throwaway tokened chart before any
+view is built. The `(dashboard)/layout.tsx` header's `<nav>` slot — reserved empty since
+Sprint 10 — is finally filled (Overview / Mastery / Misconceptions / Review / Activity,
+plus a conditional Study-kits page if Sprint 21 landed). See ADR-047 (dashboard reads) and
+ADR-048 (chart tokens + library).
+
+> **Sequencing note:** Sprint 22 was **started ahead of the plan's intended 18→19→21→22
+> order** (Sprint 18 complete; Sprint 19 still in progress; Sprint 21 not landed), at
+> Darcy's direction. The ADRs resolved to **047/048** (true next-free at execution — the
+> plan's provisional 048/049 assumed Sprint 21 would land 047 first; it hadn't).
+
 ## Architecture decision records
 See `/docs/adr/`. Notably:
 - ADR-001 — Extension framework (WXT)
@@ -567,6 +623,24 @@ See `/docs/adr/`. Notably:
   list) and the policy **links the account export/erasure rights** (ADR-035); the
   disclosure is a **standing coupling** — any future collection (Sprint 21/23) must
   update `/privacy` + the form before shipping to beta users
+- ADR-047 — Mastery dashboard reads (Sprint 22; resolved to next-free 047 at execution —
+  the plan's provisional 048, which assumed Sprint 21 landed 047 first; it hadn't, latest
+  on disk was 046): the `(dashboard)` analytics surface reads the FULL per-user graph
+  **server-side, RLS-scoped, per-request-fresh, no cache** via a new `loadDashboard()`
+  that **reuses `loadProfile`'s `retrievability()` decay** (no second implementation),
+  grouped by the 6 strands with titles resolved, degrading to empty; the overlay endpoint
+  stays overlay-sized (not overloaded); group-by `page_url_hash` never a plaintext domain
+  (ADR-036); the no-mastery-history reality is a design input — current state + real
+  activity/accuracy from `session_interactions` chart today, mastery-over-time is
+  forward-only from a new snapshot and never faked
+- ADR-048 — Chart tokens + library (Sprint 22; next-free 048 at execution — the plan's
+  provisional 049): chart colors become **named additive AA-validated `@calyxa/ui`
+  tokens** in `theme.css` (the long-deferred task — `--chart-1…6` strands,
+  `--chart-state-*`, `--chart-{correct,partial,incorrect}`, no existing token changed, no
+  hard-coded hex), charts are **shadcn's chart component over Recharts** as the single
+  tokens-native substrate (wiring-gated before any view), and the mastery trend is fed by
+  a new **forward-only `mastery_snapshot`** table + daily `CRON_SECRET`-gated cron
+  (reusing Sprint 16's cron infra, FK-cascade + export-covered, no cost logic)
 
 ## To be documented
 - System context diagram
