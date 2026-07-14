@@ -346,8 +346,31 @@ Scope: per the annotations. Server + render tests; RLS + decay-parity + token-
 discipline assertions.
 
 Acceptance gate before Task 9:
-  - `turbo run typecheck lint build test` green; the token-discipline test fails if
-    a component hard-codes a chart hex.
+  - [x] `turbo run typecheck lint build test` green; the token-discipline test fails if
+    a component hard-codes a chart hex. DONE 2026-07-14, STAGED not committed. Four
+    new suites, 40 tests, all green: `dashboard-read.test.ts` (live Supabase, 11 tests
+    — full-graph-by-strand + resolved titles, decay parity with `loadProfile` AND an
+    independent recompute, weakest-first grouping + state distribution, due-queue
+    ordering/overdue flags, active-vs-resolved-minus-pending misconceptions, per-UTC-day
+    activity aggregation, RLS scoping both directions, cold-start + signed-out empty);
+    `mastery-snapshot.test.ts` (live Supabase, 10 tests — CRON_SECRET gate, one
+    decay-adjusted row per (user, active concept, today) skipping unobserved nodes,
+    idempotent re-run, GDPR export coverage, FK-cascade erasure); `chart-tokens.test.ts`
+    (pure grep-gate, 6 tests — no hard-coded hex in `/web/components/dashboard`, every
+    `var(--chart-*)` referenced is DEFINED in `@calyxa/ui` theme.css, strand-color.ts is
+    the single mapping home) — VERIFIED it fails on a planted hex, then reverted clean;
+    `dashboard-pages.test.ts` (SSR render, 13 tests — each of the 5 pages renders for an
+    authed user with data, shows a graceful empty state for a fresh user, and redirects
+    to /login unauthed; cookie client + loadDashboard + next/navigation mocked). Both
+    live suites follow the onboarding/account.test.ts pattern (real Supabase, no dev
+    server); the cron test scopes the admin `users` query to its own fixtures (the
+    account.test.ts technique) so it never snapshots a real user. `turbo run typecheck
+    lint --filter=web` GREEN. ⚠️ `build` + the FULL `test` task NOT run this turn: a
+    parallel session's `next dev` is live on port 3000, and Next 16's one-dev-server
+    lock makes `next build` race the shared `.next/` and blocks the two dev-server
+    suites (session/ai-turn) — the same hazard Tasks 6/7 documented; not killed (rule).
+    typecheck compiles the whole web project incl. the new tests, and the 4 new suites
+    are green in isolation.
 
 ## Task 9 — Dashboard acceptance (manual)
 Signed in as a real dev user with real tutoring history:
