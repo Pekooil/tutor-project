@@ -25,6 +25,9 @@ import type {
   StatusPin,
   StickingCandidate,
   StrugglePrediction,
+  StudyArtifact,
+  StudyKit,
+  StudyKitResult,
   TelemetryEvent,
   TurnMessage,
 } from '../types/messages';
@@ -759,6 +762,67 @@ export async function reportError(event: LogErrorPayload): Promise<void> {
     // function must never throw back into the global error capture that
     // invoked it (which would loop).
   }
+}
+
+/**
+ * Generates a study kit for one completed session (Sprint 21 Task 5, ADR-049):
+ * POSTs { sessionId } to /api/study/generate. Uses authorizedFetch, so a dead
+ * refresh token surfaces SignedOutError like every other helper. THROWS on a
+ * non-2xx (the background handler catches it into a { error } reply) so the
+ * recap card can offer a retry -- study-kit generation is user-initiated off
+ * the recap card, so a failure is surfaced, not swallowed (the sendFeedback /
+ * submitOnboarding posture, not telemetry's).
+ *
+ * Returns the route's own graceful outcomes on a 200: { kit } when a kit was
+ * generated + persisted, or { refused } when the route declined WITHOUT an
+ * error -- the hard cost cap (no Claude call, ADR-041) or a session with
+ * nothing worth generating (never a half-kit persisted, ADR-049). Both are
+ * normal 200s, not errors, so they are returned rather than thrown; the recap
+ * card shows a gentle message + its placeholder for either.
+ */
+export async function generateStudyKit(sessionId: string): Promise<StudyKitResult> {
+  const res = await authorizedFetch('/api/study/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId }),
+  });
+
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body.error ?? `study_kit failed: ${res.status}`);
+  }
+
+  // The route's discriminated 200 shapes -- checked field by field (the
+  // defensive-unwrap discipline the aiTurn helpers use), never half-passed.
+  if (body.kit && typeof body.kit === 'object') {
+    return { kit: body.kit as StudyKit };
+  }
+  if (body.refused === 'cost' || body.refused === 'empty') {
+    return { refused: body.refused };
+  }
+  // A 200 that is neither a kit nor a known refusal is an unexpected shape --
+  // treat it as a failure so the caller's error path (a retry) handles it,
+  // rather than rendering an empty card.
+  throw new Error('study_kit: unexpected response shape');
+}
+
+/**
+ * Lists the caller's persisted study-kit artifacts (Sprint 21 Task 5,
+ * ADR-049): GET /api/study/list, newest first, RLS-scoped server-side. An
+ * optional `sessionId` filters to one session's kit. Uses authorizedFetch;
+ * THROWS on a non-2xx. This is the transport for the future dashboard /
+ * past-kits surface (Sprint 22's "Study kits" list) -- the recap card this
+ * sprint is generate-on-click and does not call it. Provided now as the
+ * symmetric read of the generate write, per the Task 5 plan.
+ */
+export async function listStudyKits(sessionId?: string): Promise<StudyArtifact[]> {
+  const path = sessionId ? `/api/study/list?sessionId=${encodeURIComponent(sessionId)}` : '/api/study/list';
+  const res = await authorizedFetch(path, { method: 'GET' });
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body.error ?? `study_list failed: ${res.status}`);
+  }
+  return (Array.isArray(body.artifacts) ? body.artifacts : []) as StudyArtifact[];
 }
 
 /**

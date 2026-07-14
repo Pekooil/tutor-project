@@ -8,6 +8,7 @@ import type {
   PageTopic,
   SendFeedbackPayload,
   StickingCandidate,
+  StudyKitResult,
   TelemetryEvent,
   TurnMessage,
 } from '../types/messages';
@@ -90,6 +91,17 @@ export type OverlayTransports = {
    * feedback.session_id is optional, so this degrades to an unlinked capture.
    */
   onGetActiveSessionId?: () => Promise<string | undefined>;
+  /**
+   * Study-kit generation transport (Sprint 21 Task 5, ADR-049). The recap
+   * card calls this with the just-ended sessionId; the content script relays
+   * it to the background (the sole network-egress context, ADR-006), which
+   * owns the /api/study/generate call. Resolves { kit } or a graceful
+   * { refused } (hard cost cap / nothing to generate) and REJECTS on a real
+   * failure so the card can offer a retry. Optional, like the telemetry /
+   * feedback transports above -- a mount that predates this wiring (or a test
+   * harness) renders the recap card's placeholder tiles instead.
+   */
+  onGenerateStudyKit?: (sessionId: string) => Promise<StudyKitResult>;
 };
 
 export type MountOverlayOptions = OverlayTransports;

@@ -2,6 +2,7 @@ import { defineBackground } from '#imports';
 import type {
   AiTurnPayload,
   CalyxaMessage,
+  GenerateStudyKitPayload,
   LogErrorPayload,
   OnboardingStatusReplyPayload,
   OnboardingSubmitPayload,
@@ -14,6 +15,7 @@ import type {
   SessionStatePayload,
   SignInPayload,
   StartSessionPayload,
+  StudyKitReplyPayload,
   TelemetryEvent,
   TurnMessage,
   VoiceSttPayload,
@@ -160,6 +162,13 @@ export default defineBackground(() => {
         return true;
       case 'ONBOARDING_SUBMIT':
         void handleOnboardingSubmit(message.payload as OnboardingSubmitPayload).then(sendResponse);
+        return true;
+      // (Sprint 21 Task 5, ADR-049) Study-kit generation. The recap card can't
+      // reach the network (ADR-006), so it relays the just-ended sessionId here
+      // and the worker owns the /api/study/generate call. Request/reply like
+      // SEND_FEEDBACK: a failure IS surfaced so the card can retry.
+      case 'GENERATE_STUDY_KIT':
+        void handleGenerateStudyKit(message.payload as GenerateStudyKitPayload).then(sendResponse);
         return true;
       default:
         return false;
@@ -655,6 +664,26 @@ async function handleSendFeedback(payload: SendFeedbackPayload): Promise<CalyxaM
 }
 
 /**
+ * Relays a study-kit generation request to /api/study/generate (Sprint 21
+ * Task 5, ADR-049). Request/reply (the handleSendFeedback shape): returns the
+ * route's own { kit } / { refused } 200 outcome on success, and { error } on a
+ * real failure (auth, network, a 502) -- study-kit generation is user-initiated
+ * off the recap card, so a failure is surfaced (a retry), not swallowed. The
+ * worker is the sole network-egress context (ADR-006); the recap card never
+ * calls the route directly.
+ */
+async function handleGenerateStudyKit(payload: GenerateStudyKitPayload): Promise<CalyxaMessage> {
+  try {
+    const result = await api.generateStudyKit(payload.sessionId);
+    const reply: StudyKitReplyPayload = result;
+    return { type: 'STUDY_KIT_REPLY', payload: reply };
+  } catch (error) {
+    const reply: StudyKitReplyPayload = { error: toErrorMessage(error) };
+    return { type: 'STUDY_KIT_REPLY', payload: reply };
+  }
+}
+
+/**
  * Relays the cold-start onboarding status check (Sprint 17 Task 7, ADR-042)
  * to GET /api/onboarding. Degrades to {needed:false} on ANY failure (auth,
  * network, or a malformed response) rather than surfacing an error -- the
@@ -859,7 +888,14 @@ async function handleEndSession(): Promise<CalyxaMessage> {
     const transcript = await getRunningTranscript();
     const { recap } = await api.endSession(active.sessionId, transcript ?? undefined);
     await clearRunningTranscript();
-    void broadcastToAllTabs({ type: 'SESSION_ENDED', payload: { ...(recap ? { recap } : {}) } });
+    // `sessionId` (Sprint 21 Task 5, ADR-049) rides the broadcast so the recap
+    // card can generate a study kit for THIS session -- by the time the recap
+    // renders, the active session is already cleared (above / in api.endSession),
+    // so this broadcast is the only place the ended id is still known.
+    void broadcastToAllTabs({
+      type: 'SESSION_ENDED',
+      payload: { ...(recap ? { recap } : {}), sessionId: active.sessionId },
+    });
     return buildSessionState();
   } catch (error) {
     return buildSessionState(toErrorMessage(error));

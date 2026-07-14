@@ -122,6 +122,18 @@ import type { ScrubbedErrorEvent } from '../lib/monitoring';
 //                  (OnboardingSubmitReplyPayload's {error} variant) so
 //                  Onboarding.tsx can offer a retry rather than silently
 //                  losing the student's answers.
+//   GENERATE_STUDY_KIT (Sprint 21 Task 5, ADR-049) — overlay -> background:
+//                  GenerateStudyKitPayload ({sessionId}). POSTs to
+//                  /api/study/generate (the worker is the sole egress,
+//                  ADR-006). Request/reply, like ONBOARDING_SUBMIT: study-kit
+//                  generation is a USER-initiated action off the recap card,
+//                  so a failure IS surfaced. Reply (STUDY_KIT_REPLY /
+//                  StudyKitReplyPayload) is {kit} on success, {refused:'cost'}
+//                  when the route hit the hard cost cap without a Claude call
+//                  (ADR-041), {refused:'empty'} when the session had nothing
+//                  worth generating (never persists a half-kit, ADR-049), or
+//                  {error} on any failure. The recap card degrades to its
+//                  placeholder tiles on refused/error (Task 5).
 //
 //   Binary-over-messaging caveat (ADR-010): chrome.runtime.sendMessage
 //   payloads are structured-cloned/JSON, so a raw ArrayBuffer/Blob is not a
@@ -150,7 +162,9 @@ export type MessageType =
   | 'SEND_FEEDBACK'
   | 'LOG_ERROR'
   | 'ONBOARDING_STATUS'
-  | 'ONBOARDING_SUBMIT';
+  | 'ONBOARDING_SUBMIT'
+  | 'GENERATE_STUDY_KIT'
+  | 'STUDY_KIT_REPLY';
 
 export interface CalyxaMessage {
   type: MessageType;
@@ -422,8 +436,65 @@ export type SessionRecap = {
 // end from either surface. `recap` is omitted (not null) for a session with
 // no gradable interactions -- the recap card then simply doesn't render
 // (Task 8), same additive-omission discipline as annotations/profileTags/
-// pings above.
-export type SessionEndedPayload = { recap?: SessionRecap };
+// pings above. `sessionId` (Sprint 21 Task 5, ADR-049) is the ended
+// session's id, added so the recap card can generate a study kit FOR that
+// session -- the recap arrives after the active session is already cleared
+// (handleEndSession), so onGetActiveSessionId would return undefined by then;
+// carrying the id on the broadcast is the only place it's still known. Absent
+// only in the degenerate "ended with no active session" path.
+export type SessionEndedPayload = { recap?: SessionRecap; sessionId?: string };
+
+// Sprint 21 / Task 5 (ADR-049): the study kit as it crosses the wire back to
+// the recap card -- the client-side mirror of the /api/study/generate + /list
+// response shapes (the same by-convention re-declaration as SessionRecap
+// above; no shared module spans the extension/web boundary). The web
+// StudyProblem additionally carries a `conceptKey`; the extension doesn't
+// render it, so it's an ignored wire field here (not declared), the same
+// posture as the opening scan's dropped `profileTags`.
+export type StudyProblem = { statement: string; solution: string };
+export type StudyFlashcard = { front: string; back: string };
+export type StudyKit = {
+  notes: string[];
+  problems: StudyProblem[];
+  flashcards: StudyFlashcard[];
+};
+
+// One persisted artifact row from GET /api/study/list (one per artifact kind,
+// ADR-049 decision 3). Consumed by listStudyKits() in lib/api.ts -- the
+// transport for the future dashboard/past-kits surface (Sprint 22); the recap
+// card this sprint is generate-on-click and does not read this. `payload` is
+// the kind-specific shape (string[] for notes, StudyProblem[] for problems,
+// StudyFlashcard[] for flashcards) -- untyped here since a single row's kind
+// isn't known at the type level.
+export type StudyArtifact = {
+  id: string;
+  sessionId: string | null;
+  kind: 'notes' | 'problems' | 'flashcards';
+  payload: unknown;
+  conceptKeys: string[] | null;
+  createdAt: string;
+};
+
+// GENERATE_STUDY_KIT payload (overlay -> background). `sessionId` is the ended
+// session (from the SESSION_ENDED broadcast above) the kit is generated for.
+export type GenerateStudyKitPayload = { sessionId: string };
+
+// STUDY_KIT_REPLY payload (background -> caller). Mirrors /api/study/generate's
+// discriminated response: {kit} on success; {refused} when the route
+// gracefully declined (hard cost cap, or nothing worth generating) WITHOUT an
+// error; {error} on a real failure. The recap card renders the kit, shows a
+// gentle message + its placeholder on `refused`, and offers a retry on `error`.
+export type StudyKitReplyPayload =
+  | { kit: StudyKit }
+  | { refused: 'cost' | 'empty' }
+  | { error: string };
+
+// The non-error outcome of a generation, shared by the whole transport chain
+// (lib/api.ts -> background -> content relay -> the overlay's onGenerateStudyKit
+// prop -> RecapCard). The transport resolves this and THROWS on { error } (or an
+// unreachable worker), so the recap card's single try/catch treats every
+// failure as one case, then branches kit-vs-refused on success.
+export type StudyKitResult = { kit: StudyKit } | { refused: 'cost' | 'empty' };
 
 // The proactive opening scan (Sprint 14 Task 6, ADR-030): content ->
 // background, no `messages` at all -- the content script only sends this

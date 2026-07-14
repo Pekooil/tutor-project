@@ -34,6 +34,8 @@ import type {
   StatusPin,
   StickingCandidate,
   StrugglePrediction,
+  StudyKitReplyPayload,
+  StudyKitResult,
   TelemetryEvent,
   TurnMessage,
   VoiceSttReplyPayload,
@@ -485,6 +487,26 @@ async function getActiveSessionId(): Promise<string | undefined> {
   }
 }
 
+/**
+ * Study-kit generation relay (Sprint 21 Task 5, ADR-049): the SAME "sole
+ * chrome.* surface for the overlay" role as the feedback/onboarding relays
+ * above -- the recap card can't reach the network (ADR-006), so it relays the
+ * just-ended sessionId here and the background owns the /api/study/generate
+ * call. Request/reply: returns the { kit } / { refused } outcome, and THROWS on
+ * an { error } reply (or an unreachable worker) so the recap card's try/catch
+ * shows a retry -- generation is user-initiated, so a failure is surfaced, not
+ * swallowed (the submitOnboarding / sendFeedback posture).
+ */
+async function generateStudyKit(sessionId: string): Promise<StudyKitResult> {
+  const message: CalyxaMessage = { type: 'GENERATE_STUDY_KIT', payload: { sessionId } };
+  const response: CalyxaMessage = await chrome.runtime.sendMessage(message);
+  const reply = response?.payload as StudyKitReplyPayload | undefined;
+  if (!reply || 'error' in reply) {
+    throw new Error(reply && 'error' in reply ? reply.error : 'study kit request did not reach the background');
+  }
+  return reply;
+}
+
 // Set by sendAiTurn's voice-path branch above when a reply arrives, and
 // consumed the moment TTS playback actually starts (handleVoicePlaybackStart
 // below) -- the gap between the two is exactly the onSynthesize + audio-
@@ -709,9 +731,13 @@ export default defineContentScript({
       // like the panel-close listener above; if no panel is mounted/open,
       // the event simply has no listener -- ephemeral by design.
       if (message.type === 'SESSION_ENDED') {
-        const { recap } = (message.payload ?? {}) as SessionEndedPayload;
+        // `sessionId` (Sprint 21 Task 5, ADR-049) rides through to the recap
+        // card so it can generate a study kit for the just-ended session.
+        const { recap, sessionId } = (message.payload ?? {}) as SessionEndedPayload;
         window.dispatchEvent(
-          new CustomEvent(SESSION_RECAP_EVENT, { detail: recap ? { recap } : {} }),
+          new CustomEvent(SESSION_RECAP_EVENT, {
+            detail: { ...(recap ? { recap } : {}), ...(sessionId ? { sessionId } : {}) },
+          }),
         );
         return;
       }
@@ -790,6 +816,10 @@ export default defineContentScript({
           onSubmitOnboarding: submitOnboarding,
           // Sprint 17 Task 7 (ADR-039): the feedback affordance's sessionId lookup.
           onGetActiveSessionId: getActiveSessionId,
+          // Sprint 21 Task 5 (ADR-049): the recap card's study-kit generation
+          // transport -- relays the just-ended sessionId to the background,
+          // which owns the /api/study/generate call.
+          onGenerateStudyKit: generateStudyKit,
         });
       },
       onRemove: (root) => {
