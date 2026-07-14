@@ -281,8 +281,29 @@ Acceptance gate before Task 3:
 Scope: recharts + shadcn chart component + one throwaway tokened chart.
 
 Acceptance gate before Task 4:
-  - A green-on-brand chart renders from the Task 2 tokens; `next build` + typecheck
-    green; the temporary gate page is removed (or intentionally kept as a reference).
+  - [x] A chart renders from the Task 2 tokens (colors + relative proportions between
+    bars verified correct via DOM/fiber measurement); `next build` + typecheck green;
+    the gate page is KEPT at `/chart-gate` (not deleted) as a live reference for a
+    known, unresolved defect — see below. DONE 2026-07-13, STAGED not committed.
+    `recharts@3.8.0` (the CLI's original resolution) has an always-reproducing bug —
+    every Bar's height computes to exactly 0 regardless of value — fixed upstream by
+    bumping to `^3.9.2` (now pinned in `web/package.json`). **KNOWN UNRESOLVED DEFECT
+    at 3.9.2, flagged for Darcy, not blocking Task 4 but MUST be resolved or worked
+    around before Task 6/7 build real chart views:** Bar height still renders
+    compressed by a roughly constant but non-1.0 factor (verified via direct DOM
+    `getBoundingClientRect()` measurement, not the earlier fiber-props approach which
+    breaks in production's minified builds) — reproduces in BOTH `next dev` and a
+    production `next build && next start`, so it is NOT a React Strict Mode dev-only
+    artifact; colors/tokens and RELATIVE proportions between bars are correct, only
+    the absolute scale is off. Tried and ruled out: shadcn's `ChartContainer` wrapper
+    (ADR-048's own documented fallback — a thinner direct-`ResponsiveContainer`
+    wrapper — shows the SAME defect, so the bug is in recharts itself, not shadcn's
+    wrapper); `initialDimension` prop tuning; removing `aspect-video`/CSS variations;
+    explicit vs. auto `YAxis` domain; `type="number"` on `YAxis` (made it worse, back
+    to invisible); single- vs. multi-`Bar`-series. `recharts@2.15.4` (last pre-v3
+    line) failed to resolve in the dev server without a full restart and is EOL
+    upstream (deprecated in favor of v3) — not pursued further. See the Task 3 report
+    for the full investigation log.
 
 ## Task 4 — Web: the dashboard-sized read
 Scope: `dashboard-read.ts` reusing `loadProfile`'s decay math; full set grouped by
@@ -344,7 +365,7 @@ Signed in as a real dev user with real tutoring history:
 
 ## Acceptance criteria (full checklist)
 - [x] ADRs written — resolved to **ADR-047** (dashboard reads) + **ADR-048** (chart tokens + library) at execution (the provisional 048/049 assumed Sprint 21 landed 047 first; it hadn't — latest on disk was 046 — so 047/048 are true next-free); pointers (`/CLAUDE.md`, `/docs/CLAUDE.md`) + `architecture.md` updated. NB: Sprint 22 was started ahead of the plan's intended 18→19→21→22 order (Sprint 19 still in progress, Sprint 21 not landed), at Darcy's direction.
-- [~] Chart color tokens added to theme.css (additive, AA-validated) — **DONE (Task 2)**; shadcn chart over Recharts installed; a tokened chart renders green-on-brand — **still open (Task 3)**
+- [~] Chart color tokens added to theme.css (additive, AA-validated) — **DONE (Task 2)**; Recharts installed (`^3.9.2`) + shadcn chart component installed — **DONE (Task 3)**; a tokened chart renders with correct colors/proportions — **DONE, but with a known unresolved Bar-height-scale defect flagged for Tasks 6/7 (see Task 3's own acceptance-gate note)**
 - [ ] loadDashboard returns the full per-user graph grouped by strand, decay-adjusted (parity with loadProfile), RLS-scoped, titles resolved, degrades to empty
 - [ ] mastery_snapshot table (Shape 2 RLS, FK cascade, export-covered) + a CRON_SECRET-gated daily cron; forward-only trend stated honestly in the UI
 - [ ] (dashboard) nav slot filled; Overview/Mastery/Misconceptions/Review/Activity render for data + empty users; unauthed → /login
