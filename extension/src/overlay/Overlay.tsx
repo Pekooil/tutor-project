@@ -40,7 +40,7 @@ import { SectionBloomFrame } from './SectionBloom';
 import { TitleBar, type HeaderAccessory, type HeaderChip, type SessionHeader } from './TitleBar';
 import { Transcript, latestBoardEquation, tokenizeMathText } from './Transcript';
 import { TUTOR_MODES, deriveTutorMode, formatElapsed, stageLabel, type TutorModeKey } from './tutor-modes';
-import { startRecording, type RecordingHandle, type Utterance } from './VoiceController';
+import { prewarmMic, releaseWarmMic, startRecording, type RecordingHandle, type Utterance } from './VoiceController';
 import { NOT_SURE_CHIP, buildStickingChips, bloomLine, formatRecapMeta } from './session-flow';
 import { createSentenceAccumulator, micStateReducer, wordsDueByTime } from './voice-timing';
 
@@ -139,6 +139,36 @@ export const PIN_DISPLAY_MS = 3000;
  */
 export function stripHistory(messages: readonly DisplayMessage[]): TurnMessage[] {
   return messages.filter((message) => !message.milestone).map(({ role, content }) => ({ role, content }));
+}
+
+// PLAN §2.5's context window: the tutor only needs the last 6-8 turns, so the
+// client trims the prior history to this before every send (Sprint 19 Task 8)
+// -- fewer input tokens each turn means lower cost and faster time-to-first-
+// token, with NO pedagogy change (pure windowing; the server clamps to the
+// same window defensively, turn-request.ts). Today's history was unbounded up
+// to the MAX_MESSAGES=40 abuse ceiling.
+export const HISTORY_WINDOW_TURNS = 8;
+
+/**
+ * Keeps only the last `maxTurns` user-initiated turns of history (a user
+ * message plus the assistant reply that follows it). Windowing by USER turn --
+ * not raw message count -- guarantees the slice still BEGINS on a user message,
+ * which the Anthropic API requires of the first message in the array. Applied
+ * to the already-stripped history (stripHistory above) at each send site, BEFORE
+ * the new user turn is appended, so the outbound request carries at most
+ * ~`maxTurns` turns of prior context plus the current turn.
+ */
+export function windowHistory(messages: TurnMessage[], maxTurns: number = HISTORY_WINDOW_TURNS): TurnMessage[] {
+  let userTurnsSeen = 0;
+  let startIndex = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      userTurnsSeen += 1;
+      startIndex = i;
+      if (userTurnsSeen >= maxTurns) break;
+    }
+  }
+  return startIndex === 0 ? messages : messages.slice(startIndex);
 }
 
 // ---- The session-start check-in (designated pre-conversation UI, design
@@ -1084,6 +1114,39 @@ export function Overlay({
     window.dispatchEvent(new CustomEvent(PANEL_EXPANDED_EVENT));
   }, [expanded]);
 
+  // Mic pre-warm (Sprint 19 Task 8, ADR-033 amendment): while the panel is
+  // open, hold a warm getUserMedia stream so the first (and every) voice turn
+  // starts capturing in <500ms instead of the ~5s cold start. Guarded to fire
+  // ONLY when mic permission is ALREADY granted -- opening the panel must never
+  // trigger a permission prompt for a text-only or first-time user; the first
+  // real mic click still prompts exactly as before, and after that grant the
+  // stream stays warm for the rest of the session. Fully best-effort: a missing
+  // Permissions API, a rejected query, a denied/absent mic -- all silently
+  // no-op (prewarmMic never throws). The warm stream is RELEASED in this
+  // effect's cleanup, which runs on collapse (expanded -> false) and on
+  // unmount, so the mic (and its browser indicator) is only held while the
+  // panel is actually open.
+  useEffect(() => {
+    if (!expanded) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const perms = (navigator as Navigator & { permissions?: Permissions }).permissions;
+        if (!perms?.query) return; // can't check without risking a prompt -- skip
+        const status = await perms.query({ name: 'microphone' as PermissionName });
+        if (cancelled || status.state !== 'granted') return;
+        await prewarmMic();
+      } catch {
+        // Some browsers reject a 'microphone' permission query outright -- skip
+        // pre-warm rather than risk a prompt; the mic-click path is unaffected.
+      }
+    })();
+    return () => {
+      cancelled = true;
+      releaseWarmMic();
+    };
+  }, [expanded]);
+
   // The cold-start onboarding status check (Sprint 17 Task 7, ADR-042):
   // fires on the FIRST real expand only (onboardingCheckedRef never resets --
   // a genuine re-expand does not re-check, unlike the opening scan's own ref
@@ -1560,7 +1623,7 @@ export function Overlay({
     if (sessionStartRef.current === null) sessionStartRef.current = Date.now();
     // The wire history is stripped to role/content (tags never re-enter the
     // request, ADR-024); the display list keeps its DisplayMessage shape.
-    const outbound: TurnMessage[] = [...stripHistory(messages), { role: 'user', content: text }];
+    const outbound: TurnMessage[] = [...windowHistory(stripHistory(messages)), { role: 'user', content: text }];
     setMessages((current) => [...current, { role: 'user', content: text }]);
     // The student answered -- however they did it (chip tap, typed, spoken,
     // or multi-part fields), the offered options are consumed (design 8a:
@@ -1719,7 +1782,7 @@ export function Overlay({
       // detection is dropped, same as a typed start (sendStudentMessage).
       setScan(null);
       if (sessionStartRef.current === null) sessionStartRef.current = Date.now();
-      const outbound: TurnMessage[] = [...stripHistory(messages), { role: 'user', content: transcript }];
+      const outbound: TurnMessage[] = [...windowHistory(stripHistory(messages)), { role: 'user', content: transcript }];
       setMessages((current) => [...current, { role: 'user', content: transcript }]);
       // A spoken answer consumes the offered chips too (design 8a: chips
       // supplement voice, they never gate it).

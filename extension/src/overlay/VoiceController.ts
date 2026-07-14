@@ -122,6 +122,57 @@ function encodeWav(channels: Float32Array[], sampleRate: number): ArrayBuffer {
 // user gesture) and resumed on later calls if the browser auto-suspended it.
 let sharedMeterCtx: AudioContext | null = null;
 
+// The warm mic stream (Sprint 19 Task 8, ADR-033 pre-warm amendment): a single
+// getUserMedia stream held at module scope and REUSED across a session's
+// push-to-talk turns, so click→capturing is <500ms instead of paying
+// getUserMedia's cost on every utterance (the dominant remaining contributor to
+// the ~5s cold start after Sprint 15 parallelized the rest). ADR-011 is
+// UNCHANGED: a warm stream is a live input device, not stored audio -- the
+// recorded bytes still never touch disk, and "released immediately after each
+// utterance" simply relaxes to "released on session end" (the overlay calls
+// releaseWarmMic() on panel collapse/unmount). The mic-capture UX still makes
+// the recording state obvious per turn; the browser's own indicator reflects
+// the warm hold, which is why the overlay only pre-warms once permission is
+// already granted (never a fresh prompt from merely opening the panel).
+let warmStream: MediaStream | null = null;
+
+function warmStreamLive(): boolean {
+  return !!warmStream && warmStream.getAudioTracks().some((track) => track.readyState === 'live');
+}
+
+/**
+ * Pre-acquires (or reuses) the mic stream so the next startRecording() skips
+ * getUserMedia entirely. Best-effort and NON-throwing: returns false when the
+ * mic API is unavailable or the grant is refused, so the caller (the overlay's
+ * open effect) no-ops silently -- a failed pre-warm must never surface an error
+ * or block the panel, and startRecording()'s own cold path still prompts on the
+ * first real mic click exactly as before.
+ */
+export async function prewarmMic(): Promise<boolean> {
+  if (warmStreamLive()) return true;
+  if (!navigator.mediaDevices?.getUserMedia) return false;
+  try {
+    warmStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    return true;
+  } catch {
+    warmStream = null;
+    return false;
+  }
+}
+
+/**
+ * Stops and drops the warm stream, releasing the mic (and turning off the
+ * browser's recording indicator) -- the "released on session end" half of the
+ * pre-warm amendment, called from the overlay on panel collapse/unmount.
+ * Idempotent: a no-op when nothing is warm.
+ */
+export function releaseWarmMic(): void {
+  if (warmStream) {
+    warmStream.getTracks().forEach((track) => track.stop());
+    warmStream = null;
+  }
+}
+
 function getMeterAudioContext(): AudioContext | null {
   const AudioCtx =
     window.AudioContext ??
@@ -158,11 +209,22 @@ export async function startRecording(): Promise<RecordingHandle> {
     throw new Error('Microphone is not available in this browser.');
   }
 
+  // Reuse the warm stream when one is live (the <500ms fast path); otherwise
+  // acquire one now and PROMOTE it to the warm stream so every later turn this
+  // session also takes the fast path (Sprint 19 Task 8). Either way the stream
+  // is owned by the warm lifecycle (releaseWarmMic) and is NOT stopped when this
+  // utterance ends -- ADR-011's "audio never persisted" is unchanged; only
+  // "released each utterance" relaxes to "released on session end".
   let stream: MediaStream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch {
-    throw new Error('Microphone permission was denied.');
+  if (warmStreamLive()) {
+    stream = warmStream!;
+  } else {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      throw new Error('Microphone permission was denied.');
+    }
+    warmStream = stream;
   }
   markStage(t0, 'getUserMedia resolved');
 
@@ -174,9 +236,13 @@ export async function startRecording(): Promise<RecordingHandle> {
     if (event.data.size > 0) chunks.push(event.data);
   });
 
-  function release(): void {
-    stream.getTracks().forEach((track) => track.stop());
-  }
+  // NOTE (Sprint 19 Task 8): the stream is the warm stream (owned by
+  // releaseWarmMic) and is deliberately NOT stopped when a single utterance
+  // finishes -- stopping it would make the next turn pay the getUserMedia cost
+  // again, defeating the pre-warm. The recorder is stopped by stop()/cancel()
+  // below; the warm stream is released only by releaseWarmMic() on session end
+  // (overlay panel collapse/unmount). Recorded bytes are still never persisted
+  // (ADR-011).
 
   // Start capturing FIRST -- this is the "actually capturing" moment the
   // ≤500ms budget is measured against. Live level metering (below) is a
@@ -223,7 +289,6 @@ export async function startRecording(): Promise<RecordingHandle> {
         recorder.addEventListener(
           'stop',
           () => {
-            release();
             const resolvedMimeType = recorder.mimeType || mimeType || PREFERRED_MIME_TYPE;
             const blob = new Blob(chunks, { type: resolvedMimeType });
             blob
@@ -238,7 +303,8 @@ export async function startRecording(): Promise<RecordingHandle> {
       }),
     cancel: () => {
       if (recorder.state !== 'inactive') recorder.stop();
-      release();
+      // The warm stream is intentionally left live (released via releaseWarmMic
+      // on session end) -- see the release note above.
     },
     getLevel,
   };

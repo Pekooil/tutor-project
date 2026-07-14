@@ -18,9 +18,11 @@ import {
   humanizeDue,
   masteryDelta,
   stripHistory,
+  windowHistory,
+  HISTORY_WINDOW_TURNS,
   type DisplayMessage,
 } from '../src/overlay/Overlay';
-import type { ProfileOverview, StatusPin } from '../src/types/messages';
+import type { ProfileOverview, StatusPin, TurnMessage } from '../src/types/messages';
 
 function pin(kind: StatusPin['kind'], conceptKey: string | null, label = 'x'): StatusPin {
   const category: StatusPin['category'] =
@@ -81,6 +83,59 @@ describe('stripHistory — display extras never re-enter the outbound wire', () 
 
   it('an empty history strips to an empty array', () => {
     expect(stripHistory([])).toEqual([]);
+  });
+});
+
+describe(`windowHistory — trims prior history to the last ${HISTORY_WINDOW_TURNS} turns (PLAN §2.5, Sprint 19 Task 8)`, () => {
+  // A synthetic alternating history: `turns` user/assistant PAIRS.
+  function alternating(turns: number): TurnMessage[] {
+    const out: TurnMessage[] = [];
+    for (let t = 0; t < turns; t++) {
+      out.push({ role: 'user', content: `u${t}` });
+      out.push({ role: 'assistant', content: `a${t}` });
+    }
+    return out;
+  }
+
+  it('leaves a short history (fewer than the window) untouched', () => {
+    const history = alternating(3);
+    expect(windowHistory(history)).toEqual(history);
+  });
+
+  it('a history exactly at the window is untouched', () => {
+    const history = alternating(HISTORY_WINDOW_TURNS);
+    expect(windowHistory(history)).toEqual(history);
+  });
+
+  it(`keeps only the last ${HISTORY_WINDOW_TURNS} user turns when the history is longer`, () => {
+    const history = alternating(HISTORY_WINDOW_TURNS + 5); // 13 turns, 26 messages
+    const windowed = windowHistory(history);
+    // 8 turns * 2 messages/turn = 16, and it must begin on the 6th turn's user
+    // message (turns are 0-indexed: t=5..12 survive).
+    expect(windowed).toHaveLength(HISTORY_WINDOW_TURNS * 2);
+    expect(windowed[0]).toEqual({ role: 'user', content: `u${HISTORY_WINDOW_TURNS + 5 - HISTORY_WINDOW_TURNS}` });
+    expect(windowed[windowed.length - 1]).toEqual({ role: 'assistant', content: `a${HISTORY_WINDOW_TURNS + 5 - 1}` });
+  });
+
+  it('always begins the window on a USER message even when the tail ends on an assistant turn (Anthropic API requires a leading user turn)', () => {
+    const history = alternating(HISTORY_WINDOW_TURNS + 4);
+    const windowed = windowHistory(history);
+    expect(windowed[0].role).toBe('user');
+  });
+
+  it('respects a custom window size', () => {
+    const history = alternating(10);
+    const windowed = windowHistory(history, 2);
+    expect(windowed).toEqual([
+      { role: 'user', content: 'u8' },
+      { role: 'assistant', content: 'a8' },
+      { role: 'user', content: 'u9' },
+      { role: 'assistant', content: 'a9' },
+    ]);
+  });
+
+  it('an empty history windows to an empty array', () => {
+    expect(windowHistory([])).toEqual([]);
   });
 });
 

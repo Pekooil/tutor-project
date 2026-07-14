@@ -17,6 +17,35 @@ import {
 // Defends the token budget against abusive payloads, not an exact token
 // count -- PLAN.md §2.5 targets the last 6-8 turns (well under MAX_MESSAGES).
 export const MAX_MESSAGES = 40
+
+// PLAN §2.5's context window: the tutor only needs the last 6-8 turns. The
+// client (Overlay.windowHistory) already trims to this before sending; this is
+// the defensive server-side clamp so an over-long history that still fits under
+// the MAX_MESSAGES abuse ceiling is cut to the window before it reaches the
+// provider -- fewer input tokens, lower cost, faster TTFT, and never a reliance
+// on the client having trimmed (Sprint 19 Task 8). Pure windowing, no pedagogy
+// change.
+export const HISTORY_WINDOW_TURNS = 8
+
+/**
+ * Keeps only the last `maxTurns` user-initiated turns (a user message plus the
+ * assistant reply that follows it). Windowing by USER turn -- not raw message
+ * count -- guarantees the result still BEGINS on a user message (the Anthropic
+ * API requires the first message to be role 'user') and, since parseMessages
+ * already enforced a trailing user turn, still ENDS on one.
+ */
+export function windowMessages(messages: TurnMessage[], maxTurns = HISTORY_WINDOW_TURNS): TurnMessage[] {
+  let userTurnsSeen = 0
+  let startIndex = 0
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      userTurnsSeen += 1
+      startIndex = i
+      if (userTurnsSeen >= maxTurns) break
+    }
+  }
+  return startIndex === 0 ? messages : messages.slice(startIndex)
+}
 export const MAX_MESSAGE_LENGTH = 4000
 export const MAX_PAGE_TITLE_LENGTH = 200
 
@@ -56,7 +85,12 @@ export function parseMessages(body: unknown): TurnMessage[] | null {
     return null
   }
 
-  return parsed
+  // Defensive server-side clamp to the PLAN §2.5 6-8 turn window (Sprint 19
+  // Task 8). The client already windows before sending; this guarantees the
+  // provider never sees more than the window even if a client sends a full
+  // (still <= MAX_MESSAGES) history. Both turn routes parse through here, so it
+  // applies to /api/ai/turn and /api/ai/turn/stream alike.
+  return windowMessages(parsed)
 }
 
 // pageContext is untrusted client input -- extracted from the host page by a

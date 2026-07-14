@@ -168,12 +168,14 @@ export default defineBackground(() => {
 
   // (4c) Word-by-word AI turn via a persistent port (chrome.runtime.connect).
   // The content script opens 'AI_STREAM', sends { messages, pageContext }, and
-  // receives one chunk message per word token so the overlay can animate them
-  // word-by-word. Uses the non-streaming /api/ai/turn endpoint (same as the
-  // voice path) and splits the reply client-side — this avoids a dependency on
-  // /api/ai/stream, which requires a server restart to pick up after the route
-  // file is first created (Turbopack dev-server limitation). ADR-006 upheld:
-  // the background service worker remains the sole network-egress context.
+  // receives one chunk message per token so the overlay can animate them
+  // word-by-word. Sprint 19 Task 8: ordinary text turns now stream those tokens
+  // straight from the server's envelope SSE route (/api/ai/turn/stream, the same
+  // route the voice path uses) so text replies begin rendering at the first
+  // delta; the session-start opener alone stays on the buffered /api/ai/turn
+  // path and is split client-side (SESSION START MODE is not on the stream
+  // route -- see the handler). ADR-006 upheld: the background service worker
+  // remains the sole network-egress context.
   //
   // Sprint 11 (ADR-019): the worker attaches the stored active sessionId +
   // the measured think-time to the relay (getTurnContext) and stamps the
@@ -237,15 +239,36 @@ export default defineBackground(() => {
       try {
         await ensureSessionStarted(pageDomain, 'text');
         const turnContext = await getTurnContext();
+        // Sprint 19 Task 8: ordinary text turns now stream token-by-token from
+        // the server via the envelope SSE route (/api/ai/turn/stream, the exact
+        // route the voice path already uses) instead of the old
+        // buffer-then-client-split -- so a text reply begins rendering at the
+        // first delta instead of only after the whole reply is generated. Each
+        // server `sayDelta` is relayed as the SAME 'chunk' message the overlay
+        // already consumes, so nothing downstream (content/sendAiTurn, Overlay)
+        // changes. The SESSION-START opener is the one exception: its structured
+        // sessionStart field drives SESSION START MODE, which the stream route
+        // doesn't implement, so that single first turn stays on the buffered
+        // /api/ai/turn path (client-split into chunks below) -- keeping the
+        // server pedagogy change out of Task 8's latency-only scope.
+        const result = msg.sessionStart
+          ? await api.aiTurn(msg.messages, msg.pageContext, turnContext, msg.sessionStart)
+          : await api.aiTurnEnvelopeStream(msg.messages, msg.pageContext, turnContext, (text) => {
+              try { port.postMessage({ type: 'chunk', text }); } catch { /* port disconnected */ }
+            });
         const { reply, annotations, pins, solutionProgress, session, chips, answerFields, degraded, degradedCap } =
-          await api.aiTurn(msg.messages, msg.pageContext, turnContext, msg.sessionStart);
+          result;
         // Sprint 18 Task 8 (ADR-043): a cost-capped turn emits degraded_hit.
         if (degraded && degradedCap) emitDegradedHit(degradedCap, 'claude_turn');
-        // Split on whitespace boundaries, keeping trailing spaces attached to
-        // the preceding token so the overlay reconstructs spacing correctly.
-        const tokens = reply.match(/\S+\s*/g) ?? [];
-        for (const token of tokens) {
-          try { port.postMessage({ type: 'chunk', text: token }); } catch { break; }
+        // The session-start opener didn't stream, so split its buffered reply
+        // into chunks here (whitespace boundaries, trailing spaces kept on the
+        // preceding token so the overlay reconstructs spacing). The streamed
+        // path already posted its chunks via the onSayDelta relay above.
+        if (msg.sessionStart) {
+          const tokens = reply.match(/\S+\s*/g) ?? [];
+          for (const token of tokens) {
+            try { port.postMessage({ type: 'chunk', text: token }); } catch { break; }
+          }
         }
         await setRunningTranscript(msg.messages);
         await stampTurnAnchor(turnContext.sessionId);
