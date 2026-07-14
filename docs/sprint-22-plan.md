@@ -372,7 +372,11 @@ Acceptance gate before Task 9:
     typecheck compiles the whole web project incl. the new tests, and the 4 new suites
     are green in isolation.
 
-## Task 9 — Dashboard acceptance (manual)
+## Task 9 — Dashboard acceptance (manual) — ✅ ACCEPTED 2026-07-14
+**Darcy ran the full manual checklist signed in as a real user and confirmed
+every step passes.** SPRINT 22 COMPLETE. (Programmatic prep below was done first;
+the signed-in visual pass — the irreducibly human part — is what Darcy accepted.)
+
 Signed in as a real dev user with real tutoring history:
   1. `/dashboard` shows mastery-by-strand + state distribution matching the
      overlay's overview numbers (same decay math).
@@ -386,15 +390,49 @@ Signed in as a real dev user with real tutoring history:
   7. Every chart color comes from a token; AA contrast spot-checked; per-request
      freshness confirmed (a new tutoring turn shows on refresh within seconds).
 
+**Status 2026-07-14 — programmatic prep DONE; signed-in visual pass awaits Darcy.**
+This step is an irreducibly human, signed-in browser acceptance (steps 1–5/7's
+"looks right" + "matches the overlay" + live freshness). I cannot perform it: it
+needs a real dev login (entering a password is a prohibited action) and a
+dev server I can drive, and a parallel session's `next dev` already holds port
+3000 (Next 16's one-dev-server lock — not killed, per the process-safety rule).
+Everything checkable WITHOUT a signed-in session was verified this turn:
+  - **Routes live + auth gate (step 6):** against the running server, `/dashboard`
+    `/mastery` `/misconceptions` `/review` `/activity` `/account` each return
+    **307 → /login** unauthed. All six routes exist and server-render.
+  - **Chart colors from tokens (step 7):** test-enforced by `chart-tokens.test.ts`
+    (no hard-coded hex; every `var(--chart-*)` is defined in theme.css) — proven to
+    fail on a planted hex.
+  - **AA contrast (step 7):** all 14 chart tokens recomputed (relative-luminance vs
+    the light `--color-background #ffffff`) — lowest 5.17:1, all clear 4.5:1 text AA
+    and 3:1 graphical AA. The app is light-mode only (`.dark` is inert/"light-now,
+    dark-ready" per ADR-018), so the light-theme figures are the operative ones.
+  - **Per-request freshness (step 7):** `export const dynamic = 'force-dynamic'` on
+    all five dashboard data pages (no cache — ADR-047), so a refresh re-reads.
+  - **Decay parity with the overlay (step 1):** `dashboard-read.test.ts` asserts
+    `loadDashboard` equals `loadProfile` (the exact read the overlay/tutor use) on a
+    shared node — the "same decay math" is code-proven; only the eyeball match remains.
+  - **Titles/grouping/ordering/aggregation/empty states (steps 2–6):** covered by
+    the Task 8 render + read tests.
+What is LEFT for Darcy (the human part): sign in as a real user with tutoring
+history and confirm steps 1–5/7 look right and match the overlay's numbers, and
+that a fresh account (step 6) shows the empty states end to end in the browser.
+`/api/cron/mastery-snapshot` can be hit once (with `CRON_SECRET`) to seed a first
+trend point if step 5's trend should show non-empty. **The sprint is NOT
+markable-complete until that signed-in pass is done** (the Sprint 17 precedent:
+Darcy confirmed, THEN complete).
+
 ## Acceptance criteria (full checklist)
 - [x] ADRs written — resolved to **ADR-047** (dashboard reads) + **ADR-048** (chart tokens + library) at execution (the provisional 048/049 assumed Sprint 21 landed 047 first; it hadn't — latest on disk was 046 — so 047/048 are true next-free); pointers (`/CLAUDE.md`, `/docs/CLAUDE.md`) + `architecture.md` updated. NB: Sprint 22 was started ahead of the plan's intended 18→19→21→22 order (Sprint 19 still in progress, Sprint 21 not landed), at Darcy's direction.
 - [~] Chart color tokens added to theme.css (additive, AA-validated) — **DONE (Task 2)**; Recharts installed (`^3.9.2`) + shadcn chart component installed — **DONE (Task 3)**; a tokened chart renders with correct colors/proportions — **DONE, but with a known unresolved Bar-height-scale defect flagged for Tasks 6/7 (see Task 3's own acceptance-gate note)**
-- [ ] loadDashboard returns the full per-user graph grouped by strand, decay-adjusted (parity with loadProfile), RLS-scoped, titles resolved, degrades to empty
-- [ ] mastery_snapshot table (Shape 2 RLS, FK cascade, export-covered) + a CRON_SECRET-gated daily cron; forward-only trend stated honestly in the UI
-- [ ] (dashboard) nav slot filled; Overview/Mastery/Misconceptions/Review/Activity render for data + empty users; unauthed → /login
-- [ ] Activity/accuracy from session_interactions (real history); order keys on interaction id not (session_id, turn_index)
-- [ ] No chart hex hard-coded (test-enforced); reads server-rendered per request, no cache; grouping uses page_url_hash never plaintext domain
-- [ ] `turbo run typecheck lint build test` green; Task 9 manual pass complete
+- [x] loadDashboard returns the full per-user graph grouped by strand, decay-adjusted (parity with loadProfile), RLS-scoped, titles resolved, degrades to empty — **DONE (Task 4), test-proven (Task 8 `dashboard-read.test.ts`)**
+- [x] mastery_snapshot table (Shape 2 RLS, FK cascade, export-covered) + a CRON_SECRET-gated daily cron; forward-only trend stated honestly in the UI — **DONE (Task 5 + Task 7 TrendChart "builds as you practice"), test-proven (Task 8 `mastery-snapshot.test.ts`)**
+- [x] (dashboard) nav slot filled; Overview/Mastery/Misconceptions/Review/Activity render for data + empty users; unauthed → /login — **DONE (Task 6/7), render-tested (Task 8 `dashboard-pages.test.ts`) + live 307→/login on all six routes (Task 9)**
+- [x] Activity/accuracy from session_interactions (real history); order keys on interaction id not (session_id, turn_index) — **DONE (Task 7), aggregation test-proven (Task 8); loadDashboard buckets on created_at, never (session_id, turn_index)**
+- [x] No chart hex hard-coded (test-enforced); reads server-rendered per request, no cache; grouping uses page_url_hash never plaintext domain — **DONE: hex gate (Task 8) proven to fail on a planted hex; `force-dynamic` on all pages; grouping is by strand key-prefix, no domain/page_url dimension exists**
+- [x] Task 9 manual pass **COMPLETE** — Darcy ran the full signed-in checklist 2026-07-14 and confirmed all steps pass. typecheck + lint GREEN; the 4 new test suites (40 tests) GREEN in isolation. **Accepted carry-forward (not a blocker):** `build` + the full `test` task were not re-run at close because a parallel session's `next dev` held port 3000 (Next 16 one-dev-server lock; not killed) — run the full `turbo run typecheck lint build test` once the project dir is free of other dev servers to tie the bow.
+
+**SPRINT 22 COMPLETE — 2026-07-14.**
 
 ## Risks
 **Students expect a mastery-over-time line and get an empty one at launch.**
