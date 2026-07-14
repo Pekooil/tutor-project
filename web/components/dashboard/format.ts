@@ -25,12 +25,19 @@ export function formatLastPracticed(iso: string | null): string {
   return months <= 1 ? 'Practiced last month' : `Practiced ${months} months ago`
 }
 
-/** A resolved/first-seen date → a short absolute day (e.g. "Jul 14, 2026"). */
+/**
+ * A date → a short absolute day (e.g. "Jul 14, 2026"). Formatted in UTC: the
+ * activity/trend `day` values are UTC calendar-day buckets (loadDashboard /
+ * mastery_snapshot compute them in UTC), so rendering a date-only string in the
+ * viewer's local zone would shift it a day west of UTC. UTC keeps the label on
+ * the same calendar day the data was bucketed into.
+ */
 export function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    timeZone: 'UTC',
   })
 }
 
