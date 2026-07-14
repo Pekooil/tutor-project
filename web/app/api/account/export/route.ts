@@ -25,9 +25,9 @@ const EXPORT_SCHEMA_VERSION = 1
 // Read through the caller's own RLS-scoped client (`auth.supabase`), where the
 // database is the scoping guarantee. `users`/`sessions`/`knowledge_nodes`/
 // `misconceptions`/`session_interactions`/`reinforcement_schedule` (per
-// docs/architecture.md) plus `feedback` (Sprint 17) are the complete set of
-// user-scoped tables that expose an owner SELECT policy; any new such table a
-// future sprint adds MUST be added here too.
+// docs/architecture.md) plus `feedback` (Sprint 17) and `mastery_snapshot`
+// (Sprint 22) are the complete set of user-scoped tables that expose an owner
+// SELECT policy; any new such table a future sprint adds MUST be added here too.
 const RLS_SCOPED_TABLES = [
   'users',
   'sessions',
@@ -36,6 +36,10 @@ const RLS_SCOPED_TABLES = [
   'session_interactions',
   'reinforcement_schedule',
   'feedback',
+  // Sprint 22 (ADR-047): the forward-only mastery trend. Its
+  // `mastery_snapshot_select_own` policy makes this authenticated read Just
+  // Work; the FK cascade to users covers erasure (migration 0020).
+  'mastery_snapshot',
 ] as const
 
 export async function GET(request: Request) {
