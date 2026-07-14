@@ -63,8 +63,12 @@ const TARGET_ASSESSMENT_ITEMS = 10
 // is the only stable, package-exported way to recover module membership -- the
 // per-module arrays (ALGEBRA1_CONCEPTS, ...) are internal to @calyxa/curriculum
 // and `Concept.strand` is the finer sub-topic, not the module.
-const STRAND_ORDER = ['algebra', 'geometry', 'algebra2', 'precalc', 'calculus', 'stats'] as const
-const STRAND_LABELS: Record<string, string> = {
+// Exported (Sprint 22 Task 4): the dashboard read groups the full per-user
+// graph by these same six top-level strands, so `dashboard-read.ts` reuses
+// this vocabulary rather than defining a second copy — one source of truth for
+// "the six strands" across onboarding and the mastery dashboard.
+export const STRAND_ORDER = ['algebra', 'geometry', 'algebra2', 'precalc', 'calculus', 'stats'] as const
+export const STRAND_LABELS: Record<string, string> = {
   algebra: 'Algebra 1',
   geometry: 'Geometry',
   algebra2: 'Algebra 2',
