@@ -83,11 +83,12 @@ alter table public.<table> enable row level security;
 | `feedback` | 2 (`user_id`)* | `0017_feedback_and_telemetry.sql` |
 | `telemetry_event` | 2 (`user_id`), insert-only** | `0017_feedback_and_telemetry.sql` |
 | `rate_limit` | 3 (deny-all) | `0018_rate_limit.sql` |
+| `study_artifact` | 2 (`user_id`)* | `0021_study_artifact.sql` |
 
-\* `feedback` follows Shape 2 but has **no `deleted_at` column**, so its
-policies omit the `deleted_at is null` clause — it is write-once capture with
-no soft-delete concept (ADR-039). Erasure is the `user_id` FK cascade, not a
-soft-delete flag.
+\* `feedback` and `study_artifact` follow Shape 2 but have **no `deleted_at`
+column**, so their policies omit the `deleted_at is null` clause — each is
+write-once capture with no soft-delete concept (ADR-039, ADR-049). Erasure is
+the `user_id` FK cascade, not a soft-delete flag.
 
 \** `telemetry_event` is Shape 2 keyed on `user_id` but **insert-only from the
 owner** (ADR-043): a single `for insert with check (auth.uid() = user_id)`
