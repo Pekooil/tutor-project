@@ -1,17 +1,17 @@
 // @vitest-environment jsdom
 //
-// Sprint 18 Task 4 (ADR-044): the extension-side a11y audit. The web axe spec
-// (web/tests/axe-web-surfaces.test.ts) covers the server-rendered auth/account
-// pages; the overlay + popup render React trees with NO server, so this spec
-// mounts them into jsdom (the overlay-display.test.ts precedent) and runs
-// axe-core over each — the same WCAG 2.1 A/AA structural check the web spec
-// runs (roles, labels, focus order, button/field names, aria-*).
+// Sprint 18 Task 4 (ADR-044): the extension-side a11y audit, updated for the
+// "Calyxa Ambient Pill" redesign. The web axe spec covers the server-rendered
+// auth/account pages; the overlay + popup render React trees with NO server,
+// so this spec mounts them into jsdom (the overlay-display.test.ts precedent)
+// and runs axe-core over each — the same WCAG 2.1 A/AA structural check
+// (roles, labels, focus order, button/field names, aria-*).
 //
-// The Sprint 14 decomposition (TitleBar/Composer/Transcript/CheckinCard/
-// PingToast) + the Sprint 17 Onboarding and TitleBar feedback affordance are
-// each presentational — props in, callbacks out — so they mount in isolation
-// with representative props covering the recording / degraded / calibrating
-// states the plan calls out.
+// The ambient decomposition (Composer-as-pill-text-row / ConceptCard /
+// ConceptFallbackCard / FeedbackCard / PingToast / Onboarding) is each
+// presentational — props in, callbacks out — so they mount in isolation with
+// representative props. The retired panel surfaces (TitleBar, the Transcript
+// message list, CheckinScan) retired their audits with them.
 //
 // Two documented axe scopings, mirroring the web spec's own limits:
 //   - color-contrast is DISABLED (jsdom computes no layout/cascade, so ratios
@@ -25,21 +25,20 @@
 import { createElement as h, act, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import axe from 'axe-core';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Onboarding } from '../src/overlay/Onboarding';
-import { TitleBar } from '../src/overlay/TitleBar';
 import { Composer } from '../src/overlay/Composer';
-import { CheckinScan, CheckinCard, CheckinFallbackCard } from '../src/overlay/CheckinCard';
+import { ConceptCard, ConceptFallbackCard, type ConceptVariant } from '../src/overlay/CheckinCard';
+import { FeedbackCard } from '../src/overlay/FeedbackCard';
 import { PingToast } from '../src/overlay/PingToast';
-import { Transcript } from '../src/overlay/Transcript';
+import { AnswerFields } from '../src/overlay/Transcript';
 import { App as PopupApp } from '../src/popup/main';
 import type {
   AssessmentItem,
   SessionStatePayload,
   StatusPin,
 } from '../src/types/messages';
-import type { DisplayMessage } from '../src/overlay/Overlay';
 
 // React 19's `act` requires this flag to run without warnings.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -104,111 +103,89 @@ afterEach(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Overlay surfaces (Sprint 14 decomposition)
+// Ambient-pill surfaces
 // ---------------------------------------------------------------------------
 
 const noop = () => {};
 
-describe('overlay a11y — Sprint 14 surfaces', () => {
-  it('CheckinScan (the calibrating / "reading the page" state)', async () => {
-    const c = await mount(h(CheckinScan));
-    await expectNoAxeViolations(c, 'CheckinScan');
+function conceptCardProps(variant: ConceptVariant) {
+  return {
+    variant,
+    topic: { conceptKey: 'quadratics', title: 'Quadratic equations' },
+    sticking: { value: 'factoring quadratics', label: 'Factoring quadratics', rank: 1 as const, personalized: true },
+    disabled: false,
+    autoStartActive: true,
+    autoStartMs: 5200,
+    onStart: noop,
+    onReframe: noop,
+  };
+}
+
+describe('overlay a11y — ambient pill surfaces', () => {
+  it('ConceptCard (banner — the default variant, drain bar armed)', async () => {
+    const c = await mount(h(ConceptCard, conceptCardProps('banner')));
+    await expectNoAxeViolations(c, 'ConceptCard (banner)');
   });
 
-  it('CheckinCard (opening scan: confirm-topic / reframe)', async () => {
-    const c = await mount(
-      h(CheckinCard, {
-        topic: { conceptKey: 'quadratics', title: 'Quadratic equations' },
-        sticking: { value: 'factoring quadratics', label: 'Factoring quadratics', rank: 1, personalized: true },
-        disabled: false,
-        autoStartActive: true,
-        autoStartMs: 5000,
-        onStart: noop,
-        onReframe: noop,
-      }),
-    );
-    await expectNoAxeViolations(c, 'CheckinCard');
+  it('ConceptCard (stacked variant)', async () => {
+    const c = await mount(h(ConceptCard, conceptCardProps('stacked')));
+    await expectNoAxeViolations(c, 'ConceptCard (stacked)');
   });
 
-  it('CheckinFallbackCard (opening scan named no topic — screen-capture fallback)', async () => {
-    const c = await mount(h(CheckinFallbackCard, { disabled: false, onFrame: noop }));
-    await expectNoAxeViolations(c, 'CheckinFallbackCard');
+  it('ConceptCard (minimal variant)', async () => {
+    const c = await mount(h(ConceptCard, conceptCardProps('minimal')));
+    await expectNoAxeViolations(c, 'ConceptCard (minimal)');
   });
 
-  it('Composer (resting state)', async () => {
+  it('ConceptFallbackCard (scan named no topic — screen-capture fallback)', async () => {
+    const c = await mount(h(ConceptFallbackCard, { disabled: false, onFrame: noop }));
+    await expectNoAxeViolations(c, 'ConceptFallbackCard');
+  });
+
+  it('Composer (the in-pill text row, resting)', async () => {
     const c = await mount(
       h(Composer, {
-        hasContent: false,
-        recording: false,
-        connecting: false,
-        level: 0,
-        input: '',
+        inputRef: createRef<HTMLInputElement>(),
+        value: '',
         busy: false,
-        closing: false,
-        placeholder: 'Answer out loud or type here',
-        inputFocused: false,
-        caretLeft: 0,
-        inputElRef: createRef<HTMLInputElement>(),
-        measureElRef: createRef<HTMLSpanElement>(),
+        disabled: false,
+        placeholder: 'Ask about this problem…',
+        onChange: noop,
         onSubmit: noop,
-        onInputChange: noop,
-        onCaretRefresh: noop,
-        onInputFocus: noop,
-        onInputBlur: noop,
-        onMicClick: noop,
+        onClose: noop,
       }),
     );
     await expectNoAxeViolations(c, 'Composer (resting)');
   });
 
-  it('Composer (recording state)', async () => {
+  it('Composer (the in-pill text row, thinking)', async () => {
     const c = await mount(
       h(Composer, {
-        hasContent: false,
-        recording: true,
-        connecting: false,
-        level: 0.6,
-        input: '',
-        busy: false,
-        closing: false,
-        placeholder: 'Listening…',
-        inputFocused: false,
-        caretLeft: 0,
-        inputElRef: createRef<HTMLInputElement>(),
-        measureElRef: createRef<HTMLSpanElement>(),
+        inputRef: createRef<HTMLInputElement>(),
+        value: 'how do I factor this?',
+        busy: true,
+        disabled: false,
+        placeholder: 'Ask about this problem…',
+        onChange: noop,
         onSubmit: noop,
-        onInputChange: noop,
-        onCaretRefresh: noop,
-        onInputFocus: noop,
-        onInputBlur: noop,
-        onMicClick: noop,
+        onClose: noop,
       }),
     );
-    await expectNoAxeViolations(c, 'Composer (recording)');
+    await expectNoAxeViolations(c, 'Composer (thinking)');
   });
 
-  it('Transcript (a live tutor exchange)', async () => {
-    const messages: DisplayMessage[] = [
-      { role: 'user', content: 'How do I solve 2x + 3 = 11?' },
-      { role: 'assistant', content: 'Start by isolating x. What do you get if you subtract 3 from both sides?' },
-    ];
+  it('AnswerFields (the multi-part answer card body)', async () => {
     const c = await mount(
-      h(Transcript, {
-        messages,
-        streamingTokens: [],
-        busy: false,
-        notice: null,
-        liveTranscript: '',
-        chips: ['x = 4', 'x = 8'],
-        chipsDisabled: false,
-        onChipTap: noop,
-        answerFields: null,
-        answerFieldsDisabled: false,
-        onAnswerFieldsSubmit: noop,
-        chatEndRef: createRef<HTMLDivElement>(),
+      h(AnswerFields, {
+        fields: [
+          { label: 'Adjacent', placeholder: 'e.g. 8.66' },
+          { label: 'Hypotenuse', placeholder: 'e.g. 10' },
+        ],
+        disabled: false,
+        onSubmit: noop,
       }),
     );
-    await expectNoAxeViolations(c, 'Transcript');
+    await expectNoAxeViolations(c, 'AnswerFields');
   });
 
   it('PingToast (a status pin)', async () => {
@@ -224,46 +201,23 @@ describe('overlay a11y — Sprint 14 surfaces', () => {
 });
 
 // ---------------------------------------------------------------------------
-// TitleBar + the Sprint 17 feedback affordance
+// The feedback affordance (Sprint 17, re-homed to its own card)
 // ---------------------------------------------------------------------------
 
-function titleBarProps() {
-  return {
-    playing: false,
-    isDragging: false,
-    recording: false,
-    busy: false,
-    ending: false,
-    closing: false,
-    ringing: false,
-    ringDurationMs: 0,
-    accessory: null,
-    chip: null,
-    session: null,
-    onHeaderPointerDown: noop,
-    onHeaderPointerMove: noop,
-    onHeaderPointerUp: noop,
-    onInterrupt: noop,
-    onMinimize: noop,
-    onCloseSession: noop,
-    onSubmitFeedback: async () => {},
-  };
-}
-
-describe('overlay a11y — TitleBar + feedback affordance (Sprint 17)', () => {
-  it('TitleBar (window controls + feedback trigger, closed)', async () => {
-    const c = await mount(h(TitleBar, titleBarProps()));
-    await expectNoAxeViolations(c, 'TitleBar (feedback closed)');
+describe('overlay a11y — FeedbackCard (Sprint 17 affordance, ambient home)', () => {
+  it('FeedbackCard (report / rate / message form)', async () => {
+    const c = await mount(h(FeedbackCard, { onSubmit: async () => {}, onClose: noop }));
+    await expectNoAxeViolations(c, 'FeedbackCard (form)');
   });
 
-  it('TitleBar feedback popover (opened — report / rate / message)', async () => {
-    const c = await mount(h(TitleBar, titleBarProps()));
-    const trigger = c.querySelector<HTMLButtonElement>('button[aria-label="Send feedback"]');
-    expect(trigger, 'feedback trigger button must exist and be labelled').not.toBeNull();
+  it('FeedbackCard (rating kind selected — the star row)', async () => {
+    const c = await mount(h(FeedbackCard, { onSubmit: async () => {}, onClose: noop }));
+    const rate = Array.from(c.querySelectorAll('button')).find((b) => b.textContent === 'Rate');
+    expect(rate, 'the Rate kind tab must exist').toBeTruthy();
     await act(async () => {
-      trigger!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      rate!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
-    await expectNoAxeViolations(c, 'TitleBar (feedback popover open)');
+    await expectNoAxeViolations(c, 'FeedbackCard (rating)');
   });
 });
 

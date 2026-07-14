@@ -1,18 +1,12 @@
-/* Calyxa overlay styles — Sprint 10 (was hand-written CSS through Sprint 09).
+/* Calyxa overlay styles — Sprint 10 (was hand-written CSS through Sprint 09);
+ * rebuilt for the "Calyxa Ambient Pill" redesign (the two-shape idle-pill →
+ * draggable-panel model is retired — one bottom-center morphing pill plus a
+ * single transient surface slot).
  *
  * Tailwind v4 + the @calyxa/ui tokens, compiled by @tailwindcss/vite (Task 3)
  * into the stylesheet the content script injects INTO the shadow root
  * (cssInjectionMode: 'ui'), never the host page <head> — so this can never
- * leak onto, or be bled into from, the host page. See ADR-002 + ADR-018.
- * Overlay.tsx now carries all layout/visual classes directly; this file is
- * bootstrap only.
- *
- * Sprint 14 Task 2 regrouped the sections below per the component that now
- * owns the JSX using them (Overlay.tsx was decomposed into TitleBar/
- * Composer/Transcript/PingToasts) — selector names and rules
- * are unchanged, several keyframes are shared across more than one
- * component (noted per section) since a component split doesn't imply a
- * one-keyframe-per-file split. */
+ * leak onto, or be bled into from, the host page. See ADR-002 + ADR-018. */
 @import 'tailwindcss';
 @import '@calyxa/ui/theme.css';
 /* @calyxa/ui resolves through the npm workspace symlink (node_modules/@calyxa/ui
@@ -22,12 +16,18 @@
  * sheet even though other classes from the same files compiled fine). @source
  * forces those files into the scan explicitly. */
 @source '../../../packages/ui/src';
+/* The overlay's own source tree, explicit for the same reason: the WXT
+ * build's auto-detection already covers it (project-root scan), but any
+ * OTHER consumer compiling this stylesheet from a different root (e.g. the
+ * pill-harness dev page) would silently miss every utility used in these
+ * components without it. */
+@source '../';
 
 /* WXT's createShadowRootUi already prepends `:host { all: initial !important }`
  * at runtime; kept explicit here too, per ADR-002. Typography/color live on
- * the overlay's own root element (font-sans/text-base/text-foreground in
- * Overlay.tsx), never on :host, since the !important reset would win over
- * anything declared here. */
+ * the overlay's own root element (font-sans/text-foreground in Overlay.tsx),
+ * never on :host, since the !important reset would win over anything
+ * declared here. */
 :host {
   all: initial;
 }
@@ -37,22 +37,11 @@
  * font-size, by spec -- no shadow boundary can contain or redirect that,
  * "all: initial" on the host included. Khan Academy sets a non-16px root
  * font-size for its own layout math, so every rem-based Tailwind utility the
- * overlay uses -- the whole spacing scale that h-*, w-*, p-*, and gap-*
- * derive from, the radius scale, and the text scale -- silently inherited
- * that instead of the intended fixed size. The idle pill (h-2 w-10) rendered
- * at roughly 5 by 25px instead of 8 by 40px, and the expanded panel came out
- * visibly warped, since some of its sizing is arbitrary px values (immune)
- * and the rest is these scale-derived utilities (not immune) -- a mix that
- * reads as distortion.
+ * overlay uses silently inherited that instead of the intended fixed size.
  *
  * Fix: pin these custom properties to fixed px equivalents, scoped to :host
  * so only the shadow root is affected -- /web keeps the original rem-based
- * tokens from the shared theme untouched, which is correct there: a
- * first-party page should respect the document's font-size for the user's
- * own zoom and accessibility preferences. The overlay has no such document
- * to respect; it has to render identically no matter what a host page's
- * author does to the root font-size, which is what shadow isolation was
- * supposed to guarantee before this bug. */
+ * tokens from the shared theme untouched. */
 :host {
   --spacing: 4px;
   --radius-sm: 6px;
@@ -76,60 +65,129 @@
   --text-4xl--line-height: 40px;
 }
 
-/* ── Shared: host bootstrap + idle-pill glow (Overlay.tsx's own JSX --
-   the idle pill was not one of Task 2's five extractions) ── */
-
-/* Capsule + Gemini-style input-bar ambient glow (round 2 redesign). A
- * radial-gradient + blur has no Tailwind utility equivalent, so it lives
- * here; the breathing animation itself is applied as a Tailwind arbitrary
- * value in Overlay.tsx (motion-safe: gated, so prefers-reduced-motion just
- * leaves the glow static — never load-bearing for comprehension). */
-.calyxa-glow {
-  background: radial-gradient(
-    circle,
-    var(--color-accent-glow) 0%,
-    var(--color-accent-glow-strong) 45%,
-    transparent 75%
-  );
+/* ── The ambient pill's surface vocabulary (handoff §"The pill") ──
+ * Frosted-glass values that exist only in this redesign (they are alpha
+ * compositions over the host page, not brand palette entries, so they live
+ * here as component vars rather than theme.css tokens — same boundary the
+ * old --cx-annot-* custom-property indirection drew). Light on .cx-root;
+ * dark under the SAME data-theme attribute the shared theme.css dark block
+ * keys on, stamped by Overlay.tsx from prefers-color-scheme. */
+.cx-root {
+  --cx-pill-bg: rgba(255, 255, 255, 0.8);
+  --cx-pill-line: rgba(28, 28, 26, 0.1);
+  --cx-card-bg: rgba(255, 255, 255, 0.88);
+  --cx-shadow:
+    0 18px 44px rgba(28, 40, 30, 0.18),
+    0 2px 8px rgba(28, 40, 30, 0.08);
+  --cx-chip-bg: #f7f7f5;
+  /* The concept card's danger-subtle "Likely slip" chip fill (handoff's
+   * exact pair; the ink is the shared --color-danger, which theme.css's dark
+   * block already flips to the light-fill construction). */
+  --cx-warn-bg: #fef2f2;
+  /* The idle sliver's top sheen. Invisible-by-composition in dark (white at
+   * .22 over a dark pill still reads correctly, per the prototype, so it is
+   * deliberately NOT overridden below). */
+  --cx-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 70%);
+}
+.cx-root[data-theme='dark'] {
+  --cx-pill-bg: rgba(24, 26, 23, 0.78);
+  --cx-pill-line: rgba(255, 255, 255, 0.1);
+  --cx-card-bg: rgba(24, 26, 23, 0.86);
+  --cx-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.35);
+  --cx-chip-bg: rgba(255, 255, 255, 0.07);
+  --cx-warn-bg: rgba(248, 113, 113, 0.13);
 }
 
-@keyframes calyxa-breathe {
+/* The one morphing object: width/height/border-radius spring between the
+ * fixed shape map's entries (Overlay.tsx sets the px values inline); the
+ * springy ease is the handoff's exact curve. Under reduced motion the morph
+ * is instant — the end state is applied with no tween, this file's
+ * "end-state applied instantly" convention. */
+.cx-pill {
+  background: var(--cx-pill-bg);
+  border: 1px solid var(--cx-pill-line);
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  box-shadow: var(--cx-shadow);
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cx-pill {
+    transition:
+      width 0.55s cubic-bezier(0.32, 1.4, 0.36, 1),
+      height 0.55s cubic-bezier(0.32, 1.4, 0.36, 1),
+      border-radius 0.55s cubic-bezier(0.32, 1.4, 0.36, 1),
+      background 0.35s ease;
+  }
+}
+
+/* The transient surface cards (handoff §"Transient surfaces"): one shared
+ * frosted shell, spring entry (cxPop) / fade-drop exit (cxOut). The exit
+ * class is applied ~270ms before unmount (Overlay.tsx's dismiss window).
+ * Under reduced motion both are no-ops — the card appears/disappears
+ * instantly, and the exit's opacity end-state is applied so a card mid-
+ * dismiss never lingers at full strength. */
+.cx-card {
+  background: var(--cx-card-bg);
+  border: 1px solid var(--cx-pill-line);
+  border-radius: 17px;
+  backdrop-filter: blur(22px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  box-shadow: var(--cx-shadow);
+}
+
+@keyframes cx-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.9);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.015);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cx-out {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.94);
+    filter: blur(3px);
+  }
+}
+
+/* Pill-content swap: whichever state's contents mount fade-slide in. */
+@keyframes cx-fade-up {
+  0% {
+    opacity: 0;
+    transform: translateX(-5px) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes cx-breathe {
   0%,
   100% {
-    opacity: 0.55;
-    transform: scale(0.92);
+    transform: scale(0.94);
   }
   50% {
-    opacity: 1;
     transform: scale(1.08);
   }
 }
 
-/* ── Shared: TitleBar + Composer + Transcript ──
- * Four-state redesign (Sprint 10 Task 6 round 3, Calyxa Overlay.dc.html).
- * One keyframe per state's signature motion: cx-dot is the idle-pill
- * (Overlay.tsx)/listening-badge (TitleBar) readiness pulse, cx-bar drives
- * both waveform variants (TitleBar's speaking indicator + Composer's
- * recording level meter — the shared WaveformBars component now lives in
- * Composer.tsx, Task 2), cx-orb/cx-ring are Transcript's TypingIndicator
- * breathing core + expanding ring, cx-rise is the idle-pill's mount
- * transition. All applied as
- * Tailwind arbitrary-value classes gated by motion-safe: in the owning
- * component's JSX — per brand.md S6, none of this motion is load-bearing
- * for comprehension. */
-@keyframes cx-dot {
-  0%,
-  100% {
-    transform: scale(0.65);
-    opacity: 0.5;
-  }
-  50% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes cx-bar {
+@keyframes cx-wave {
   0%,
   100% {
     transform: scaleY(0.3);
@@ -139,37 +197,129 @@
   }
 }
 
-@keyframes cx-orb {
-  0%,
-  100% {
-    transform: scale(0.86);
-    opacity: 0.7;
+@keyframes cx-sweep {
+  0% {
+    transform: translateX(-130%) skewX(-18deg);
   }
-  50% {
-    transform: scale(1.1);
-    opacity: 1;
+  100% {
+    transform: translateX(340%) skewX(-18deg);
   }
 }
 
-@keyframes cx-ring {
+@keyframes cx-shimmer {
   0% {
-    transform: scale(0.7);
-    opacity: 0.55;
+    background-position: 200% 0;
   }
   100% {
-    transform: scale(1.9);
+    background-position: -200% 0;
+  }
+}
+
+@keyframes cx-drain {
+  0% {
+    transform: scaleX(1);
+  }
+  100% {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes cx-think {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cx-surface-in {
+    animation: cx-pop 0.5s cubic-bezier(0.3, 1.4, 0.4, 1) both;
+  }
+  .cx-surface-out {
+    animation: cx-out 0.27s ease both;
+  }
+  .cx-pill-content {
+    animation: cx-fade-up 0.4s cubic-bezier(0.3, 1.4, 0.4, 1) both;
+  }
+  .cx-glow-breathe {
+    animation: cx-breathe 3s ease-in-out infinite;
+  }
+  .cx-wave-bar {
+    animation-name: cx-wave;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+  .cx-sweep-bar {
+    animation: cx-sweep 1.5s ease-in-out infinite;
+  }
+  .cx-shimmer-text {
+    animation: cx-shimmer 1.6s linear infinite;
+  }
+  .cx-drain-fill {
+    animation: cx-drain var(--cx-drain-duration, 5200ms) linear both;
+    transform-origin: left;
+  }
+  .cx-think-dot {
+    animation: cx-think 1.1s ease-in-out infinite;
+  }
+}
+
+/* Reduced motion end-states: a dismissing card reads dismissed, and the
+ * drain bar (which mirrors a REAL JS timer, the close ring's old shared-
+ * duration discipline) reads as fully drained rather than never-moving —
+ * "in progress" is still communicated instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .cx-surface-out {
+    opacity: 0;
+  }
+  .cx-drain-fill {
+    transform: scaleX(0);
+  }
+}
+
+/* The scan state's shimmering label: gradient text (muted→ink→muted sweep).
+ * The gradient paints with or without the animation, so the reduced-motion
+ * fallback is simply a static two-tone label. */
+.cx-shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--color-muted-foreground) 25%,
+    var(--color-foreground) 50%,
+    var(--color-muted-foreground) 75%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ── Streaming caret (transcript, caption, reference cards + the in-pill
+ * text input's fake-caret predecessor is retired — the input uses the
+ * native caret via caret-color now). step-end keeps the blink sharp. Not
+ * gated by prefers-reduced-motion because a blinking cursor is
+ * communicative, not decorative. */
+@keyframes cx-caret {
+  0%,
+  48% {
+    opacity: 1;
+  }
+  49%,
+  100% {
     opacity: 0;
   }
 }
 
-/* ── Transcript: streaming/voice-reveal tokens ──
- * Word-entry animation (step 04, Calyxa Overlay.dc.html): each new streaming
- * token or voice-reveal word fades in from 4 px below. One-shot (not looping)
- * so already-visible words never re-animate — React's stable per-token keys
- * guarantee only newly mounted spans trigger this. fill-mode: both holds the
- * from-state before the animation starts so words don't flash on screen first.
- * Gated by the media query here (same discipline as .cx-bar above) rather
- * than motion-safe: in JSX, because the class is applied via className. */
+/* ── Caption/transcript word-reveal tokens ──
+ * Word-entry animation: each new streaming token or voice-reveal word fades
+ * in from 4 px below. One-shot (not looping) so already-visible words never
+ * re-animate — React's stable per-token keys guarantee only newly mounted
+ * spans trigger this. fill-mode: both holds the from-state before the
+ * animation starts so words don't flash on screen first. */
 @keyframes cx-word-in {
   from {
     opacity: 0;
@@ -187,65 +337,14 @@
   }
 }
 
-/* ── Shared: Composer's input caret + Transcript's streaming cursor ──
- * Green text-cursor blink (step 04). step-end keeps the transition sharp
- * (no cross-fade between on/off states). Not gated by prefers-reduced-motion
- * because a blinking cursor is communicative, not decorative. */
-@keyframes cx-caret {
-  0%,
-  48% {
-    opacity: 1;
-  }
-  49%,
-  100% {
-    opacity: 0;
-  }
-}
-
-/* ── Overlay.tsx's idle pill entry animation ──
- * Vertical-only (and opacity) — the horizontal centering on the idle pill's
- * wrapper is Tailwind's own -translate-x-1/2 utility (a separate `translate`
- * property in Tailwind v4, not `transform`), so this keyframe must not also
- * touch X or the two would compose into a doubled offset. */
-@keyframes cx-rise {
-  0% {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* ── Composer: WaveformBars (also used by TitleBar's speaking indicator) ──
- * The waveform bars (Composer.tsx's WaveformBars, Task 2) need a per-bar
- * animation-duration/delay, which Tailwind's arbitrary-value `animate-[...]`
- * syntax can't express (resolved once at build time, not per element) — so
- * this is the one animation set via a plain class + inline style instead of
- * motion-safe:animate-[...]. Scoping the animation-name declaration itself
- * inside this media query (rather than gating with a `motion-safe:` utility)
- * gets the same prefers-reduced-motion-safe result: under reduced motion the
- * bars simply have no animation-name and sit static at full height, same
- * never-load-bearing guarantee as everywhere else in this file. */
-@media (prefers-reduced-motion: no-preference) {
-  .cx-bar {
-    animation-name: cx-bar;
-    animation-timing-function: ease-in-out;
-    animation-iteration-count: infinite;
-  }
-}
-
-/* ── AnnotationLayer.tsx (unchanged by Sprint 14 Task 2 -- not one of the
-   five decomposed components; grouped here since it shares this file) ──
-   Annotation layer (Sprint 12 Task 6, ADR-022). The SVG itself: full-
+/* ── AnnotationLayer.tsx (unchanged by the ambient-pill redesign — it
+ * feeds the new surfaces exactly as it fed the old panel) ──
+ * Annotation layer (Sprint 12 Task 6, ADR-022). The SVG itself: full-
  * viewport, fixed, pointer-events: none (the host page underneath stays
- * fully clickable/selectable — verified by hand in Task 9), aria-hidden via
- * the JSX prop. Sized with plain vw/vh rather than a viewBox so 1 SVG user
- * unit == 1 css px, matching the getBoundingClientRect() space every rect
- * arrives in (no scaling/offset math). z-index sits one below the panel/pill
- * (both z-[2147483647]) so the panel always draws on top of any annotation
- * that happens to land underneath it. */
+ * fully clickable/selectable), aria-hidden via the JSX prop. Sized with
+ * plain vw/vh rather than a viewBox so 1 SVG user unit == 1 css px. z-index
+ * sits one below the pill column (z-[2147483647]) so the pill always draws
+ * on top of any annotation that happens to land underneath it. */
 .cx-annotation-layer {
   position: fixed;
   inset: 0;
@@ -264,8 +363,7 @@
  * model's explicit legacy style.color maps onto the ordinal carrying the
  * same hue (green→o1, amber→o2, blue→o3, red→o4's plum — never a hard
  * red, it reads "error"); otherwise the per-turn ordinal assignment
- * (Overlay.tsx's assignAnnotationColors — the SAME map Transcript.tsx's
- * color-linked text reads) decides. */
+ * (Overlay.tsx's assignAnnotationColors) decides. */
 .cx-annot-o1 {
   --cx-annot-stroke: var(--calyxa-annot-1);
   --cx-annot-tint: var(--calyxa-annot-1-tint);
@@ -514,10 +612,9 @@
   }
 }
 
-/* Kept for Overlay.tsx's reframe-confirm backdrop, which reuses this
- * keyframe by name (motion-safe:animate-[cx-annot-in_...]) — the
- * annotation layer itself no longer uses it (the draw-on set above
- * replaced the scale-pop). */
+/* Kept for the reframe tool's confirm backdrop, which reuses this keyframe
+ * by name (motion-safe:animate-[cx-annot-in_...]) — the annotation layer
+ * itself no longer uses it (the draw-on set above replaced the scale-pop). */
 @keyframes cx-annot-in {
   from {
     opacity: 0;
@@ -529,161 +626,13 @@
   }
 }
 
-/* ── TitleBar: the close-choreography ring (Sprint 14 Task 7, ADR-027) ──
- * A conic-gradient sweep around the ✕ button, ~CLOSE_RING_MS (Overlay.tsx's
- * constant, threaded in as --cx-ring-duration so the CSS animation can
- * never drift from the real timer driving the actual close). @property
- * registers the custom property as an animatable <percentage> -- without
- * it, browsers can't smoothly interpolate a custom property used inside a
- * gradient function (it would jump in one step instead of sweeping). Safe
- * to rely on unconditionally here: this is a Chrome-only surface (a
- * Chrome extension), and @property has shipped in Chrome since 85. */
-@property --cx-ring-pct {
-  syntax: '<percentage>';
-  inherits: false;
-  initial-value: 0%;
-}
-
-.cx-close-ring {
-  position: relative;
-  display: inline-flex;
-}
-
-.cx-close-ring::before {
-  content: '';
-  position: absolute;
-  inset: -4px;
-  border-radius: 9999px;
-  /* Lighter green than the old accent-emphasis (Sprint 15 fix pass) -- the
-     glow-strong token is the same bright green the rest of the overlay's
-     positive signals use. */
-  background: conic-gradient(var(--color-accent-glow-strong) var(--cx-ring-pct), transparent var(--cx-ring-pct));
-  /* Punches the fill into a ring (a donut, not a pie slice) -- the inner
-     circle is fully masked away, leaving a ~3.5px stroke (Sprint 15 fix
-     pass: thickened from ~2px) visible around the button's edge. */
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3.5px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3.5px));
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .cx-close-ring::before {
-    animation: cx-ring-sweep var(--cx-ring-duration, 10000ms) linear forwards;
-  }
-}
-
-/* Reduced motion: the ring reads as already-fully-drawn rather than static
- * at zero -- "closing is in progress" is still communicated instantly,
- * consistent with this file's "end-state applied instantly" convention
- * (the JS timer driving the actual close is completely unaffected either
- * way -- this is a visual-only fallback). */
-@media (prefers-reduced-motion: reduce) {
-  .cx-close-ring::before {
-    --cx-ring-pct: 100%;
-  }
-}
-
-@keyframes cx-ring-sweep {
-  from {
-    --cx-ring-pct: 0%;
-  }
-  to {
-    --cx-ring-pct: 100%;
-  }
-}
-
-/* (The Sprint 14 solution-progress bar's classes -- cx-progress-fill /
- * cx-progress-knob -- lived here; the design-08 redesign retired the bar
- * outright ("the progress bar is gone — pings and markers ARE the
- * progress"). The progress SIGNAL itself still drives the header's stage
- * label and the final-step pin. The Transcript tag-pill color classes --
- * cx-tag-* -- were retired earlier by ADR-034.) */
-
-/* ── Transcript: color-linked annotation highlighting (Sprint 14 Task 7,
- * ADR-029 amendment) ── theme.css's --calyxa-annot-N aliases, the SAME
- * per-turn assignment (Overlay.tsx's assignAnnotationColors) that colors
- * the on-page mark's stroke (AnnotationLayer.tsx) -- one source of truth
- * for "which color is this turn's Nth annotation," referenced from two
- * different components. Underline + a tinted text color, NOT a background
- * block -- a solid highlight fill would fight the assistant bubble's own
- * (transparent) background and read as a second, competing surface. Since
- * the annotations redesign the TEXT reads the -deep companion (dark-on-
- * light, AA on the panel background -- the raw Meadow strokes measure
- * ~3:1 as body text) while the underline keeps the stroke hue, matching
- * the handoff's transcript-echo treatment (deep text, stroke underline). */
-.cx-annot-text-annot-1 {
-  color: var(--calyxa-annot-1-deep);
-  text-decoration-line: underline;
-  text-decoration-color: var(--calyxa-annot-1);
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 2px;
-}
-.cx-annot-text-annot-2 {
-  color: var(--calyxa-annot-2-deep);
-  text-decoration-line: underline;
-  text-decoration-color: var(--calyxa-annot-2);
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 2px;
-}
-.cx-annot-text-annot-3 {
-  color: var(--calyxa-annot-3-deep);
-  text-decoration-line: underline;
-  text-decoration-color: var(--calyxa-annot-3);
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 2px;
-}
-.cx-annot-text-annot-4 {
-  color: var(--calyxa-annot-4-deep);
-  text-decoration-line: underline;
-  text-decoration-color: var(--calyxa-annot-4);
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 2px;
-}
-
-/* ── PingToast: the ping system (design handoff 8a/8b, replacing the
- * Sprint 15 dynamic-island title swap -- the island was tried and reverted
- * in the design pass) ── one tone-tinted capsule that drops into the
- * top-center of the session header, holds ~3s (Overlay.tsx's
- * PIN_DISPLAY_MS drives removal), and fades up and out. The base class
- * carries the horizontal centering (translateX) so the toast is correctly
- * positioned even under reduced motion, where the keyframe never runs and
- * the JS timer still removes it -- "end-state applied instantly", as
- * everywhere else in this file. The keyframe is the design board's own
- * cx-ping cycle, verbatim. */
-.cx-ping {
-  transform: translateX(-50%);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .cx-ping {
-    animation: cx-ping 3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  }
-}
-
-@keyframes cx-ping {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -18px) scale(0.92);
-  }
-  9% {
-    opacity: 1;
-    transform: translate(-50%, 0) scale(1);
-  }
-  85% {
-    opacity: 1;
-    transform: translate(-50%, 0) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -14px) scale(0.95);
-  }
-}
-
-/* The three ping tones (8b: sage wins / neutral teaching moves / amber
- * watch-outs) -- pings.ts's PIN_TONE picks the class; every value is a
+/* ── The ping tones (8b: sage wins / neutral teaching moves / amber
+ * watch-outs) ── pings.ts's PIN_TONE picks the class; every value is a
  * theme.css --calyxa-ping-* token (ADR-018). The icon inherits `color`
  * through currentColor, so one class tints border, fill, label, and glyph
- * together. */
+ * together. The old header-drop positioning/keyframe is retired — a ping is
+ * now a transient card in the surface slot, entering/leaving via
+ * cx-surface-in/out like every other card. */
 .cx-ping-positive {
   background: var(--calyxa-ping-positive-bg);
   border-color: var(--calyxa-ping-positive-border);
@@ -700,122 +649,14 @@
   color: var(--calyxa-ping-watch-text);
 }
 
-/* ── Transcript: milestone markers (design 8a) ── the tone class sets the
- * row's text/icon color and the hairline-rule color together; the rules
- * themselves read the custom property so win and watch-out rows stay
- * one-class affairs like the toast above. `adjust` is styled for
- * completeness (no current milestone kind maps to it -- pings.ts). */
-.cx-milestone-positive {
-  color: var(--color-accent-emphasis);
-  --cx-milestone-rule: var(--calyxa-sage-border);
-}
-.cx-milestone-watch {
-  color: var(--calyxa-ping-watch-text);
-  --cx-milestone-rule: var(--calyxa-ping-watch-divider);
-}
-.cx-milestone-adjust {
-  color: var(--calyxa-ping-adjust-text);
-  --cx-milestone-rule: var(--color-border);
-}
-.cx-milestone-rule {
-  background: var(--cx-milestone-rule);
-}
-
-/* ── Transcript: entry animation (design 8a's Message-in) ── every
- * committed transcript entry -- tutor line, student bubble, milestone
- * marker -- settles in from 9px below on the overlay's usual spring-ish
- * curve. One-shot per mount (React list keys), same discipline as
- * cx-word-in above. */
-@keyframes cx-msg {
-  from {
-    opacity: 0;
-    transform: translateY(9px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .cx-msg {
-    animation: cx-msg 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  }
-}
-
-/* ── TitleBar: the tutor-mode identity colors (design 8c) ── each mode key
- * maps to one class that publishes the mode's text/bg/border triple as
- * custom properties; the chip, name, and anything else inside the identity
- * cluster read those (inline style var() references), so a mode switch is
- * one className change and the .45s color transitions carry the recolor.
- * Every value is a theme.css --calyxa-mode-* token (ADR-018).
- * --cx-mode-glow is the icon's gradient glow (design 8c): three stacked
- * box-shadow layers -- a 1px edge, a soft drop, and a wide bloom -- tinted
- * from --cx-mode-border via color-mix so it tracks --calyxa-mode-practice-*
- * even where that token resolves to --color-accent rather than a literal hex. */
-.cx-mode-explore {
-  --cx-mode-text: var(--calyxa-mode-explore-text);
-  --cx-mode-bg: var(--calyxa-mode-explore-bg);
-  --cx-mode-border: var(--calyxa-mode-explore-border);
-  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
-}
-.cx-mode-coach {
-  --cx-mode-text: var(--calyxa-mode-coach-text);
-  --cx-mode-bg: var(--calyxa-mode-coach-bg);
-  --cx-mode-border: var(--calyxa-mode-coach-border);
-  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
-}
-.cx-mode-build {
-  --cx-mode-text: var(--calyxa-mode-build-text);
-  --cx-mode-bg: var(--calyxa-mode-build-bg);
-  --cx-mode-border: var(--calyxa-mode-build-border);
-  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
-}
-.cx-mode-practice {
-  --cx-mode-text: var(--calyxa-mode-practice-text);
-  --cx-mode-bg: var(--calyxa-mode-practice-bg);
-  --cx-mode-border: var(--calyxa-mode-practice-border);
-  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
-}
-.cx-mode-challenge {
-  --cx-mode-text: var(--calyxa-mode-challenge-text);
-  --cx-mode-bg: var(--calyxa-mode-challenge-bg);
-  --cx-mode-border: var(--calyxa-mode-challenge-border);
-  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
-}
-.cx-mode-verify {
-  --cx-mode-text: var(--calyxa-mode-verify-text);
-  --cx-mode-bg: var(--calyxa-mode-verify-bg);
-  --cx-mode-border: var(--calyxa-mode-verify-border);
-  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
-}
-.cx-mode-review {
-  --cx-mode-text: var(--calyxa-mode-review-text);
-  --cx-mode-bg: var(--calyxa-mode-review-bg);
-  --cx-mode-border: var(--calyxa-mode-review-border);
-  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
-}
-.cx-mode-recover {
-  --cx-mode-text: var(--calyxa-mode-recover-text);
-  --cx-mode-bg: var(--calyxa-mode-recover-bg);
-  --cx-mode-border: var(--calyxa-mode-recover-border);
-  --cx-mode-glow: 0 0 0 1px color-mix(in srgb, var(--cx-mode-border) 35%, transparent), 0 3px 10px -2px color-mix(in srgb, var(--cx-mode-border) 60%, transparent), 0 0 16px 3px color-mix(in srgb, var(--cx-mode-border) 30%, transparent);
-}
-
 /* ── SectionBloomFrame: the section-complete celebration (design state 06,
- * "a bloom, not confetti") ──
- * The earlier body-swap is retired. The completion lights up the panel's
- * OWN frame: a rotating sage conic gradient rides the 2px border
- * (.cx-bloom-spin) while the live card stays fully readable underneath,
- * plus a one-shot burst ring (.cx-bloom-burst) pulsing just past the edge.
- * Both glow layers fade in and back out over var(--cx-bloom-duration) --
- * the REAL JS unmount window, the close ring's shared-duration discipline
- * -- so the frame recedes rather than blinking off. The conic sits on a
- * border-colour base (.cx-bloom-frame) so as it fades it lands on the plain
- * border, seamless with the card that swaps back in. Under reduced motion
- * the rotation and burst hold still (a calm static sage border) and the
- * timer still removes the whole thing. Gradient stops are theme aliases --
- * no bare hex in the palette, same as the AI-tag capsule above. */
+ * "a bloom, not confetti") ── the rotating sage conic gradient rides the
+ * 2px border (.cx-bloom-spin) while the card stays readable, plus a
+ * one-shot burst ring (.cx-bloom-burst) pulsing just past the edge. Both
+ * glow layers fade in and back out over var(--cx-bloom-duration) — the
+ * REAL JS unmount window — so the frame recedes rather than blinking off.
+ * Under reduced motion the rotation and burst hold still (a calm static
+ * sage border) and the timer still removes the whole thing. */
 .cx-bloom-frame {
   background: var(--color-border);
 }
@@ -879,55 +720,7 @@
   }
 }
 
-/* ── CheckinCard: the 5a redesign (one prediction, not a menu) ──
- * The Start button's auto-start sweep: a translucent deep-green layer
- * scaling X 0→1 over the SAME window Overlay.tsx's real AUTO_START_MS timer
- * runs (threaded in as --cx-fill-duration, the close ring's shared-duration
- * discipline) so the fill can never drift from the timer that actually
- * starts the session. Scoped inside the media query: under reduced motion
- * the bar is simply absent -- 5a shows no visible hint row, so the
- * screen-reader-only "Auto-starts in 5s" line carries the message alone
- * while the timer still runs. */
-@media (prefers-reduced-motion: no-preference) {
-  .cx-autostart-fill {
-    animation: cx-fill var(--cx-fill-duration, 5000ms) linear forwards;
-    transform-origin: left;
-  }
-}
-
-@keyframes cx-fill {
-  0% {
-    transform: scaleX(0);
-  }
-  100% {
-    transform: scaleX(1);
-  }
-}
-
-/* The AI-prediction treatment (5a): the gradient capsule tag and the
- * blurred halo behind the predicted sticking-point card. Gradients can't be
- * expressed as one theme token, so the stops are theme.css aliases composed
- * here -- still no bare hex in a component. The halo is decorative only
- * (aria-hidden in JSX) and sits behind an opaque-bordered card, so it needs
- * no contrast math. */
-.cx-ai-tag {
-  color: var(--color-accent-foreground);
-  background: linear-gradient(120deg, var(--calyxa-ai-tag-from), var(--calyxa-ai-tag-to));
-}
-
-.cx-checkin-halo {
-  background: linear-gradient(
-    120deg,
-    var(--color-accent),
-    var(--calyxa-ai-tag-to),
-    var(--calyxa-ai-tag-from),
-    var(--color-accent)
-  );
-  filter: blur(8px);
-  opacity: 0.7;
-}
-
-/* ── ReframeTool: the 5b crop scrim (new feature) ──
+/* ── ReframeTool: the 5b crop scrim ──
  * The lit window through the page scrim: the crop box's own box-shadow
  * punches the hole (one element, no compositing math), exactly the board's
  * technique. The layer as a whole DOES capture pointer events (unlike the

@@ -119,11 +119,80 @@
   }
 }
 
-/* ---- Dark — declared, not enabled (brand.md §4.3, ADR-018) ----
- * Selector shell only. No values yet: the dark-theme sprint designs and
- * fills these in, then a toggle applies the class. Until then this rule
- * matches nothing in any shipped surface. */
-.dark {
+/* ---- Dark — wired (brand.md §4.3, ADR-018; "Calyxa Ambient Pill" handoff) ----
+ * The long-declared shell, now carrying values: the ambient-pill redesign's
+ * dark token table (handoff §Light/dark), applied under BOTH the class and
+ * the data-attribute form so either a class toggle or an attribute stamp
+ * activates it. Nothing in /web sets either selector yet, so this block is
+ * inert there; the extension overlay stamps data-theme on its shadow-root
+ * container, following prefers-color-scheme (the activation lives in the
+ * extension, never here — auto-darkening /web from a shared file would be a
+ * behavior change this file has no business making).
+ *
+ * Pairing rules preserved in dark: accent fills stay the light green with
+ * DARK text on them (never white-on-accent, brand rule — accent/accent-
+ * foreground are deliberately NOT overridden); accent-colored TEXT becomes
+ * the accent itself (#86EFAC on the dark surfaces clears AA comfortably);
+ * danger flips to the light-fill + dark-text construction (#FCA5A5 fill,
+ * deep red text) for the same reason. Mode identities follow the handoff's
+ * dark rule verbatim: text = the mode's border token value, bg = that hex
+ * at 14% alpha, border unchanged (waveform/glow always read the border). */
+.dark,
+[data-theme='dark'] {
+  --color-background: #1c1d1a;
+  --color-surface: rgba(255, 255, 255, 0.07);
+  --color-border: #2a2b27;
+  --color-border-strong: #8f8d84;
+  --color-foreground: #f1f1ed;
+  --color-muted-foreground: #98988f;
+  --color-danger: #fca5a5;
+  --color-danger-foreground: #450a0a;
+  --color-focus-ring: #4ade80;
+  --color-accent-emphasis: #86efac;
+  --color-accent-subtle: rgba(134, 239, 172, 0.13);
+  --color-accent-glow: rgba(187, 247, 208, 0.75);
+  --color-accent-glow-strong: rgba(74, 222, 128, 0.65);
+
+  /* Session-surface aliases (the light values are tints on white). */
+  --calyxa-sage-border: rgba(134, 239, 172, 0.25);
+  --calyxa-board-bg: rgba(255, 255, 255, 0.04);
+  --calyxa-chip-text: #c9c8c0;
+  --calyxa-hint-text: #8f8d84;
+  --calyxa-close-hover-bg: rgba(248, 113, 113, 0.12);
+  --calyxa-close-hover-border: rgba(248, 113, 113, 0.3);
+  --calyxa-close-hover-text: #fca5a5;
+
+  /* Ping tones: light-on-dark equivalents of the three toast tints. */
+  --calyxa-ping-adjust-text: #c9c8c0;
+  --calyxa-ping-watch-bg: rgba(253, 230, 138, 0.13);
+  --calyxa-ping-watch-border: rgba(253, 230, 138, 0.35);
+  --calyxa-ping-watch-text: #fde68a;
+  --calyxa-ping-watch-divider: rgba(253, 230, 138, 0.25);
+
+  /* Recap/placeholder set. */
+  --calyxa-recap-practice-text: #fcd34d;
+  --calyxa-placeholder-border: #3a3b36;
+  --calyxa-placeholder-stripe-a: #22231f;
+  --calyxa-placeholder-stripe-b: #1d1e1b;
+  --calyxa-placeholder-text: #8f8d84;
+
+  /* Tutor modes, dark rule: text = border value; bg = border at 14%. */
+  --calyxa-mode-explore-text: #7dd3fc;
+  --calyxa-mode-explore-bg: rgba(125, 211, 252, 0.14);
+  --calyxa-mode-coach-text: #fdba74;
+  --calyxa-mode-coach-bg: rgba(253, 186, 116, 0.14);
+  --calyxa-mode-build-text: #c4b5fd;
+  --calyxa-mode-build-bg: rgba(196, 181, 253, 0.14);
+  --calyxa-mode-practice-text: #86efac;
+  --calyxa-mode-practice-bg: rgba(134, 239, 172, 0.14);
+  --calyxa-mode-challenge-text: #f0abfc;
+  --calyxa-mode-challenge-bg: rgba(240, 171, 252, 0.14);
+  --calyxa-mode-verify-text: #5eead4;
+  --calyxa-mode-verify-bg: rgba(94, 234, 212, 0.14);
+  --calyxa-mode-review-text: #a5b4fc;
+  --calyxa-mode-review-bg: rgba(165, 180, 252, 0.14);
+  --calyxa-mode-recover-text: #fda4af;
+  --calyxa-mode-recover-bg: rgba(253, 164, 175, 0.14);
 }
 
 /* ---- Calyxa overlay: tag-kind + annotation-ordinal aliases (Sprint 14

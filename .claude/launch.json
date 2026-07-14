@@ -10,6 +10,14 @@
       "autoPort": true
     },
     {
+      "name": "pill-harness",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "pill-harness", "--config", "pill-harness/vite.config.ts", "--port", "5199"],
+      "cwd": "extension",
+      "port": 5199,
+      "autoPort": true
+    },
+    {
       "name": "extension-dist-static",
       "runtimeExecutable": "python3",
       "runtimeArgs": ["../../../.claude/cors-static-server.py", "8935"],
