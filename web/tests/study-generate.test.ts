@@ -30,6 +30,7 @@ vi.mock('@/lib/study/generate', () => ({ generateStudyKit }))
 
 import * as route from '../app/api/study/generate/route'
 import {
+  STUDY_KIT_TOOL,
   parseStudyKit,
   isEmptyStudyKit,
   EMPTY_STUDY_KIT,
@@ -95,6 +96,23 @@ describe('parseStudyKit (pure)', () => {
 
     expect(kit.problems[0].conceptKey).toBeNull()
     expect(kit.problems[1].conceptKey).toBe(REAL_KEY)
+  })
+
+  // Regression guard for the Task 8 live-find: STUDY_KIT_TOOL.input_examples
+  // hardcoded a concept_key ('algebra.factoring.trinomials') that is NOT a real
+  // CONCEPT_KEYS value, so every real forced-tool call 400'd ("Example ... not
+  // valid under the anyOf") -- Anthropic validates each input_example against
+  // input_schema, and the schema constrains concept_key to nullableEnum(
+  // CONCEPT_KEYS). The mocked route tests can't see this (generation is
+  // stubbed); pin it structurally instead so it can never regress.
+  it('every concept key in STUDY_KIT_TOOL.input_examples is null or a real CONCEPT_KEYS value', () => {
+    const examples = (STUDY_KIT_TOOL.input_examples ?? []) as Array<{ problems?: Array<{ concept_key?: unknown }> }>
+    const keys = examples.flatMap((ex) => (ex.problems ?? []).map((p) => p.concept_key))
+
+    expect(keys.length).toBeGreaterThan(0)
+    for (const key of keys) {
+      if (key !== null) expect(CONCEPT_KEYS).toContain(key)
+    }
   })
 
   it('enforces the per-kind caps', () => {

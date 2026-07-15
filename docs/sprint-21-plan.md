@@ -289,15 +289,18 @@ Signed in as a real dev user with real tutoring history:
   6. A second user's kits are never visible (RLS).
 
 ## Acceptance criteria (full checklist)
-- [ ] ADR-047 written; pointers + architecture.md updated
-- [ ] study_artifact table (Shape 2 RLS, FK-cascade to users, session_id on delete set null) lands; db reset clean
-- [ ] Generation is a forced-tool Claude call (STUDY_KIT_TOOL, sibling of runSessionStartTool), grounded via the recap read, with a deterministic fallback
-- [ ] The route cost-guards BEFORE the Claude call (new 'study_kit' CostKind); hard-cap refuses without generating
-- [ ] Artifacts match the marketing union (notes/problems/flashcards); problems include solutions; concept keys constrained to CONCEPT_KEYS
-- [ ] The extension RecapCard placeholder becomes real rendering (notes/problems/flip-flashcards); failure degrades to the placeholder; no host-DOM mutation
-- [ ] study_artifact on the Sprint 16 export list + covered by the erasure cascade (asserted)
-- [ ] Kits are available to all beta users; no entitlement gate (the one-line Pro hook is left for Sprint 23)
-- [ ] `turbo run typecheck lint build test` green; Task 8 manual pass complete
+- [x] ADR-049 written (resolved from the plan's provisional 047 — 047/048 taken by Sprint 22); pointers + architecture.md updated
+- [x] study_artifact table (Shape 2 RLS, FK-cascade to users, session_id on delete set null) lands as migration 0021 (0019/0020 taken); applied live; RLS-scoped
+- [x] Generation is a forced-tool Claude call (STUDY_KIT_TOOL, sibling of runSessionStartTool), grounded via the recap read (loadSessionSource), with a deterministic empty-kit fallback
+- [x] The route cost-guards BEFORE the Claude call (new 'study_kit' CostKind); hard-cap refuses without generating (asserted two ways in study-generate.test.ts)
+- [x] Artifacts match the marketing union (notes/problems/flashcards); problems include solutions; concept keys constrained to CONCEPT_KEYS — verified LIVE (Task 8 produced a correct, grounded factoring kit)
+- [x] The extension RecapCard placeholder becomes real rendering (notes/problems/flip-flashcards); failure degrades to the placeholder; no host-DOM mutation (recap-kit.test.ts + the full-Overlay overlay-recap-render.test.ts)
+- [x] study_artifact on the Sprint 16 export list + covered by the erasure cascade (asserted live in account.test.ts)
+- [x] Kits are available to all beta users; no entitlement gate (the one-line Pro hook is left for Sprint 23)
+- [x] `turbo run typecheck lint build test` green; Task 8 acceptance complete
+
+## Close (2026-07-14) — COMPLETE
+All 8 tasks landed and verified. **Task 8 acceptance:** a live scripted generation on a real x²+5x+6 factoring session produced a correct, grounded kit (method notes + 3 sibling problems with worked solutions + flashcards), persisted one-row-per-kind and re-listed via `/api/study/list`; export/erasure/RLS proven live; the completion→recap-card render path (host of "Make a study kit") proven by a new full-Overlay integration test. **Task-8 live-find + fix:** `STUDY_KIT_TOOL.input_examples` hardcoded an invalid concept key (`algebra.factoring.trinomials`), which 400'd every real forced-tool call → fixed to `algebra.quadratics.factoring` + a regression guard added (the mocked tests couldn't catch it). Accepted carry-forwards at close (Darcy's call, NOT blockers): (a) the in-Chrome eyeball on a full solved session — the render + generation are both proven, and a "no card" only occurs on a 0-gradable session (by design: no gradable turns ⇒ no recap AND no study source); (b) full-monorepo `turbo test` green also needs the parallel Sprint-22 track to regenerate its `@calyxa/ui` chart-token snapshot (not Sprint 21's). **Ship gate (handoff, not a completion blocker):** the Sprint 19 `/privacy` + Chrome data-safety disclosure (ADR-046) must add "generated study materials" as a persisted data type before this reaches the beta cohort.
 
 ## Risks
 **The generated kit is low-quality or wrong (bad practice problems, wrong flashcard

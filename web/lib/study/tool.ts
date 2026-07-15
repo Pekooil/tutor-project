@@ -139,7 +139,7 @@ export const STUDY_KIT_TOOL: Anthropic.Tool = {
         {
           statement: 'Factor x^2 + 7x + 12.',
           solution: 'Two numbers multiply to 12 and add to 7: 3 and 4. So x^2 + 7x + 12 = (x + 3)(x + 4).',
-          concept_key: 'algebra.factoring.trinomials',
+          concept_key: 'algebra.quadratics.factoring',
         },
       ],
       flashcards: [
