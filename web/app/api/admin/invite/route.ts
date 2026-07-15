@@ -1,9 +1,9 @@
 import 'server-only'
 import { NextResponse } from 'next/server'
-import { randomBytes } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertCronSecret } from '@/lib/cron/auth'
 import { sendInvite } from '@/lib/email/invite'
+import { generateInviteCode } from '@/lib/invite/code'
 
 // Sprint 19 / Task 5 (ADR-045): the admin invite route. Service-role,
 // CRON_SECRET-guarded (the SAME bearer gate as /api/cron/*, reused). Given a
@@ -21,12 +21,6 @@ import { sendInvite } from '@/lib/email/invite'
 // Upper bound on a single batch, whether selected by explicit emails or by
 // `limit`, so an accidental huge invite is impossible.
 const MAX_BATCH = 500
-
-function generateInviteCode(): string {
-  // 128 bits, URL-safe. Unguessable so the code can gate a signup on its own
-  // (the partial unique index on invite_code guarantees no two rows collide).
-  return randomBytes(16).toString('base64url')
-}
 
 export async function POST(request: Request) {
   const denied = assertCronSecret(request)
