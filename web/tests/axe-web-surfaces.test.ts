@@ -169,9 +169,8 @@ describe('web surfaces — WCAG 2.1 A/AA structural smoke (axe-core)', () => {
   // (a regression that would otherwise pass the "no violations" check on an
   // empty page). axeCheck writes the /account HTML into this jsdom document,
   // so it is queryable here. The delete-CONFIRM step is client-only state
-  // (delete-account-button.tsx's useState) so it isn't in this server HTML;
-  // it composes the same Alert + Button primitives already audited on /login
-  // and /signup, and a component-level render of it is a filed follow-up.
+  // (account-actions.tsx's useState) so it isn't in this server HTML; a
+  // component-level render of the confirm flow is a filed follow-up.
   it('account exposes the export + delete controls with accessible names', async () => {
     expect(sessionCookie).toBeTruthy()
     await axeCheck('/account', sessionCookie)
@@ -180,11 +179,13 @@ describe('web surfaces — WCAG 2.1 A/AA structural smoke (axe-core)', () => {
       (a) => a.getAttribute('href') === '/api/account/export',
     )
     expect(exportLink, 'the "Export my data" link must be present').toBeTruthy()
-    expect(exportLink?.textContent?.trim()).toBe('Export my data')
+    // Premium redesign: the export card title is "Export my data"; the link
+    // itself is labelled "Export as JSON".
+    expect(exportLink?.textContent?.trim()).toBe('Export as JSON')
 
     const deleteButton = Array.from(document.querySelectorAll('button')).find((b) =>
-      /delete my account/i.test(b.textContent ?? ''),
+      /delete account/i.test(b.textContent ?? ''),
     )
-    expect(deleteButton, 'the "Delete my account" control must be present and named').toBeTruthy()
+    expect(deleteButton, 'the "Delete account" control must be present and named').toBeTruthy()
   })
 })

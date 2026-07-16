@@ -3,6 +3,7 @@ import { clientFromBearer } from '@/lib/auth/bearer'
 import { endSession } from '@/lib/tier/session-gate'
 import { reconcileSession } from '@/lib/learning/apply'
 import { buildSessionRecap, type SessionRecap } from '@/lib/learning/recap'
+import { generateAndPersistStudyKit } from '@/lib/study/generate-and-persist'
 
 // Ends a session (Sprint 04 behaviour, unchanged). ADR-019 retires the
 // end-of-session summariser Anthropic call (ADR-015) -- learning state is
@@ -62,6 +63,34 @@ export async function POST(request: Request) {
     recap = await buildSessionRecap(auth.supabase, auth.user.id, body.sessionId)
   } catch (err) {
     console.error('session/end: recap build failed', err)
+  }
+
+  // Misconception → study-kit workflow: when this session SPOTTED a new
+  // misconception, auto-generate its study kit so the student can practice it
+  // on the web dashboard (there is no spaced-repetition review flow anymore).
+  // Best-effort, the same posture as the reconcile/recap above — it never
+  // blocks or alters the already-successful end response. Guarded four ways:
+  //   1. a kill switch (CALYXA_DISABLE_AUTO_STUDY_KIT=1) — a prod safety valve
+  //      AND the isolation session-lifecycle integration tests set so they never
+  //      exercise generation (mirrors the COST_*_OVERRIDE test convention),
+  //   2. only when `recap.misconceptionsAdded` is non-empty (a NEW misconception),
+  //   3. skip if a kit already exists for this session (idempotent; session/end
+  //      is itself once-per-session via the open→ended guard, but a manual
+  //      extension-recap generation may have beaten us to it),
+  //   4. cost-guarded inside generateAndPersistStudyKit (hard cap → silent no-op).
+  const autoKitEnabled = process.env.CALYXA_DISABLE_AUTO_STUDY_KIT !== '1'
+  if (autoKitEnabled && recap && recap.misconceptionsAdded.length > 0) {
+    try {
+      const { count } = await auth.supabase
+        .from('study_artifact')
+        .select('id', { count: 'exact', head: true })
+        .eq('session_id', body.sessionId)
+      if (!count) {
+        await generateAndPersistStudyKit(auth.supabase, auth.user.id, body.sessionId)
+      }
+    } catch (err) {
+      console.error('session/end: auto study-kit generation failed', err)
+    }
   }
 
   return NextResponse.json({

@@ -273,6 +273,10 @@ beforeAll(async () => {
       // guarantees no real ANTHROPIC_API_KEY is reachable from this process.
       ANTHROPIC_API_KEY: 'sk-ant-test-fake-key-not-real',
       ANTHROPIC_BASE_URL: `http://localhost:${FAKE_ANTHROPIC_PORT}`,
+      // These session-lifecycle tests assert reconcile/mastery, not study kits;
+      // disable the session-end auto study-kit hook so a misconception-flagging
+      // scenario doesn't fire an (extra, fake-Anthropic) generation call.
+      CALYXA_DISABLE_AUTO_STUDY_KIT: '1',
     },
   })
   const startupLog: string[] = []

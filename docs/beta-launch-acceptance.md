@@ -55,7 +55,7 @@ What remains is uploading it (B2) and the human run (Part C).
 - [ ] **B3 — (Optional, for automated invite email) set `RESEND_API_KEY` +
   `INVITE_FROM_EMAIL` in Vercel.** Absent → invite send no-ops and the admin route
   returns the batch for manual send (A4), which is a valid path for the first cohort.
-- [ ] **B4 — Deploy the proxy fix to `calyxa.app`. 🔴 (found during this audit, 2026-07-13)**
+- [x] **B4 — Deploy the proxy fix to `calyxa.app`. ✅ (found 2026-07-13; deployed + re-verified live 2026-07-15)**
   The four Sprint-17 bearer-authed extension routes — `/api/telemetry`, `/api/feedback`,
   `/api/onboarding`, `/api/errors` — were **missing from `web/proxy.ts`'s exemption list**,
   so in production every extension call to them was redirected **307 → /login** before the
@@ -67,6 +67,10 @@ What remains is uploading it (B2) and the human run (Part C).
   **This fix must be deployed to `calyxa.app` (Vercel) before the acceptance run** — the
   route-level tests bypass middleware, so nothing but a deploy makes it live. Recommended
   follow-up: a `proxy.ts` exemption regression test (this is the 2nd time this class shipped).
+  **Re-verified live 2026-07-15:** `GET /api/onboarding`, `POST /api/telemetry`, `POST
+  /api/feedback`, `POST /api/errors` all answer with their own auth (`401`/`400`) against
+  `https://calyxa.app`, and a protected page (`/dashboard`) still `307`→`/login` — the fix
+  is deployed, not just committed.
 
 ---
 

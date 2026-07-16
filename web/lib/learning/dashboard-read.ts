@@ -54,6 +54,7 @@ type KnowledgeNodeRow = {
 }
 
 type MisconceptionRow = {
+  id: string
   concept_key: string
   category: string
   description: string | null
@@ -110,6 +111,7 @@ export type DashboardStrandGroup = {
 }
 
 export type DashboardMisconception = {
+  id: string
   conceptKey: string
   title: string
   strand: string
@@ -320,7 +322,7 @@ export async function loadDashboard(supabase: SupabaseClient): Promise<Dashboard
     supabase
       .from('misconceptions')
       .select(
-        'concept_key, category, description, status, occurrence_count, consecutive_correct, first_seen_at, last_seen_at, resolved_at'
+        'id, concept_key, category, description, status, occurrence_count, consecutive_correct, first_seen_at, last_seen_at, resolved_at'
       )
       .eq('user_id', userId)
       .in('status', ['active', 'resolved'])
@@ -363,6 +365,7 @@ export async function loadDashboard(supabase: SupabaseClient): Promise<Dashboard
   const misconceptions: DashboardMisconception[] = misconceptionRows.map((row) => {
     const { title, strand, strandLabel } = resolveConcept(row.concept_key)
     return {
+      id: row.id,
       conceptKey: row.concept_key,
       title,
       strand,

@@ -1,19 +1,30 @@
 import type { ReactNode } from 'react'
-import { DashboardNav } from '@/components/dashboard/DashboardNav'
+import { createClient } from '@/lib/supabase/server'
+import { AmbientGlow } from '@/components/dashboard/premium/AmbientGlow'
+import { PremiumNav } from '@/components/dashboard/premium/PremiumNav'
+import { AskPill } from '@/components/dashboard/premium/AskPill'
+import { loadNavUser } from '@/components/dashboard/premium/user-info'
 
-// Minimal authed app shell (Sprint 10 Task 7, ux-redesign-sprint10.md §5): a
-// header bar (logomark+wordmark lockup + the account nav) and a centered
-// content container. Sprint 22 fills the nav slot Sprint 10 reserved with the
-// real dashboard navigation (DashboardNav); the shell/container are otherwise
-// unchanged. The header wraps on narrow viewports now that the nav has content.
-export default function DashboardLayout({ children }: { children: ReactNode }) {
+// The post-login dashboard shell — rebuilt to the "Calyxa Dashboard Premium"
+// design handoff. A fixed ambient-glow atmosphere, a floating pill nav (with the
+// avatar/account menu), a centered 960px content column, and the floating "Ask
+// Calyxa" pill. Everything is scoped under `.cx-app` so the marketing site is
+// untouched. The per-screen views live in the routes this layout wraps; each
+// stays a server-rendered, RLS-scoped, per-request-fresh read (ADR-047).
+export const dynamic = 'force-dynamic'
+
+export default async function DashboardLayout({ children }: { children: ReactNode }) {
+  const supabase = await createClient()
+  const navUser = await loadNavUser(supabase)
+
   return (
-    <div className="flex min-h-svh flex-col bg-background">
-      <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-border px-6 py-4">
-        <img src="/logo.svg" alt="Calyxa" className="h-6 w-auto" />
-        <DashboardNav />
-      </header>
-      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">{children}</main>
+    <div className="cx-app" style={{ position: 'relative', minHeight: '100vh' }}>
+      <AmbientGlow />
+      <PremiumNav name={navUser.name} initials={navUser.initials} planLabel={navUser.planLabel} />
+      <main style={{ position: 'relative', maxWidth: 960, margin: '0 auto', padding: '104px 24px 150px' }}>
+        {children}
+      </main>
+      <AskPill />
     </div>
   )
 }

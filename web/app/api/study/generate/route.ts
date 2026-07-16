@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server'
 import { clientFromBearerOrCookie } from '@/lib/auth/bearer'
-import { costGuard } from '@/lib/tier/cost-guard'
-import { estimateCost } from '@/lib/tier/cost-model'
-import { loadSessionSource } from '@/lib/study/source'
-import { generateStudyKit } from '@/lib/study/generate'
-import { isEmptyStudyKit, type StudyKit } from '@/lib/study/tool'
+import { generateAndPersistStudyKit } from '@/lib/study/generate-and-persist'
+import type { StudyKit } from '@/lib/study/tool'
 
 // Sprint 21 / Task 4 (ADR-049): POST { sessionId } -- turn one completed
 // session into a persisted study kit. The order is the plan's acceptance gate:
@@ -56,94 +53,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'sessionId must be a non-empty string.' }, { status: 400 })
   }
 
-  // The cost guard, BEFORE the read or the Claude call (ADR-041). Only the
-  // hard cap applies -- generating a kit is a paid AI call like any other, so
-  // ADR-041's "hard cap refuses new AI turns" covers it; there are no voice
-  // legs to soft-degrade here. hardExceeded => refuse gracefully, no Claude
-  // call. costGuard fails OPEN (an RPC outage never blocks generation), so a
-  // real over-cap is the only thing that reaches this branch.
-  const { hardExceeded } = await costGuard(auth.supabase, estimateCost('study_kit'))
+  // The guarded generate+persist core (shared with the automatic session-end
+  // hook). It runs the cost guard BEFORE any Claude call (ADR-041), the
+  // RLS-scoped read, generation, and the per-kind persist; it never throws.
+  const result = await generateAndPersistStudyKit(auth.supabase, auth.user.id, sessionId)
 
-  if (hardExceeded) {
-    const refusal: GenerateResponse = { refused: 'cost' }
-    return NextResponse.json(refusal)
+  if ('error' in result) {
+    // A failed read / model / persist — never relay the provider/DB error text.
+    return NextResponse.json({ error: result.error }, { status: 502 })
   }
 
-  try {
-    // The SAME per-session material the recap shows (Task 3), RLS-scoped.
-    // undefined => the session has nothing worth generating from (mirrors
-    // buildSessionRecap's "no gradable interactions" convention).
-    const source = await loadSessionSource(auth.supabase, auth.user.id, sessionId)
-
-    if (!source) {
-      const refusal: GenerateResponse = { refused: 'empty' }
-      return NextResponse.json(refusal)
-    }
-
-    const kit = await generateStudyKit(source)
-
-    // The deterministic fallback surfaced (ADR-049 decision 2): a model that
-    // returned no usable artifacts persists NOTHING -- the extension shows its
-    // placeholder + a gentle message, never a broken kit stored to the table.
-    if (isEmptyStudyKit(kit)) {
-      const refusal: GenerateResponse = { refused: 'empty' }
-      return NextResponse.json(refusal)
-    }
-
-    // The concepts this kit covers, for every persisted row's `concept_keys`:
-    // grounded FIRST in the session's actually-practiced concepts (real, from
-    // the recap read), augmented by any concept the model tagged a new problem
-    // with (already validated to CONCEPT_KEYS in parseStudyKit). Deduped;
-    // null when there is genuinely nothing to record.
-    const conceptKeySet = new Set<string>(source.concepts.map((c) => c.conceptKey))
-    for (const problem of kit.problems) {
-      if (problem.conceptKey) conceptKeySet.add(problem.conceptKey)
-    }
-    const conceptKeys = conceptKeySet.size > 0 ? [...conceptKeySet] : null
-
-    // One row per artifact KIND (ADR-049 decision 3 / migration 0021), for
-    // independent rendering -- only the kinds that actually have content. The
-    // problems payload is { statement, solution } to match the migration's
-    // documented payload shape; the per-problem conceptKey is grounding for the
-    // row-level concept_keys above, not stored per problem.
-    const rows: {
-      user_id: string
-      session_id: string
-      kind: 'notes' | 'problems' | 'flashcards'
-      payload: unknown
-      concept_keys: string[] | null
-    }[] = []
-
-    if (kit.notes.length > 0) {
-      rows.push({ user_id: auth.user.id, session_id: sessionId, kind: 'notes', payload: kit.notes, concept_keys: conceptKeys })
-    }
-    if (kit.problems.length > 0) {
-      rows.push({
-        user_id: auth.user.id,
-        session_id: sessionId,
-        kind: 'problems',
-        payload: kit.problems.map((p) => ({ statement: p.statement, solution: p.solution })),
-        concept_keys: conceptKeys,
-      })
-    }
-    if (kit.flashcards.length > 0) {
-      rows.push({ user_id: auth.user.id, session_id: sessionId, kind: 'flashcards', payload: kit.flashcards, concept_keys: conceptKeys })
-    }
-
-    const { error } = await auth.supabase.from('study_artifact').insert(rows)
-
-    if (error) {
-      // Server-side terminal only -- never relay the DB error text to the client.
-      console.error('api/study/generate: insert failed', error)
-      return NextResponse.json({ error: 'Could not save your study kit right now.' }, { status: 502 })
-    }
-
-    const success: GenerateResponse = { kit }
-    return NextResponse.json(success)
-  } catch (err) {
-    // A failed essential read (loadSessionSource throws) or a real model/SDK
-    // error (generateStudyKit) -- never relay the provider/DB error text.
-    console.error('api/study/generate: generation failed', err)
-    return NextResponse.json({ error: 'Could not generate a study kit right now.' }, { status: 502 })
-  }
+  // { kit } | { refused: 'cost' | 'empty' } — both 200, the discriminated union
+  // the extension (Task 5) branches on.
+  return NextResponse.json(result as GenerateResponse)
 }

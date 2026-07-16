@@ -24,6 +24,10 @@ const { createClientMock, loadDashboardMock, redirectMock } = vi.hoisted(() => (
   }),
 }))
 
+// The Overview/Account pages import a `server-only`-guarded helper (user-info);
+// neutralize the guard so the module imports under vitest (the convention used
+// across the suite, e.g. dashboard-read.test.ts).
+vi.mock('server-only', () => ({}))
 vi.mock('next/navigation', () => ({ redirect: redirectMock }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: createClientMock }))
 vi.mock('@/lib/learning/dashboard-read', () => ({ loadDashboard: loadDashboardMock }))
@@ -31,7 +35,6 @@ vi.mock('@/lib/learning/dashboard-read', () => ({ loadDashboard: loadDashboardMo
 const overviewPage = await import('../app/(dashboard)/dashboard/page')
 const masteryPage = await import('../app/(dashboard)/mastery/page')
 const misconceptionsPage = await import('../app/(dashboard)/misconceptions/page')
-const reviewPage = await import('../app/(dashboard)/review/page')
 const activityPage = await import('../app/(dashboard)/activity/page')
 
 type SnapshotRow = { day: string; mastery: number }
@@ -110,6 +113,7 @@ const RICH_DATA: DashboardData = {
   totalConcepts: 1,
   misconceptions: [
     {
+      id: 'misc-active-1',
       conceptKey: 'geometry.angles.parallel-lines',
       title: MISCONCEPTION_TITLE,
       strand: 'geometry',
@@ -124,6 +128,7 @@ const RICH_DATA: DashboardData = {
       resolvedAt: null,
     },
     {
+      id: 'misc-resolved-1',
       conceptKey: 'algebra.linear-equations.one-variable',
       title: 'Transposition',
       strand: 'algebra',
@@ -184,12 +189,13 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+// Copy markers match the "Calyxa Dashboard Premium" redesign (Design handoff).
 const PAGES = [
   {
     name: 'Overview (/dashboard)',
     mod: overviewPage,
-    withData: [NODE_TITLE ? 'Mastery by strand' : '', 'Algebra 1', 'Where your concepts stand'],
-    empty: 'ready and waiting',
+    withData: ['By strand', 'Algebra 1', 'Where concepts stand'],
+    empty: 'No open misconceptions',
   },
   {
     name: 'Mastery (/mastery)',
@@ -200,14 +206,8 @@ const PAGES = [
   {
     name: 'Misconceptions (/misconceptions)',
     mod: misconceptionsPage,
-    withData: [MISCONCEPTION_TITLE, 'Active', 'Resolved'],
-    empty: 'No misconceptions tracked',
-  },
-  {
-    name: 'Review (/review)',
-    mod: reviewPage,
-    withData: [MISCONCEPTION_TITLE, 'Due'],
-    empty: 'Nothing scheduled to review',
+    withData: [MISCONCEPTION_TITLE, 'Resolved'],
+    empty: 'Nothing resolved yet',
   },
 ] as const
 
@@ -239,16 +239,18 @@ describe.each(PAGES)('$name', ({ mod, withData, empty }) => {
 describe('Activity (/activity)', () => {
   it('renders accuracy history and the mastery trend for a user with data', async () => {
     const html = await render(activityPage, USER, RICH_DATA, RICH_SNAPSHOT)
-    expect(html).toContain('Answers over time')
-    expect(html).toContain('Mastery trend')
-    expect(html).not.toContain('No activity yet')
+    expect(html).toContain('Study heatmap')
+    expect(html).toContain('Answers')
+    expect(html).toContain('Mastery over time')
   })
 
   it('renders honest empty states at launch (no activity, no snapshot history)', async () => {
     const html = await render(activityPage, USER, EMPTY_DATA, [])
-    expect(html).toContain('No activity yet')
-    // The forward-only trend says so plainly rather than faking a line.
-    expect(html).toContain('builds as you practice')
+    // The charts always render (the design's honest empty state is an empty
+    // grid, not a "no data" card); the forward-only trend says so plainly.
+    expect(html).toContain('Study heatmap')
+    expect(html).toContain('No snapshots yet')
+    expect(html).toContain('Builds as you practice')
   })
 
   it('redirects to /login when unauthed', async () => {
