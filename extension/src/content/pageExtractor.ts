@@ -306,6 +306,61 @@ function extractKatexTextFallback(roots: (Document | ShadowRoot)[]): ExtractedEq
   return equations;
 }
 
+// --- image-rendered equations (alt text / accessible labels) ---------------
+// The 2026-07-16 detection fix's client half: many real problem pages render
+// the equation as an <img> (textbook scans, LaTeX-to-PNG pipelines, IXL-style
+// exercise engines) or an aria-labelled SVG/widget -- zero DOM text, so every
+// adapter above finds nothing, the plausible-problem gate fails, and the
+// opening scan never even fires ("it doesn't trigger at all"). The image's
+// accessible text (alt / aria-label) is regular DOM data and reading it is
+// exactly as read-only as every other adapter here -- this is NOT diagram
+// understanding (out of V1 scope): no pixels are read, only the page's own
+// text description of the image. Gated by a cheap math-likeness test so page
+// chrome ("Company logo", "Profile photo") never pollutes the capture.
+//
+// Registry element (ADR-022): the <img>/labelled element itself -- it IS the
+// visible render, so annotations can anchor to image-rendered equations too.
+const MAX_IMAGE_EQUATIONS = 6;
+const MIN_ALT_CHARS = 3;
+
+// Math-likeness: an explicit operator/relation between values, a
+// superscript/root/fraction marker, or problem-language naming math work.
+// Deliberately conservative -- a miss degrades to today's behavior, while a
+// false positive would feed page chrome to the model on every scan.
+export function looksLikeMathText(text: string): boolean {
+  if (text.length < MIN_ALT_CHARS) return false;
+  return (
+    /[=≤≥≠±√∫Σπ∞^]/.test(text) ||
+    /\d\s*[+\-*/×÷]\s*\d/.test(text) ||
+    /\b(equation|expression|fraction|polynomial|quadratic|derivative|integral|solve|simplify|factor|graph of|slope|angle|triangle|squared|cubed|square root)\b/i.test(text)
+  );
+}
+
+function extractImageAltEquations(roots: (Document | ShadowRoot)[]): ExtractedEquation[] {
+  const equations: ExtractedEquation[] = [];
+
+  for (const img of queryExcludingOverlay<HTMLImageElement>('img[alt]', roots)) {
+    if (equations.length >= MAX_IMAGE_EQUATIONS) break;
+    const alt = img.getAttribute('alt')?.trim();
+    if (alt && looksLikeMathText(alt)) {
+      equations.push({ equation: { text: alt }, element: img });
+    }
+  }
+
+  // Accessible non-<img> renders (SVG plots, canvas widgets a site labels
+  // for screen readers). role="math" carriers were already claimed above;
+  // this only reads role="img" -- the shape KaTeX/MathJax never use.
+  for (const el of queryExcludingOverlay<HTMLElement>('[role="img"][aria-label]', roots)) {
+    if (equations.length >= MAX_IMAGE_EQUATIONS) break;
+    const label = el.getAttribute('aria-label')?.trim();
+    if (label && looksLikeMathText(label)) {
+      equations.push({ equation: { text: label }, element: el });
+    }
+  }
+
+  return equations;
+}
+
 // --- visible text ------------------------------------------------------------
 // innerText (not textContent) so script/style/hidden content is excluded --
 // it follows rendered layout. innerText computed on an ancestor does NOT
@@ -432,6 +487,9 @@ export function extractPageContext(): PageExtraction {
     ...extractDataCarrierEquations(roots),
     ...extractRemainingMathml(claimed, roots),
     ...extractKatexTextFallback(roots),
+    // Weakest signal last (an accessible DESCRIPTION of the math, not its
+    // source), so real LaTeX/MathML always wins the shared cap.
+    ...extractImageAltEquations(roots),
   ].slice(0, MAX_EQUATIONS);
 
   const equations = extracted.map(({ equation }) => ({

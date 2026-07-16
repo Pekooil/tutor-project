@@ -180,13 +180,22 @@ function dueReason(row: DueScheduleRow, node: KnowledgeNodeRow | undefined): str
 // and additive: absent or empty, the read is exactly the pre-Sprint-11 one.
 export async function loadProfile(
   supabase: SupabaseClient,
-  opts?: { topicKeys?: readonly string[] }
+  // `userId` (latency fix, 2026-07-16): every route that calls this has
+  // ALREADY resolved the user via clientFromBearer/getUser — re-calling
+  // supabase.auth.getUser() here was a second, serialized auth round trip
+  // on every turn's critical path. Pass the known id to skip it; callers
+  // without one (none today) still fall back to the lookup.
+  opts?: { topicKeys?: readonly string[]; userId?: string }
 ): Promise<LearningProfile> {
-  const { data: userData, error: userError } = await supabase.auth.getUser()
-  const userId = userData?.user?.id
+  let userId = opts?.userId
 
-  if (userError || !userId) {
-    return CALIBRATING_PROFILE
+  if (!userId) {
+    const { data: userData, error: userError } = await supabase.auth.getUser()
+    userId = userData?.user?.id
+
+    if (userError || !userId) {
+      return CALIBRATING_PROFILE
+    }
   }
 
   const topicKeys = opts?.topicKeys ?? []

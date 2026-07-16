@@ -205,13 +205,14 @@ export const BLOOM_MS = 3000;
 // the old Start button did (Darcy's call, 2026-07-13).
 export const AUTO_START_MS = 5200;
 
-// Transient-surface timing (handoff values): the caption dissolves ~1.4s
-// after voice playback ends and ~2.4s after a text stream ends (the
-// prototype's own two windows); the history card holds 6.5s; every card's
+// Transient-surface timing (handoff values, amended 2026-07-16 -- Darcy's
+// ask): the committed caption no longer auto-dissolves. The tutor's reply
+// HOLDS on screen until the student's next action -- an answer-chip tap, a
+// multi-part submit, a new typed prompt, or the next voice turn (every one
+// of those paths already clears captionHold before sending) -- or an
+// explicit Escape/collapse. The history card still holds 6.5s; every card's
 // exit animation runs 270ms before unmount; a no-detection fallback card
 // and an error notice each hold long enough to read, then dissolve.
-export const CAPTION_HOLD_VOICE_MS = 1400;
-export const CAPTION_HOLD_TEXT_MS = 2400;
 export const HISTORY_HOLD_MS = 6500;
 export const SURFACE_EXIT_MS = 270;
 const FALLBACK_HOLD_MS = 8000;
@@ -636,9 +637,12 @@ export function Overlay({
   const [answerFields, setAnswerFields] = useState<AnswerField[] | null>(null);
 
   // ---- Caption/reference surface state ----
-  // After a turn commits, the full reply holds in the caption for holdMs
-  // before dissolving (handoff: "auto-dissolves after playback/stream ends").
-  const [captionHold, setCaptionHold] = useState<{ text: string; holdMs: number } | null>(null);
+  // After a turn commits, the full reply HOLDS in the caption until the
+  // student's next action clears it (chip tap / answer submit / new typed
+  // prompt / next voice turn / Escape) -- it never auto-dissolves (Darcy's
+  // 2026-07-16 ask, superseding the handoff's 1.4s/2.4s windows: a student
+  // can't re-read a reply that vanished while they were still thinking).
+  const [captionHold, setCaptionHold] = useState<{ text: string } | null>(null);
   // Non-null upgrades the caption to the reference card (voice turns whose
   // reply carries $$ math blocks): the equation pair renders above the
   // streaming caption line. Set at envelope delivery, cleared with the hold.
@@ -755,16 +759,22 @@ export function Overlay({
             ? 'onboarding'
             : liveTranscript
               ? 'transcript'
-              : streamingTokens.length > 0 || playing || captionHold
-                ? 'caption'
-                : notice
-                  ? 'notice'
-                  : !sessionLive && closeState === 'idle' && !busy && scan?.topic
-                    ? 'concept'
-                    : !sessionLive && closeState === 'idle' && !busy && scanSettled && !scan?.topic
-                      ? 'conceptFallback'
-                      : historyOpen
-                        ? 'history'
+              // notice + history sit ABOVE the caption now that a committed
+              // reply holds indefinitely: an error notice must never be
+              // buried behind a held reply (it still auto-dissolves and
+              // yields back), and the Last-exchange card must stay reachable
+              // while a reply is up (it covers the caption for its 6.5s
+              // window, then the held reply resurfaces).
+              : notice
+                ? 'notice'
+                : historyOpen
+                  ? 'history'
+                  : streamingTokens.length > 0 || playing || captionHold
+                    ? 'caption'
+                    : !sessionLive && closeState === 'idle' && !busy && scan?.topic
+                      ? 'concept'
+                      : !sessionLive && closeState === 'idle' && !busy && scanSettled && !scan?.topic
+                        ? 'conceptFallback'
                         : ((chips && chips.length > 0) || (answerFields && answerFields.length > 0)) &&
                             !busy &&
                             closeState === 'idle'
@@ -845,10 +855,16 @@ export function Overlay({
 
   // The queue's advance clock: the head pin holds the slot for
   // PIN_DISPLAY_MS *of visible time* -- the timer only runs while the ping
-  // surface actually owns the slot, so a pin queued behind a caption waits
-  // its turn instead of expiring unseen.
+  // toast is actually on screen, so a pin queued behind a LIVE turn surface
+  // waits its turn instead of expiring unseen. Now that a committed reply
+  // holds indefinitely, a settled (non-live) caption would starve the queue
+  // forever -- so while one is held, the toast renders STACKED above the
+  // caption card (the one sanctioned two-element case; see the render) and
+  // counts as visible here.
   const activePinId = pinQueue.length > 0 ? pinQueue[0].id : null;
-  const pingVisible = surfaceKind === 'ping';
+  const pingStackedOnCaption =
+    surfaceKind === 'caption' && !busy && !playing && !surfaceLeaving && pinQueue.length > 0;
+  const pingVisible = surfaceKind === 'ping' || pingStackedOnCaption;
   useEffect(() => {
     if (activePinId === null || !pingVisible) return;
     const timer = window.setTimeout(() => {
@@ -857,23 +873,10 @@ export function Overlay({
     return () => window.clearTimeout(timer);
   }, [activePinId, pingVisible]);
 
-  // The caption's dissolve: holds holdMs after the turn settles, then plays
-  // the exit and clears (handoff: ~1.4s voice / ~2.4s text).
-  useEffect(() => {
-    if (!captionHold) return;
-    const timer = window.setTimeout(
-      () =>
-        dismissSurface(() => {
-          setCaptionHold(null);
-          setCaptionMath(null);
-        }),
-      captionHold.holdMs,
-    );
-    return () => window.clearTimeout(timer);
-    // dismissSurface is a stable in-component helper; not a dep by the same
-    // convention as every other effect here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [captionHold]);
+  // No caption-dissolve timer: a committed reply holds until the student's
+  // next action (see the captionHold state comment above). Every send path
+  // clears it before dispatching, so the swap to the next turn's stream is
+  // still immediate.
 
   // The history card's window: 6.5s or a click, whichever first.
   useEffect(() => {
@@ -1372,7 +1375,7 @@ export function Overlay({
     setAnnotationColors(assignAnnotationColors(result.annotations));
     showPins(result.pins);
     applyProgressAndCompletion(result);
-    setCaptionHold({ text: result.reply, holdMs: CAPTION_HOLD_TEXT_MS });
+    setCaptionHold({ text: result.reply });
   }
 
   // ---- Student sends (typed, chip tap, multi-part) ----
@@ -1635,7 +1638,7 @@ export function Overlay({
       setAnswerFields(result.session?.complete ? null : result.answerFields ?? null);
       setAnnotationColors(assignAnnotationColors(result.annotations));
       applyProgressAndCompletion(result);
-      setCaptionHold({ text: result.reply, holdMs: CAPTION_HOLD_VOICE_MS });
+      setCaptionHold({ text: result.reply });
 
       // Sprint 17 (ADR-043) + Sprint 18 Task 8: turn_latency + voice_used,
       // emitted ONLY when audio actually played and the envelope was
@@ -1712,7 +1715,11 @@ export function Overlay({
   // it", and the same reasoning covers the rest.
   const hoverBlocked =
     surfaceKind === 'transcript' ||
-    surfaceKind === 'caption' ||
+    // A caption blocks the pill only while the turn is LIVE (streaming or
+    // speaking). A HELD reply must not lock the pill shut -- it now persists
+    // until the student's next action, and that next action (voice / text /
+    // history) starts from this very hover row.
+    (surfaceKind === 'caption' && (busy || playing)) ||
     surfaceKind === 'bloom' ||
     surfaceKind === 'recap' ||
     surfaceKind === 'onboarding' ||
@@ -1792,6 +1799,31 @@ export function Overlay({
     () => (scan ? buildStickingChips(scan.stickingCandidates ?? [])[0] : undefined),
     [scan],
   );
+
+  // The held reply's in-card answer affordances (Darcy's 2026-07-16 ask):
+  // once the reply is committed and holding, the turn's chips / multi-part
+  // fields render INSIDE the caption card, under the tutor's words -- the
+  // student answers with the reply still on screen instead of waiting for a
+  // dissolve that no longer happens. The standalone 'answer' surface below
+  // is kept for the post-Escape case (reply dismissed, answer still pending).
+  const answerControlsDisabled = busy || recording || connecting || closeState !== 'idle';
+  const inlineAnswer: ReactNode =
+    captionHold && !captionLive && streamingTokens.length === 0 ? (
+      answerFields && answerFields.length > 0 ? (
+        <div className="mt-1 border-t border-border pt-2.5">
+          <AnswerFields
+            key={answerFields.map((field) => field.label).join('|')}
+            fields={answerFields}
+            disabled={answerControlsDisabled}
+            onSubmit={handleAnswerFieldsSubmit}
+          />
+        </div>
+      ) : chips && chips.length > 0 ? (
+        <div className="mt-1 flex flex-wrap items-center gap-[7px] border-t border-border pt-2.5">
+          <AnswerChips chips={chips} disabled={answerControlsDisabled} onTap={handleChipTap} />
+        </div>
+      ) : null
+    ) : null;
 
   // ---- The transient surface node (exactly one) ----
   let surfaceNode: ReactNode = null;
@@ -1924,6 +1956,7 @@ export function Overlay({
               {captionLive && <StreamCaret />}
             </p>
           </div>
+          {inlineAnswer}
         </div>
       );
     } else {
@@ -1945,6 +1978,7 @@ export function Overlay({
               )}
               {captionLive && <StreamCaret />}
             </p>
+            {inlineAnswer}
           </div>
         </div>
       );
@@ -2031,17 +2065,7 @@ export function Overlay({
         </div>
       ) : (
         <div className="cx-card flex max-w-[460px] flex-wrap items-center gap-[7px] px-[15px] py-3 text-foreground">
-          {(chips ?? []).map((chip) => (
-            <button
-              key={chip}
-              type="button"
-              disabled={busy || recording || connecting || closeState !== 'idle'}
-              onClick={() => handleChipTap(chip)}
-              className="cursor-pointer rounded-full border border-border bg-background px-[11px] py-[5px] text-[12px] leading-normal text-[var(--calyxa-chip-text)] outline-none transition-colors hover:border-accent hover:bg-accent-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-default disabled:opacity-50"
-            >
-              {renderMathTokens(chip)}
-            </button>
-          ))}
+          <AnswerChips chips={chips ?? []} disabled={answerControlsDisabled} onTap={handleChipTap} />
         </div>
       );
   } else if (surfaceKind === 'ping' && pinQueue.length > 0) {
@@ -2199,6 +2223,15 @@ export function Overlay({
         <ReframeTool disabled={busy || ending} onCancel={handleReframeCancel} onStart={handleReframeStart} />
       ) : (
         <div className="pointer-events-none fixed inset-x-0 bottom-7 z-[2147483647] flex flex-col items-center gap-3.5">
+          {/* The one sanctioned second element: a ping toast stacked above a
+              HELD (settled) caption -- the persistent reply would otherwise
+              starve the pin queue forever. Live surfaces still get the slot
+              to themselves. */}
+          {pingStackedOnCaption && (
+            <span aria-live="polite" className="pointer-events-auto cx-surface-in">
+              <PingToast key={pinQueue[0].id} pin={pinQueue[0].pin} />
+            </span>
+          )}
           {/* The single transient surface slot -- exactly one at a time,
               keyed by kind so a swap re-runs the spring entry. */}
           {surfaceNode && (
@@ -2278,6 +2311,35 @@ function HoverButton({
     >
       {children}
     </button>
+  );
+}
+
+// The answer-chip row (design 8a), shared by the standalone answer surface
+// and the held caption's in-card answer block (the 2026-07-16 persistence
+// change) so a chip renders and behaves identically wherever it appears.
+function AnswerChips({
+  chips,
+  disabled,
+  onTap,
+}: {
+  chips: string[];
+  disabled: boolean;
+  onTap: (chip: string) => void;
+}) {
+  return (
+    <>
+      {chips.map((chip) => (
+        <button
+          key={chip}
+          type="button"
+          disabled={disabled}
+          onClick={() => onTap(chip)}
+          className="cursor-pointer rounded-full border border-border bg-background px-[11px] py-[5px] text-[12px] leading-normal text-[var(--calyxa-chip-text)] outline-none transition-colors hover:border-accent hover:bg-accent-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-default disabled:opacity-50"
+        >
+          {renderMathTokens(chip)}
+        </button>
+      ))}
+    </>
   );
 }
 

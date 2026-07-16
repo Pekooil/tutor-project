@@ -441,6 +441,185 @@ export const SESSION_START_TOOL: Anthropic.Tool = {
   ],
 }
 
+// The opening scan's OWN forced tool (2026-07-16, Darcy's "screen detection
+// misses most problems" report). Two live gaps this closes:
+//
+// 1. RELIABILITY: the scan was the last freeform-JSON-in-text call left on a
+//    real turn path (parseEnvelope over a text block) -- the exact contract
+//    Sprint 14 Task 10 measured at ~50% compliance and replaced with forced
+//    tools everywhere else. A scan whose JSON came back malformed read as
+//    "found nothing" and dropped the student to the crop-it-yourself card.
+//
+// 2. DETECTION ITSELF: the check-in card only ever rendered when
+//    detectTopicKeys -- a deterministic keyword/alias match over the page
+//    text -- named a curriculum concept. A purely symbolic page ("Solve
+//    x^2 + 5x + 6 = 0", an image-alt equation, a bare worksheet) contains
+//    no alias words at all, so detection failed even when the model read
+//    the problem perfectly. The tool makes the MODEL name the concept,
+//    constrained to the real curriculum enum (`concept_key`), with a free
+//    `topic_title` fallback for math the curriculum doesn't cover -- the
+//    keyword match demotes to a fallback signal (route side).
+const OPENING_SCAN_TOOL_NAME = 'submit_opening_scan'
+
+export const OPENING_SCAN_TOOL: Anthropic.Tool = {
+  name: OPENING_SCAN_TOOL_NAME,
+  description:
+    'Submit your result for this OPENING SCAN -- the panel just opened, no student message exists, ' +
+    'and your only job is to decide whether PAGE CONTEXT shows a specific problem the student is ' +
+    'working on. This is the ONLY way to reply -- always call it, exactly once.',
+  strict: true,
+  input_schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      problem_found: {
+        type: 'boolean',
+        description:
+          'true when PAGE CONTEXT shows an identifiable math problem or exercise you can name ' +
+          'SPECIFICALLY. Lean toward true whenever there is real math on the page -- an equation, an ' +
+          'exercise prompt, a word problem -- even a partial or oddly-transcribed one (extracted page ' +
+          'text is often garbled; reconstruct the likely problem from what is there). Use false only ' +
+          'when the page genuinely shows no math problem at all (an article, a homepage, a video list).',
+      },
+      say: {
+        type: 'string',
+        description:
+          'When problem_found: exactly ONE line naming the ACTUAL problem and asking whether that is ' +
+          'what they need help with, e.g. "Looks like you\'re working on factoring x^2 + 5x + 6 -- is ' +
+          'that what you need help with?" -- never a generic "looks like you\'re working on something". ' +
+          'When problem_found is false: the empty string "".',
+      },
+      concept_key: {
+        ...nullableEnum(CONCEPT_KEYS),
+        description:
+          'The curriculum concept that BEST matches the detected problem -- classify from the MATH ' +
+          'ITSELF (an x^2 equation to solve is quadratics even if the page never says "quadratic"), ' +
+          'not just page wording. null only when problem_found is false or truly nothing fits.',
+      },
+      topic_title: {
+        anyOf: [{ type: 'string' }, { type: 'null' }],
+        description:
+          'A 2-4 word student-facing name for the detected topic (e.g. "Factoring quadratics", ' +
+          '"Related rates"). ALWAYS set this when problem_found is true -- it is the check-in card\'s ' +
+          'headline when concept_key is null. null when problem_found is false.',
+      },
+      annotations: {
+        type: 'array',
+        items: ANNOTATION_ITEM_SCHEMA,
+        description:
+          'Exactly one annotation framing the detected problem when problem_found and PAGE CONTEXT has ' +
+          'text to anchor to (target.text copied EXACTLY, per ANNOTATION GUIDANCE); [] otherwise.',
+      },
+    },
+    required: ['problem_found', 'say', 'concept_key', 'topic_title', 'annotations'],
+  },
+  input_examples: [
+    {
+      problem_found: true,
+      say: "Looks like you're working on factoring x^2 + 5x + 6 -- is that what you need help with?",
+      concept_key: 'algebra.quadratics.factoring',
+      topic_title: 'Factoring quadratics',
+      annotations: [
+        {
+          id: 'a1',
+          type: 'highlight',
+          target: { kind: 'textMatch', text: 'x^2 + 5x + 6' },
+          label: 'This problem?',
+        },
+      ],
+    },
+  ],
+}
+
+// One say line + at most one annotation + the classification fields.
+const OPENING_SCAN_MAX_TOKENS = 300
+
+// The placeholder "user" turn the Anthropic API requires when there is no
+// real student message -- OPENING SCAN MODE in the system prompt drives the
+// model's behavior; this content is never shown to the student.
+const OPENING_SCAN_PLACEHOLDER_MESSAGE: TurnMessage = {
+  role: 'user',
+  content:
+    '(The panel just opened. No message has been sent yet -- this is the opening scan; follow OPENING SCAN MODE.)',
+}
+
+export type OpeningScanResult = {
+  // The same TurnEnvelope shape every other turn kind produces (say +
+  // validated annotations; never assessment/progress/session) so
+  // persistOpeningInteraction and the route's response assembly are unchanged.
+  envelope: TurnEnvelope
+  // The model's curriculum classification, ALREADY validated against
+  // CONCEPT_KEYS (strict:true guarantees it, but the degrade path can't) --
+  // null when nothing fits or nothing was found.
+  conceptKey: string | null
+  // The model's short student-facing topic name -- the check-in headline
+  // when conceptKey is null (math outside the curriculum enum).
+  topicTitle: string | null
+}
+
+/**
+ * Runs the opening scan as a forced-tool call (OPENING_SCAN_TOOL above),
+ * replacing the route's old freeform-text call. A missing/unparseable
+ * tool_use block degrades through the legacy parseEnvelope text path --
+ * byte-compatible with the old behavior (and what the fake-backend tests'
+ * text responses exercise), just no longer the primary path. A
+ * problem_found:false result normalizes to the empty-say envelope the
+ * "found nothing" contract has always used downstream.
+ */
+export async function runOpeningScanTool({
+  pageContext,
+  profile,
+}: {
+  pageContext: PageContext
+  profile: LearningProfile
+}): Promise<OpeningScanResult> {
+  const response = await createClient().messages.create({
+    model: MODEL,
+    max_tokens: OPENING_SCAN_MAX_TOKENS,
+    system: buildSystemPromptBlocks(profile, pageContext, { format: 'envelope', opening: true }),
+    messages: [OPENING_SCAN_PLACEHOLDER_MESSAGE],
+    tools: [OPENING_SCAN_TOOL],
+    tool_choice: { type: 'tool', name: OPENING_SCAN_TOOL_NAME },
+  })
+
+  logTurnUsage('opening-scan', response.usage) // TEMPORARY (ADR-037) -- remove once verified
+
+  const toolUse = response.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use' && block.name === OPENING_SCAN_TOOL_NAME
+  )
+
+  if (toolUse && typeof toolUse.input === 'object' && toolUse.input !== null) {
+    const input = toolUse.input as Record<string, unknown>
+    const problemFound = input.problem_found === true && typeof input.say === 'string' && input.say.trim().length > 0
+
+    const envelope = parseEnvelopeObject({
+      say: problemFound ? (input.say as string) : '',
+      annotations: problemFound ? input.annotations : [],
+      profile_tags: [],
+      signals: [],
+    })
+
+    if (envelope) {
+      const conceptKey =
+        problemFound && typeof input.concept_key === 'string' && (CONCEPT_KEYS as readonly string[]).includes(input.concept_key)
+          ? input.concept_key
+          : null
+      const topicTitle =
+        problemFound && typeof input.topic_title === 'string' && input.topic_title.trim().length > 0
+          ? input.topic_title.trim().slice(0, 60)
+          : null
+      return { envelope, conceptKey, topicTitle }
+    }
+  }
+
+  // Degrade path: no (or unusable) tool_use block -- fall back to any text
+  // block through the legacy freeform parse, exactly as runTutorTurn does.
+  const textBlock = response.content.find((block) => block.type === 'text')
+  const raw = textBlock?.type === 'text' ? textBlock.text : ''
+
+  return { envelope: parseEnvelope(raw), conceptKey: null, topicTitle: null }
+}
+
 // Deterministic backstop for the session-start kickoff's `opening_question`
 // (2nd live-find, same failure family): the board_text/opening_question
 // split narrows WHERE a fabricated turn or a greeting can hide, but neither

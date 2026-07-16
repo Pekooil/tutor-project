@@ -2111,7 +2111,12 @@ describe('/api/ai/turn: the opening scan (Sprint 14 Task 4, ADR-030)', () => {
     expect(json.assessment).toBeUndefined()
     expect(json.solutionProgress).toBeUndefined()
     expect(json.session).toBeUndefined()
-    expect(Object.keys(json).sort()).toEqual(['annotations', 'reply'])
+    // A confident read now ALWAYS carries a check-in topic (2026-07-16
+    // detection fix): with no model classification (this is the freeform-text
+    // degrade path) and no keyword match on this page, it falls back to the
+    // generic headline rather than dropping the student to the crop card.
+    expect(json.topic).toEqual({ conceptKey: '', title: 'This problem' })
+    expect(Object.keys(json).sort()).toEqual(['annotations', 'reply', 'topic'])
   })
 
   it('requires a pageContext -- 400s without one, and never calls the model', async () => {
@@ -2151,16 +2156,74 @@ describe('/api/ai/turn: the opening scan (Sprint 14 Task 4, ADR-030)', () => {
     equations: [],
   }
 
-  it('carries the page-detected topic additively (check-in 5a) — detectTopicKeys grounded, title-resolved; absent when the page names no known concept', async () => {
+  it('carries the page-detected topic additively (check-in 5a) — keyword fallback still title-resolves on the degrade path; a confident read with no concept gets the generic headline', async () => {
     nextResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ say: 'Quadratics on this page.' })) }
     const withTopic = await turn(token, { opening: true, pageContext: quadraticsPageContext })
     expect(withTopic.status).toBe(200)
     expect(withTopic.json.topic).toEqual({ conceptKey: 'algebra.quadratics.factoring', title: 'Factoring quadratics' })
 
+    // 2026-07-16 detection fix: a non-empty read on a page with no keyword
+    // match no longer loses the check-in card -- it degrades to the generic
+    // headline instead of `topic` being absent.
     nextResponse = { status: 200, body: fakeTextMessage(JSON.stringify({ say: 'Hmm.' })) }
     const withoutTopic = await turn(token, { opening: true, pageContext: minimalPageContext })
     expect(withoutTopic.status).toBe(200)
-    expect(withoutTopic.json.topic).toBeUndefined()
+    expect(withoutTopic.json.topic).toEqual({ conceptKey: '', title: 'This problem' })
+  })
+
+  it('the forced-tool scan (submit_opening_scan, 2026-07-16): the model\'s concept_key wins topic resolution on a page with NO keyword alias; topic_title carries when nothing in the curriculum fits; problem_found:false stays the silent empty reply', async () => {
+    // minimalPageContext ("Solve x^2 - 4 = 0") matches no curriculum alias --
+    // exactly the symbolic-page case the keyword matcher always missed.
+    nextResponse = {
+      status: 200,
+      body: fakeToolUseMessage('submit_opening_scan', {
+        problem_found: true,
+        say: "Looks like you're working on solving x^2 - 4 = 0 -- is that what you need help with?",
+        concept_key: 'algebra.quadratics.factoring',
+        topic_title: 'Factoring quadratics',
+        annotations: [
+          { id: 'a1', type: 'highlight', target: { kind: 'textMatch', text: 'x^2 - 4 = 0' }, label: 'This problem?' },
+        ],
+      }),
+    }
+    const classified = await turn(token, { opening: true, pageContext: minimalPageContext })
+    expect(classified.status).toBe(200)
+    expect(classified.json.topic).toEqual({ conceptKey: 'algebra.quadratics.factoring', title: 'Factoring quadratics' })
+    expect(classified.json.annotations).toHaveLength(1)
+
+    // Math the curriculum enum doesn't cover: concept_key null, the model's
+    // own short title becomes the check-in headline.
+    nextResponse = {
+      status: 200,
+      body: fakeToolUseMessage('submit_opening_scan', {
+        problem_found: true,
+        say: "Looks like you're working on a telescoping series -- is that what you need help with?",
+        concept_key: null,
+        topic_title: 'Telescoping series',
+        annotations: [],
+      }),
+    }
+    const uncovered = await turn(token, { opening: true, pageContext: minimalPageContext })
+    expect(uncovered.status).toBe(200)
+    expect(uncovered.json.topic).toEqual({ conceptKey: '', title: 'Telescoping series' })
+
+    // Nothing on the page: the "found nothing" contract is byte-identical to
+    // the old empty-say degrade -- empty reply, no topic, no annotations.
+    nextResponse = {
+      status: 200,
+      body: fakeToolUseMessage('submit_opening_scan', {
+        problem_found: false,
+        say: '',
+        concept_key: null,
+        topic_title: null,
+        annotations: [],
+      }),
+    }
+    const nothing = await turn(token, { opening: true, pageContext: minimalPageContext })
+    expect(nothing.status).toBe(200)
+    expect(nothing.json.reply).toBe('')
+    expect(nothing.json.topic).toBeUndefined()
+    expect(nothing.json.annotations).toBeUndefined()
   })
 
   it('carries up to 3 of the student\'s OWN recorded misconceptions for the detected topic, ranked occurrence/recency-first (check-in 5b) — capped at 3, absent when the profile has none for this concept', async () => {

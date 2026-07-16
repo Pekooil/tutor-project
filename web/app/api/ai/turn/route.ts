@@ -1,12 +1,8 @@
 import { NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getConcept } from '@calyxa/curriculum'
 import { clientFromBearer } from '@/lib/auth/bearer'
-import { logTurnUsage, runTutorTurn, type TurnEnvelope, type TurnMessage } from '@/lib/ai/claude'
-import { parseEnvelope } from '@/lib/ai/envelope'
-import { buildSystemPromptBlocks } from '@/lib/ai/system-prompt'
-import type { LearningProfile } from '@/lib/ai/profile'
+import { runOpeningScanTool, runTutorTurn } from '@/lib/ai/claude'
 import type { PageContext } from '@/lib/ai/page-context'
 import { loadProfile } from '@/lib/learning/profile-read'
 import { predictLikelyStruggle, pickStickingCandidates } from '@/lib/learning/predict'
@@ -75,57 +71,6 @@ async function timed<T>(bucket: { ms: number }, run: () => Promise<T>): Promise<
 // turn-complete.ts (completeTurn) -- both shared with /api/ai/turn/stream so
 // the streamed and non-streamed turns behave identically past the model call.
 
-// A dedicated, minimal Anthropic call for the opening scan. claude.ts's
-// runTutorTurn always builds its system prompt with the fixed
-// `{ format: 'envelope' }` and requires a non-empty `messages` array ending
-// in a user turn -- neither fits the opening scan (no student message exists
-// yet, and the call needs `opts.opening` threaded into buildSystemPrompt to
-// get the OPENING SCAN MODE block). claude.ts is out of scope for this
-// sprint, so this mirrors its MODEL/createClient shape here rather than
-// changing it.
-const OPENING_SCAN_MODEL = 'claude-haiku-4-5-20251001'
-const OPENING_SCAN_MAX_TOKENS = 300 // one say line + at most one annotation + optional tag
-
-function createOpeningScanClient(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is not set — the Claude proxy cannot run without it.')
-  }
-
-  return new Anthropic({ apiKey })
-}
-
-// The placeholder "user" turn the Anthropic API requires when there is no
-// real student message -- OPENING SCAN MODE in the system prompt drives the
-// model's behavior; this content is never shown to the student.
-const OPENING_SCAN_PLACEHOLDER_MESSAGE: TurnMessage = {
-  role: 'user',
-  content: '(The panel just opened. No message has been sent yet -- this is the opening scan; follow OPENING SCAN MODE.)',
-}
-
-async function runOpeningScanTurn({
-  pageContext,
-  profile,
-}: {
-  pageContext: PageContext
-  profile: LearningProfile
-}): Promise<TurnEnvelope> {
-  const response = await createOpeningScanClient().messages.create({
-    model: OPENING_SCAN_MODEL,
-    max_tokens: OPENING_SCAN_MAX_TOKENS,
-    system: buildSystemPromptBlocks(profile, pageContext, { format: 'envelope', opening: true }),
-    messages: [OPENING_SCAN_PLACEHOLDER_MESSAGE],
-  })
-
-  logTurnUsage('opening-scan', response.usage) // TEMPORARY (ADR-037) -- remove once verified
-
-  const textBlock = response.content.find((block) => block.type === 'text')
-  const raw = textBlock?.type === 'text' ? textBlock.text : ''
-
-  return parseEnvelope(raw)
-}
-
 // Detects the opening-scan request shape: `{ opening: true, pageContext,
 // sessionId? }`, no `messages` -- distinguished by this flag alone.
 function isOpeningScanBody(body: unknown): boolean {
@@ -161,32 +106,47 @@ async function handleOpeningScan(
 
   const sessionId = parseSessionId(body)
 
-  // Sprint 16 / Task 3 (ADR-041): the global cost guard, before the profile
-  // read or the Claude call. Only the hard cap applies here — the opening
-  // scan is text-only (no voice legs to degrade) and this call is exactly
-  // as much "a new AI turn" as any other, so ADR-041's "hard cap refuses new
-  // AI turns" covers it too. It degrades to the SAME silent-open contract
-  // ADR-030 already established for "nothing found" / a failed scan
-  // (background/index.ts's EMPTY_REPLY) rather than the resting message —
-  // an unsolicited proactive turn is not the place to surface a budget
-  // notice the student never asked a question to receive.
-  const { hardExceeded } = await costGuard(auth.supabase, estimateCost('claude_turn'))
+  // Sprint 16 / Task 3 (ADR-041): the global cost guard. Only the hard cap
+  // applies here — the opening scan is text-only (no voice legs to degrade)
+  // and this call is exactly as much "a new AI turn" as any other, so
+  // ADR-041's "hard cap refuses new AI turns" covers it too. It degrades to
+  // the SAME silent-open contract ADR-030 already established for "nothing
+  // found" / a failed scan (background/index.ts's EMPTY_REPLY) rather than
+  // the resting message — an unsolicited proactive turn is not the place to
+  // surface a budget notice the student never asked a question to receive.
+  //
+  // Latency fix (2026-07-16): the guard and the profile read run in
+  // PARALLEL — they were serialized, two back-to-back DB round trips on the
+  // critical path before the model call. The guard fails open by design, so
+  // a profile read that turns out to be wasted on a hard-capped day is the
+  // cheap side of the trade. `userId` skips loadProfile's redundant
+  // auth.getUser() round trip (clientFromBearer already resolved the user).
+  const profileTimer = { ms: 0 }
+  const topicKeys = detectTopicKeys(pageContext, [])
+  const [{ hardExceeded }, profile] = await Promise.all([
+    costGuard(auth.supabase, estimateCost('claude_turn')),
+    timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys, userId: auth.user.id })),
+  ])
 
   if (hardExceeded) {
     return NextResponse.json({ reply: '' })
   }
 
-  const profileTimer = { ms: 0 }
-  const topicKeys = detectTopicKeys(pageContext, [])
-  const profile = await timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys }))
-
   try {
     const modelTimer = { ms: 0 }
-    const envelope = await timed(modelTimer, () => runOpeningScanTurn({ pageContext, profile }))
+    // The forced-tool scan (claude.ts's OPENING_SCAN_TOOL, 2026-07-16): the
+    // model both reads the problem AND classifies it against the curriculum
+    // enum -- detection no longer depends on the page text happening to
+    // contain a keyword alias.
+    const { envelope, conceptKey: modelConceptKey, topicTitle } = await timed(modelTimer, () =>
+      runOpeningScanTool({ pageContext, profile })
+    )
 
     debugTurn('opening-scan', {
       page: pageContextSummary(pageContext),
       topicKeys,
+      modelConceptKey,
+      topicTitle,
       detected: envelope.say ? envelope.say.slice(0, 120) : '(empty — no detection)',
       annotationsEmitted: envelope.annotations?.length ?? 0,
       profileMs: profileTimer.ms,
@@ -197,23 +157,37 @@ async function handleOpeningScan(
 
     const annotations = envelope.annotations
     const profileTags = groundProfileTags(envelope.profileTags, profile)
-    const prediction = predictLikelyStruggle(profile, topicKeys)
+
+    // Topic resolution, model-first (the 2026-07-16 detection fix): the
+    // model's curriculum classification wins; the old deterministic keyword
+    // match (detectTopicKeys) demotes to the fallback -- it still catches a
+    // degrade-path turn (no tool_use block) and pages whose wording names
+    // the concept outright. A confident read that fits NO curriculum key
+    // still surfaces a check-in card via the model's own topic_title (with
+    // a last-resort generic headline), instead of dropping the student to
+    // the crop-it-yourself fallback card.
+    const resolvedConceptKey = modelConceptKey ?? (topicKeys.length > 0 ? topicKeys[0] : null)
+    const topic = resolvedConceptKey
+      ? { conceptKey: resolvedConceptKey, title: titleFor(resolvedConceptKey) }
+      : envelope.say.trim()
+        ? { conceptKey: '', title: topicTitle ?? 'This problem' }
+        : undefined
+
+    const prediction = predictLikelyStruggle(
+      profile,
+      resolvedConceptKey ? [resolvedConceptKey, ...topicKeys] : topicKeys
+    )
     // The check-in's 5b sticking-point candidates (design handoff feature):
-    // scoped to the SAME concept `topic` below names -- never a different
+    // scoped to the SAME concept `topic` above names -- never a different
     // one than what the student is about to confirm on 5a. [] (and so
-    // omitted) when the page named no known concept at all.
-    const stickingCandidates = topicKeys.length > 0 ? pickStickingCandidates(profile, topicKeys[0]) : []
+    // omitted) when no curriculum concept was resolved at all.
+    const stickingCandidates = resolvedConceptKey ? pickStickingCandidates(profile, resolvedConceptKey) : []
 
     return NextResponse.json({
       reply: envelope.say,
       ...(annotations && annotations.length > 0 ? { annotations } : {}),
       ...(profileTags.length > 0 ? { profileTags } : {}),
-      // The check-in's page-detected topic (design state 5a's "spotted on
-      // this page" suggestion card): the first topicKey detectTopicKeys
-      // already resolved above -- deterministic keyword match, no model
-      // involvement, title-resolved with the same stale-key fallback as
-      // `prediction`. Additive: absent when the page named no known concept.
-      ...(topicKeys.length > 0 ? { topic: { conceptKey: topicKeys[0], title: titleFor(topicKeys[0]) } } : {}),
+      ...(topic ? { topic } : {}),
       ...(stickingCandidates.length > 0
         ? {
             stickingCandidates: stickingCandidates.map((item) => ({
@@ -279,16 +253,31 @@ export async function POST(request: Request) {
   const sessionId = parseSessionId(body)
   const responseLatencyMs = parseResponseLatencyMs(body)
 
-  // Sprint 16 / Task 3 (ADR-041): the global cost guard, before the profile
-  // read or the Claude call. Hard cap skips both entirely and returns the
+  // Turn-time topic detection (ADR-021): deterministic keyword match, no model
+  // call, [] on any miss -- so the profile read below degrades to its
+  // pre-Sprint-11 behaviour.
+  const topicKeys = detectTopicKeys(pageContext, messages)
+
+  // Sprint 16 / Task 3 (ADR-041): the global cost guard. Hard cap returns the
   // friendly resting message — never a 500, never a provider call. Soft cap
   // does NOT block a text turn (only the voice legs degrade, ADR-041
   // Decision 2); it threads `degraded: true` onto the normal response below
   // so the client knows to skip STT/TTS for this turn.
+  //
+  // Latency fix (2026-07-16): the guard and the profile read (ADR-014, biased
+  // to page-relevant topicKeys; never throws) run in PARALLEL — they were
+  // serialized, two back-to-back DB round trips on every turn's critical path
+  // before the model call. The guard fails open by design, so a profile read
+  // wasted on a hard-capped day is the cheap side of the trade. `userId`
+  // skips loadProfile's redundant auth.getUser() round trip (clientFromBearer
+  // already resolved the user — that duplicate auth call was a third
+  // serialized network hop per turn).
   const costGuardTimer = { ms: 0 }
-  const { softExceeded, hardExceeded } = await timed(costGuardTimer, () =>
-    costGuard(auth.supabase, estimateCost('claude_turn'))
-  )
+  const profileTimer = { ms: 0 }
+  const [{ softExceeded, hardExceeded }, profile] = await Promise.all([
+    timed(costGuardTimer, () => costGuard(auth.supabase, estimateCost('claude_turn'))),
+    timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys, userId: auth.user.id })),
+  ])
 
   if (hardExceeded) {
     // `degradedCap` (Sprint 18 Task 8, ADR-043): annotates WHICH cap fired so
@@ -297,17 +286,6 @@ export async function POST(request: Request) {
     // support only; no change to the reply/`degraded` behavior.
     return NextResponse.json({ reply: COST_RESTING_MESSAGE, degraded: true, degradedCap: 'hard' })
   }
-
-  // Turn-time topic detection (ADR-021): deterministic keyword match, no model
-  // call, [] on any miss -- so the profile read below degrades to its
-  // pre-Sprint-11 behaviour.
-  const topicKeys = detectTopicKeys(pageContext, messages)
-
-  // The live profile (ADR-014), biased to page-relevant topicKeys. A read,
-  // not a write -- loadProfile never throws, so it sits outside the try/catch
-  // reserved for the Anthropic call.
-  const profileTimer = { ms: 0 }
-  const profile = await timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys }))
 
   try {
     const modelTimer = { ms: 0 }

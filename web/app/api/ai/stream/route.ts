@@ -139,7 +139,7 @@ export async function POST(request: Request) {
     })
   }
 
-  const profile = await loadProfile(auth.supabase)
+  const profile = await loadProfile(auth.supabase, { userId: auth.user.id })
 
   const stream = new ReadableStream({
     async start(controller) {

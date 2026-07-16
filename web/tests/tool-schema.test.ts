@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest'
 // without a server. Reading the tool constants makes no network/SDK call.
 vi.mock('server-only', () => ({}))
 
-import { ENVELOPE_TOOL, SESSION_START_TOOL } from '../lib/ai/claude'
+import { ENVELOPE_TOOL, OPENING_SCAN_TOOL, SESSION_START_TOOL } from '../lib/ai/claude'
 
 // The strict:true tool invariant, pinned structurally (ADR: forced-tool
 // schemas). Anthropic rejects a strict tool whose schema has ANY object node
@@ -38,7 +38,7 @@ function objectNodePaths(node: JsonSchemaNode | undefined, path: string, out: Ar
 }
 
 describe('forced-tool schemas satisfy the strict:true invariant', () => {
-  for (const tool of [ENVELOPE_TOOL, SESSION_START_TOOL]) {
+  for (const tool of [ENVELOPE_TOOL, SESSION_START_TOOL, OPENING_SCAN_TOOL]) {
     it(`${tool.name}: every object node sets additionalProperties:false`, () => {
       expect(tool.strict).toBe(true)
       const nodes: Array<{ path: string; ok: boolean }> = []

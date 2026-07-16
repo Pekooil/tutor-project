@@ -50,14 +50,24 @@ export async function POST(request: Request) {
   const sessionId = parseSessionId(body)
   const responseLatencyMs = parseResponseLatencyMs(body)
 
-  // Sprint 16 / Task 3 (ADR-041): the global cost guard, before the profile
-  // read or the Claude call — same placement and same hard/soft split as
-  // /api/ai/turn's main branch. Hard cap skips straight to a synthetic
-  // terminal envelope carrying the resting message, never touching
+  // Sprint 16 / Task 3 (ADR-041): the global cost guard — same hard/soft
+  // split as /api/ai/turn's main branch. Hard cap skips straight to a
+  // synthetic terminal envelope carrying the resting message, never touching
   // runTutorTurnEnvelopeStream or completeTurn (no provider call, nothing to
   // persist). Soft cap lets the turn proceed but flags `degraded: true` on
   // the terminal envelope.
-  const { softExceeded, hardExceeded } = await costGuard(auth.supabase, estimateCost('claude_turn'))
+  //
+  // Latency fix (2026-07-16), mirroring /api/ai/turn: the guard and the
+  // topic-biased profile read (ADR-021; a read, never throws) run in
+  // PARALLEL instead of back-to-back, and `userId` skips loadProfile's
+  // redundant auth.getUser() round trip — this route is the extension's
+  // main turn path (text AND voice), so these serialized DB hops sat on
+  // every turn's time-to-first-token.
+  const topicKeys = detectTopicKeys(pageContext, messages)
+  const [{ softExceeded, hardExceeded }, profile] = await Promise.all([
+    costGuard(auth.supabase, estimateCost('claude_turn')),
+    loadProfile(auth.supabase, { topicKeys, userId: auth.user.id }),
+  ])
 
   if (hardExceeded) {
     const stream = new ReadableStream({
@@ -80,11 +90,6 @@ export async function POST(request: Request) {
       },
     })
   }
-
-  // Same topic-biased profile read as /api/ai/turn (ADR-021). A read, not a
-  // write; never throws.
-  const topicKeys = detectTopicKeys(pageContext, messages)
-  const profile = await loadProfile(auth.supabase, { topicKeys })
 
   const lastUserMessage = messages[messages.length - 1].content
 

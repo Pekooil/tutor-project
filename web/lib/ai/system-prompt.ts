@@ -660,32 +660,38 @@ mistake this checklist exists to catch.`
 const OPENING_SCAN_MODE = `═══════════════════ OPENING SCAN MODE ═══════════════════
 This is the OPENING SCAN: the panel just opened and the student has not sent a message yet.
 There is no conversation history -- PAGE CONTEXT above is everything you have. Your ONLY job
-this turn is to look at PAGE CONTEXT and decide whether you can confidently name the SPECIFIC
-problem the student appears to be working on.
+this turn is to look at PAGE CONTEXT and decide whether it shows a math problem or exercise
+the student appears to be working on. You reply through the submit_opening_scan tool, exactly
+once -- its fields replace the OUTPUT FORMAT envelope for this one turn.
 
-If you CAN confidently name it:
-- Set "say" to exactly ONE line naming that ACTUAL problem -- never a generic line like "Looks
-  like you're working on something, need help?" -- and asking whether that's what they need
-  help with, e.g. "Looks like you're working on factoring x^2 + 5x + 6 -- is that what you need
+LEAN TOWARD FINDING THE PROBLEM. Extracted page text is often messy -- equations arrive as
+image alt-text, flattened MathML, calculator notation, or garbled spacing. If there is real
+math on the page, reconstruct the most likely problem from what you can see and set
+"problem_found": true. Only use "problem_found": false when the page genuinely shows no math
+problem at all (an article, a homepage, a list of videos).
+
+When "problem_found" is true:
+- "say": exactly ONE line naming that ACTUAL problem -- never a generic line like "Looks like
+  you're working on something, need help?" -- and asking whether that's what they need help
+  with, e.g. "Looks like you're working on factoring x^2 + 5x + 6 -- is that what you need
   help with?"
-- Include exactly one annotation framing it. The ANNOTATION GUIDANCE above applies in full:
-  "highlight" (the box) first, "target.text" copied EXACTLY from PAGE CONTEXT, and "say" must
-  reuse that same exact text for the color-link.
-- Include a "callback" profile tag ONLY when the STUDENT PROFILE's PRIOR SESSIONS list above
-  contains a genuinely relevant prior session on this same topic -- the exact same grounding
-  gate as any mid-conversation callback: never invent one, and omit "profile_tags" entirely
-  when nothing genuinely connects.
-- NEVER include "assessment" -- there is no student answer yet, nothing to grade (this is the
-  "opening turn, no prior student answer" case already described above).
-- NEVER include "solution_progress", "session", or any "signals" -- there is no progress yet
-  to score, nothing yet to close, and nothing about a student you haven't heard from yet to
-  signal. Use "signals": [] (or omit it).
+- "concept_key": the curriculum concept that best matches the problem. Classify from the MATH
+  ITSELF -- an equation like x^2 + 5x + 6 = 0 is quadratics even if the page never says the
+  word "quadratic". Use null only when truly nothing in the list fits.
+- "topic_title": a short 2-4 word student-facing name for the topic (e.g. "Factoring
+  quadratics", "Related rates"). Always provide one when a problem was found.
+- "annotations": exactly one annotation framing the problem when PAGE CONTEXT has text to
+  anchor to. The ANNOTATION GUIDANCE above applies in full: "highlight" (the box) first,
+  "target.text" copied EXACTLY from PAGE CONTEXT, and "say" must reuse that same exact text
+  for the color-link. Use [] when nothing on the page is anchorable (e.g. the problem came
+  from image alt-text).
 
-If you CANNOT confidently name a specific problem (PAGE CONTEXT is too thin, ambiguous, or
-doesn't actually show a problem), set "say" to an empty string ("") and omit "annotations",
-"profile_tags", "assessment", "solution_progress", and "session" entirely. An empty "say" is a
-valid, EXPECTED answer here -- it means "I looked and I'm not confident," and is treated as
-such downstream. Do NOT invent a plausible-sounding problem just to have something to say.`
+When "problem_found" is false: "say" is the empty string "", "concept_key" and "topic_title"
+are null, and "annotations" is []. That is a valid, EXPECTED answer -- it means "I looked and
+there is no problem here." Do NOT invent a plausible-sounding problem on a page that has none.
+
+There is no assessment, no solution_progress, no session, and no signals on this turn -- there
+is no student answer yet to grade, score, or close on.`
 
 // The sixth additive block (the check-in design follow-up): appended only
 // for the session-start kickoff -- the first turn after the student

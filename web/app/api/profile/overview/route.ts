@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   // No topicKeys: the overview is the user-level "where you are," not a
   // page-biased read -- the turn route keeps its own bias (ADR-021)
   // unaffected by this endpoint, which deliberately takes no page input.
-  const profile = await loadProfile(auth.supabase)
+  const profile = await loadProfile(auth.supabase, { userId: auth.user.id })
 
   // loadProfile degrades to the empty "calibrating" profile (masteryNodes:
   // [], activeMisconceptions: [], no dueForReview) on a fresh user or any

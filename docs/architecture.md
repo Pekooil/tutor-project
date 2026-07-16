@@ -447,8 +447,8 @@ plus a conditional Study-kits page if Sprint 21 landed). See ADR-047 (dashboard 
 ADR-048 (chart tokens + library).
 
 > **Sequencing note:** Sprint 22 was **started ahead of the plan's intended 18→19→21→22
-> order** (Sprint 18 complete; Sprint 19 still in progress; Sprint 21 not landed), at
-> Darcy's direction. The ADRs resolved to **047/048** (true next-free at execution — the
+> order** (Sprint 18 complete; Sprint 19 now complete; Sprint 21 not yet landed at that
+> time), at Darcy's direction. The ADRs resolved to **047/048** (true next-free at execution — the
 > plan's provisional 048/049 assumed Sprint 21 would land 047 first; it hadn't).
 
 ## Study-materials generator (Sprint 21)
@@ -561,9 +561,10 @@ page + Chrome data-safety disclosure (ADR-046) must list it as a processed data 
 GA billing reaches real users. See ADR-050 (Stripe billing) and ADR-051 (entitlements
 resolver).
 
-> **Sequencing + numbering note:** Sprint 23 was **started ahead of the plan's intended
-> order** — Sprint 19 (beta distribution) is still open (CWS upload + human beta run
-> outstanding). The ADRs are **050 / 051** (true next-free; latest on disk was 049). The
+> **Sequencing + numbering note:** Sprint 19 (beta distribution) is **complete** (all 9
+> tasks committed; only Darcy-only manual CWS steps remain — the Unlisted zip upload + a
+> human beta run, neither code), so this GA/monetization sprint follows it cleanly. The
+> ADRs are **050 / 051** (true next-free; latest on disk was 049). The
 > `stripe_events` migration is **NOT** the plan's `0021` — `0020_mastery_snapshot` (Sprint
 > 22) and `0021_study_artifact` (Sprint 21) already exist, so next-free at execution is
 > **`0022_stripe_events.sql`** (confirm again at Task 2).
