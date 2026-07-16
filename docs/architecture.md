@@ -497,6 +497,77 @@ beta cohort. See ADR-049.
 > is **not** the plan's `0019` (`0019_waitlist_invite.sql` exists) — next-free is `0020`,
 > contended with Sprint 22 Task 5's `mastery_snapshot`; resolve at Task 2 execution.
 
+## Billing + Pro entitlements (Sprint 23)
+The GA / monetization gate: Calyxa becomes a product a student can pay for, and a paid
+subscription actually unlocks the entitlements the product has designed around since
+Sprint 03. Every billing *seam* already existed — the `users` table has carried
+`subscription_tier` (`check in ('free','pro')`), `stripe_customer_id` (unique index, 0003),
+`stripe_subscription_id`, `subscription_status`, `subscription_renews_at` since 0001, and
+Sprint 16 scaffolded a `stripe-reconcile` cron **stub** on the `CRON_SECRET`-gated infra —
+every billing *behavior* was missing. This sprint fills it, **additively over the locked
+freemium plumbing**.
+
+**Stripe Checkout + a customer-portal link.** A dashboard `/billing` page POSTs to
+`/api/billing/checkout`, which ensures a Stripe Customer (created + stored on the existing
+`stripe_customer_id` unique index if absent), creates a Checkout Session for the Pro price,
+and returns its URL; `/api/billing/portal` returns a Stripe billing-portal URL for a Pro
+user to manage/cancel. The server-only `web/lib/billing/stripe.ts` holds the client (a
+`'server-only'` import); the extension **never imports Stripe** — the popup's degraded state
+links out to the web `/billing` page (ADR-006 single-egress, no Stripe secret in the bundle
+— the Sprint 18 no-secret CI gate's key list is extended to the Stripe key).
+
+**Idempotent webhooks are the source of truth; a reconcile cron is the safety net.** The
+public-but-signature-authenticated `/api/billing/webhook` reads the **raw** body
+(`request.text()`), verifies with `stripe.webhooks.constructEvent(raw, sig,
+WEBHOOK_SECRET)` (a bad signature → 400, no processing), then inserts the event id into a
+new deny-all `stripe_events(event_id pk, type, received_at)` table with `on conflict do
+nothing` — a **zero-row insert means "already processed"** → 200 without re-applying, so
+Stripe's retries / dashboard redeliveries are safe. It handles four events —
+`checkout.session.completed`, `customer.subscription.updated`,
+`customer.subscription.deleted`, `invoice.payment_failed` — updating the matching user's
+`subscription_tier / status / stripe_subscription_id / subscription_renews_at` (service-role
+client, matched on `stripe_customer_id`). The daily `stripe-reconcile` cron (Sprint 16 stub
+→ real body) pulls live Stripe state for any user whose `subscription_renews_at` has passed
+or whose status looks stale, so a **dropped webhook self-heals within one cycle** (PLAN
+§2.8's exact fast-path + backstop design). `stripe_events` is **processing bookkeeping, not
+personal data** — deliberately **no FK-to-users and NOT on the export/erasure lists**
+(recorded in the migration comment so ADR-035's "every new table joins the export" invariant
+isn't misapplied).
+
+**Pro unlocks the session cap for free; the resolver + gate do the rest.** The
+`start_session` RPC already exempts non-free users (`subscription_tier = 'free'` predicate),
+so the moment a webhook flips `tier = 'pro'` the session cap and voice degradation are gone
+with **zero RPC/gate change** (`FREE_SESSION_LIMIT` = 20, ADR-041, unchanged). An
+**entitlements resolver** (`web/lib/entitlements/resolve.ts`) does the rest:
+`resolveEntitlements(tier, status)` computes the PLAN §2.8 flag set — `{ voice_premium,
+misconception_graph, spaced_reinforcement, full_dashboard, unlimited_history, image_capture
+}` — purely from tier + status (`past_due` keeps Pro through the grace window;
+`image_capture` is a staged `'off' | 'beta' | 'on'`). It is **resolved server-side, attached
+to `/api/session/start` for display** (cached in the extension's `ActiveSession` for UX),
+and **re-checked on every Pro path** via `assertEntitlement(supabase, flag)`
+(`web/lib/tier/require-pro.ts`) which **re-derives from the `users` row, never the client
+value** — the locked "client is a display hint only" discipline extended from the free-tier
+gate to entitlements. Which features are Pro (Sprint 21 study kits, Sprint 22
+`full_dashboard` / `unlimited_history`, staged `image_capture`) is each feature's own
+one-line `assertEntitlement` call, reserved by those sprints' plans.
+
+**`past_due` grace before downgrade.** An `invoice.payment_failed` sets `status = 'past_due'`
+with Pro retained for a named grace window; only a terminal `subscription.deleted` — or
+grace expiry enforced by the reconcile cron — downgrades to free. No abrupt mid-session
+lockout over a transient card failure.
+
+**Handoff:** Stripe is now a **processor** of customer/billing data; the Sprint 19 `/privacy`
+page + Chrome data-safety disclosure (ADR-046) must list it as a processed data type before
+GA billing reaches real users. See ADR-050 (Stripe billing) and ADR-051 (entitlements
+resolver).
+
+> **Sequencing + numbering note:** Sprint 23 was **started ahead of the plan's intended
+> order** — Sprint 19 (beta distribution) is still open (CWS upload + human beta run
+> outstanding). The ADRs are **050 / 051** (true next-free; latest on disk was 049). The
+> `stripe_events` migration is **NOT** the plan's `0021` — `0020_mastery_snapshot` (Sprint
+> 22) and `0021_study_artifact` (Sprint 21) already exist, so next-free at execution is
+> **`0022_stripe_events.sql`** (confirm again at Task 2).
+
 ## Architecture decision records
 See `/docs/adr/`. Notably:
 - ADR-001 — Extension framework (WXT)
@@ -700,6 +771,30 @@ See `/docs/adr/`. Notably:
   *generated* content the product stores); the extension `RecapCard` placeholder becomes
   real rendering; **available to all beta users**, Pro-gating a one-line Sprint 23 add; the
   Sprint 19 data-safety disclosure must add "generated study materials" before beta
+- ADR-050 — Stripe billing (Sprint 23; next-free 050 at execution, latest on disk was 049):
+  Stripe Checkout from the dashboard marks a user Pro; **idempotent webhooks are the source
+  of truth** (four events keyed on the Stripe event id in a new **deny-all `stripe_events`**
+  table — insert-on-conflict-do-nothing = process-exactly-once) updating the `users` billing
+  columns; a **daily reconcile cron** (Sprint 16 stub → real) pulls live Stripe state for
+  stale/expired rows so a **dropped webhook self-heals**; the webhook route reads the RAW
+  body + `constructEvent` and is **public but signature-authenticated** (bad sig → 400, no
+  processing); **`past_due` grace** before a terminal-`deleted`/grace-expiry downgrade; Pro
+  lifts the session cap via the **existing** `start_session` tier exemption (no RPC change);
+  **all Stripe secrets server-only** (the extension links out to `/billing`, never imports
+  the SDK — ADR-006). `stripe_events` is **bookkeeping not personal data → deliberately NOT
+  FK-to-users and NOT on export/erasure** (ADR-035 invariant explicitly not applied). The
+  migration is **`0022_stripe_events.sql`** (the plan's `0021` is taken by
+  `0021_study_artifact`)
+- ADR-051 — Entitlements resolver (Sprint 23; next-free 051): `resolveEntitlements(tier,
+  status)` computes the PLAN §2.8 flag set (`voice_premium`, `misconception_graph`,
+  `spaced_reinforcement`, `full_dashboard`, `unlimited_history`, staged `image_capture` =
+  `'off' | 'beta' | 'on'`) **purely** from tier + status — one source of truth, unit-testable
+  as a truth table; `past_due` keeps Pro flags during grace. Resolved **server-side**,
+  **attached to `/api/session/start` for display** (cached client-side for UX), and
+  **re-checked on every Pro path** via `assertEntitlement(supabase, flag)` which **re-derives
+  from the `users` row, never the client value** (the "client is a display hint only"
+  discipline extended from the free gate); which features are Pro is each feature's own
+  one-line `assertEntitlement` call (Sprint 21/22 seams), not built here
 
 ## To be documented
 - System context diagram
