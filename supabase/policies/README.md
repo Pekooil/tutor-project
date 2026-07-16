@@ -84,6 +84,7 @@ alter table public.<table> enable row level security;
 | `telemetry_event` | 2 (`user_id`), insert-only** | `0017_feedback_and_telemetry.sql` |
 | `rate_limit` | 3 (deny-all) | `0018_rate_limit.sql` |
 | `study_artifact` | 2 (`user_id`)* | `0021_study_artifact.sql` |
+| `stripe_events` | 3 (deny-all)*** | `0022_stripe_events.sql` |
 
 \* `feedback` and `study_artifact` follow Shape 2 but have **no `deleted_at`
 column**, so their policies omit the `deleted_at is null` clause — each is
@@ -97,6 +98,15 @@ events but can never read them back. Analysis reads are service-role only.
 The insert `with check` also structurally enforces "`user_id` from the
 session, never from the body" — a client can only ever write a row attributed
 to itself.
+
+\*** `stripe_events` follows Shape 3 (deny-all) like `waitlist`/`cost_ledger`/
+`rate_limit`, but for a different reason: it is **not user-scoped at all**
+(ADR-050) — a Stripe event is processing bookkeeping (`event_id`, `type`,
+`received_at`), not a user's personal data. So, unlike every user-scoped
+table, it carries **no `user_id` / no FK-to-users** and is **deliberately NOT
+on the export/erasure lists** — the ADR-035 "every new table joins the export"
+rule does not apply because there is no user to scope it to. Only the
+service-role webhook route touches it.
 
 ## Additive columns (no policy change)
 

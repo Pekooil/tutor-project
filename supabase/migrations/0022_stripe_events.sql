@@ -1,0 +1,92 @@
+-- Sprint 23 / Task 2 (ADR-050): the Stripe webhook idempotency ledger.
+--
+-- Numbering note: the sprint-23-plan.md Task 2 annotation calls this
+-- `0021_stripe_events.sql`, but the plan was written when the newest migration
+-- was 0017; since then the parallel tracks landed `0020_mastery_snapshot.sql`
+-- (Sprint 22) and `0021_study_artifact.sql` (Sprint 21), so the true next-free
+-- number at execution is 0022 -- the same "plan number is stale, confirm
+-- next-free at execution" pattern already recorded in
+-- 0019_waitlist_invite.sql / 0020_mastery_snapshot.sql / 0021_study_artifact.sql
+-- and ADR-050's numbering box. The content is exactly the plan's Task 2 spec.
+--
+-- Additive only -- 0001 through 0021 are not touched, and this migration
+-- re-runs cleanly on a fresh `supabase db reset` (0001 -> ... -> 0021 -> 0022).
+-- Per the project rule (ADR-005), RLS is enabled in THIS migration, immediately
+-- after CREATE TABLE -- there is never a window in which the table exists
+-- without RLS.
+--
+-- ---------------------------------------------------------------------------
+-- stripe_events -- one row per Stripe event id the webhook has processed.
+--
+-- Purpose (ADR-050 decision 2): idempotency for the webhook handler
+-- (`POST /api/billing/webhook`, Task 4). Stripe retries deliveries and the
+-- dashboard can redeliver by hand, so the same event can arrive more than
+-- once. The handler inserts the event id FIRST with
+-- `insert ... on conflict (event_id) do nothing`; a ZERO-row result means the
+-- event was already processed -> the handler returns 200 without re-applying
+-- the billing-column update. `event_id` is the Stripe event id (`evt_...`),
+-- the natural primary key -- Postgres' unique index on it is what makes the
+-- "process exactly once" check atomic under concurrent redelivery, the same
+-- row-level guarantee `cost_ledger`'s `on conflict (day)` relies on (0013).
+--
+-- NOT user-scoped -- this is the deliberate departure from the Sprint 16
+-- invariant (ADR-035), and the reason it is spelled out here so the invariant
+-- is not misapplied to this table:
+--   * A Stripe event is PROCESSING BOOKKEEPING -- "event evt_... of type ...
+--     was seen at ..." -- it is not a user's personal data. It records what
+--     the webhook did, not anything ABOUT a user.
+--   * So, unlike every user-scoped table since Sprint 16, this table carries
+--     NO `user_id` and NO FK-to-users, and is DELIBERATELY NOT on the GDPR
+--     export route's read set (`/api/account/export`) and NOT on the erasure
+--     cascade (`/api/cron/hard-delete-sweep`). The ADR-035 rule "every new
+--     user-scoped table carries the cascade FK + joins the export" does not
+--     apply because this table is not user-scoped in the first place.
+--   * The webhook route matches an event to a user by `stripe_customer_id`
+--     (the existing unique index on `users`, 0003) at apply time; the mapping
+--     lives on the `users` row, not here. Nothing here needs to be exported or
+--     erased with a user -- erasing the user leaves these bookkeeping rows
+--     untouched by design, and that is correct.
+--
+-- `type` is retained purely for operational visibility (which event kinds have
+-- been seen; debugging a stuck webhook) -- it is not read by the idempotency
+-- check, which keys only on `event_id`. `received_at` records when we first
+-- processed the event.
+--
+-- RLS is enabled with ZERO policies (Shape 3, see
+-- /supabase/policies/README.md): deny-all to every client key, anon and
+-- authenticated alike. Only the service-role webhook route (which bypasses RLS
+-- entirely) ever reads or writes this table -- there is no client path to it,
+-- and no reason for one (an event ledger is not a user's data, per above).
+-- ---------------------------------------------------------------------------
+
+create table public.stripe_events (
+  event_id text primary key,
+  type text not null,
+  received_at timestamptz not null default now()
+);
+
+alter table public.stripe_events enable row level security;
+-- No policies -- see Shape 3 in /supabase/policies/README.md. Deny-all to
+-- anon/authenticated; the service-role webhook route bypasses RLS entirely.
+
+-- ---------------------------------------------------------------------------
+-- Deliberately NOT added: a CHECK on `users.subscription_status`.
+--
+-- The plan's Task 2 annotation offers an OPTIONAL CHECK constraining
+-- `users.subscription_status` to a fixed allowed set ("active/past_due/
+-- canceled/..."), "additive, only if it doesn't fight Stripe's status
+-- strings." It is omitted, on purpose:
+--   * Stripe owns the status vocabulary and extends it over time (`active`,
+--     `past_due`, `canceled`, `incomplete`, `incomplete_expired`, `trialing`,
+--     `unpaid`, `paused`, ... -- `paused` was added after the others). A DB
+--     CHECK that is stale relative to Stripe's set would REJECT a legitimate
+--     webhook update, breaking the "webhooks are the source of truth" contract
+--     (ADR-050 decision 1) at the storage boundary -- a strictly worse failure
+--     than an unconstrained column.
+--   * `subscription_status` stays unconstrained `text null` (0001), and the
+--     APPLICATION layer interprets the strings: the entitlements resolver
+--     (Task 6, ADR-051) maps status -> flags, and the webhook handler decides
+--     tier transitions. The DB should not gate values Stripe may legitimately
+--     send.
+-- This keeps the migration a pure additive table create with no risk of
+-- fighting Stripe's evolving status set.
