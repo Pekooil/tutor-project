@@ -342,6 +342,8 @@ async function sendVoiceTurnStreaming(
           ...(msg.session ? { session: msg.session } : {}),
           ...(msg.chips && msg.chips.length > 0 ? { chips: msg.chips } : {}),
           ...(msg.answerFields && msg.answerFields.length > 0 ? { answerFields: msg.answerFields } : {}),
+          // Cost-cap signal passthrough (2026-07-15 fix) -- see TurnResult.
+          ...(msg.degraded ? { degraded: true as const } : {}),
         });
       } else if (msg.type === 'error' && !settled) {
         settled = true;
@@ -545,7 +547,12 @@ function emitAnnotationRendered(carried: number, stats: AnnotationRenderStats): 
 // `audio` crosses the messaging boundary as base64 (ADR-010 — see the
 // binary-over-messaging note in types/messages.ts), so each direction is
 // encoded/decoded here, the mirror image of background/index.ts's helpers.
-async function sendVoiceStt(audio: Utterance): Promise<{ transcript: string; sttMs: number }> {
+// Both voice transports pass the cost-cap degraded member through untouched
+// (cost-cap fix, 2026-07-15): a capped leg is a DESIGNED outcome (ADR-041
+// Decision 2 -- voice degrades to text), not an error, so it must not throw.
+async function sendVoiceStt(
+  audio: Utterance,
+): Promise<{ transcript: string; sttMs: number } | { degraded: true }> {
   const message: CalyxaMessage = {
     type: 'VOICE_STT',
     payload: { audio: arrayBufferToBase64(audio.bytes), mimeType: audio.mimeType },
@@ -555,15 +562,23 @@ async function sendVoiceStt(audio: Utterance): Promise<{ transcript: string; stt
   if ('error' in payload) {
     throw new Error(payload.error);
   }
+  if ('degraded' in payload) {
+    return { degraded: true };
+  }
   return payload;
 }
 
-async function sendVoiceTts(text: string): Promise<{ audio: ArrayBuffer; ttsMs: number }> {
+async function sendVoiceTts(
+  text: string,
+): Promise<{ audio: ArrayBuffer; ttsMs: number; degraded?: undefined } | { degraded: true; ttsMs: 0 }> {
   const message: CalyxaMessage = { type: 'VOICE_TTS', payload: { text } };
   const response: CalyxaMessage = await chrome.runtime.sendMessage(message);
   const payload = response.payload as VoiceTtsReplyPayload;
   if ('error' in payload) {
     throw new Error(payload.error);
+  }
+  if ('degraded' in payload) {
+    return { degraded: true, ttsMs: 0 };
   }
   return { audio: base64ToArrayBuffer(payload.audio), ttsMs: payload.ttsMs };
 }
@@ -576,8 +591,11 @@ async function sendVoiceTts(text: string): Promise<{ audio: ArrayBuffer; ttsMs: 
  * VOICE_TTS_REPLY. sendVoiceTts above is UNTOUCHED and stays the fallback
  * Overlay.tsx falls back to per-utterance on a MediaSource/codec failure.
  */
-async function sendVoiceTtsStream(text: string, onChunk: (chunk: Uint8Array) => void): Promise<{ ttsMs: number }> {
-  return new Promise<{ ttsMs: number }>((resolve, reject) => {
+async function sendVoiceTtsStream(
+  text: string,
+  onChunk: (chunk: Uint8Array) => void,
+): Promise<{ ttsMs: number; degraded?: true }> {
+  return new Promise<{ ttsMs: number; degraded?: true }>((resolve, reject) => {
     const port = chrome.runtime.connect({ name: 'VOICE_TTS_STREAM' });
     let settled = false;
 
@@ -587,7 +605,9 @@ async function sendVoiceTtsStream(text: string, onChunk: (chunk: Uint8Array) => 
       } else if (msg.type === 'done' && !settled) {
         settled = true;
         port.disconnect();
-        resolve({ ttsMs: msg.ttsMs });
+        // `degraded` passthrough (cost-cap fix, 2026-07-15): no chunks were
+        // relayed on a capped leg; the overlay reveals text instead.
+        resolve({ ttsMs: msg.ttsMs, ...(msg.degraded ? { degraded: true as const } : {}) });
       } else if (msg.type === 'error' && !settled) {
         settled = true;
         port.disconnect();

@@ -221,10 +221,12 @@ export default defineBackground(() => {
           }
         });
         // Sprint 18 Task 8 (ADR-043): a cost-capped TTS leg emits degraded_hit.
-        // On degrade no chunks were posted; the 'done' below carries ttsMs 0.
+        // On degrade no chunks were posted; the 'done' below carries ttsMs 0
+        // plus the `degraded` flag (cost-cap fix, 2026-07-15) so the overlay's
+        // streaming player stops waiting for audio and reveals text instead.
         if (degraded && degradedCap) emitDegradedHit(degradedCap, 'elevenlabs_tts');
         try {
-          port.postMessage({ type: 'done', ttsMs });
+          port.postMessage({ type: 'done', ttsMs, ...(degraded ? { degraded: true } : {}) });
         } catch {
           // Port already disconnected -- all chunks were sent, no action needed.
         }
@@ -354,6 +356,10 @@ export default defineBackground(() => {
             ...(session ? { session } : {}),
             ...(chips ? { chips } : {}),
             ...(answerFields ? { answerFields } : {}),
+            // Cost-cap fix (2026-07-15): thread the turn's degraded flag to
+            // the overlay (it was stripped here before) so a capped reply is
+            // knowably text-only-by-design.
+            ...(degraded ? { degraded: true } : {}),
           });
         } catch {
           // Port already disconnected.
@@ -1081,15 +1087,23 @@ async function handleOpeningScan(payload: OpeningScanPayload, pageDomain: string
  * never persists it (ADR-011). On SignedOutError the reply carries the
  * exact "not signed in" text, matching handleAiTurn.
  */
-async function handleVoiceStt(payload: VoiceSttPayload): Promise<CalyxaMessage> {
+// Exported for unit testing (voice-degrade.test.ts pins the degraded reply
+// shape -- the 2026-07-15 cost-cap fix); only the message router calls it.
+export async function handleVoiceStt(payload: VoiceSttPayload): Promise<CalyxaMessage> {
   try {
     const { transcript, sttMs, degraded, degradedCap } = await api.sttTranscribe({
       bytes: base64ToArrayBuffer(payload.audio),
       mimeType: payload.mimeType,
     });
-    // Sprint 18 Task 8 (ADR-043): a cost-capped STT leg emits degraded_hit. The
-    // reply shape below is unchanged -- emission only.
-    if (degraded && degradedCap) emitDegradedHit(degradedCap, 'whisper_stt');
+    // Sprint 18 Task 8 (ADR-043): a cost-capped STT leg emits degraded_hit.
+    // Cost-cap fix (2026-07-15): the degraded reply used to fall through to
+    // the success shape with an UNDEFINED transcript, which broke the voice
+    // turn downstream -- it now returns the explicit degraded member so the
+    // overlay can tell the student voice is resting instead of erroring.
+    if (degraded && degradedCap) {
+      emitDegradedHit(degradedCap, 'whisper_stt');
+      return { type: 'VOICE_STT_REPLY', payload: { degraded: true, degradedCap } };
+    }
     return { type: 'VOICE_STT_REPLY', payload: { transcript, sttMs } };
   } catch (error) {
     return { type: 'VOICE_STT_REPLY', payload: { error: toErrorMessage(error) } };
@@ -1103,12 +1117,20 @@ async function handleVoiceStt(payload: VoiceSttPayload): Promise<CalyxaMessage> 
  * direction. On SignedOutError the reply carries the exact "not signed in"
  * text, matching handleAiTurn.
  */
-async function handleVoiceTts(payload: VoiceTtsPayload): Promise<CalyxaMessage> {
+// Exported for unit testing (voice-degrade.test.ts) -- same note as
+// handleVoiceStt above.
+export async function handleVoiceTts(payload: VoiceTtsPayload): Promise<CalyxaMessage> {
   try {
     const { audio, ttsMs, degraded, degradedCap } = await api.ttsSynthesize(payload.text);
-    // Sprint 18 Task 8 (ADR-043): a cost-capped TTS leg emits degraded_hit. On
-    // degrade `audio` is empty (no speech this leg) -- reply shape unchanged.
-    if (degraded && degradedCap) emitDegradedHit(degradedCap, 'elevenlabs_tts');
+    // Sprint 18 Task 8 (ADR-043): a cost-capped TTS leg emits degraded_hit.
+    // Cost-cap fix (2026-07-15): the degraded reply used to be encoded as
+    // zero-byte audio the overlay then tried to play -- it now returns the
+    // explicit degraded member so the buffered voice path can skip playback
+    // and commit the reply as text.
+    if (degraded && degradedCap) {
+      emitDegradedHit(degradedCap, 'elevenlabs_tts');
+      return { type: 'VOICE_TTS_REPLY', payload: { degraded: true, degradedCap } };
+    }
     return { type: 'VOICE_TTS_REPLY', payload: { audio: arrayBufferToBase64(audio), ttsMs } };
   } catch (error) {
     return { type: 'VOICE_TTS_REPLY', payload: { error: toErrorMessage(error) } };

@@ -71,7 +71,16 @@ function isPublicPath(pathname: string) {
     pathname.startsWith('/api/telemetry') ||
     pathname.startsWith('/api/feedback') ||
     pathname.startsWith('/api/onboarding') ||
-    pathname.startsWith('/api/errors')
+    pathname.startsWith('/api/errors') ||
+    // Sprint 21 (ADR-049), the SAME class again: /api/study/generate is
+    // bearer-OR-cookie (clientFromBearerOrCookie) and the extension recap
+    // card calls it with a bearer token. It was omitted when added — so in
+    // production every extension "Make a study kit" click was 307'd to
+    // /login, whose page route rejects the redirected POST with a 405
+    // ("Couldn't generate a study kit right now"). Found live 2026-07-16;
+    // third instance of this exact gap (see the /api/cron and /api/telemetry
+    // notes above) — a new bearer-authed API route MUST be exempted here.
+    pathname.startsWith('/api/study')
   )
 }
 

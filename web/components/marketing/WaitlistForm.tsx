@@ -69,7 +69,8 @@ export function WaitlistForm({ source, className }: WaitlistFormProps) {
           onChange={(event) => setEmail(event.target.value)}
           disabled={status === 'pending'}
           aria-invalid={status === 'error'}
-          className="sm:flex-1"
+          // Landing v3 sizing: 48px control height, 9px radius.
+          className="h-12 rounded-[9px] text-[14.5px] sm:flex-1"
         />
         {/* Honeypot: off-screen, unlabeled to assistive tech, never focusable by tab. */}
         <div aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 0, height: 0, overflow: 'hidden' }}>
@@ -82,7 +83,7 @@ export function WaitlistForm({ source, className }: WaitlistFormProps) {
             onChange={(event) => setCompany(event.target.value)}
           />
         </div>
-        <Button type="submit" disabled={status === 'pending'}>
+        <Button type="submit" disabled={status === 'pending'} className="h-12 rounded-[9px] px-[22px] text-[14.5px] font-semibold">
           {status === 'pending' ? 'Joining…' : 'Join the waitlist'}
         </Button>
       </div>

@@ -38,8 +38,13 @@ export type OverlayTransports = {
     messages: TurnMessage[],
     onSayDelta: (text: string) => void,
   ) => Promise<TurnResult>;
-  onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
-  onSynthesize: (text: string) => Promise<{ audio: ArrayBuffer; ttsMs: number }>;
+  // The voice transports resolve a `degraded` member instead of their normal
+  // payload when the daily cost cap tripped that leg (ADR-041 Decision 2,
+  // 2026-07-15 cost-cap fix) -- see Overlay.tsx's prop comments.
+  onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number } | { degraded: true }>;
+  onSynthesize: (
+    text: string,
+  ) => Promise<{ audio: ArrayBuffer; ttsMs: number; degraded?: undefined } | { degraded: true; ttsMs: 0 }>;
   /**
    * Streaming sibling of onSynthesize (Sprint 15 Task 6, ADR-033): invokes
    * `onChunk` as each audio chunk arrives over the VOICE_TTS_STREAM port,
@@ -47,7 +52,10 @@ export type OverlayTransports = {
    * synthesized. onSynthesize above is KEPT as the buffered fallback for a
    * MediaSource/codec failure on a given utterance.
    */
-  onSynthesizeStream: (text: string, onChunk: (chunk: Uint8Array) => void) => Promise<{ ttsMs: number }>;
+  onSynthesizeStream: (
+    text: string,
+    onChunk: (chunk: Uint8Array) => void,
+  ) => Promise<{ ttsMs: number; degraded?: true }>;
   /** Reports when synthesized speech starts playing + its duration (ms) -- see Overlay.tsx's prop comment. */
   onVoicePlaybackStart: (durationMs: number) => void;
   /** Sends the existing END_SESSION message (Sprint 13, ADR-025) -- see Overlay.tsx's prop comment. */

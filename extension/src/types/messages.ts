@@ -572,13 +572,26 @@ export type VoiceSttPayload = {
   mimeType: string;
 };
 
-export type VoiceSttReplyPayload = { transcript: string; sttMs: number } | { error: string };
+// The `degraded` members (cost-cap fix, 2026-07-15): when the daily soft/hard
+// cap is crossed, /api/voice/stt and /api/voice/tts return
+// `{ degraded, degradedCap }` with NO transcript/audio (ADR-041 Decision 2).
+// The background used to strip that signal, so the overlay saw an undefined
+// transcript / zero audio chunks and the voice turn broke messily instead of
+// degrading to text. These explicit members let the overlay skip the voice
+// legs gracefully.
+export type VoiceSttReplyPayload =
+  | { transcript: string; sttMs: number }
+  | { degraded: true; degradedCap: 'soft' | 'hard' }
+  | { error: string };
 
 export type VoiceTtsPayload = {
   text: string;
 };
 
-export type VoiceTtsReplyPayload = { audio: string; ttsMs: number } | { error: string };
+export type VoiceTtsReplyPayload =
+  | { audio: string; ttsMs: number }
+  | { degraded: true; degradedCap: 'soft' | 'hard' }
+  | { error: string };
 
 // VOICE_TTS_STREAM (Sprint 15 Task 6, ADR-033) -- a dedicated port (the
 // AI_STREAM pattern, chrome.runtime.connect({name: 'VOICE_TTS_STREAM'})),
@@ -593,7 +606,11 @@ export type VoiceTtsReplyPayload = { audio: string; ttsMs: number } | { error: s
 // persisted (ADR-011). The existing one-shot VOICE_TTS/VOICE_TTS_REPLY pair
 // above is KEPT as the buffered fallback for MediaSource/codec failures.
 export type VoiceTtsStreamChunkMessage = { type: 'chunk'; audio: string };
-export type VoiceTtsStreamDoneMessage = { type: 'done'; ttsMs: number };
+// `degraded` (cost-cap fix, 2026-07-15): a capped TTS leg posts NO chunk
+// messages -- this flag on the terminal 'done' is how the overlay's streaming
+// player learns no audio is coming and reveals the reply as text instead of
+// waiting for a first chunk that never arrives.
+export type VoiceTtsStreamDoneMessage = { type: 'done'; ttsMs: number; degraded?: true };
 export type VoiceTtsStreamErrorMessage = { type: 'error'; error: string };
 export type VoiceTtsStreamMessage =
   | VoiceTtsStreamChunkMessage
@@ -621,6 +638,10 @@ export type VoiceTurnStreamDoneMessage = {
   session?: SessionCompletion;
   chips?: string[];
   answerFields?: AnswerField[];
+  // Cost-cap signal (ADR-041/043, threaded through per the 2026-07-15 fix):
+  // present when the turn route flagged the day as capped, so the overlay
+  // knows this reply is text-only by design, not by failure.
+  degraded?: true;
 };
 export type VoiceTurnStreamErrorMessage = { type: 'error'; error: string };
 export type VoiceTurnStreamMessage =

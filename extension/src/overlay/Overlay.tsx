@@ -102,6 +102,10 @@ export type TurnResult = {
   // textbox spec, same additive/ephemeral discipline as `chips` and never
   // present alongside it (the server sends at most one of the two).
   answerFields?: AnswerField[];
+  // The daily cost-cap signal (ADR-041 Decision 2, threaded through per the
+  // 2026-07-15 cost-cap fix): the server flagged this turn as degraded, so
+  // its voice legs returned nothing by DESIGN -- the reply is text-only.
+  degraded?: true;
 };
 
 // Local DISPLAY message type (Sprint 13, ADR-024; slimmed by the ambient
@@ -516,12 +520,21 @@ export function Overlay({
   // generated. Resolves the SAME TurnResult as onSend. onSend (buffered) is
   // KEPT as the fallback the voice path drops to on any streaming failure.
   onSendVoiceStreaming: (messages: TurnMessage[], onSayDelta: (text: string) => void) => Promise<TurnResult>;
-  onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number }>;
-  onSynthesize: (text: string) => Promise<{ audio: ArrayBuffer; ttsMs: number }>;
+  // The voice transports resolve a `degraded` member instead of their normal
+  // payload when the daily cost cap tripped that leg (ADR-041 Decision 2,
+  // 2026-07-15 fix): STT then aborts the turn with a notice; TTS legs skip
+  // audio and the reply commits as text.
+  onTranscribe: (audio: Utterance) => Promise<{ transcript: string; sttMs: number } | { degraded: true }>;
+  onSynthesize: (
+    text: string,
+  ) => Promise<{ audio: ArrayBuffer; ttsMs: number; degraded?: undefined } | { degraded: true; ttsMs: 0 }>;
   // Task 6 (ADR-033): the streaming sibling of onSynthesize. handleMicStop
   // tries this first; on a MediaSource/codec failure for THIS utterance it
   // falls back to onSynthesize's buffered path, seamlessly.
-  onSynthesizeStream: (text: string, onChunk: (chunk: Uint8Array) => void) => Promise<{ ttsMs: number }>;
+  onSynthesizeStream: (
+    text: string,
+    onChunk: (chunk: Uint8Array) => void,
+  ) => Promise<{ ttsMs: number; degraded?: true }>;
   // Called once synthesized speech actually starts playing, with its known
   // duration in ms -- content/index.ts uses this to reveal the turn's
   // annotations sequenced to playback instead of all at once.
@@ -1505,7 +1518,17 @@ export function Overlay({
       const turnStartAt = performance.now();
       const utterance = await handle.stop();
       const sttStartAt = performance.now();
-      const { transcript, sttMs } = await onTranscribe(utterance);
+      const sttResult = await onTranscribe(utterance);
+      // Cost-capped STT (ADR-041 Decision 2, 2026-07-15 fix): the route
+      // returned no transcript by design. There is no message to send, so
+      // this is the one voice outcome that ends the turn -- with a notice
+      // pointing at the text input, not a broken-turn error.
+      if ('degraded' in sttResult) {
+        dismissSurface(() => setLiveTranscript(''));
+        setNotice("Calyxa's voice is resting for today — type your question instead.");
+        return;
+      }
+      const { transcript, sttMs } = sttResult;
       // networkMs: the STT relay/upload overhead the server's own Whisper
       // time (`sttMs`) does NOT include. Never negative.
       const networkMs = Math.max(0, Math.round(performance.now() - sttStartAt) - sttMs);
@@ -1580,12 +1603,23 @@ export function Overlay({
         clearStreamTokens();
         result = await onSend(outbound);
         if (!result.reply.trim()) throw new Error('The tutor returned an empty reply.');
-        const { audio, ttsMs } = await onSynthesize(stripMathDelimiters(result.reply));
-        bufferedTtsMs = ttsMs;
-        await playAudioWithTextReveal(audio, result.reply, appendStreamToken, setPlaying, audioRef, (durationMs) => {
-          markFirstAudio('buffered fallback')();
-          deliverEnvelope(result, durationMs);
-        });
+        const synth = await onSynthesize(stripMathDelimiters(result.reply));
+        bufferedTtsMs = synth.ttsMs;
+        if (synth.degraded) {
+          // Cost-capped TTS (ADR-041 Decision 2, 2026-07-15 fix): no audio
+          // this leg by design. Commit the reply as text -- caption + the
+          // envelope delivery (pins/annotation sequencing) fire exactly as
+          // they would at playback start, just without audio. Previously
+          // this leg tried to play zero bytes and threw, losing the whole
+          // turn (annotations/chips included) to the outer catch.
+          appendStreamToken(result.reply);
+          deliverEnvelope(result, result.reply.trim().split(/\s+/).length * STREAM_REVEAL_MS_PER_WORD);
+        } else {
+          await playAudioWithTextReveal(synth.audio, result.reply, appendStreamToken, setPlaying, audioRef, (durationMs) => {
+            markFirstAudio('buffered fallback')();
+            deliverEnvelope(result, durationMs);
+          });
+        }
       }
 
       clearStreamTokens();
@@ -2516,7 +2550,10 @@ function completedWords(sayText: string): string[] {
  */
 async function playVoiceTurnStreamedEnvelope(
   runTurn: (onSayDelta: (text: string) => void) => Promise<TurnResult>,
-  synthesizeStream: (text: string, onChunk: (chunk: Uint8Array) => void) => Promise<{ ttsMs: number }>,
+  synthesizeStream: (
+    text: string,
+    onChunk: (chunk: Uint8Array) => void,
+  ) => Promise<{ ttsMs: number; degraded?: true }>,
   appendToken: (text: string) => void,
   setPlaying: (playing: boolean) => void,
   audioRef: { current: HTMLAudioElement | null },
@@ -2575,11 +2612,20 @@ async function playVoiceTurnStreamedEnvelope(
     audio.addEventListener('pause', () => resolve(), { once: true });
   });
 
-  // Bounds SETUP only (call -> first playable audio); a long reply legitimately
-  // takes a while to finish speaking. Cleared once audio.play() fires.
-  const setupTimeout = setTimeout(() => {
-    failNow(new Error('TTS streaming setup timed out'));
-  }, 6000);
+  // Two bounded setup legs, each with its own fuse: (a) call -> MediaSource
+  // sourceopen (local, normally milliseconds) and (b) first TTS request ->
+  // first playable audio. The stretch BETWEEN them -- the model producing its
+  // first complete sentence -- is deliberately unbounded here: a single fuse
+  // spanning the whole setup used to fire at 6s while a normal turn's first
+  // audio lands at ~4.5-5.5s, so any slightly slow turn was abandoned and
+  // re-run in FULL through the buffered fallback (a second model call),
+  // turning a slow reply into a doubly slow one plus a console error
+  // (live-found 2026-07-15). runTurn rejects on its own transport failures,
+  // so a genuinely dead stream still fails the turn race below.
+  const SETUP_LEG_MS = 6000;
+  let setupTimeout = setTimeout(() => {
+    failNow(new Error('TTS streaming setup timed out (MediaSource open)'));
+  }, SETUP_LEG_MS);
 
   try {
     const sourceBuffer = await Promise.race([
@@ -2598,6 +2644,9 @@ async function playVoiceTurnStreamedEnvelope(
       }),
       failed,
     ]);
+    // Leg (a) done -- the MediaSource opened. The next fuse arms when the
+    // first sentence is handed to TTS (ttsWorker below).
+    clearTimeout(setupTimeout);
     sourceBuffer.addEventListener('error', () => failNow(new Error('SourceBuffer append failed')));
 
     // Append queue -- a SourceBuffer accepts one appendBuffer at a time; chunks
@@ -2629,6 +2678,13 @@ async function playVoiceTurnStreamedEnvelope(
     // queue is drained.
     const sentenceQueue: string[] = [];
     let turnDone = false;
+    let ttsFuseArmed = false;
+    // Cost-capped TTS (ADR-041 Decision 2, 2026-07-15 fix): a capped leg
+    // resolves with `degraded` and NO chunks. Set once, this stops further
+    // synthesis and (if no audio ever started) skips the playback waits so
+    // the turn completes as text instead of timing out into the buffered
+    // fallback's second model call.
+    let ttsDegraded = false;
     let wake: (() => void) | null = null;
     function signalSentence() {
       const w = wake;
@@ -2647,18 +2703,41 @@ async function playVoiceTurnStreamedEnvelope(
         // is skipped rather than synthesized as silence.
         const sentence = stripMathDelimiters(sentenceQueue.shift()!);
         if (!sentence.trim()) continue;
-        await Promise.race([
+        // Leg (b): first TTS request -> first playable audio. Armed once, at
+        // the first real synthesis; cleared when audio.play() fires
+        // (updateend above). Catches a wedged TTS leg (e.g. the route
+        // returning no chunks) without ever penalizing a slow model turn.
+        if (!ttsFuseArmed) {
+          ttsFuseArmed = true;
+          setupTimeout = setTimeout(() => {
+            failNow(new Error('TTS streaming setup timed out (first audio)'));
+          }, SETUP_LEG_MS);
+        }
+        const synth = await Promise.race([
           synthesizeStream(sentence, (chunk) => {
             pending.push(chunk);
             pump();
           }),
           failed,
         ]);
+        if (synth.degraded) {
+          ttsDegraded = true;
+          clearTimeout(setupTimeout); // no first audio is coming -- not a failure
+          return;
+        }
       }
     }
 
     const accumulator = createSentenceAccumulator();
     const worker = ttsWorker();
+    // The worker races `failed` internally, so a setup-fuse rejection that
+    // throws this function out of the turn race BELOW (before `worker` is
+    // awaited) would otherwise surface as an uncaught promise rejection in
+    // the page console -- the "Uncaught (in promise) Error: TTS streaming
+    // setup timed out" live-find (2026-07-15). Pre-attaching a no-op handler
+    // marks it observed; the `await Promise.race([worker, failed])` later
+    // still rethrows for the real control flow.
+    void worker.catch(() => {});
 
     const result = await Promise.race([
       runTurn((delta) => {
@@ -2686,17 +2765,23 @@ async function playVoiceTurnStreamedEnvelope(
 
     await Promise.race([worker, failed]);
 
-    // Drain any in-flight/queued appends before closing the stream --
-    // endOfStream() throws if called mid-update.
-    while (appending || pending.length > 0) {
-      await Promise.race([
-        new Promise<void>((resolve) => sourceBuffer.addEventListener('updateend', () => resolve(), { once: true })),
-        failed,
-      ]);
-    }
-    if (mediaSource.readyState === 'open') mediaSource.endOfStream();
+    // A cost-capped TTS leg that never produced audio has nothing to drain
+    // or play -- skip straight to the full-text reveal below (the reply
+    // commits as text; the caller's UI flow is otherwise identical). If some
+    // audio DID play before the cap tripped mid-turn, let it finish normally.
+    if (!ttsDegraded || playCalled) {
+      // Drain any in-flight/queued appends before closing the stream --
+      // endOfStream() throws if called mid-update.
+      while (appending || pending.length > 0) {
+        await Promise.race([
+          new Promise<void>((resolve) => sourceBuffer.addEventListener('updateend', () => resolve(), { once: true })),
+          failed,
+        ]);
+      }
+      if (mediaSource.readyState === 'open') mediaSource.endOfStream();
 
-    await Promise.race([playbackEnded, failed]);
+      await Promise.race([playbackEnded, failed]);
+    }
 
     // Reveal any words the audio finished before the reveal ladder reached
     // (short audio vs. the fixed per-word rate) so the caption is whole

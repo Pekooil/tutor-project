@@ -1,50 +1,27 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useInView, useReducedMotion } from 'motion/react'
 import { cn } from '@/lib/utils'
 import { Section } from '@/components/marketing/Section'
-import { Reveal } from '@/components/marketing/Reveal'
-import { DemoPanel } from '@/components/marketing/demo/DemoPanel'
+import { ThinkDots } from '@/components/marketing/pill/overlay'
 import { reduceScene } from '@/components/marketing/demo/scene'
-import { checkinRecapAlts, checkinRecapFrames, checkinRecapScene } from '@/components/marketing/demo/scripts'
+import { checkinRecapFrames, checkinRecapScene } from '@/components/marketing/demo/scripts'
 
-// Sprint 25 Task 8 (originally Sprint 20 Task 7): "It learns how you learn",
-// rebuilt on the product's real bookends (ADR-040) — the check-in card the
-// session opens with (scanning orb → the one AI-prediction card) and the
-// recap card it closes with (What improved / Still needs practicing). The
-// mastery-bar panels this section used to recreate no longer exist in the
-// product. Both panels are Task 3's DemoPanel recreation driven by
-// checkinRecapScene (scripts.ts) — same session, same fixture, third angle.
-//
-// The once-in-view driver survives the rebuild: this section still does NOT
-// play through useSceneTimeline. Its gate is the opposite of the hero's
-// looping clock — animate once on first in-view, then hold, never replay on
-// a later scroll-past. reduceScene (the shared pure reducer) still turns the
-// local clock into state. The BEFORE panel plays the scan → prediction arc
-// and holds the composed card (clamped at checkinRecapFrames.checkin); the
-// AFTER panel holds the composed recap end frame and fades in when the
-// timeline reaches the recap step — the card itself is static in the
-// product, so the reveal is the animation.
+// Landing v3: "it learns how you learn" — the before/after bookends
+// restyled to the pill language. Two desk panels, each holding one glass
+// card: BEFORE plays the thinking dots then pops the AI-prediction card;
+// AFTER reveals the composed recap card (what improved / still needs
+// practicing). The retired DemoPanel recreation is gone; the once-in-view
+// playback gate survives — checkinRecapScene still provides the shared
+// scan → predict → recap clock (animate once on first in-view, then hold,
+// never replay on a later scroll-past), reduced motion holds the composed
+// end state.
 
-const CALLBACK_QUOTE =
-  'This connects to the factoring work from a few sessions ago — same move, same equation shape.'
-
-// The real overlay's panel width (DemoStage's PANEL_W) — DemoPanel is a 1:1
-// recreation at this width; the viewport below scales it to fit the column.
-const PANEL_W = 420
-
-// One shared viewport height so the two bookend panels sit level; the
-// tallest composed state (the recap card, ~390px) sets it.
-const PANEL_VIEWPORT_H = 424
-
-// The demo tree's file-local color exceptions, mirrored from DemoStage (see
-// its comment for why these two values are unreachable by token name inside
-// /web). Scoped to the bookends grid.
-const DEMO_SCOPE_VARS = {
-  '--cx-demo-hairline': '#e5e3de',
-  '--cx-demo-hairline-soft': '#eceae5',
-} as React.CSSProperties
+const BEFORE_ALT =
+  'Before the session: after checking your last session, Calyxa predicts the topic — factoring quadratics — and the likely sticking point, sign errors on the roots, flagged twice in Tuesday’s session.'
+const AFTER_ALT =
+  'After the session: the recap card for factoring quadratics — factor pairs improved and solid; sign errors on the roots still needs practicing.'
 
 /** Plays checkinRecapScene once when it first enters view, then holds. */
 function useBookendsPlayback() {
@@ -68,136 +45,111 @@ function useBookendsPlayback() {
 
   const t = reducedMotion ? checkinRecapScene.durationMs : elapsed
 
-  // BEFORE plays up to the composed prediction card, then holds it (the
-  // scene itself clears the check-in at the recap step, which a held
-  // "before" bookend must never do).
+  // BEFORE holds the composed prediction once the timeline reaches it;
+  // AFTER reveals the recap when the timeline reaches the recap step.
   const beforeState = useMemo(() => reduceScene(checkinRecapScene, Math.min(t, checkinRecapFrames.checkin)), [t])
-  // AFTER is the static composed recap frame, revealed when the live
-  // timeline actually reaches the recap step.
-  const afterState = useMemo(() => reduceScene(checkinRecapScene, checkinRecapFrames.recap), [])
+  const predictionVisible = beforeState.checkin?.variant === 'predict'
   const afterVisible = useMemo(() => reduceScene(checkinRecapScene, t).recap !== null, [t])
 
-  return { ref, beforeState, afterState, afterVisible, reducedMotion }
+  return { ref, predictionVisible, afterVisible, reducedMotion }
 }
 
 export function ProfileSection() {
-  const { ref, beforeState, afterState, afterVisible, reducedMotion } = useBookendsPlayback()
+  const { ref, predictionVisible, afterVisible, reducedMotion } = useBookendsPlayback()
 
   return (
     <Section
       id="profile"
       tone="wash"
-      kicker="It learns how you learn"
-      heading="Every session updates what Calyxa knows about you."
-      sub="One prediction before you start, an honest recap when you finish — the profile working at both ends of every session."
+      align="center"
+      kicker="it learns how you learn"
+      heading="every session updates what calyxa knows about you."
+      sub="one prediction before you start, an honest recap when you finish — the profile working at both ends of every session."
     >
-      <div ref={ref} className="grid gap-8 lg:grid-cols-2" style={DEMO_SCOPE_VARS}>
-        <Reveal>
-          <BookendPanel label="Before this session" alt={checkinRecapAlts.checkin}>
-            <DemoPanel state={beforeState} />
-          </BookendPanel>
-        </Reveal>
+      <div ref={ref} className="mx-auto grid w-full max-w-[1020px] gap-6 md:grid-cols-2">
+        <Bookend label="before this session" alt={BEFORE_ALT}>
+          <span className="flex items-center gap-[9px] text-[12.5px] text-muted-foreground">
+            <ThinkDots />
+            checking your last session…
+          </span>
+          <GlassCard
+            className={cn(
+              !reducedMotion && 'transition-all duration-500 ease-out',
+              predictionVisible ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'
+            )}
+          >
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-emphasis">
+              AI prediction
+            </span>
+            <span className="text-[15.5px] font-semibold tracking-[-0.01em] text-foreground">factoring quadratics</span>
+            <p className="m-0 text-[13.5px] leading-[1.55] text-(--calyxa-chip-text)">
+              likely sticking point: <span className="font-semibold">sign errors on the roots</span>
+            </p>
+            <p className="m-0 text-[12px] text-(--mkt-faint)">came up twice in tuesday&apos;s session</p>
+          </GlassCard>
+        </Bookend>
 
-        <Reveal delay={0.1}>
-          <BookendPanel label="After this session" alt={checkinRecapAlts.recap}>
-            <div
-              className={cn(
-                !reducedMotion && 'transition-all duration-500 ease-out',
-                afterVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'
-              )}
-            >
-              <DemoPanel state={afterState} />
+        <Bookend label="after this session" alt={AFTER_ALT}>
+          <span className="text-[12.5px] text-muted-foreground">session recap · 18 min · 5 problems</span>
+          <GlassCard
+            className={cn(
+              'gap-3',
+              !reducedMotion && 'transition-all duration-500 ease-out',
+              afterVisible ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'
+            )}
+          >
+            <span className="text-[15.5px] font-semibold tracking-[-0.01em] text-foreground">factoring quadratics</span>
+            <div aria-hidden="true" className="h-px bg-(--mkt-hairline-soft)" />
+            <div className="flex flex-col gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-emphasis">
+                what improved
+              </span>
+              <span className="flex items-center gap-2 text-[13.5px] text-foreground">
+                <span className="inline-flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full border border-(--color-accent-fill) bg-accent-subtle text-[10.5px] text-accent-fill-foreground">
+                  ✓
+                </span>
+                factor pairs — solid
+              </span>
             </div>
-          </BookendPanel>
-        </Reveal>
+            <div className="flex flex-col gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-(--calyxa-ping-watch-text)">
+                still needs practicing
+              </span>
+              <span className="flex items-center gap-2 text-[13.5px] text-foreground">
+                <span className="inline-flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full border border-(--calyxa-ping-watch-border) bg-(--calyxa-ping-watch-bg) text-[10.5px] text-(--calyxa-ping-watch-text)">
+                  ↺
+                </span>
+                sign errors on the roots — revisit
+              </span>
+            </div>
+          </GlassCard>
+        </Bookend>
       </div>
-
-      <Reveal delay={0.2}>
-        <figure className="mx-auto mt-20 max-w-3xl text-center">
-          <blockquote className="mkt-display m-0 text-balance text-2xl leading-snug text-foreground sm:text-3xl">
-            &ldquo;{CALLBACK_QUOTE}&rdquo;
-          </blockquote>
-          <figcaption className="mt-4 text-sm text-muted-foreground">
-            Calyxa, picking up the thread a few sessions later
-          </figcaption>
-        </figure>
-      </Reveal>
-
-      {/* The demo-scoped keyframes + placeholder styling DemoPanel's
-          check-in/recap states depend on (the scanning ring/orb, the chip
-          dot, the "Generated for you" tiles), mirrored 1:1 from DemoStage's
-          scoped <style> — this section renders DemoPanel without DemoStage,
-          so it carries its own copy. Same reduced-motion discipline: looping
-          motion only under prefers-reduced-motion: no-preference. */}
-      <style>{`
-        @keyframes cx-demo-dot { 0%, 100% { transform: scale(0.65); opacity: 0.5; } 50% { transform: scale(1); opacity: 1; } }
-        @keyframes cx-demo-ring { 0% { transform: scale(0.7); opacity: 0.55; } 100% { transform: scale(1.9); opacity: 0; } }
-        @keyframes cx-demo-orb { 0%, 100% { transform: scale(0.86); opacity: 0.7; } 50% { transform: scale(1.1); opacity: 1; } }
-        @media (prefers-reduced-motion: no-preference) {
-          .cx-demo-dot { animation: cx-demo-dot 2.2s ease-in-out infinite; }
-          .cx-demo-ring { animation: cx-demo-ring 2.6s ease-out infinite; }
-          .cx-demo-orb { animation: cx-demo-orb 2.8s ease-in-out infinite; }
-        }
-        .cx-demo-placeholder {
-          border: 1px dashed var(--calyxa-placeholder-border);
-          background: repeating-linear-gradient(
-            135deg,
-            var(--calyxa-placeholder-stripe-a),
-            var(--calyxa-placeholder-stripe-a) 6px,
-            var(--calyxa-placeholder-stripe-b) 6px,
-            var(--calyxa-placeholder-stripe-b) 12px
-          );
-          color: var(--calyxa-placeholder-text);
-        }
-      `}</style>
     </Section>
   )
 }
 
-function BookendPanel({ label, alt, children }: { label: string; alt: string; children: ReactNode }) {
+function Bookend({ label, alt, children }: { label: string; alt: string; children: ReactNode }) {
   return (
-    <div className="mkt-card-raised p-6 sm:p-8">
-      <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+    <div className="flex flex-col gap-3.5">
+      <span className="mkt-kicker-faint text-center">{label}</span>
       <p className="sr-only">{alt}</p>
-      <div className="mt-5" aria-hidden="true">
-        <PanelViewport>{children}</PanelViewport>
+      <div
+        aria-hidden="true"
+        className="flex flex-col items-center gap-4 rounded-2xl border border-(--mkt-hairline) bg-(--mkt-desk) px-8 py-11"
+      >
+        {children}
       </div>
     </div>
   )
 }
 
-// DemoPanel at its real 420px width, scaled to fit the column and anchored
-// bottom-center — the overlay's resting position; the panel's height is
-// intrinsic (the scan orb state is shorter than the composed cards), so it
-// grows upward into the viewport. Third hand-rolled copy of this
-// scale-to-fit wiring (AdaptiveSection's PanelViewport, DemoStage's canvas
-// scale) — flagged in the sprint handoff for a dedup pass.
-function PanelViewport({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLDivElement | null>(null)
-  const [scale, setScale] = useState(1)
-
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const update = () => setScale(Math.min(1, el.clientWidth / PANEL_W))
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
-
+function GlassCard({ className, children }: { className?: string; children: ReactNode }) {
   return (
     <div
-      ref={ref}
-      className="relative w-full overflow-hidden rounded-lg bg-surface"
-      style={{ height: Math.round(PANEL_VIEWPORT_H * scale) }}
+      className={cn('mkt-glass flex w-[340px] max-w-full flex-col gap-2.5 rounded-[17px] px-[19px] py-4 text-left', className)}
     >
-      <div
-        className="absolute bottom-0 left-1/2 pb-3.5"
-        style={{ width: PANEL_W, transform: `translateX(-50%) scale(${scale})`, transformOrigin: 'bottom center' }}
-      >
-        {children}
-      </div>
+      {children}
     </div>
   )
 }

@@ -15,7 +15,28 @@
  */
 
 .mkt {
-  --font-display: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  /* Landing v3 (design_handoff_calyxa_landing_v3): the display face is
+   * Bricolage Grotesque (loaded via next/font in fonts.ts, scoped by
+   * page.tsx applying bricolage.variable to the .mkt root). */
+  --font-display: var(--font-bricolage), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+
+  /* The v3 handoff's neutral set. Hairline/hairline-soft are the product's
+   * decorative border hexes (--color-border / CheckinCard's soft divider),
+   * unreachable by name in /web because globals.css re-targets
+   * --color-border to border-strong for shadcn — the same file-local
+   * exception the demo tree documents. desk/faint/connector are the
+   * handoff's own neutrals (same warm-grey family, decorative only). */
+  --mkt-hairline: #e5e3de;
+  --mkt-hairline-soft: #eceae5;
+  --mkt-hairline-faint: #f0efeb;
+  --mkt-desk: #e9e8e3;
+  --mkt-faint: #9b988f;
+  --mkt-strip-text: #55554f;
+  --mkt-connector-line: #d9d6cf;
+
+  /* The overlay glass treatment (mirrors the redesigned extension pill). */
+  --mkt-glass-border: rgba(28, 28, 26, 0.1);
+  --mkt-glass-shadow: 0 18px 44px rgba(28, 40, 30, 0.18), 0 2px 8px rgba(28, 40, 30, 0.08);
 
   /* Refined border + three elevation tiers (foreground / accent-emphasis at
    * low alpha — Stripe-style layered soft shadows, no hard edges). */
@@ -31,6 +52,8 @@
 
 /* ---- Display type ---- */
 
+/* v3 display scale: H1 60, H2 44, beats 32 — Bricolage 600, tight tracking,
+ * all display copy lowercase (authored lowercase in the copy itself). */
 .mkt-display {
   font-family: var(--font-display);
   font-weight: 600;
@@ -38,22 +61,39 @@
 }
 
 .mkt-h1 {
-  font-size: clamp(2.75rem, 1.9rem + 4.6vw, 5.75rem);
-  line-height: 1.02;
-  letter-spacing: -0.03em;
+  font-size: clamp(2.5rem, 1.9rem + 2.6vw, 3.75rem);
+  line-height: 1.05;
+  letter-spacing: -0.028em;
 }
 
 .mkt-h2 {
-  font-size: clamp(2.125rem, 1.7rem + 2.2vw, 3.5rem);
-  line-height: 1.06;
+  font-size: clamp(2rem, 1.7rem + 1.5vw, 2.75rem);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+}
+
+.mkt-h3 {
+  font-size: clamp(1.625rem, 1.5rem + 0.6vw, 2rem);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
 }
 
 .mkt-kicker {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--color-accent-emphasis);
+}
+
+/* The faint variant: platform-strip kicker, bookend labels, mono beat
+ * numbering companions. */
+.mkt-kicker-faint {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mkt-faint);
 }
 
 /* ---- Gradient grounds (decorative only) ----
@@ -214,6 +254,11 @@
     animation: mkt-marquee 46s linear infinite;
   }
 
+  /* Landing v3's platforms band runs the same loop at 24s. */
+  .mkt-marquee-fast .mkt-marquee-track {
+    animation-duration: 24s;
+  }
+
   .mkt-marquee:hover .mkt-marquee-track {
     animation-play-state: paused;
   }
@@ -262,11 +307,267 @@
 
 .mkt-connector {
   width: 1px;
-  height: 2.5rem;
+  height: 28px;
   margin-inline: auto;
-  background: linear-gradient(
-    180deg,
-    var(--color-accent-glow-strong),
-    rgba(134, 239, 172, 0)
+  background: var(--mkt-connector-line);
+}
+
+/* ══ The overlay language (Landing v3) ═══════════════════════════════════
+ * The ambient pill + one-transient-surface vocabulary every demo on the
+ * page shares, mirroring the redesigned extension overlay (the
+ * design_handoff_calyxa_ambient_pill treatment). Looping motion (waveform,
+ * breathing glow, thinking dots, caret) exists only under
+ * prefers-reduced-motion: no-preference; entrance animations no-op to
+ * their end state under reduced motion. */
+
+@keyframes mkt-wave {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes mkt-caret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes mkt-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+  }
+
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes mkt-think {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Surface enter: rise → overshoot −3px/1.015 → settle. */
+@keyframes mkt-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.9);
+  }
+
+  60% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.015);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes mkt-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Annotation draw-on (stroke-dashoffset over pathLength=1) + fill/label. */
+@keyframes mkt-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+@keyframes mkt-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes mkt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+}
+
+@keyframes mkt-rise-x {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 7px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mkt-wavebar {
+    animation: mkt-wave var(--mkt-wave-duration, 0.85s) ease-in-out var(--mkt-wave-delay, 0s) infinite;
+  }
+
+  .mkt-caret {
+    animation: mkt-caret 1s step-end infinite;
+  }
+
+  .mkt-breathe {
+    animation: mkt-breathe 3s ease-in-out infinite;
+  }
+
+  .mkt-thinkdot {
+    animation: mkt-think 1.1s ease-in-out var(--mkt-think-delay, 0s) infinite;
+  }
+
+  .mkt-surface-pop {
+    animation: mkt-pop 0.5s cubic-bezier(0.3, 1.4, 0.4, 1) both;
+  }
+
+  .mkt-fade-up {
+    animation: mkt-fade-up 0.4s ease-out both;
+  }
+
+  .mkt-annot-draw {
+    stroke-dasharray: 1;
+    animation: mkt-draw 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) var(--mkt-annot-delay, 0.2s) both;
+  }
+
+  .mkt-annot-fill {
+    animation: mkt-fade 0.3s ease-out var(--mkt-annot-delay, 0.5s) both;
+  }
+
+  .mkt-annot-label {
+    animation: mkt-rise-x 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) var(--mkt-annot-delay, 0.7s) both;
+  }
+
+  .mkt-rise {
+    animation: mkt-rise 0.25s ease-out var(--mkt-rise-delay, 0s) both;
+  }
+}
+
+/* Reduced motion: the caret hides (a frozen caret reads as a typo) and the
+ * thinking dots rest at full opacity; everything else simply holds its end
+ * state because the entrance animations above never run. */
+@media (prefers-reduced-motion: reduce) {
+  .mkt-caret {
+    opacity: 0;
+  }
+
+  .mkt-thinkdot {
+    opacity: 1;
+  }
+}
+
+/* Surface exit: fade + drop + blur, .27s (the JS state machines toggle this
+ * class before unmounting). */
+.mkt-surface-exit {
+  opacity: 0;
+  transform: translateY(8px) scale(0.94);
+  filter: blur(3px);
+  transition:
+    opacity 0.27s ease,
+    transform 0.27s ease,
+    filter 0.27s ease;
+}
+
+/* The pill itself: glass capsule morphing between shapes via
+ * width/height/border-radius transitions. */
+.mkt-pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--mkt-glass-border);
+  backdrop-filter: blur(24px) saturate(1.5);
+  box-shadow: var(--mkt-glass-shadow);
+  transition:
+    width 0.55s cubic-bezier(0.32, 1.4, 0.36, 1),
+    height 0.55s cubic-bezier(0.32, 1.4, 0.36, 1),
+    border-radius 0.55s cubic-bezier(0.32, 1.4, 0.36, 1);
+}
+
+/* The transient glass surfaces stacked above the pill. */
+.mkt-glass {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--mkt-glass-border);
+  backdrop-filter: blur(22px) saturate(1.5);
+  box-shadow: var(--mkt-glass-shadow);
+}
+
+/* The breathing glow behind the pill (decorative accent-glow gradient). */
+.mkt-glow {
+  position: absolute;
+  inset: -2px;
+  border-radius: 999px;
+  background: radial-gradient(
+    closest-side,
+    var(--color-accent-glow) 0%,
+    var(--color-accent-glow-strong) 48%,
+    transparent 74%
   );
+  filter: blur(10px);
+  transition: opacity 0.6s ease;
+  pointer-events: none;
+}
+
+/* Ping chips (transient toast above the pill): three tones. */
+.mkt-ping {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.12);
+}
+
+/* Positive reads the collision-proof accent aliases, not the
+ * --calyxa-ping-positive-* tokens — those point at --color-accent, which
+ * globals.css re-targets to the subtle tint for shadcn inside /web. */
+.mkt-ping-positive {
+  background: var(--color-accent-subtle);
+  border: 1px solid var(--color-accent-fill);
+  color: var(--color-accent-fill-foreground);
+}
+
+.mkt-ping-adjust {
+  background: var(--calyxa-board-bg);
+  border: 1px solid var(--mkt-hairline);
+  color: var(--calyxa-chip-text);
+}
+
+.mkt-ping-watch {
+  background: var(--calyxa-ping-watch-bg);
+  border: 1px solid var(--calyxa-ping-watch-border);
+  color: var(--calyxa-ping-watch-text);
 }

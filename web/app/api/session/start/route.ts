@@ -24,7 +24,21 @@ export async function POST(request: Request) {
   // The extension only ever sends a registrable domain (deriveTabDomain),
   // never a full URL — this is the last step to page identifiers being
   // hashed at rest: the domain string is never passed on from here.
-  const pageUrlHash = hashPageDomain(pageDomain)
+  //
+  // hashPageDomain THROWS when URL_HASH_SALT is unset (the privacy fuse:
+  // plaintext must never leak through as a "fallback"). A missing salt is a
+  // deployment-config defect, not a reason to refuse every session: degrade
+  // to a NULL hash — exactly what a domainless start already stores — so
+  // sessions (and everything downstream: persistence, learning writes,
+  // recaps) keep working while the loud log gets the env var restored.
+  // Live incident 2026-07-15: the salt vanished from the prod environment
+  // and every extension session start 500'd here for a day.
+  let pageUrlHash: string | null = null
+  try {
+    pageUrlHash = hashPageDomain(pageDomain)
+  } catch (err) {
+    console.error('session/start: hashPageDomain failed — storing a NULL page hash; restore URL_HASH_SALT', err)
+  }
 
   // The tier decision (free-quota check + degrade/remaining) is made entirely
   // inside the start_session RPC called here — this route only relays it.

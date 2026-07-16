@@ -1,17 +1,31 @@
 import { WaitlistForm } from '@/components/marketing/WaitlistForm'
-import { ParallaxGround } from '@/components/marketing/ParallaxGround'
+import { PillGlow } from '@/components/marketing/pill/overlay'
 import { FREE_SESSIONS_PER_MONTH } from '@/components/marketing/Pricing'
 
-// The full-bleed gradient band that closes the page — one line, one form.
-// Doesn't compose <Section> (its container has no ground of its own).
+// Landing v3's closing band: the idle pill breathing alone above the
+// headline on the full-bleed desk ground — one line, one form, nothing
+// else (no testimonials, no stat row). Doesn't compose <Section>.
 export function FinalCta() {
   return (
-    <section id="final-cta" className="relative overflow-hidden py-28 sm:py-36">
-      <ParallaxGround variant="finale" />
-      <div className="relative mx-auto flex max-w-2xl flex-col items-center gap-6 px-6 text-center">
-        <h2 className="mkt-display mkt-h2 m-0 text-balance text-foreground">Join the waitlist.</h2>
-        <p className="m-0 text-lg text-muted-foreground">Free for {FREE_SESSIONS_PER_MONTH} sessions a month · Chrome</p>
-        <WaitlistForm source="footer" className="w-full max-w-md" />
+    <section id="final-cta" className="bg-(--mkt-desk)">
+      <div className="mx-auto flex max-w-2xl flex-col items-center px-6 pb-[120px] pt-[110px] text-center">
+        <div aria-hidden="true" className="relative">
+          <PillGlow opacity={0.55} inset={-12} />
+          <div
+            className="relative h-[7px] w-[52px] rounded-[4px] border border-(--mkt-glass-border) bg-background/85"
+            style={{ boxShadow: '0 10px 26px rgba(28, 40, 30, 0.18)' }}
+          />
+        </div>
+        <h2 className="mkt-display mkt-h2 mt-11 max-w-[20ch] text-balance text-foreground">
+          your homework is already open. so is the tutor.
+        </h2>
+        <p className="mb-0 mt-5 max-w-[46ch] text-pretty text-[17px] leading-[1.6] text-(--mkt-strip-text)">
+          join the waitlist and we&apos;ll send your invite as beta spots open.
+        </p>
+        <WaitlistForm source="footer" className="mt-8 w-full max-w-md" />
+        <p className="mb-0 mt-3.5 text-[13.5px] text-muted-foreground">
+          free for {FREE_SESSIONS_PER_MONTH} sessions a month · chrome, for now
+        </p>
       </div>
     </section>
   )
