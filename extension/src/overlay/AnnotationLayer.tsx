@@ -525,11 +525,17 @@ function Circle({ rect }: { rect: DrawRect }) {
   );
 }
 
-// Underline -- inline phrase (the `weight: 'thin'` style hint): a 3px
-// rounded-cap bar just below the text plus a soft tint block over the
-// phrase itself. The bar swipes in left-to-right (the draw-on equivalent
-// for a filled bar, which has no stroke to dash).
+// Underline -- inline phrase (the `weight: 'thin'` style hint): a rounded-cap
+// pen stroke just below the text plus a soft tint block over the phrase
+// itself. Redrawn 2026-07-16 (Darcy's ask): the bar is no longer a straight
+// filled rect -- it overshoots the phrase by a few px on each side and bows
+// gently downward with slightly uneven ends, like a real underline swept by
+// hand, and it draws on with the same dash trick as every other stroke.
 function Underline({ rect }: { rect: DrawRect }) {
+  const startX = rect.x - 7;
+  const endX = rect.x + rect.w + 7;
+  const midX = (startX + endX) / 2;
+  const y = rect.y + rect.h + 2.5;
   return (
     <>
       <rect
@@ -540,37 +546,37 @@ function Underline({ rect }: { rect: DrawRect }) {
         height={rect.h + 4}
         rx={4.5}
       />
-      <rect
+      <path
         className="cx-annot-underline-bar"
-        x={rect.x - 2}
-        y={rect.y + rect.h + 1}
-        width={rect.w + 4}
-        height={3}
-        rx={1.5}
+        d={`M ${startX},${y + 0.5} Q ${midX},${y + 3.5} ${endX},${y - 0.5}`}
+        pathLength={1}
       />
     </>
   );
 }
 
-// Arrow -- connect two ideas: a gently curved quadratic path, 2px round
+// Arrow -- connect two ideas: a naturally curved cubic path, 2px round
 // caps, a small open two-segment head at the tip and a 3px dot at the
-// origin. Points at the target's top-center from a short offset above-right
-// -- there is no "source" point in the schema (an annotation names only
-// what to point AT), so the origin is a fixed offset rather than anything
-// derived from page content. The control point sits at (tipX, originY), so
-// the path leaves the origin horizontally and arrives at the tip vertically
-// -- which is also what lets the head hardcode a downward arrival.
+// origin. Points at the target's top-center from an offset above-right --
+// there is no "source" point in the schema (an annotation names only what
+// to point AT), so the origin is a fixed offset rather than anything
+// derived from page content. Redrawn 2026-07-16 (Darcy's ask): the sweep is
+// LONGER and bows through a cubic (leaves the origin drifting down-left,
+// arrives at the tip vertically -- the last control point sits directly
+// above the tip, which is also what lets the head hardcode a downward
+// arrival) instead of the old short quarter-turn that read as two straight
+// legs.
 function Arrow({ rect }: { rect: DrawRect }) {
   const tipX = rect.x + rect.w / 2;
   const tipY = rect.y - 6;
-  const originX = tipX + Math.min(56, rect.w / 2 + 40);
-  const originY = tipY - 44;
+  const originX = tipX + Math.min(88, rect.w / 2 + 62);
+  const originY = tipY - 60;
   return (
     <>
       <circle className="cx-annot-dot" cx={originX} cy={originY} r={3} />
       <path
         className="cx-annot-shape-stroke"
-        d={`M ${originX},${originY} Q ${tipX},${originY} ${tipX},${tipY}`}
+        d={`M ${originX},${originY} C ${originX - 34},${originY + 12} ${tipX},${tipY - 38} ${tipX},${tipY}`}
         pathLength={1}
       />
       <path
@@ -597,12 +603,28 @@ function StepBadge({ cx, cy, step }: { cx: number; cy: number; step: number | un
   );
 }
 
+// The leader's rendered path (2026-07-16 ask): a single quadratic bowed
+// perpendicular to the mark→pill line, so it reads as one naturally curved
+// stroke from ANY approach angle -- the old mid-x cubic collapsed to a dead-
+// straight segment whenever the pill sat directly above or below its mark.
+// The bow scales with distance (capped) so short hops stay subtle and long
+// leaders sweep visibly.
+function leaderPathD(leader: { x1: number; y1: number; x2: number; y2: number }): string {
+  const dx = leader.x1 - leader.x2;
+  const dy = leader.y1 - leader.y2;
+  const length = Math.hypot(dx, dy) || 1;
+  const bow = Math.min(26, length * 0.22);
+  const controlX = (leader.x1 + leader.x2) / 2 + (-dy / length) * bow;
+  const controlY = (leader.y1 + leader.y2) / 2 + (dx / length) * bow;
+  return `M ${leader.x2},${leader.y2} Q ${controlX},${controlY} ${leader.x1},${leader.y1}`;
+}
+
 // The leader from a displaced explanation back to its mark: it starts at the
 // top/bottom edge midpoint of the target box (whichever side the pill sits
 // on) and ends on the pill's facing edge. Recomputed live from the pill's
 // CURRENT position -- so it tracks a user drag the same way it drew the
-// collision pass's automatic displacement. Kept as a plain leftward/rightward
-// S-curve for continuity with the collision leader's look.
+// collision pass's automatic displacement. Rendered through leaderPathD's
+// bowed quadratic, same as the collision leader's look.
 function computePillLeader(
   anchor: DrawRect,
   x: number,
@@ -703,10 +725,7 @@ function LabelPill({
     <>
       {leader && (
         <g className="cx-annot-leader-group">
-          <path
-            className="cx-annot-leader"
-            d={`M ${leader.x2},${leader.y2} C ${(leader.x1 + leader.x2) / 2},${leader.y2} ${(leader.x1 + leader.x2) / 2},${leader.y1} ${leader.x1},${leader.y1}`}
-          />
+          <path className="cx-annot-leader" d={leaderPathD(leader)} />
           <circle className="cx-annot-leader-dot" cx={leader.x2} cy={leader.y2} r={3} />
         </g>
       )}

@@ -56,6 +56,15 @@ async function flush(): Promise<void> {
   });
 }
 
+// A departed surface now lingers as a fading ghost for SURFACE_EXIT_MS
+// (the 2026-07-16 all-surfaces exit fade) before unmounting -- wait past
+// that window before asserting content is fully gone.
+async function waitGhostOut(): Promise<void> {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 320));
+  });
+}
+
 afterEach(async () => {
   for (const { root, container } of mounted.splice(0)) {
     await act(async () => {
@@ -129,6 +138,7 @@ describe('the persistent tutor reply (2026-07-16)', () => {
     await flush();
     expect(onSend).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain('Right -- x minus three it is.');
+    await waitGhostOut();
     expect(container.textContent).not.toContain('First factor the left side.');
   });
 
@@ -143,6 +153,7 @@ describe('the persistent tutor reply (2026-07-16)', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     });
     await flush();
+    await waitGhostOut();
     expect(container.textContent).not.toContain('Try isolating x first.');
   });
 });

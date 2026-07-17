@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useMemo,
   useReducer,
@@ -433,14 +434,19 @@ export function humanizeDue(dueAt: string, now: Date = new Date()): string {
   return `comes back ${due.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
 }
 
-// The reference card's equation pair: the FIRST $$ math block in the reply
-// is the problem as stated, the LAST is where the tutor took it (rendered in
-// accent-emphasis below a ↓). One block renders alone; no block means the
-// plain caption card. Pure + exported for the display spec.
-export function mathPairFromReply(reply: string): { first: string; last: string | null } | null {
-  const blocks = splitMathBlocks(reply).filter((block) => block.kind === 'math');
-  if (blocks.length === 0) return null;
-  return { first: blocks[0].text, last: blocks.length > 1 ? blocks[blocks.length - 1].text : null };
+// The reference card's equation chain: EVERY $$ math block in the reply, in
+// emission order -- rendered isolated and big above the prose, consecutive
+// steps joined by a ↓ (e.g. x^2+5x+6 ↓ (x+2)(x+3)), the last step in
+// accent-emphasis. One block renders alone; no block means the plain caption
+// card. Widened from the old first/last pair (2026-07-16 ask): the worked
+// math now lives ONLY in this big display -- the prose below drops the math
+// blocks entirely (renderProse) -- so a middle step must not be silently
+// lost. Pure + exported for the display spec.
+export function mathChainFromReply(reply: string): string[] | null {
+  const blocks = splitMathBlocks(reply)
+    .filter((block) => block.kind === 'math')
+    .map((block) => block.text);
+  return blocks.length > 0 ? blocks : null;
 }
 
 // Which transient surface owns the single slot this render (exactly one at
@@ -643,15 +649,28 @@ export function Overlay({
   // 2026-07-16 ask, superseding the handoff's 1.4s/2.4s windows: a student
   // can't re-read a reply that vanished while they were still thinking).
   const [captionHold, setCaptionHold] = useState<{ text: string } | null>(null);
-  // Non-null upgrades the caption to the reference card (voice turns whose
-  // reply carries $$ math blocks): the equation pair renders above the
-  // streaming caption line. Set at envelope delivery, cleared with the hold.
-  const [captionMath, setCaptionMath] = useState<{ first: string; last: string | null } | null>(null);
+  // Non-null upgrades the caption to the reference card (any turn whose reply
+  // carries $$ math blocks): the equation chain renders isolated and big above
+  // the caption prose. Set at envelope delivery for voice turns and at commit
+  // for text turns (the 2026-07-16 ask -- the big isolated display must fire
+  // on EVERY math-carrying reply, not just spoken ones), cleared with the hold.
+  const [captionMath, setCaptionMath] = useState<string[] | null>(null);
   // The shared exit-animation flag (one surface at a time means one flag):
   // true for the SURFACE_EXIT_MS window before a dismissal actually clears
   // the underlying state (the prototype's own dismiss()).
   const [surfaceLeaving, setSurfaceLeaving] = useState(false);
   const dismissTimerRef = useRef<number | null>(null);
+  // The departing surface's ghost (2026-07-16 ask: EVERY surface leaves with
+  // the same fade, never a sudden pop-out): whenever the surface slot's kind
+  // changes or empties WITHOUT having gone through dismissSurface (a swap, an
+  // Escape collapse, a state clear on send), the previous render's node is
+  // held here for SURFACE_EXIT_MS and replayed with cx-surface-out --
+  // absolutely positioned over the slot so the incoming card never jumps.
+  // dismissSurface-driven exits already animate in place (surfaceLeaving), so
+  // those are excluded to avoid a double fade.
+  const [surfaceGhost, setSurfaceGhost] = useState<{ node: ReactNode; id: number } | null>(null);
+  const surfaceGhostIdRef = useRef(0);
+  const prevSurfaceRef = useRef<{ kind: SurfaceKind; node: ReactNode; leaving: boolean } | null>(null);
 
   // ---- User-opened surfaces ----
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -1375,6 +1394,10 @@ export function Overlay({
     setAnnotationColors(assignAnnotationColors(result.annotations));
     showPins(result.pins);
     applyProgressAndCompletion(result);
+    // A math-carrying reply upgrades to the reference card on TEXT turns too
+    // (2026-07-16 ask): the worked equation renders isolated and big above
+    // the prose, exactly as the voice path's envelope delivery already does.
+    setCaptionMath(mathChainFromReply(result.reply));
     setCaptionHold({ text: result.reply });
   }
 
@@ -1575,7 +1598,7 @@ export function Overlay({
         showPins(delivered.pins);
         // The reference card (handoff surface 4): a reply that carries $$
         // math upgrades the caption to the equation card while Calyxa talks.
-        setCaptionMath(mathPairFromReply(delivered.reply));
+        setCaptionMath(mathChainFromReply(delivered.reply));
         onVoicePlaybackStart(durationMs);
       };
 
@@ -1776,6 +1799,31 @@ export function Overlay({
     );
   }
 
+  // The reference card's caption: prose runs ONLY, color-linked highlighting
+  // kept -- the reply's $$ math blocks already render isolated and big in the
+  // equation chain above, so repeating them inline in the caption would put
+  // the math back in the transcript (the exact thing the 2026-07-16 ask
+  // removes). Prose runs are joined with a space (splitMathBlocks trims the
+  // whitespace that sat around each block).
+  function renderProse(text: string, annotations?: Annotation[], colorMap?: AnnotationColorMap): ReactNode {
+    return splitMathBlocks(text)
+      .filter((block) => block.kind === 'text')
+      .map((block, blockIndex) => (
+        <span key={blockIndex}>
+          {blockIndex > 0 ? ' ' : ''}
+          {highlightAnnotatedPhrases(block.text, annotations, colorMap).map((segment, segmentIndex) =>
+            segment.colorClass ? (
+              <span key={segmentIndex} className={segment.colorClass}>
+                {segment.text}
+              </span>
+            ) : (
+              <span key={segmentIndex}>{segment.text}</span>
+            ),
+          )}
+        </span>
+      ));
+  }
+
   const lastAssistant = [...messages].reverse().find((message) => message.role === 'assistant' && !message.milestone);
   const lastUser = [...messages].reverse().find((message) => message.role === 'user');
   const topicTitle = checkinTopic ?? scan?.topic?.title ?? null;
@@ -1927,29 +1975,39 @@ export function Overlay({
   } else if (surfaceKind === 'caption') {
     const holdText = captionHold?.text ?? null;
     if (captionMath) {
-      // Reference pop-up (handoff surface 4): the equation set in the system
-      // sans at 500, the caption streaming below while Calyxa talks.
+      // Reference pop-up (handoff surface 4): the full equation chain set in
+      // the system sans at 500 -- each worked step isolated and big, joined
+      // by ↓, the final step in accent-emphasis -- with the caption's PROSE
+      // below (renderProse: the math lives only up here, never restated
+      // inline in the caption).
       surfaceNode = (
         <div className="cx-card flex w-[380px] max-w-[calc(100vw-48px)] flex-col gap-3 px-[19px] pb-4 pt-[15px] text-foreground">
           <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             {topicTitle ? `${topicTitle} · on your sheet` : 'On your sheet'}
           </span>
           <div className="flex flex-col items-center gap-[7px] pb-1.5 pt-2.5 font-medium tracking-[-0.01em]">
-            <span className="text-[21px]">{renderMathTokens(captionMath.first)}</span>
-            {captionMath.last && (
-              <>
-                <span aria-hidden="true" className="text-[13px] text-muted-foreground">
-                  ↓
+            {captionMath.map((block, blockIndex) => (
+              <Fragment key={blockIndex}>
+                {blockIndex > 0 && (
+                  <span aria-hidden="true" className="text-[13px] text-muted-foreground">
+                    ↓
+                  </span>
+                )}
+                <span
+                  className={`text-center text-[21px]${
+                    blockIndex === captionMath.length - 1 && captionMath.length > 1 ? ' text-accent-emphasis' : ''
+                  }`}
+                >
+                  {renderMathTokens(block)}
                 </span>
-                <span className="text-[21px] text-accent-emphasis">{renderMathTokens(captionMath.last)}</span>
-              </>
-            )}
+              </Fragment>
+            ))}
           </div>
           <div className="flex items-start gap-2 border-t border-border pt-[11px]">
             <CalyxaMark aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 flex-none" />
             <p className="m-0 text-[13px] leading-[1.55]" aria-live="polite">
               {holdText && streamingTokens.length === 0 ? (
-                stripMathDelimiters(holdText)
+                renderProse(holdText, lastAssistant?.annotations, lastAssistant?.annotationColors)
               ) : (
                 <StreamTokens tokens={streamingTokens} />
               )}
@@ -2078,6 +2136,29 @@ export function Overlay({
       </span>
     );
   }
+
+  // Ghost bookkeeping (the 2026-07-16 all-surfaces fade): after every render,
+  // remember what the slot showed; when the kind changed or the slot emptied
+  // WITHOUT a dismissSurface exit (which already fades in place), replay the
+  // previous node as a fading ghost for SURFACE_EXIT_MS. Runs without a dep
+  // array on purpose -- it must see the node exactly as the last render drew
+  // it; the guard (kind unchanged -> no-op) keeps it from looping.
+  useEffect(() => {
+    const prev = prevSurfaceRef.current;
+    if (prev && prev.kind !== surfaceKind && !prev.leaving) {
+      setSurfaceGhost({ node: prev.node, id: ++surfaceGhostIdRef.current });
+    }
+    prevSurfaceRef.current =
+      surfaceNode !== null && surfaceKind !== null
+        ? { kind: surfaceKind, node: surfaceNode, leaving: surfaceLeaving }
+        : null;
+  });
+
+  useEffect(() => {
+    if (!surfaceGhost) return;
+    const timer = window.setTimeout(() => setSurfaceGhost(null), SURFACE_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [surfaceGhost]);
 
   // ---- The pill's contents per state ----
   let pillContent: ReactNode;
@@ -2232,14 +2313,31 @@ export function Overlay({
               <PingToast key={pinQueue[0].id} pin={pinQueue[0].pin} />
             </span>
           )}
-          {/* The single transient surface slot -- exactly one at a time,
-              keyed by kind so a swap re-runs the spring entry. */}
-          {surfaceNode && (
-            <div
-              key={surfaceKind}
-              className={`pointer-events-auto ${surfaceLeaving ? 'cx-surface-out' : 'cx-surface-in'}`}
-            >
-              {surfaceNode}
+          {/* The single transient surface slot -- exactly one LIVE surface at
+              a time, keyed by kind so a swap re-runs the spring entry. The
+              ghost (bottom-anchored where the departed card's bottom edge
+              sat, absolutely positioned so the incoming card never jumps) is
+              the same card fading out -- every surface now leaves with the
+              cx-out fade instead of popping off (2026-07-16 ask). */}
+          {(surfaceNode || surfaceGhost) && (
+            <div className="relative flex flex-col items-center">
+              {surfaceGhost && (
+                <div
+                  key={surfaceGhost.id}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute bottom-0 left-1/2 -translate-x-1/2"
+                >
+                  <div className="cx-surface-out">{surfaceGhost.node}</div>
+                </div>
+              )}
+              {surfaceNode && (
+                <div
+                  key={surfaceKind}
+                  className={`pointer-events-auto ${surfaceLeaving ? 'cx-surface-out' : 'cx-surface-in'}`}
+                >
+                  {surfaceNode}
+                </div>
+              )}
             </div>
           )}
 
@@ -2268,6 +2366,19 @@ export function Overlay({
               className="cx-pill relative flex items-center justify-center"
               style={{ width: pillW, height: pillH, borderRadius: pillR }}
             >
+              {/* The tutor-mode frame (2026-07-16 ask): while a session is
+                  live, the expanded text bar wears a light, breathing
+                  gradient ring in the ACTIVE mode's color -- the mode reads
+                  ambiently on the pill itself, in every expanded state, not
+                  only while speaking. Skipped on the idle sliver (nothing to
+                  frame at 39x5). */}
+              {sessionLive && pill !== 'idle' && (
+                <span
+                  aria-hidden="true"
+                  className="cx-mode-frame"
+                  style={{ '--cx-mode-frame-color': modeBorderVar } as CSSProperties}
+                />
+              )}
               {pillContent}
             </div>
           </div>

@@ -123,6 +123,54 @@
   }
 }
 
+/* ── Tutor-mode frame (2026-07-16 ask) ── while a session is live, the
+ * expanded pill carries a light, breathing gradient frame in the ACTIVE
+ * tutor mode's color — the mode reads ambiently on the text bar itself, not
+ * only in the speak-state waveform/label. Drawn as a masked gradient ring
+ * (the padding is the rim width) just inside the pill's own border, sized/
+ * rounded by inheritance so it rides the morph for free. Overlay.tsx sets
+ * --cx-mode-frame-color from the mode's --calyxa-mode-*-border token. Under
+ * reduced motion the breath holds at its resting opacity. */
+.cx-mode-frame {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: linear-gradient(
+    130deg,
+    var(--cx-mode-frame-color),
+    transparent 42%,
+    transparent 58%,
+    var(--cx-mode-frame-color)
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+@keyframes cx-mode-breathe {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cx-mode-frame {
+    animation: cx-mode-breathe 3.2s ease-in-out infinite;
+  }
+}
+
 /* The transient surface cards (handoff §"Transient surfaces"): one shared
  * frosted shell, spring entry (cxPop) / fade-drop exit (cxOut). The exit
  * class is applied ~270ms before unmount (Overlay.tsx's dismiss window).
@@ -408,11 +456,14 @@
 .cx-annot-underline-tint {
   fill: var(--cx-annot-fill);
 }
+/* The underline is a STROKE path now (2026-07-16 ask): a gently bowed,
+ * slightly-overshooting pen line instead of a straight filled bar, so it
+ * draws on with the same dash trick as every other stroke shape. */
 .cx-annot-underline-bar {
-  fill: var(--cx-annot-stroke);
-  /* the swipe entrance scales from its own left edge */
-  transform-box: fill-box;
-  transform-origin: left center;
+  fill: none;
+  stroke: var(--cx-annot-stroke);
+  stroke-width: 2.5;
+  stroke-linecap: round;
 }
 .cx-annot-dot {
   fill: var(--cx-annot-stroke);
@@ -547,7 +598,8 @@
     animation-delay: calc(var(--cx-annot-delay, 0ms) + 265ms);
   }
   .cx-annot-mark .cx-annot-underline-bar {
-    animation: cx-annot-swipe 480ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    stroke-dasharray: 1;
+    animation: cx-annot-draw 480ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
     animation-delay: var(--cx-annot-delay, 0ms);
   }
   .cx-annot-mark .cx-annot-meta {
@@ -580,15 +632,6 @@
   }
   to {
     opacity: 1;
-  }
-}
-
-@keyframes cx-annot-swipe {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
   }
 }
 

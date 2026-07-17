@@ -1,18 +1,18 @@
 // @vitest-environment jsdom
 //
 // Sprint 21 Task 7 (ADR-049): the recap card's "Generated for you" surface.
-// Pure + render, the overlay-display.test.ts / a11y-overlay.test.ts precedent
-// (raw createRoot + act in jsdom, no server, no chrome.*). Covers the three
-// things the plan names: the flip/reveal reducer (toggleIndex, pure), the kit
-// -> recap-card view mapping (notes list / problems with reveal / flip
-// flashcards), and that a generation failure or refusal degrades to the
-// placeholder gracefully.
+// Render-level, the overlay-display.test.ts / a11y-overlay.test.ts precedent
+// (raw createRoot + act in jsdom, no server, no chrome.*). Covers the kit ->
+// recap-card SUMMARY mapping (2026-07-16: per-kind counts + the dashboard
+// kit-viewer link, never the materials themselves -- the in-card
+// StudyKitView/toggleIndex retired with that change) and that a generation
+// failure or refusal degrades to the placeholder gracefully.
 
 import { createElement as h, act, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, it, expect, vi } from 'vitest';
 
-import { RecapCard, toggleIndex } from '../src/overlay/RecapCard';
+import { RecapCard } from '../src/overlay/RecapCard';
 import type { SessionRecap, StudyKit, StudyKitResult } from '../src/types/messages';
 
 type RecapProps = ComponentProps<typeof RecapCard>;
@@ -82,18 +82,6 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe('toggleIndex (pure flip/reveal reducer)', () => {
-  it('adds an absent index and removes a present one, never mutating the input', () => {
-    expect([...toggleIndex(new Set(), 1)]).toEqual([1]);
-    expect([...toggleIndex(new Set([1]), 1)]).toEqual([]);
-    expect([...toggleIndex(new Set([1]), 2)].sort()).toEqual([1, 2]);
-
-    const original = new Set([1]);
-    toggleIndex(original, 2);
-    expect([...original]).toEqual([1]); // input untouched
-  });
-});
-
 describe('RecapCard "Generated for you" surface', () => {
   it('renders the reserved placeholder (and no generate button) when generation is unavailable', async () => {
     // No transport at all.
@@ -107,32 +95,29 @@ describe('RecapCard "Generated for you" surface', () => {
     expect(button(c2, /make a study kit/i)).toBeUndefined();
   });
 
-  it('generates and renders notes, problems (with solution reveal), and a flip flashcard', async () => {
+  it('generates and renders the compact SUMMARY (per-kind counts + dashboard link), never the materials', async () => {
     const onGenerate = vi.fn().mockResolvedValue({ kit: KIT } as StudyKitResult);
     const c = await mount(baseProps({ sessionId: 'sess-42', onGenerateStudyKit: onGenerate }));
 
     await click(button(c, /make a study kit/i));
 
     expect(onGenerate).toHaveBeenCalledWith('sess-42');
-    // Notes + problem statement render.
-    expect(c.textContent).toContain('Find two numbers that multiply to c and add to b.');
-    expect(c.textContent).toContain('Factor x^2 + 7x + 12.');
-    // The solution is hidden until revealed.
+    // The summary: what the kit contains, by count.
+    expect(c.textContent).toMatch(/study kit is ready/i);
+    expect(c.textContent).toContain('2 key points');
+    expect(c.textContent).toContain('1 problem, solutions included');
+    expect(c.textContent).toContain('1 card');
+    // ...and NEVER the materials themselves (they live in the dashboard's
+    // kit viewer, which the summary links out to, keyed by the session id).
+    expect(c.textContent).not.toContain('Find two numbers that multiply to c and add to b.');
+    expect(c.textContent).not.toContain('Factor x^2 + 7x + 12.');
     expect(c.textContent).not.toContain('(x + 3)(x + 4)');
+    expect(button(c, /show solution/i)).toBeUndefined();
+    expect(c.querySelector('[aria-label^="Flashcard"]')).toBeNull();
 
-    await click(button(c, /show solution/i));
-    expect(c.textContent).toContain('(x + 3)(x + 4)');
-    expect(button(c, /hide solution/i)).toBeTruthy();
-
-    // Flip flashcard: tap toggles aria-pressed + the question/answer label.
-    const card = c.querySelector('[aria-label^="Flashcard question"]') as HTMLElement;
-    expect(card).toBeTruthy();
-    expect(card.getAttribute('aria-pressed')).toBe('false');
-
-    await click(card);
-    const flippedCard = c.querySelector('[aria-label^="Flashcard answer"]') as HTMLElement;
-    expect(flippedCard).toBeTruthy();
-    expect(flippedCard.getAttribute('aria-pressed')).toBe('true');
+    const link = c.querySelector('a[href="https://calyxa.app/kits/sess-42"]') as HTMLAnchorElement | null;
+    expect(link).toBeTruthy();
+    expect(link!.target).toBe('_blank');
   });
 
   it('degrades to the placeholder + a resting message on a hard-cost-cap refusal', async () => {
@@ -174,7 +159,7 @@ describe('RecapCard "Generated for you" surface', () => {
 
     await click(retry);
     expect(onGenerate).toHaveBeenCalledTimes(2);
-    // The retry succeeded -> the kit now renders.
-    expect(c.textContent).toContain('Factor x^2 + 7x + 12.');
+    // The retry succeeded -> the kit summary now renders.
+    expect(c.textContent).toMatch(/study kit is ready/i);
   });
 });

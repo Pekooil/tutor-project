@@ -132,7 +132,9 @@ describe('Overlay completion → recap-card render', () => {
     });
     await flush();
     expect(onGenerateStudyKit).toHaveBeenCalledWith('sess-42');
-    expect(c.textContent).toContain('Factor x^2 + 7x + 12.');
+    // The kit renders as the compact summary (2026-07-16), never the materials.
+    expect(c.textContent).toMatch(/study kit is ready/i);
+    expect(c.textContent).not.toContain('Factor x^2 + 7x + 12.');
   });
 
   it('renders NO recap card when the ended session produced no recap (0 gradable interactions)', async () => {

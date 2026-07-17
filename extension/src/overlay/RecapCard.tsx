@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { API_BASE } from '../lib/api';
 import type { SessionRecap, StudyKit, StudyKitResult } from '../types/messages';
 import { conceptOutcome } from './session-flow';
 
@@ -14,27 +15,21 @@ import { conceptOutcome } from './session-flow';
 // Sprint 21 / Task 5 (ADR-049): "Generated for you" is no longer a
 // placeholder. When the study-kit transport + the ended sessionId are both
 // present, the section offers a "Make a study kit" action that generates a
-// real kit (notes / practice problems with revealable solutions / flip
-// flashcards) via /api/study/generate and renders it in place. It DEGRADES
-// gracefully to the board's reserved placeholder tiles whenever generation is
-// unavailable (no transport / no sessionId -- e.g. a test harness or a mount
-// predating this wiring) or the route declined/failed (the hard cost cap, a
-// session with nothing to generate, or an error). Presentational: Overlay.tsx
-// owns the recap state + the transport; the generation UI state is this card's
-// own local state, fresh per recap (a new session = a new card).
-
-// Pure flip/reveal toggle (exported for the recap-kit unit test, Task 7 --
-// the annotations.ts testable-helper precedent): flips one index in a set of
-// currently-open indices, returning a new set (never mutating the input) so
-// it can drive a useState<ReadonlySet<number>> directly. Shared by the
-// flashcard flip state and the practice-problem solution-reveal state, which
-// are the same "which of these N cards are open" shape.
-export function toggleIndex(open: ReadonlySet<number>, index: number): Set<number> {
-  const next = new Set(open);
-  if (next.has(index)) next.delete(index);
-  else next.add(index);
-  return next;
-}
+// real kit via /api/study/generate. It DEGRADES gracefully to the board's
+// reserved placeholder tiles whenever generation is unavailable (no transport
+// / no sessionId -- e.g. a test harness or a mount predating this wiring) or
+// the route declined/failed (the hard cost cap, a session with nothing to
+// generate, or an error). Presentational: Overlay.tsx owns the recap state +
+// the transport; the generation UI state is this card's own local state,
+// fresh per recap (a new session = a new card).
+//
+// 2026-07-16 (Darcy's ask): a generated kit renders as a compact SUMMARY --
+// what the kit contains, never the materials themselves -- so the recap card
+// stays recap-sized instead of growing a long scrolling list of notes/
+// problems/flashcards. The full materials live in the dashboard's kit viewer
+// (/kits/[key], keyed by session id), which the summary links out to. The
+// in-card StudyKitView (notes list / reveal problems / flip flashcards) and
+// its toggleIndex reducer retired with that change.
 
 // The generation lifecycle for the "Generated for you" section.
 //   idle    -- offer the "Make a study kit" action (transport available).
@@ -219,7 +214,7 @@ function StudyKitSection({
           <PlaceholderTiles />
         )
       ) : phase === 'ready' && kit ? (
-        <StudyKitView kit={kit} />
+        <StudyKitSummary kit={kit} sessionId={sessionId} />
       ) : (
         // refused / error: a gentle message over the placeholder tiles, plus a
         // retry when the failure was transient (never for a deterministic
@@ -265,114 +260,49 @@ function PlaceholderTiles() {
   );
 }
 
-// Renders a generated kit: notes (ordered list), practice problems (statement
-// + tap-to-reveal solution), and flip flashcards. Only non-empty groups render
-// (the route never persists a fully-empty kit, but any one group can be empty).
-// No host-DOM mutation -- everything lives inside the overlay's shadow root.
-function StudyKitView({ kit }: { kit: StudyKit }) {
-  const [revealed, setRevealed] = useState<ReadonlySet<number>>(() => new Set());
-
-  return (
-    <div className="flex flex-col gap-3">
-      {kit.notes.length > 0 && (
-        <div>
-          <div className="mb-1 text-[11px] font-semibold text-foreground">Study notes</div>
-          <ol className="ml-4 flex list-decimal flex-col gap-1 text-[12.5px] text-foreground marker:text-[var(--calyxa-hint-text)]">
-            {kit.notes.map((note, i) => (
-              <li key={i} className="pl-1 leading-snug">
-                {note}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-
-      {kit.problems.length > 0 && (
-        <div>
-          <div className="mb-1 text-[11px] font-semibold text-foreground">Practice problems</div>
-          <div className="flex flex-col gap-1.5">
-            {kit.problems.map((problem, i) => (
-              <div key={i} className="rounded-[10px] border border-border bg-background px-2.5 py-2">
-                <div className="text-[12.5px] leading-snug text-foreground">{problem.statement}</div>
-                {problem.solution && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setRevealed((open) => toggleIndex(open, i))}
-                      aria-expanded={revealed.has(i)}
-                      className="mt-1 cursor-pointer text-[11px] font-semibold text-accent-emphasis outline-none hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                    >
-                      {revealed.has(i) ? 'Hide solution' : 'Show solution'}
-                    </button>
-                    {revealed.has(i) && (
-                      <div className="mt-1 border-t border-border pt-1 text-[12px] leading-snug text-[#46463f]">
-                        {problem.solution}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {kit.flashcards.length > 0 && (
-        <div>
-          <div className="mb-1 text-[11px] font-semibold text-foreground">Flashcards</div>
-          <div className="flex flex-col gap-1.5">
-            {kit.flashcards.map((card, i) => (
-              <FlipCard key={i} front={card.front} back={card.back} />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+// Pluralized count line for one summary row.
+function countLine(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
-// A tap-to-flip flashcard, mirroring the marketing Flashcard's flip (the
-// StudyLoopSection component) -- tap/keyboard driven (no hover flip; a hover
-// flip is too twitchy in the dense recap card). The 3D transform is inline so
-// it never depends on the extension's Tailwind arbitrary-property support.
-// Local flip state per card -- independent of its siblings.
-function FlipCard({ front, back }: { front: string; back: string }) {
-  const [flipped, setFlipped] = useState(false);
-  const toggle = () => setFlipped((value) => !value);
+// The generated kit's SUMMARY (2026-07-16 ask): what the kit contains --
+// per-kind counts only, never the materials themselves -- plus a link out to
+// the dashboard's kit viewer (/kits/[key] is keyed by the session id) where
+// the full notes/problems/flashcards live. Only non-empty groups get a row
+// (the route never persists a fully-empty kit, but any one group can be
+// empty).
+function StudyKitSummary({ kit, sessionId }: { kit: StudyKit; sessionId: string | null }) {
+  const rows = [
+    kit.notes.length > 0 ? { name: 'Study notes', detail: countLine(kit.notes.length, 'key point') } : null,
+    kit.problems.length > 0
+      ? { name: 'Practice problems', detail: `${countLine(kit.problems.length, 'problem')}, solutions included` }
+      : null,
+    kit.flashcards.length > 0 ? { name: 'Flashcards', detail: countLine(kit.flashcards.length, 'card') } : null,
+  ].filter((row): row is { name: string; detail: string } => row !== null);
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-pressed={flipped}
-      aria-label={flipped ? `Flashcard answer: ${back}` : `Flashcard question: ${front}`}
-      onClick={toggle}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          toggle();
-        }
-      }}
-      className="relative h-[64px] w-full cursor-pointer select-none outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-      style={{ perspective: '800px' }}
-    >
-      <div
-        className="relative h-full w-full transition-transform duration-500"
-        style={{ transformStyle: 'preserve-3d', transform: flipped ? 'rotateY(180deg)' : 'none' }}
-      >
-        <div
-          className="absolute inset-0 flex items-center justify-center rounded-[10px] border border-border bg-background px-3 text-center text-[12px] leading-snug text-foreground"
-          style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
-        >
-          {front}
-        </div>
-        <div
-          className="absolute inset-0 flex items-center justify-center rounded-[10px] border border-border bg-background px-3 text-center text-[12px] font-medium leading-snug text-accent-emphasis"
-          style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
-        >
-          {back}
-        </div>
+    <div className="rounded-[10px] border border-border bg-background px-3 pb-2.5 pt-2">
+      <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-foreground">
+        <span aria-hidden="true">✦</span> Your study kit is ready
       </div>
+      <div className="mt-1.5 flex flex-col gap-1">
+        {rows.map((row) => (
+          <div key={row.name} className="flex items-baseline justify-between gap-2 text-[12px]">
+            <span className="text-foreground">{row.name}</span>
+            <span className="text-[var(--calyxa-hint-text)]">{row.detail}</span>
+          </div>
+        ))}
+      </div>
+      {sessionId && (
+        <a
+          href={`${API_BASE}/kits/${sessionId}`}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 inline-block text-[11.5px] font-semibold text-accent-emphasis underline underline-offset-2 outline-none hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+        >
+          Open it in your dashboard ↗
+        </a>
+      )}
     </div>
   );
 }
