@@ -55,8 +55,17 @@ export function Pricing() {
               </p>
               <p className="mb-0 mt-3.5 text-[15px] leading-[1.6] text-muted-foreground">{plan.tagline}</p>
             </div>
+            {/* Sprint 23 / Task 7 (ADR-050): the Pro CTA now routes to the
+                billing page (Stripe Checkout) instead of the waitlist — the GA
+                monetization path. An unauthenticated visitor hits /billing's own
+                redirect to /login. Free stays on the waitlist (free signup is
+                still invite-gated during the private beta). */}
             <Button asChild className="mt-auto" variant={plan.accented ? 'default' : 'outline'}>
-              <a href="#final-cta">Join the waitlist</a>
+              {plan.name === 'pro' ? (
+                <a href="/billing">Upgrade to Pro</a>
+              ) : (
+                <a href="#final-cta">Join the waitlist</a>
+              )}
             </Button>
           </div>
         ))}

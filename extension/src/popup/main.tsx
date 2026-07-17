@@ -32,6 +32,15 @@ import type { CalyxaMessage, SessionStatePayload, SignInPayload } from '../types
 // still used internally by those two triggers), but nothing in this file
 // sends either one anymore.
 
+// Sprint 23 / Task 7 (ADR-050/006): the degraded (free-limit) state links out
+// to the web billing page to upgrade. Stripe is server/web-only — the extension
+// NEVER imports the SDK or handles checkout in-bundle; it opens /billing in a
+// new tab and the whole flow lives on the web. This mirrors API_BASE
+// ('https://calyxa.app' in lib/api.ts) but is duplicated as a plain string
+// rather than imported, because this file deliberately pulls in NONE of
+// lib/api.ts's token-bearing helpers (see the header note above).
+const BILLING_URL = 'https://calyxa.app/billing';
+
 const FALLBACK_ERROR: SessionStatePayload = {
   signedIn: false,
   user: null,
@@ -152,9 +161,21 @@ export function App() {
                 : 'border-border bg-surface px-3 py-2 text-xs text-muted-foreground !shadow-none'
             }
           >
-            {activeSession.degraded
-              ? 'Free limit reached for this month — this session is on the house.'
-              : `${activeSession.remaining ?? '—'} session${activeSession.remaining === 1 ? '' : 's'} left this month.`}
+            {activeSession.degraded ? (
+              <span className="flex flex-col gap-2">
+                <span>Free limit reached for this month — this session is on the house.</span>
+                <a
+                  href={BILLING_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-accent-emphasis underline underline-offset-2"
+                >
+                  Upgrade to Pro for unlimited sessions →
+                </a>
+              </span>
+            ) : (
+              `${activeSession.remaining ?? '—'} session${activeSession.remaining === 1 ? '' : 's'} left this month.`
+            )}
           </Card>
         )}
         {state.error && <ErrorBanner message={state.error} />}

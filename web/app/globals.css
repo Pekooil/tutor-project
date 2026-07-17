@@ -185,3 +185,8 @@
 .cx-hover-danger:hover {
   background: #fee2e2 !important;
 }
+/* Sprint 23 / Task 7: the mint "Upgrade to Pro" billing button — a subtly
+   deeper mint on hover (base is C.mint #86efac). */
+.cx-hover-mint:hover {
+  background: #6ee7a0 !important;
+}

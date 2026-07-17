@@ -51,6 +51,7 @@ export function PremiumNav({
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
   const onAccount = pathname === '/account'
+  const onBilling = pathname === '/billing'
 
   return (
     <div style={{ position: 'fixed', top: 18, left: '50%', transform: 'translateX(-50%)', zIndex: 50 }}>
@@ -199,6 +200,32 @@ export function PremiumNav({
               <path d="M3.4 13 C4 10.6 5.8 9.5 8 9.5 C10.2 9.5 12 10.6 12.6 13" />
             </svg>
             Account
+          </Link>
+          <Link
+            href="/billing"
+            role="menuitem"
+            onClick={() => setMenuOpen(false)}
+            className="cx-hover-menu"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              width: '100%',
+              textDecoration: 'none',
+              textAlign: 'left',
+              fontSize: 13,
+              padding: '9px 11px',
+              borderRadius: 11,
+              background: onBilling ? 'rgba(134,239,172,.35)' : 'transparent',
+              color: onBilling ? C.greenDeep : C.ink,
+              fontWeight: onBilling ? 600 : 500,
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="3.5" width="12" height="9" rx="1.6" />
+              <path d="M2 6.5 H14" />
+            </svg>
+            Billing
           </Link>
         </div>
       )}
