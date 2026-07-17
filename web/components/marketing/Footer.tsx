@@ -7,7 +7,7 @@ export function Footer() {
         <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex flex-col gap-3">
             <img src="/logo.svg" alt="Calyxa" className="h-6 w-auto self-start" />
-            <p className="m-0 text-sm text-muted-foreground">The math tutor that lives on your screen.</p>
+            <p className="m-0 text-sm text-muted-foreground">Stop copying. Start learning.</p>
           </div>
           <div className="flex gap-16 text-sm">
             <div className="flex flex-col gap-2">

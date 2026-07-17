@@ -15,10 +15,11 @@
  */
 
 .mkt {
-  /* Landing v3 (design_handoff_calyxa_landing_v3): the display face is
-   * Bricolage Grotesque (loaded via next/font in fonts.ts, scoped by
-   * page.tsx applying bricolage.variable to the .mkt root). */
-  --font-display: var(--font-bricolage), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  /* Display face: Geist bold (Darcy, 2026-07-17 — Bricolage Grotesque
+   * retired for a bolder, stricter look; this also re-aligns marketing
+   * titles with brand.md §5's Geist lock, so the marketing-only font
+   * exception is gone). */
+  --font-display: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 
   /* The v3 handoff's neutral set. Hairline/hairline-soft are the product's
    * decorative border hexes (--color-border / CheckinCard's soft divider),
@@ -52,11 +53,10 @@
 
 /* ---- Display type ---- */
 
-/* v3 display scale: H1 60, H2 44, beats 32 — Bricolage 600, tight tracking,
- * all display copy lowercase (authored lowercase in the copy itself). */
+/* Display scale: H1 60, H2 44, beats 32 — Geist 700, tight tracking. */
 .mkt-display {
   font-family: var(--font-display);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 

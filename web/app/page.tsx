@@ -4,24 +4,19 @@ import { Hero } from '@/components/marketing/Hero'
 import { PlatformsStrip } from '@/components/marketing/PlatformsStrip'
 import { SessionShowcase } from '@/components/marketing/SessionShowcase'
 import { WhyUs } from '@/components/marketing/WhyUs'
-import { AdaptiveSection } from '@/components/marketing/AdaptiveSection'
-import { ProfileSection } from '@/components/marketing/ProfileSection'
-import { StudyLoopSection } from '@/components/marketing/StudyLoopSection'
 import { Pricing } from '@/components/marketing/Pricing'
 import { FinalCta } from '@/components/marketing/FinalCta'
 import { Reveal } from '@/components/marketing/Reveal'
-import { bricolage } from '@/components/marketing/fonts'
 import '@/components/marketing/marketing.css'
 
-// The composed page, in the Landing v3 handoff's section order (hero →
-// platforms → scrollytelling → why us → four systems → profile → study kit
-// → pricing → final CTA). SocialProof (placeholder testimonials + the empty
-// stat row) is cut. The `.mkt` wrapper scopes the marketing token layer
-// (marketing.css) and the display font variable to this page only — product
-// surfaces never inherit either.
+// The composed page (hero → platforms → scrollytelling → why us → pricing →
+// final CTA). SocialProof (placeholder testimonials + the empty stat row),
+// the four-systems spec panel, the profile bookends, and the study-kit
+// section are cut. The `.mkt` wrapper scopes the marketing token layer
+// (marketing.css) to this page only — product surfaces never inherit it.
 export default function Home() {
   return (
-    <div className={`${bricolage.variable} mkt`}>
+    <div className="mkt">
       <Nav />
       <main>
         <Hero />
@@ -34,18 +29,6 @@ export default function Home() {
 
         <Reveal>
           <WhyUs />
-        </Reveal>
-
-        <Reveal>
-          <AdaptiveSection />
-        </Reveal>
-
-        <Reveal>
-          <ProfileSection />
-        </Reveal>
-
-        <Reveal>
-          <StudyLoopSection />
         </Reveal>
 
         <Reveal>

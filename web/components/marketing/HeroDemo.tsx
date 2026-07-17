@@ -15,11 +15,12 @@ import {
 } from '@/components/marketing/pill/overlay'
 
 // The hero's one interactive beat (Landing v3): a browser-frame card with a
-// fake problem sheet and the ambient pill resting bottom-center. Click the
-// pill and ONE exchange plays — listen (student line streams) → think
-// (900ms) → speak (tutor caption streams while two annotations draw on the
-// equation) → done (pill back to idle, caption + marks hold, replay chip).
-// The job is "whoa", not a full session — the full session plays in the
+// fake problem sheet and the ambient pill resting bottom-center. ONE
+// exchange auto-plays the first time the card is in view — listen (student
+// line streams) → think (900ms) → speak (tutor caption streams while two
+// annotations draw on the equation) → done (pill back to idle, caption +
+// marks hold, replay chip). The pill stays a real replay control. The job
+// is "whoa", not a full session — the full session plays in the
 // scrollytelling below (the replay chip says exactly that).
 //
 // Scripted animation, not the live voice stack (same spirit as the old
@@ -35,7 +36,7 @@ const TUTOR_LINE =
   'no guessing — you need a pair that multiplies to six and adds to negative five. what does the plus six tell you about the signs?'
 
 const DEMO_ALT =
-  'Interactive demo: a math practice page with the Calyxa pill resting at the bottom. Activating it plays one exchange — you ask "do I just guess the two numbers?", the tutor answers aloud in coaching mode while it circles the −5x and 6 terms of x² − 5x + 6 = 0 with "Adds to −5" and "Multiplies to +6" labels.'
+  'Demo: a math practice page with the Calyxa pill resting at the bottom. One exchange plays automatically — you ask "do I just guess the two numbers?", the tutor answers aloud in coaching mode while it circles the −5x and 6 terms of x² − 5x + 6 = 0 with "Adds to −5" and "Multiplies to +6" labels. The pill replays it.'
 
 const PILL_BY_PHASE: Record<Phase, PillState> = {
   rest: 'idle',
@@ -119,6 +120,28 @@ function useDemoMachine() {
 export function HeroDemo() {
   const reduceMotion = useReducedMotion() ?? false
   const machine = useDemoMachine()
+  const cardRef = useRef<HTMLDivElement>(null)
+  const autoplayed = useRef(false)
+  const { play } = machine
+
+  // Auto-play the exchange once, the first time the card is in view (at the
+  // top of the page that's effectively on load). Reduced motion never plays.
+  useEffect(() => {
+    if (reduceMotion || autoplayed.current) return
+    const card = cardRef.current
+    if (!card) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting || autoplayed.current) return
+        autoplayed.current = true
+        observer.disconnect()
+        play()
+      },
+      { threshold: 0.4 }
+    )
+    observer.observe(card)
+    return () => observer.disconnect()
+  }, [play, reduceMotion])
 
   // Reduced motion: the fixed `done` frame — caption + marks composed, no
   // playback, no play controls (there is nothing they could animate).
@@ -127,7 +150,10 @@ export function HeroDemo() {
   const marksOn = phase === 'speak' || phase === 'done'
 
   return (
-    <div className="relative h-[560px] overflow-hidden border border-(--mkt-hairline) bg-background shadow-[0_24px_60px_-18px_rgba(20,40,30,0.22)] max-lg:rounded-2xl lg:h-[640px] lg:rounded-none lg:rounded-tl-2xl lg:border-b-0 lg:border-r-0">
+    <div
+      ref={cardRef}
+      className="relative h-[560px] overflow-hidden border border-(--mkt-hairline) bg-background shadow-[0_24px_60px_-18px_rgba(20,40,30,0.22)] max-lg:rounded-2xl lg:h-[640px] lg:rounded-none lg:rounded-tl-2xl lg:border-b-0 lg:border-r-0"
+    >
       <p className="sr-only">{DEMO_ALT}</p>
 
       {/* Browser chrome */}
@@ -209,20 +235,13 @@ export function HeroDemo() {
           <AmbientPill state={PILL_BY_PHASE[phase]} mode="coach" />
         </button>
 
-        {!reduceMotion && (phase === 'rest' || phase === 'done') && (
+        {!reduceMotion && phase === 'done' && (
           <button
             type="button"
             onClick={machine.play}
             className="mkt-fade-up flex cursor-pointer items-center gap-[7px] rounded-full border border-(--mkt-hairline) bg-background/85 px-3.5 py-[7px] text-[12.5px] font-medium text-(--calyxa-chip-text) shadow-[0_4px_14px_rgba(28,40,30,0.08)] transition-colors hover:bg-accent-subtle hover:text-accent-fill-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-focus-ring)"
           >
-            {phase === 'rest' ? (
-              <>
-                <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full bg-accent-glow-strong" />
-                click the pill — hear one reply
-              </>
-            ) : (
-              <>↺ replay — the full session plays below</>
-            )}
+            ↺ replay — the full session plays below
           </button>
         )}
       </div>

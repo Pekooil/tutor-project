@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
-import { bricolage } from '@/components/marketing/fonts'
 import '@/components/marketing/marketing.css'
 
 // Sprint 19 Task 3 (ADR-046): the hosted privacy policy — a HARD Chrome Web
@@ -81,7 +80,7 @@ function DataRow({ what, why }: { what: string; why: string }) {
 
 export default function PrivacyPage() {
   return (
-    <div className={`${bricolage.variable} mkt min-h-svh bg-background`}>
+    <div className={"mkt min-h-svh bg-background"}>
       <Header />
 
       <main className="mx-auto max-w-3xl px-6 py-16">

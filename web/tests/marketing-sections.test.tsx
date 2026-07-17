@@ -3,9 +3,6 @@ import { createElement } from 'react'
 import { describe, expect, it } from 'vitest'
 import { Hero } from '../components/marketing/Hero'
 import { WhyUs } from '../components/marketing/WhyUs'
-import { AdaptiveSection } from '../components/marketing/AdaptiveSection'
-import { ProfileSection } from '../components/marketing/ProfileSection'
-import { StudyLoopSection } from '../components/marketing/StudyLoopSection'
 import { SessionShowcase } from '../components/marketing/SessionShowcase'
 import { FinalCta } from '../components/marketing/FinalCta'
 
@@ -13,8 +10,7 @@ import { FinalCta } from '../components/marketing/FinalCta'
 // how Next first paints them — no DOM emulation, no timers, deterministic
 // markup. Client-only motion (the hero beat machine, the scroll scrub, the
 // once-in-view playbacks) is covered by the manual pass; what THESE tests
-// pin is composition: the new sections present with the handoff's copy, the
-// study kit shipped as LIVE (no "on the way" qualifier), and no retired
+// pin is composition: the sections present with their copy, and no retired
 // panel-era vocabulary in what actually renders.
 
 // React escapes quotes/apostrophes in attributes and text ("tuesday's" →
@@ -33,16 +29,15 @@ describe('Hero (SSR)', () => {
   const html = decode(renderToString(createElement(Hero)))
 
   it('renders the v3 headline, badge, and footnote', () => {
-    expect(html).toContain("a tutor's voice, on your homework page.")
-    expect(html).toContain('chrome extension · waitlist open')
-    expect(html).toContain('free for 20 sessions a month · chrome')
+    expect(html).toContain('Stop copying. Start learning.')
+    expect(html).toContain('chrome extension · free to start')
+    expect(html).toContain('free for 10 sessions a month · chrome')
   })
 
-  it('renders the interactive demo card with the problem sheet and play control', () => {
+  it('renders the auto-playing demo card with the problem sheet and play control', () => {
     expect(html).toContain('mathpath.example/unit-4')
     expect(html).toContain('Problem 2 · solve by factoring')
     expect(html).toContain('Play the demo — hear one tutor reply')
-    expect(html).toContain('click the pill — hear one reply')
   })
 })
 
@@ -83,82 +78,11 @@ describe('WhyUs (SSR)', () => {
   })
 })
 
-describe('AdaptiveSection — the four-systems spec panel (SSR)', () => {
-  const html = decode(renderToString(createElement(AdaptiveSection)))
-
-  it('renders the panel with all four numbered rows', () => {
-    expect(html).toContain('the engine under the pill.')
-    expect(html).toContain('misconception prediction')
-    expect(html).toContain('tutor modes')
-    expect(html).toContain('annotations')
-    expect(html).toContain('pings')
-  })
-
-  it('shows exactly four mode chips plus the "+ 4 more" spill, never all eight', () => {
-    for (const mode of ['Exploring', 'Coaching', 'Building', 'Recovering']) {
-      expect(html).toContain(mode)
-    }
-    for (const mode of ['Practicing', 'Challenging', 'Verifying', 'Reviewing']) {
-      expect(html).not.toContain(mode)
-    }
-    expect(html).toContain('+ 4 more')
-    expect(html).toContain('18 in the catalog')
-  })
-
-  it('renders no interactive controls (the spec panel is static)', () => {
-    expect(html).not.toContain('<button')
-  })
-})
-
-describe('ProfileSection (SSR)', () => {
-  const html = decode(renderToString(createElement(ProfileSection)))
-
-  it('renders the before/after bookends in the pill language', () => {
-    expect(html).toContain('before this session')
-    expect(html).toContain('after this session')
-    expect(html).toContain('checking your last session…')
-    expect(html).toContain('AI prediction')
-    expect(html).toContain('what improved')
-    expect(html).toContain('still needs practicing')
-    expect(html).toContain('factor pairs — solid')
-    expect(html).toContain('sign errors on the roots — revisit')
-  })
-
-  it('renders no mastery bars or other retired copy', () => {
-    expect(html).not.toMatch(/mastery|progress bar|profile tag|insight strip|gap closed/i)
-  })
-})
-
-describe('StudyLoopSection (SSR)', () => {
-  const html = decode(renderToString(createElement(StudyLoopSection)))
-
-  it('markets the study kit as LIVE — the "on the way" qualifier is gone', () => {
-    expect(html).toContain('every session leaves a study kit behind.')
-    expect(html).not.toMatch(/on the way|coming soon|will leave|one day/i)
-  })
-
-  it('renders the filled recap anchor with the on-demand generate action', () => {
-    expect(html).toContain("generated for you · on every session's recap card")
-    expect(html).toContain('make my study kit')
-    expect(html).not.toMatch(/automatic/i)
-    // The dashed placeholder tiles are retired with the qualifier.
-    expect(html).not.toContain('cx-demo-placeholder')
-  })
-
-  it('keeps the ArtifactKind trio with the worked-solutions superset', () => {
-    expect(html).toContain('study notes')
-    expect(html).toContain('practice problems')
-    expect(html).toContain('flashcards')
-    expect(html).toContain('show solutions')
-    expect(html).toContain('what two numbers multiply to 6 and add to 5?')
-  })
-})
-
 describe('FinalCta (SSR)', () => {
   const html = decode(renderToString(createElement(FinalCta)))
 
   it('renders the closing line with the idle pill band copy', () => {
     expect(html).toContain('your homework is already open. so is the tutor.')
-    expect(html).toContain('free for 20 sessions a month · chrome, for now')
+    expect(html).toContain('free for 10 sessions a month · chrome, for now')
   })
 })
