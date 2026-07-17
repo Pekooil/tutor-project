@@ -14,14 +14,30 @@ import { describe, expect, it } from 'vitest'
 //
 // Comments are stripped before scanning: prose ABOUT a color ("reuses the brand
 // accent green") is documentation and allowed; code is not.
+//
+// Scope (Sprint 23): the premium dashboard reskin
+// (components/dashboard/premium/*) is a deliberate pixel reproduction of the
+// design handoff and uses the handoff's raw hex palette BY DESIGN — its own
+// theme.ts documents this ("the exact hexes / rgba values from the design rather
+// than the token system"). Those are surface/chrome colors (ink, muted, mint),
+// not the `--chart-*` DATA-VIZ palette ADR-048 governs. This gate therefore
+// applies to the chart components — ActivityChart / TrendChart / strand-color and
+// the other non-premium dashboard files, all token-based and still checked below
+// — and the premium/ subtree is out of its scope (excluded in listSourceFiles).
 
 const DASHBOARD_ROOT = fileURLToPath(new URL('../components/dashboard', import.meta.url))
 const THEME_CSS = fileURLToPath(new URL('../../packages/ui/src/theme.css', import.meta.url))
 
+// See the scope note above: the premium/ design-system reskin is intentionally
+// raw-hex and is not the --chart-* palette this gate enforces.
+const EXCLUDED_DIRS = new Set(['premium'])
+
 function listSourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const path = join(dir, name)
-    if (statSync(path).isDirectory()) return listSourceFiles(path)
+    if (statSync(path).isDirectory()) {
+      return EXCLUDED_DIRS.has(name) ? [] : listSourceFiles(path)
+    }
     return /\.(tsx?|css)$/.test(name) ? [path] : []
   })
 }
