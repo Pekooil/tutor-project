@@ -52,6 +52,18 @@ vi.mock('@/lib/supabase/admin', () => ({
   }),
 }))
 
+// Sprint 23 / Task 5: stripe-reconcile went stub → real, so it now constructs a
+// Stripe client. Mock it to an inert stub (whose subscription list resolves
+// empty) so this suite still proves only the CRON_SECRET gate + a clean run past
+// it — not real Stripe I/O. The deep reconciliation logic is proven separately
+// in stripe-reconcile.test.ts (Task 8). Same inert-mock philosophy as the admin
+// mock above.
+vi.mock('@/lib/billing/stripe', () => ({
+  stripeClient: () => ({
+    subscriptions: { list: async () => ({ data: [] }) },
+  }),
+}))
+
 const TEST_CRON_SECRET = 'cron-auth-test-secret-do-not-use-in-prod'
 process.env.CRON_SECRET = TEST_CRON_SECRET
 
@@ -100,7 +112,7 @@ describe.each(ROUTES)('$path auth gate', ({ path, handler }) => {
 })
 
 describe('GET /api/cron/stripe-reconcile', () => {
-  it('returns the wired no-op marker, never real Stripe logic', async () => {
+  it('runs past the gate and reports scan/reconcile counts', async () => {
     const response = await stripeReconcile.GET(
       requestFor('/api/cron/stripe-reconcile', `Bearer ${TEST_CRON_SECRET}`)
     )
@@ -108,7 +120,13 @@ describe('GET /api/cron/stripe-reconcile', () => {
 
     expect(response.status).toBe(200)
     expect(body.ok).toBe(true)
-    expect(body.note).toMatch(/Sprint 23/)
+    // The mocked admin client resolves an empty customer set, so the run
+    // completes cleanly having scanned nothing — proving the gate passed and
+    // the real body executes. The deep reconciliation logic (self-heal,
+    // past_due grace downgrade) is proven in stripe-reconcile.test.ts (Task 8).
+    expect(body.usersScanned).toBe(0)
+    expect(body.reconciled).toBe(0)
+    expect(Array.isArray(body.failedUsers)).toBe(true)
   })
 })
 

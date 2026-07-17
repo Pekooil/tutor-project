@@ -3,6 +3,7 @@ import { clientFromBearer } from '@/lib/auth/bearer'
 import { startSession, type SessionMode } from '@/lib/tier/session-gate'
 import { reconcileUnappliedForUser } from '@/lib/learning/apply'
 import { hashPageDomain } from '@/lib/privacy/url-hash'
+import { resolveEntitlements, FREE_ENTITLEMENTS } from '@/lib/entitlements/resolve'
 
 export async function POST(request: Request) {
   const auth = await clientFromBearer(request)
@@ -41,12 +42,32 @@ export async function POST(request: Request) {
   }
 
   // The tier decision (free-quota check + degrade/remaining) is made entirely
-  // inside the start_session RPC called here — this route only relays it.
-  const { data, error } = await startSession(auth.supabase, { pageUrlHash, mode: mode as SessionMode })
+  // inside the start_session RPC called here — this route only relays it. The
+  // caller's billing columns are read in PARALLEL (Sprint 23 / Task 6): the
+  // entitlements attached below are a DISPLAY hint and must not add a serial
+  // round-trip to the start latency. Both reads are RLS-scoped to the caller.
+  const [{ data, error }, billing] = await Promise.all([
+    startSession(auth.supabase, { pageUrlHash, mode: mode as SessionMode }),
+    auth.supabase
+      .from('users')
+      .select('subscription_tier, subscription_status')
+      .eq('id', auth.user.id)
+      .maybeSingle(),
+  ])
 
   if (error || !data) {
     return NextResponse.json({ error: error?.message ?? 'Could not start session.' }, { status: 400 })
   }
+
+  // Entitlements ride the response for DISPLAY only (the extension caches them
+  // in ActiveSession for UX); every Pro path RE-DERIVES them server-side via
+  // assertEntitlement — the cached value never authorizes (ADR-051). If the
+  // billing read failed, fall back to the free set: display defaults to free,
+  // never accidentally grants Pro. Resolved from tier (the grace authority) +
+  // status.
+  const entitlements = billing.data
+    ? resolveEntitlements(billing.data.subscription_tier, billing.data.subscription_status)
+    : FREE_ENTITLEMENTS
 
   // Cross-session reconcile sweep (ADR-019 safety net, Sprint 11 audit):
   // /api/session/end reconciles a session that ENDS, but a session the
@@ -68,5 +89,6 @@ export async function POST(request: Request) {
     degraded: data.degraded,
     countsAgainstFree: data.counts_against_free,
     remaining: data.remaining,
+    entitlements,
   })
 }
