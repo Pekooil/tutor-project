@@ -80,7 +80,15 @@ function isPublicPath(pathname: string) {
     // ("Couldn't generate a study kit right now"). Found live 2026-07-16;
     // third instance of this exact gap (see the /api/cron and /api/telemetry
     // notes above) — a new bearer-authed API route MUST be exempted here.
-    pathname.startsWith('/api/study')
+    pathname.startsWith('/api/study') ||
+    // Sprint 23 (ADR-050): the Stripe webhook is PUBLIC (Stripe calls it
+    // unauthenticated) but SIGNATURE-authenticated — its security is the Stripe
+    // signature, not a session, exactly like /api/waitlist is simply public.
+    // Without this it would be 307'd to /login before constructEvent ever ran
+    // and every webhook would silently fail. Only the WEBHOOK path is exempted:
+    // /api/billing/checkout and /api/billing/portal are cookie-authed from the
+    // dashboard (a signed-in user passes the gate below), so they are NOT public.
+    pathname.startsWith('/api/billing/webhook')
   )
 }
 
