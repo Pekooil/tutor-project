@@ -1,6 +1,7 @@
 import 'server-only'
 import Stripe from 'stripe'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 // Sprint 23 / Task 3 (ADR-050): the one server-only entry point to Stripe.
 // The `server-only` import turns any accidental import from a Client Component
@@ -57,13 +58,14 @@ type EnsureCustomerResult = { customerId: string } | { error: string }
 // `users.stripe_customer_id` unique index (migration 0003): reuse it if present,
 // else create a Customer and store the id back on the caller's own row.
 //
-// `supabase` is the caller's RLS-scoped client (bearer-or-cookie), so both the
-// read and the write only ever touch the caller's own `users` row — the
-// `users_select_own` / `users_update_own` policies (Shape 1, 0001) are the
-// ownership guarantee; there is no app-level "is this my row" check and no
-// service-role escalation. The created Customer carries `metadata.supabase_user_id`
-// so the webhook (Task 4) and reconcile cron (Task 5) can recover the mapping
-// even from the Stripe side.
+// `supabase` is the caller's RLS-scoped client (bearer-or-cookie): the READ is
+// scoped by `users_select_own` (Shape 1, 0001). The WRITE-back of the new
+// customer id runs on the service-role client since migration 0025 revoked
+// client UPDATE on billing columns (stripe_customer_id must be server-managed
+// — the webhook + reconcile cron key on it), explicitly scoped to the
+// route-verified caller id. The created Customer carries
+// `metadata.supabase_user_id` so the webhook (Task 4) and reconcile cron
+// (Task 5) can recover the mapping even from the Stripe side.
 export async function ensureStripeCustomer(
   supabase: SupabaseClient,
   user: { id: string; email?: string | null }
@@ -90,7 +92,12 @@ export async function ensureStripeCustomer(
     metadata: { supabase_user_id: user.id },
   })
 
-  const { error: updateError } = await supabase
+  // Service-role write (migration 0025): client UPDATE on billing columns is
+  // revoked — the webhook + reconcile cron key on stripe_customer_id, so it
+  // is server-managed like every other billing column. The explicit
+  // `.eq('id', user.id)` against the route-verified caller id is the scoping
+  // (the telemetry-export pattern), not RLS.
+  const { error: updateError } = await createAdminClient()
     .from('users')
     .update({ stripe_customer_id: customer.id })
     .eq('id', user.id)

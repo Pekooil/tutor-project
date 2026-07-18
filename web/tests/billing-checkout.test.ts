@@ -8,10 +8,28 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // exercised without network; `@/lib/auth/bearer` is mocked to control the caller.
 vi.mock('server-only', () => ({}))
 
-const { customerCreate, checkoutCreate, auth } = vi.hoisted(() => ({
+const { customerCreate, checkoutCreate, auth, adminUpdates } = vi.hoisted(() => ({
   customerCreate: vi.fn<(args: unknown) => Promise<{ id: string }>>(),
   checkoutCreate: vi.fn<(args: unknown) => Promise<{ url: string | null }>>(),
   auth: { current: null as unknown },
+  adminUpdates: [] as Array<{ table: string; fields: unknown; col: string; val: unknown }>,
+}))
+
+// Migration 0025: ensureStripeCustomer's write-back of the new customer id
+// runs on the SERVICE-ROLE client (client UPDATE on billing columns is
+// revoked), scoped by an explicit .eq on the verified caller id — captured
+// here so the tests can prove both the write and its scoping.
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({
+    from: (table: string) => ({
+      update: (fields: unknown) => ({
+        eq: async (col: string, val: unknown) => {
+          adminUpdates.push({ table, fields, col, val })
+          return { error: null }
+        },
+      }),
+    }),
+  }),
 }))
 
 vi.mock('stripe', () => ({
@@ -84,6 +102,7 @@ beforeEach(() => {
   customerCreate.mockResolvedValue({ id: 'cus_new' })
   checkoutCreate.mockResolvedValue({ url: 'https://checkout.stripe.test/session' })
   auth.current = null
+  adminUpdates.length = 0
 })
 
 describe('ensureStripeCustomer — keyed on stripe_customer_id', () => {
@@ -106,9 +125,16 @@ describe('ensureStripeCustomer — keyed on stripe_customer_id', () => {
       email: 'a@b.com',
       metadata: { supabase_user_id: 'u1' },
     })
-    // The new id is persisted back onto the caller's own row.
-    expect(sb.updates).toHaveLength(1)
-    expect(sb.updates[0]).toMatchObject({ fields: { stripe_customer_id: 'cus_new' }, id: 'u1' })
+    // The new id is persisted back onto the caller's own row — via the
+    // service-role client (migration 0025), never the RLS client.
+    expect(sb.updates).toHaveLength(0)
+    expect(adminUpdates).toHaveLength(1)
+    expect(adminUpdates[0]).toMatchObject({
+      table: 'users',
+      fields: { stripe_customer_id: 'cus_new' },
+      col: 'id',
+      val: 'u1',
+    })
   })
 })
 
