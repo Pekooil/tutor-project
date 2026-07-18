@@ -41,7 +41,7 @@ import type { AnnotationColorMap } from './Overlay';
 
 const ANNOTATIONS_EVENT = 'calyxa:annotations';
 
-type AnnotationDrawType = 'highlight' | 'circle' | 'arrow' | 'label' | 'step-indicator';
+type AnnotationDrawType = 'highlight' | 'underline' | 'circle' | 'arrow' | 'label' | 'step-indicator';
 
 type DrawRect = { x: number; y: number; w: number; h: number };
 
@@ -485,6 +485,11 @@ function AnnotationMark({
     >
       {instruction.type === 'highlight' &&
         (instruction.style?.weight === 'thin' ? <Underline rect={rect} /> : <Box rect={rect} />)}
+      {/* First-class 'underline' (design vocabulary: Box / Circle / Underline /
+          Arrow). Previously reachable ONLY via highlight + weight:'thin', which
+          the wire schema never allowed the model to emit — so underlines never
+          appeared in practice (the 2026-07-17 live-find). */}
+      {instruction.type === 'underline' && <Underline rect={rect} />}
       {instruction.type === 'circle' && <Circle rect={rect} />}
       {instruction.type === 'arrow' && <Arrow rect={rect} />}
       {instruction.type === 'step-indicator' && <StepBadge cx={rect.x} cy={rect.y} step={step} />}
@@ -525,17 +530,15 @@ function Circle({ rect }: { rect: DrawRect }) {
   );
 }
 
-// Underline -- inline phrase (the `weight: 'thin'` style hint): a rounded-cap
-// pen stroke just below the text plus a soft tint block over the phrase
-// itself. Redrawn 2026-07-16 (Darcy's ask): the bar is no longer a straight
-// filled rect -- it overshoots the phrase by a few px on each side and bows
-// gently downward with slightly uneven ends, like a real underline swept by
-// hand, and it draws on with the same dash trick as every other stroke.
+// Underline -- inline phrase (first-class `type: 'underline'`, plus the
+// legacy highlight + weight:'thin' hint): a soft tint band over the phrase
+// and a straight, rounded-cap 3px bar just beneath it -- matched to the
+// Calyxa Annotations design file (2026-07-17), which draws the bar dead
+// straight and flush with the tint band (replacing the 2026-07-16 hand-bowed
+// overshoot). Still a stroke path so it draws on with the same dash trick as
+// every other stroke shape.
 function Underline({ rect }: { rect: DrawRect }) {
-  const startX = rect.x - 7;
-  const endX = rect.x + rect.w + 7;
-  const midX = (startX + endX) / 2;
-  const y = rect.y + rect.h + 2.5;
+  const y = rect.y + rect.h + 3;
   return (
     <>
       <rect
@@ -544,11 +547,11 @@ function Underline({ rect }: { rect: DrawRect }) {
         y={rect.y - 2}
         width={rect.w + 6}
         height={rect.h + 4}
-        rx={4.5}
+        rx={4}
       />
       <path
         className="cx-annot-underline-bar"
-        d={`M ${startX},${y + 0.5} Q ${midX},${y + 3.5} ${endX},${y - 0.5}`}
+        d={`M ${rect.x - 3},${y} L ${rect.x + rect.w + 3},${y}`}
         pathLength={1}
       />
     </>
@@ -603,29 +606,42 @@ function StepBadge({ cx, cy, step }: { cx: number; cy: number; step: number | un
   );
 }
 
-// The leader's rendered path (2026-07-16 ask): a single quadratic bowed
-// perpendicular to the mark→pill line, so it reads as one naturally curved
-// stroke from ANY approach angle -- the old mid-x cubic collapsed to a dead-
-// straight segment whenever the pill sat directly above or below its mark.
-// The bow scales with distance (capped) so short hops stay subtle and long
-// leaders sweep visibly.
-function leaderPathD(leader: { x1: number; y1: number; x2: number; y2: number }): string {
+// The leader's rendered path — matched to the Calyxa Annotations design file
+// (2026-07-17): every leader in the design is a cubic that LEAVES the mark
+// horizontally and ARRIVES at the label horizontally (e.g. "M100,28
+// C 200,28 310,7 384,7" — first control point at the start's y, second at
+// the end's y, both pulled along x), a calm horizontal S rather than the
+// previous perpendicular-bowed quadratic. When the pill sits predominantly
+// ABOVE/BELOW its mark the same curve is used rotated 90° (vertical
+// tangents), so no approach angle collapses to an awkward shape. Control
+// pulls sit at ~35% / ~74% of the span (the design's own ratios) with a
+// minimum reach so short hops still curve.
+export function leaderPathD(leader: { x1: number; y1: number; x2: number; y2: number }): string {
   const dx = leader.x1 - leader.x2;
   const dy = leader.y1 - leader.y2;
-  const length = Math.hypot(dx, dy) || 1;
-  const bow = Math.min(26, length * 0.22);
-  const controlX = (leader.x1 + leader.x2) / 2 + (-dy / length) * bow;
-  const controlY = (leader.y1 + leader.y2) / 2 + (dx / length) * bow;
-  return `M ${leader.x2},${leader.y2} Q ${controlX},${controlY} ${leader.x1},${leader.y1}`;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    const sign = dx >= 0 ? 1 : -1;
+    const c1 = leader.x2 + sign * Math.max(24, Math.abs(dx) * 0.35);
+    const c2 = leader.x2 + sign * Math.max(32, Math.abs(dx) * 0.74);
+    return `M ${leader.x2},${leader.y2} C ${c1},${leader.y2} ${c2},${leader.y1} ${leader.x1},${leader.y1}`;
+  }
+  const sign = dy >= 0 ? 1 : -1;
+  const c1 = leader.y2 + sign * Math.max(24, Math.abs(dy) * 0.35);
+  const c2 = leader.y2 + sign * Math.max(32, Math.abs(dy) * 0.74);
+  return `M ${leader.x2},${leader.y2} C ${leader.x2},${c1} ${leader.x1},${c2} ${leader.x1},${leader.y1}`;
 }
 
-// The leader from a displaced explanation back to its mark: it starts at the
-// top/bottom edge midpoint of the target box (whichever side the pill sits
-// on) and ends on the pill's facing edge. Recomputed live from the pill's
-// CURRENT position -- so it tracks a user drag the same way it drew the
-// collision pass's automatic displacement. Rendered through leaderPathD's
-// bowed quadratic, same as the collision leader's look.
-function computePillLeader(
+// The leader from a displaced explanation back to its mark, matched to the
+// design file's anchoring: when the pill sits predominantly BESIDE its mark
+// (the design's own layout — labels in a right-hand rail), the leader runs
+// from the mark's facing SIDE-edge midpoint to the pill's facing side-edge
+// CENTER, so the horizontal-tangent cubic leaves and lands flat, exactly
+// like the design's "M100,28 C…" leaders. When the pill sits predominantly
+// above/below, it anchors on the top/bottom edges instead (the rotated
+// curve). Recomputed live from the pill's CURRENT position -- so it tracks
+// a user drag the same way it drew the collision pass's automatic
+// displacement.
+export function computePillLeader(
   anchor: DrawRect,
   x: number,
   y: number,
@@ -633,13 +649,25 @@ function computePillLeader(
 ): { x1: number; y1: number; x2: number; y2: number } {
   const anchorCenterX = anchor.x + anchor.w / 2;
   const anchorCenterY = anchor.y + anchor.h / 2;
-  const above = y + LABEL_HEIGHT / 2 <= anchorCenterY;
+  const pillCenterX = x + width / 2;
+  const pillCenterY = y + LABEL_HEIGHT / 2;
+
+  if (Math.abs(pillCenterX - anchorCenterX) >= Math.abs(pillCenterY - anchorCenterY)) {
+    // Side-by-side (the design's canonical case): side-edge to side-edge.
+    const pillOnRight = pillCenterX >= anchorCenterX;
+    return {
+      x1: pillOnRight ? x : x + width,
+      y1: pillCenterY,
+      x2: pillOnRight ? anchor.x + anchor.w : anchor.x,
+      y2: anchorCenterY,
+    };
+  }
+
+  // Stacked: top/bottom edge midpoints, vertical-tangent curve.
+  const above = pillCenterY <= anchorCenterY;
   return {
-    // pill end: near the horizontal point on the facing edge, clamped so the
-    // line meets the pill rather than empty space when dragged far sideways.
     x1: Math.max(x, Math.min(anchorCenterX, x + width)),
     y1: above ? y + LABEL_HEIGHT : y,
-    // mark end: the top or bottom edge midpoint of the target box.
     x2: anchorCenterX,
     y2: above ? anchor.y : anchor.y + anchor.h,
   };

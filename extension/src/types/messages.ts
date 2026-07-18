@@ -236,7 +236,7 @@ export type AiTurnPayload = {
 // other way -- these only ever travel background -> content, never
 // content -> background.
 export type AnnotationTargetKind = 'selector' | 'bbox' | 'textMatch';
-export type AnnotationType = 'highlight' | 'circle' | 'arrow' | 'label' | 'step-indicator';
+export type AnnotationType = 'highlight' | 'underline' | 'circle' | 'arrow' | 'label' | 'step-indicator';
 
 export type AnnotationTarget = {
   kind: AnnotationTargetKind;

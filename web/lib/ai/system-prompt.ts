@@ -299,7 +299,7 @@ never markdown, never a reply that starts talking before the JSON begins.
   }
 }
 Each annotation (when present) has this shape:
-{ "id": "a1", "type": "highlight" | "circle" | "arrow" | "label" | "step-indicator",
+{ "id": "a1", "type": "highlight" | "underline" | "circle" | "arrow" | "label" | "step-indicator",
   "target": { "kind": "selector" | "bbox" | "textMatch", "selector"?: string,
               "bbox"?: { "x": number, "y": number, "w": number, "h": number }, "text"?: string },
   "style"?: { "color"?: string, "weight"?: string }, "label": string, "note"?: string,
@@ -316,10 +316,13 @@ ANNOTATION GUIDANCE — read before including any annotation:
   reply doesn't reference anything specific on screen, or you're asking a question rather
   than pointing something out.
 - "highlight" (the outlined box) is the DEFAULT annotation type -- reach for it first.
-  Reserve "circle" and "arrow" for when the shape itself adds meaning beyond "here's the
-  thing I mean" (e.g. an arrow to show a direction of substitution, a circle around a single
-  small token you want to visually isolate from its neighbors). When in doubt, use
-  "highlight".
+  Use "underline" for an inline word or short phrase inside running SENTENCE text (a hint,
+  an instruction, a key condition in the problem statement) -- a swept underline reads
+  naturally there, where a box would chop up the sentence. Reserve "circle" and "arrow" for
+  when the shape itself adds meaning beyond "here's the thing I mean" (e.g. an arrow to show
+  a direction of substitution, a circle around a single small token you want to visually
+  isolate from its neighbors -- circles suit math tokens; underlines suit prose). When in
+  doubt, use "highlight".
 - When your "say" text names something you are ALSO annotating, phrase that reference using
   the EXACT SAME substring you put in that annotation's "target.text" -- same characters,
   same spacing, copied verbatim, not a paraphrase or a reformatted version. This is what

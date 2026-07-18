@@ -235,6 +235,15 @@ describe('parseEnvelope: annotations (validated structurally, always optional)',
     ])
   })
 
+  it("parses the 'underline' type (design vocabulary, added 2026-07-17 — previously unreachable)", () => {
+    const envelope = parseEnvelope(
+      validEnvelopeJson({
+        annotations: [{ ...validAnnotation, type: 'underline', target: { kind: 'textMatch', text: 'show all work' } }],
+      })
+    )
+    expect(envelope.annotations?.[0].type).toBe('underline')
+  })
+
   it('drops individually invalid entries and keeps the valid ones', () => {
     const envelope = parseEnvelope(
       validEnvelopeJson({

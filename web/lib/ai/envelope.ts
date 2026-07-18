@@ -41,7 +41,7 @@ export type Assessment = {
 }
 
 export type AnnotationTargetKind = 'selector' | 'bbox' | 'textMatch'
-export type AnnotationType = 'highlight' | 'circle' | 'arrow' | 'label' | 'step-indicator'
+export type AnnotationType = 'highlight' | 'underline' | 'circle' | 'arrow' | 'label' | 'step-indicator'
 
 export type AnnotationTarget = {
   kind: AnnotationTargetKind
@@ -405,6 +405,7 @@ function isValidProfileTagKind(value: unknown): value is ProfileTagKind {
 function isValidAnnotationType(value: unknown): value is AnnotationType {
   return (
     value === 'highlight' ||
+    value === 'underline' ||
     value === 'circle' ||
     value === 'arrow' ||
     value === 'label' ||

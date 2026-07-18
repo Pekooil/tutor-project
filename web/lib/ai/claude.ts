@@ -126,7 +126,7 @@ const ANNOTATION_ITEM_SCHEMA = {
   additionalProperties: false,
   properties: {
     id: { type: 'string' },
-    type: { type: 'string', enum: ['highlight', 'circle', 'arrow', 'label', 'step-indicator'] },
+    type: { type: 'string', enum: ['highlight', 'underline', 'circle', 'arrow', 'label', 'step-indicator'] },
     target: {
       type: 'object',
       additionalProperties: false,

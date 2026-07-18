@@ -728,3 +728,50 @@ describe('assignAnnotationColors — deterministic per-turn ordinal color assign
     expect(assignAnnotationColors([])).toEqual({});
   });
 });
+
+// ── The design-file leader geometry (Calyxa Annotations, 2026-07-17) ──
+// Leaders are cubics with FLAT tangents at both ends: horizontal when the
+// pill sits beside its mark (the design's canonical right-hand-rail case),
+// the same curve rotated 90° when stacked. computePillLeader anchors on the
+// FACING edges so the flat tangents leave and land flush.
+import { computePillLeader, leaderPathD } from '../src/overlay/AnnotationLayer';
+
+describe('leaderPathD / computePillLeader — the design-file leader curve', () => {
+  const mark = { x: 100, y: 200, w: 80, h: 30 };
+
+  it('side-by-side: anchors mark side-edge midpoint → pill facing-edge center', () => {
+    // Pill well to the right of the mark.
+    const leader = computePillLeader(mark, 400, 190, 120);
+    expect(leader.x2).toBe(180); // mark's RIGHT edge
+    expect(leader.y2).toBe(215); // mark's vertical center
+    expect(leader.x1).toBe(400); // pill's LEFT edge
+    expect(leader.y1).toBe(190 + LABEL_HEIGHT / 2); // pill's vertical center
+  });
+
+  it('side-by-side path: a cubic with HORIZONTAL tangents (control points at the endpoints\' own y)', () => {
+    const d = leaderPathD({ x1: 384, y1: 7, x2: 100, y2: 28 });
+    const m = d.match(/^M ([\d.-]+),([\d.-]+) C ([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+)$/);
+    expect(m).toBeTruthy();
+    const [, , y0, , c1y, , c2y, , y3] = m!.map(Number);
+    expect(c1y).toBe(y0); // first control at the start's y → horizontal exit
+    expect(c2y).toBe(y3); // second control at the end's y → horizontal arrival
+  });
+
+  it('stacked (pill directly above): top/bottom anchoring with VERTICAL tangents', () => {
+    const leader = computePillLeader(mark, 110, 80, 60);
+    expect(leader.y2).toBe(mark.y); // mark's top edge
+    const d = leaderPathD(leader);
+    const m = d.match(/^M ([\d.-]+),([\d.-]+) C ([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+)$/);
+    expect(m).toBeTruthy();
+    const [, x0, , c1x, , c2x, , x3] = m!.map(Number);
+    expect(c1x).toBe(x0); // vertical exit
+    expect(c2x).toBe(x3); // vertical arrival
+  });
+
+  it('short hops still curve: control pulls have a minimum reach', () => {
+    const d = leaderPathD({ x1: 130, y1: 100, x2: 100, y2: 130 });
+    const m = d.match(/C ([\d.-]+),/);
+    // c1x = x2 + max(24, |dx|*0.35) = 100 + 24 with dx=30.
+    expect(Number(m![1])).toBe(124);
+  });
+});

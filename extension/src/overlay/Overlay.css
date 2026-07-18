@@ -456,13 +456,14 @@
 .cx-annot-underline-tint {
   fill: var(--cx-annot-fill);
 }
-/* The underline is a STROKE path now (2026-07-16 ask): a gently bowed,
- * slightly-overshooting pen line instead of a straight filled bar, so it
- * draws on with the same dash trick as every other stroke shape. */
+/* The underline bar: a straight, rounded-cap 3px stroke flush under the
+ * tint band — matched to the Calyxa Annotations design file (2026-07-17;
+ * the design's vocabulary card and 1b both draw it straight at 3px). A
+ * stroke path so it draws on with the same dash trick as other shapes. */
 .cx-annot-underline-bar {
   fill: none;
   stroke: var(--cx-annot-stroke);
-  stroke-width: 2.5;
+  stroke-width: 3;
   stroke-linecap: round;
 }
 .cx-annot-dot {

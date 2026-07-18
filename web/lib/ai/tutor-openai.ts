@@ -98,7 +98,7 @@ const OPENAI_ANNOTATION_BOOST = `═══════════════�
 Annotating is the DEFAULT, not optional and not only for special turns:
 - If your "say" names, points at, works with, or reasons about ANY equation, expression, term, exponent, coefficient, number, or step that appears in PAGE CONTEXT, you MUST include at least one annotation for it THIS turn.
 - Copy the referenced text EXACTLY into the annotation's target.text (kind "textMatch"), and reuse that same exact substring inside "say" so the phrase and the box share a color.
-- Prefer "highlight". Point at the SPECIFIC part, not the whole equation. Up to 3 annotations; each needs a verb-first "label" (4 words or fewer).
+- Prefer "highlight". Use "underline" for an inline word/phrase inside prose (a hint or condition in the problem statement). Point at the SPECIFIC part, not the whole equation. Up to 3 annotations; each needs a verb-first "label" (4 words or fewer).
 - Return an empty annotations array ONLY when PAGE CONTEXT is empty or your "say" genuinely references nothing on screen. Referencing something visible and returning no annotation is a mistake.
 Example (annotations present, NOT empty): PAGE CONTEXT contains "5t^2 - 6t + 8t^2 - 8t" and your "say" is "Combine the two t-squared terms: $$5t^2 + 8t^2 = 13t^2$$" — then annotations MUST include {"id":"a1","type":"highlight","target":{"kind":"textMatch","text":"5t^2"},"label":"Add these like terms"} and a second one whose target.text is "8t^2".`
 
