@@ -315,6 +315,7 @@ export async function openingScan(
   prediction?: StrugglePrediction;
   topic?: PageTopic;
   stickingCandidates?: StickingCandidate[];
+  commonSticking?: string[];
 }> {
   const res = await authorizedFetch('/api/ai/turn', {
     method: 'POST',
@@ -358,6 +359,11 @@ export async function openingScan(
     // than `prediction`/`topic`'s single-object shape).
     ...(Array.isArray(body.stickingCandidates) && body.stickingCandidates.length > 0
       ? { stickingCandidates: body.stickingCandidates as StickingCandidate[] }
+      : {}),
+    // The concept's curated common misconceptions (cold-start chip fill):
+    // plain display strings, same array-shape discipline as above.
+    ...(Array.isArray(body.commonSticking) && body.commonSticking.length > 0
+      ? { commonSticking: (body.commonSticking as unknown[]).filter((s): s is string => typeof s === 'string') }
       : {}),
   };
 }

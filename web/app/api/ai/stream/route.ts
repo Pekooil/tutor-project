@@ -1,5 +1,7 @@
 import { clientFromBearer } from '@/lib/auth/bearer'
-import { runTutorTurnStream, type TurnMessage } from '@/lib/ai/claude'
+// Sprint 24 (ADR-038): tutor model calls go through the TutorProvider seam.
+import { getTutorProvider } from '@/lib/ai/provider'
+import type { TurnMessage } from '@/lib/ai/claude'
 import { loadProfile } from '@/lib/learning/profile-read'
 import {
   MAX_EQUATIONS,
@@ -144,7 +146,7 @@ export async function POST(request: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for await (const text of runTutorTurnStream({ messages, pageContext, profile })) {
+        for await (const text of getTutorProvider().runTurnStream({ messages, pageContext, profile })) {
           controller.enqueue(sseChunk({ text }))
         }
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))

@@ -311,6 +311,13 @@ beforeAll(async () => {
       // route to api.anthropic.com from this process.
       ANTHROPIC_API_KEY: 'sk-ant-test-fake-key-not-real',
       ANTHROPIC_BASE_URL: `http://localhost:${FAKE_ANTHROPIC_PORT}`,
+      // ADR-052 flipped the DEFAULT tutor provider to OpenAI; this suite's
+      // fake server speaks the ANTHROPIC wire shape, so pin the seam to the
+      // retained Anthropic path — the suite tests the route's reply/
+      // annotation/pin logic, not the provider (the OpenAI path is covered
+      // by openai-schema.test.ts + the EVAL_LIVE tutor-eval/repro suites).
+      TUTOR_PROVIDER: 'anthropic',
+      STUDY_KIT_PROVIDER: 'anthropic',
       // Sprint 16's cost guardrail (ADR-041) keys off `cost_ledger`, a
       // GLOBAL day-scoped counter shared by every process hitting this same
       // live Supabase project -- real usage AND every other test run of

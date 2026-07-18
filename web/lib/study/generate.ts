@@ -2,6 +2,12 @@ import 'server-only'
 import type Anthropic from '@anthropic-ai/sdk'
 import { getConcept } from '@calyxa/curriculum'
 import { createClient, logTurnUsage } from '@/lib/ai/claude'
+import {
+  createClient as createOpenAIClient,
+  logUsage as logOpenAIUsage,
+  toolCallInput,
+} from '@/lib/ai/tutor-openai'
+import { toOpenAIFunctionTool } from '@/lib/ai/openai-schema'
 import type { SessionSource } from './source'
 import {
   EMPTY_STUDY_KIT,
@@ -30,11 +36,18 @@ import {
 // split runTutorTurn takes.
 
 // Same Haiku model the tutoring turn uses (web/lib/ai/claude.ts MODEL) -- the
-// production provider/model is locked to Anthropic Haiku (no GPT migration),
-// and a kit is a structured-extraction task Haiku handles well. Defined here,
-// not imported, mirroring how the opening scan defines its own OPENING_SCAN_MODEL
-// const rather than reaching into claude.ts's private MODEL.
+// default study-kit provider stays Anthropic Haiku, and a kit is a
+// structured-extraction task Haiku handles well. Defined here, not imported,
+// mirroring how the opening scan defines its own OPENING_SCAN_MODEL const
+// rather than reaching into claude.ts's private MODEL.
 const STUDY_KIT_MODEL = 'claude-haiku-4-5-20251001'
+
+// ADR-052 (2026-07-17): GPT-4o-mini is the DEFAULT study-kit provider too;
+// STUDY_KIT_PROVIDER=anthropic selects the retained Haiku backup path.
+// DELIBERATELY a separate flag from TUTOR_PROVIDER so the tutor turn and kit
+// generation can be flipped independently. Read per-call, no restart needed.
+const STUDY_KIT_MODEL_OPENAI = 'gpt-4o-mini'
+const STUDY_KIT_FN = toOpenAIFunctionTool(STUDY_KIT_TOOL)
 
 // Sized for the whole kit's OUTPUT (up to MAX_NOTES notes + MAX_PROBLEMS worked
 // problems + MAX_FLASHCARDS cards) in one call -- several times a turn's
@@ -147,9 +160,38 @@ async function runStudyKitTool(system: string, userMessage: string): Promise<Stu
   return parseStudyKit(toolUse.input)
 }
 
+// The GPT-4o-mini mirror of runStudyKitTool: same forced-tool discipline, same
+// parseStudyKit re-validation, same EMPTY_STUDY_KIT degradation on a missing/
+// unusable tool call, same throw-through on a real API error. The OpenAI-strict
+// schema is DERIVED from STUDY_KIT_TOOL (openai-schema.ts), so tool.ts stays
+// the single source of truth. Note: OpenAI function tools drop input_examples,
+// so this path loses the worked example the Anthropic call carries.
+async function runStudyKitToolOpenAI(system: string, userMessage: string): Promise<StudyKit> {
+  const response = await createOpenAIClient().chat.completions.create({
+    model: STUDY_KIT_MODEL_OPENAI,
+    max_completion_tokens: STUDY_KIT_MAX_TOKENS,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: userMessage },
+    ],
+    tools: [STUDY_KIT_FN],
+    tool_choice: { type: 'function', function: { name: STUDY_KIT_TOOL_NAME } },
+  })
+
+  logOpenAIUsage('study-kit', response.usage)
+
+  const input = toolCallInput(response, STUDY_KIT_TOOL_NAME)
+  if (!input) return EMPTY_STUDY_KIT
+  return parseStudyKit(input)
+}
+
 // Turns one session's material into a validated study kit. The route
 // (Task 4) is responsible for the cost guard BEFORE this call and for
 // persistence AFTER -- this function is only the generation + validation.
 export async function generateStudyKit(source: SessionSource): Promise<StudyKit> {
-  return runStudyKitTool(STUDY_KIT_SYSTEM, buildStudyKitUserMessage(source))
+  const system = STUDY_KIT_SYSTEM
+  const user = buildStudyKitUserMessage(source)
+  return process.env.STUDY_KIT_PROVIDER === 'anthropic'
+    ? runStudyKitTool(system, user)
+    : runStudyKitToolOpenAI(system, user)
 }

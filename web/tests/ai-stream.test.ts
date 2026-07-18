@@ -182,6 +182,11 @@ beforeAll(async () => {
       ...process.env,
       ANTHROPIC_API_KEY: 'sk-ant-test-fake-key-not-real',
       ANTHROPIC_BASE_URL: `http://localhost:${FAKE_ANTHROPIC_PORT}`,
+      // ADR-052 flipped the DEFAULT tutor provider to OpenAI; the fake
+      // server speaks the ANTHROPIC wire shape, so pin the seam to the
+      // retained Anthropic path (this suite tests SSE plumbing, not the
+      // provider).
+      TUTOR_PROVIDER: 'anthropic',
     },
   })
   const startupLog: string[] = []

@@ -73,20 +73,30 @@ export function humanizeMisconceptionLabel(candidate: StickingCandidate): string
  * pickStickingCandidates, fed by loadProfile's occurrence/recency-ordered
  * read) -- each labeled "Top N possible misconception" so the ranking
  * itself is visible on screen, not just implied. Fewer than 3 recorded ->
- * the remaining slots fill from the fixed generic pool (skipping any
- * exact-text duplicate of a personalized one already shown, case-
- * insensitive). The 4th slot is ALWAYS the honest opt-out -- never counted
- * toward the ranked 3, never personalized, never dropped even when all 3
- * ranked slots are real. `candidates` is trusted pre-capped-at-3 by the
- * caller but sliced again here defensively.
+ * the remaining slots fill first from `commonDefaults` (the concept's
+ * curated common misconceptions, server-resolved -- Darcy's 2026-07-17
+ * ask: a cold start names a REAL frequent misconception for the concept),
+ * then from the fixed generic pool (skipping any exact-text duplicate
+ * already shown, case-insensitive). Filled slots are never marked
+ * personalized -- only recorded history earns the "from your sessions"
+ * copy. The 4th slot is ALWAYS the honest opt-out -- never counted toward
+ * the ranked 3, never personalized, never dropped even when all 3 ranked
+ * slots are real. `candidates` is trusted pre-capped-at-3 by the caller
+ * but sliced again here defensively.
  */
-export function buildStickingChips(candidates: readonly StickingCandidate[]): StickingChip[] {
+export function buildStickingChips(
+  candidates: readonly StickingCandidate[],
+  commonDefaults: readonly string[] = [],
+): StickingChip[] {
   const personalizedLabels = candidates.slice(0, 3).map(humanizeMisconceptionLabel);
   const usedLabels = new Set(personalizedLabels.map((label) => label.toLowerCase()));
-  const fallback = GENERIC_STICKING_CHIPS.filter((label) => !usedLabels.has(label.toLowerCase()));
+  const fallback = [...commonDefaults, ...GENERIC_STICKING_CHIPS].filter(
+    (label) => !usedLabels.has(label.toLowerCase()),
+  );
 
   const values = [...personalizedLabels];
   for (let index = 0; values.length < 3 && index < fallback.length; index++) {
+    if (values.some((value) => value.toLowerCase() === fallback[index].toLowerCase())) continue;
     values.push(fallback[index]);
   }
 

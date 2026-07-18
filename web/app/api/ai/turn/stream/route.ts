@@ -1,5 +1,6 @@
 import { clientFromBearer } from '@/lib/auth/bearer'
-import { runTutorTurnEnvelopeStream } from '@/lib/ai/claude'
+// Sprint 24 (ADR-038): tutor model calls go through the TutorProvider seam.
+import { getTutorProvider } from '@/lib/ai/provider'
 import { loadProfile } from '@/lib/learning/profile-read'
 import { detectTopicKeys } from '@/lib/learning/topic'
 import { parseMessages, parsePageContext, parseSessionId, parseResponseLatencyMs } from '@/lib/ai/turn-request'
@@ -96,7 +97,7 @@ export async function POST(request: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for await (const event of runTutorTurnEnvelopeStream({ messages, pageContext, profile })) {
+        for await (const event of getTutorProvider().runTurnEnvelopeStream({ messages, pageContext, profile })) {
           if (event.type === 'sayDelta') {
             controller.enqueue(sseChunk({ sayDelta: event.text }))
             continue

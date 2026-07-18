@@ -188,6 +188,10 @@ export type HeldScan = {
   // The concept card's sticking-point candidates: up to 3 of the student's
   // own recorded misconceptions for `topic`'s concept, grounded server-side.
   stickingCandidates?: StickingCandidate[];
+  // The concept's curated common misconceptions (server-resolved display
+  // strings): fills chip slots the candidates leave empty, before the fixed
+  // generic pool — never rendered as personalized.
+  commonSticking?: string[];
   annotations?: Annotation[];
 };
 
@@ -215,6 +219,12 @@ export const HISTORY_HOLD_MS = 6500;
 export const SURFACE_EXIT_MS = 270;
 const FALLBACK_HOLD_MS = 8000;
 const NOTICE_HOLD_MS = 6000;
+
+// Inactivity auto-end (2026-07-17, Darcy): a live session with no student
+// activity for this long ends itself through the SAME END_SESSION path as the
+// manual ✕ — the recap still arrives via the SESSION_ENDED broadcast, so the
+// student comes back to a summary, not a silently vanished session.
+const INACTIVITY_END_MS = 3 * 60_000;
 
 // The pill's shape map [width, height, radius] px (handoff §"The pill").
 // The hover row grows past the design's fixed 284px when a session is live:
@@ -559,6 +569,7 @@ export function Overlay({
     prediction?: StrugglePrediction;
     topic?: PageTopic;
     stickingCandidates?: StickingCandidate[];
+    commonSticking?: string[];
   } | null>;
   // Sprint 17 Task 6 (ADR-043): fire-and-forget telemetry. Optional; called
   // on a real onboarding completion (never on skip) and per completed voice
@@ -1240,6 +1251,9 @@ export function Overlay({
           ...(result.stickingCandidates && result.stickingCandidates.length > 0
             ? { stickingCandidates: result.stickingCandidates }
             : {}),
+          ...(result.commonSticking && result.commonSticking.length > 0
+            ? { commonSticking: result.commonSticking }
+            : {}),
           ...(result.annotations && result.annotations.length > 0 ? { annotations: result.annotations } : {}),
         });
         // Pre-select both answers the moment the scan lands ("confirm, not
@@ -1247,7 +1261,7 @@ export function Overlay({
         // sticking point the top-ranked chip.
         if (result.topic) {
           setCheckinTopic(result.topic.title);
-          const topChip = buildStickingChips(result.stickingCandidates ?? [])[0];
+          const topChip = buildStickingChips(result.stickingCandidates ?? [], result.commonSticking ?? [])[0];
           setStickingPoint(topChip?.value ?? null);
         }
         // AnnotationLayer's box-stroke lookup reads the SAME map the
@@ -1714,11 +1728,11 @@ export function Overlay({
     setEndConfirmOpen(true);
   }
 
-  // Confirmed manual end: reuses the popup's END_SESSION path verbatim via
+  // The shared end path: reuses the popup's END_SESSION path verbatim via
   // onEndSession, then closes directly with performClose. A "no active
   // session" error surfaces as a notice instead of collapsing on nothing.
-  async function handleEndSessionConfirmed() {
-    setEndConfirmOpen(false);
+  // Shared by the confirmed manual end and the inactivity auto-end.
+  async function endLiveSession() {
     if (busy || ending || recording) return;
     setEnding(true);
     setNotice(null);
@@ -1736,6 +1750,49 @@ export function Overlay({
       setEnding(false);
     }
   }
+
+  async function handleEndSessionConfirmed() {
+    setEndConfirmOpen(false);
+    await endLiveSession();
+  }
+
+  // ---- Inactivity auto-end (2026-07-17, Darcy) ----
+  // A live session ends itself after INACTIVITY_END_MS with no student
+  // activity. Every dep is an activity signal, so any of them re-arms the
+  // 3-minute window: typing (input), a turn arriving or being sent
+  // (messages), chips/answer cards, the mic (micState), the live voice
+  // transcript, playback/thinking (playing/busy/voiceThinking), the pill
+  // shell, and the dialogs. The timer is SUSPENDED (not just re-armed)
+  // while a turn is in flight, audio is playing, the mic is open, or the
+  // close choreography is running — those are engagement, not absence.
+  useEffect(() => {
+    if (!sessionLive || closeState !== 'idle' || ending) return;
+    if (busy || voiceThinking || playing || micState !== 'idle') return;
+    const timer = window.setTimeout(() => {
+      void endLiveSession();
+    }, INACTIVITY_END_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    sessionLive,
+    closeState,
+    ending,
+    busy,
+    voiceThinking,
+    playing,
+    micState,
+    input,
+    messages,
+    chips,
+    answerFields,
+    liveTranscript,
+    shell,
+    endConfirmOpen,
+    historyOpen,
+    feedbackOpen,
+    reframeOpen,
+    tutorMode,
+  ]);
 
   // ---- Pill interaction handlers ----
   // Hover-expansion is blocked only while a surface that OWNS the flow is
@@ -1851,7 +1908,7 @@ export function Overlay({
 
   const captionLive = busy || playing;
   const conceptSticking = useMemo(
-    () => (scan ? buildStickingChips(scan.stickingCandidates ?? [])[0] : undefined),
+    () => (scan ? buildStickingChips(scan.stickingCandidates ?? [], scan.commonSticking ?? [])[0] : undefined),
     [scan],
   );
 

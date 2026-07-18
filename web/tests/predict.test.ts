@@ -125,4 +125,48 @@ describe('pickStickingCandidates — the check-in 5b sticking-point candidates',
     pickStickingCandidates(p, 'algebra.quadratics.factoring')
     expect(p.activeMisconceptions).toBe(misconceptions)
   })
+
+  // The 2026-07-17 widen: related-concept history (prerequisites, dependents,
+  // same curriculum family) fills slots the exact concept's history leaves
+  // empty -- Darcy's "pull history from previous related sessions" ask.
+  describe('the related-concept tier', () => {
+    it('surfaces a misconception recorded on a PREREQUISITE of the confirmed concept', () => {
+      const prereq = misconception('algebra.polynomials.expanding', 'drops the negative when distributing')
+      const p = profile({ activeMisconceptions: [prereq] })
+      expect(pickStickingCandidates(p, 'algebra.quadratics.factoring')).toEqual([prereq])
+    })
+
+    it('surfaces a misconception recorded on a DEPENDENT (a concept that lists this one as a prerequisite)', () => {
+      // chain-rule lists product-rule as a prerequisite, so chain-rule
+      // history is related when the student confirms product-rule.
+      const dependent = misconception('calculus.differentiation.chain-rule', 'forgets the inner derivative')
+      const p = profile({ activeMisconceptions: [dependent] })
+      expect(pickStickingCandidates(p, 'calculus.differentiation.product-rule')).toEqual([dependent])
+    })
+
+    it('surfaces a misconception from the same curriculum family', () => {
+      const sibling = misconception('algebra.quadratics.formula', 'drops the negative on -b')
+      const p = profile({ activeMisconceptions: [sibling] })
+      expect(pickStickingCandidates(p, 'algebra.quadratics.factoring')).toEqual([sibling])
+    })
+
+    it('ranks exact-concept matches ahead of related ones regardless of profile order', () => {
+      const related = misconception('algebra.polynomials.expanding', 'related, listed first')
+      const exact = misconception('algebra.quadratics.factoring', 'exact, listed second')
+      const p = profile({ activeMisconceptions: [related, exact] })
+      expect(pickStickingCandidates(p, 'algebra.quadratics.factoring')).toEqual([exact, related])
+    })
+
+    it('still returns [] for a concept with no exact OR related history (unrelated strand)', () => {
+      const p = profile({ activeMisconceptions: [misconception('stats.probability.counting')] })
+      expect(pickStickingCandidates(p, 'algebra.quadratics.factoring')).toEqual([])
+    })
+
+    it('never lets the related tier displace exact matches when exact already fills the limit', () => {
+      const exact = ['a', 'b', 'c'].map((letter) => misconception('algebra.quadratics.factoring', letter))
+      const related = misconception('algebra.polynomials.expanding', 'related')
+      const p = profile({ activeMisconceptions: [related, ...exact] })
+      expect(pickStickingCandidates(p, 'algebra.quadratics.factoring')).toEqual(exact)
+    })
+  })
 })

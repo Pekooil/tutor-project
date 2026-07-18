@@ -64,6 +64,7 @@ export type OverlayTransports = {
     annotations?: Annotation[];
     topic?: PageTopic;
     stickingCandidates?: StickingCandidate[];
+    commonSticking?: string[];
   } | null>;
   /**
    * Beta-instrumentation transports (Sprint 17 Task 6, ADR-043). The content

@@ -24,7 +24,7 @@ Sprint 23 — Stripe billing + Pro entitlements (GA / monetization gate) — **C
 - Extension: WXT + React + TypeScript
 - Backend: Next.js API routes (Sprint 03+)
 - Database: Supabase — Postgres + Auth + RLS (Sprint 03+)
-- AI: Anthropic Claude API via server-side proxy (Sprint 05+)
+- AI: OpenAI GPT-4o-mini via server-side proxy, the DEFAULT tutor + study-kit provider (ADR-052, 2026-07-17, supersedes "Anthropic only"); Anthropic Claude Haiku retained in-tree as the env-flag backup/eval path (TUTOR_PROVIDER=anthropic / STUDY_KIT_PROVIDER=anthropic; branches anthropic-haiku-backup + feat/tutor-gpt-4o-mini). All model calls stay server-side only.
 - STT: OpenAI Whisper API (Sprint 06+)
 - TTS: ElevenLabs streaming API (Sprint 06+)
 

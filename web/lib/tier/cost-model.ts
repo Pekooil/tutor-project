@@ -20,6 +20,14 @@ import 'server-only'
 // threading token counts through every call site.
 export const CLAUDE_TURN_CENTS = 1
 
+// Sprint 24 (ADR-038): provider-aware tutor-turn estimate. cost_real.py
+// measured a real session at ~$0.058 on cached Haiku vs ~$0.009 on
+// GPT-4o-mini — GPT's per-turn cost is well under a cent. The ledger works in
+// whole cents with a min-1 floor (see estimateCost), so both currently resolve
+// to 1¢/turn; this constant + the TUTOR_PROVIDER branch keep the guardrail
+// honest if the caps or granularity ever change, and document the real gap.
+export const GPT_TURN_CENTS = 1
+
 // gpt-4o-mini-transcribe (web/lib/voice/whisper.ts). A per-second rate;
 // estimateCost() below converts the route's audio byte length into an
 // approximate duration before applying it (see WAV_BYTES_PER_SECOND).
@@ -80,7 +88,10 @@ const WAV_BYTES_PER_SECOND = 88_200
 export function estimateCost(kind: CostKind, size = 0): number {
   switch (kind) {
     case 'claude_turn':
-      return CLAUDE_TURN_CENTS
+      // The kind name is historical (Sprint 16); the estimate follows whichever
+      // provider TUTOR_PROVIDER actually routes the tutor turn to (ADR-052:
+      // OpenAI default, Anthropic the flip-back).
+      return process.env.TUTOR_PROVIDER === 'anthropic' ? CLAUDE_TURN_CENTS : GPT_TURN_CENTS
     case 'whisper_stt': {
       const seconds = size / WAV_BYTES_PER_SECOND
       return Math.max(1, Math.ceil(WHISPER_PER_SEC_CENTS * seconds))

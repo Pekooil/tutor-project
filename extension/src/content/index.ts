@@ -136,6 +136,7 @@ async function requestOpeningScan(): Promise<{
   prediction?: StrugglePrediction;
   topic?: PageTopic;
   stickingCandidates?: StickingCandidate[];
+  commonSticking?: string[];
 } | null> {
   if (!isPlausibleProblem(capturedPageContext)) return null;
 
@@ -170,6 +171,9 @@ async function requestOpeningScan(): Promise<{
     ...(payload.topic ? { topic: payload.topic } : {}),
     ...(payload.stickingCandidates && payload.stickingCandidates.length > 0
       ? { stickingCandidates: payload.stickingCandidates }
+      : {}),
+    ...(payload.commonSticking && payload.commonSticking.length > 0
+      ? { commonSticking: payload.commonSticking }
       : {}),
   };
 }

@@ -1016,7 +1016,7 @@ async function handleOpeningScan(payload: OpeningScanPayload, pageDomain: string
   }
 
   try {
-    const { reply, annotations, prediction, topic, stickingCandidates } = await api.openingScan(
+    const { reply, annotations, prediction, topic, stickingCandidates, commonSticking } = await api.openingScan(
       payload.pageContext,
       active?.sessionId,
     );
@@ -1026,12 +1026,13 @@ async function handleOpeningScan(payload: OpeningScanPayload, pageDomain: string
         reply,
         ...(annotations ? { annotations } : {}),
         // The session-kickoff struggle prediction, the check-in's
-        // page-detected topic, and its 5b sticking-point candidates (all
-        // grounded server-side) -- additive pass-through, same omission
-        // discipline as annotations above.
+        // page-detected topic, its 5b sticking-point candidates, and the
+        // concept's common-misconception fill (all grounded server-side) --
+        // additive pass-through, same omission discipline as annotations.
         ...(prediction ? { prediction } : {}),
         ...(topic ? { topic } : {}),
         ...(stickingCandidates ? { stickingCandidates } : {}),
+        ...(commonSticking ? { commonSticking } : {}),
       },
     };
   } catch (error) {

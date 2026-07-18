@@ -213,6 +213,13 @@ beforeAll(async () => {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
+      // ADR-052 flipped the DEFAULT tutor provider to OpenAI; this suite's
+      // fake server speaks the ANTHROPIC wire shape, so pin the seam to the
+      // retained Anthropic path — the suite tests the cost guard, not the
+      // provider (the OpenAI path is covered by openai-schema.test.ts + the
+      // EVAL_LIVE tutor-eval/repro suites).
+      TUTOR_PROVIDER: 'anthropic',
+      STUDY_KIT_PROVIDER: 'anthropic',
       ANTHROPIC_API_KEY: 'sk-ant-test-fake-key-not-real',
       ANTHROPIC_BASE_URL: `http://localhost:${FAKE_PROVIDERS_PORT}`,
       OPENAI_API_KEY: 'sk-test-fake-key-not-real',

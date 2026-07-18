@@ -537,7 +537,7 @@ const OPENING_SCAN_MAX_TOKENS = 300
 // The placeholder "user" turn the Anthropic API requires when there is no
 // real student message -- OPENING SCAN MODE in the system prompt drives the
 // model's behavior; this content is never shown to the student.
-const OPENING_SCAN_PLACEHOLDER_MESSAGE: TurnMessage = {
+export const OPENING_SCAN_PLACEHOLDER_MESSAGE: TurnMessage = {
   role: 'user',
   content:
     '(The panel just opened. No message has been sent yet -- this is the opening scan; follow OPENING SCAN MODE.)',
@@ -635,16 +635,16 @@ export async function runOpeningScanTool({
 // in text built entirely from the confirmed sessionStart data -- zero model
 // text -- so a session start can never again put more than one clean
 // question on screen, no matter how badly the model misbehaves.
-const FABRICATED_TURN_PATTERNS = [
+export const FABRICATED_TURN_PATTERNS = [
   /\bis that what you need help with\b/i,
   /\blooks like you'?re working on\b/i,
   /\bi'?m working on\b/i,
   /\btrips? me up\b/i,
   /\bcan we start there\b/i,
 ]
-const MAX_OPENING_QUESTION_CHARS = 320 // generous slack over PEDAGOGY's ~60-word/3-sentence bound
+export const MAX_OPENING_QUESTION_CHARS = 320 // generous slack over PEDAGOGY's ~60-word/3-sentence bound
 
-function isCleanOpeningQuestion(text: string): boolean {
+export function isCleanOpeningQuestion(text: string): boolean {
   if (text.length === 0 || text.length > MAX_OPENING_QUESTION_CHARS) return false
   if (FABRICATED_TURN_PATTERNS.some((pattern) => pattern.test(text))) return false
   // A blank line between paragraphs, or more than a few sentence-ending
@@ -660,7 +660,7 @@ function isCleanOpeningQuestion(text: string): boolean {
 // The zero-model-text fallback: grounded ONLY in what the student actually
 // confirmed on the check-in card (the same data SESSION START MODE renders),
 // never a guess and never anything that could itself read as fabricated.
-function fallbackOpeningQuestion(start: SessionStartPrompt): string {
+export function fallbackOpeningQuestion(start: SessionStartPrompt): string {
   return start.stickingPoint
     ? `Let's start right at "${start.stickingPoint}" -- walk me through your first step there.`
     : `Let's start with the first step -- walk me through how you'd begin.`
@@ -682,7 +682,7 @@ function fallbackOpeningQuestion(start: SessionStartPrompt): string {
 // kinds, the 3-cap) every other turn's annotations get. Returns undefined
 // only when `opening_question` (post-validation) is somehow still blank --
 // the one field a session-start reply cannot do without.
-function assembleSessionStartEnvelope(
+export function assembleSessionStartEnvelope(
   boardText: string,
   openingQuestion: string,
   rawAnnotations: unknown,

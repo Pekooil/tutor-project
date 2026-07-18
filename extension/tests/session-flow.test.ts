@@ -190,4 +190,51 @@ describe('buildStickingChips — the personalized 5b sticking-point chips', () =
     expect(chips[0].value).toBe('drops the negative sign');
     expect(chips[0].label).toBe('Drops the negative sign');
   });
+
+  // The concept's curated common misconceptions (2026-07-17 ask): server-
+  // resolved display strings that fill empty ranked slots BEFORE the fixed
+  // generic pool -- a cold start names a real, concept-specific
+  // misconception instead of "Setting up the equation".
+  describe('the commonDefaults fill', () => {
+    const commonDefaults = ['sign errors in the factor pair', 'forgetting to set each factor to zero'];
+
+    it('with zero recorded candidates, fills the ranked slots from commonDefaults first, then the generic pool', () => {
+      const chips = buildStickingChips([], commonDefaults);
+      expect(chips.map((chip) => ({ value: chip.value, personalized: chip.personalized }))).toEqual([
+        { value: 'sign errors in the factor pair', personalized: false },
+        { value: 'forgetting to set each factor to zero', personalized: false },
+        { value: 'Setting up the equation', personalized: false },
+        { value: NOT_SURE_CHIP, personalized: false },
+      ]);
+      expect(chips.map((chip) => chip.rank)).toEqual([1, 2, 3, null]);
+    });
+
+    it('never marks a commonDefaults fill as personalized, and personalized history still outranks it', () => {
+      const chips = buildStickingChips([signErrors], commonDefaults);
+      expect(chips.map((chip) => ({ value: chip.value, personalized: chip.personalized, rank: chip.rank }))).toEqual([
+        { value: 'drops the negative sign', personalized: true, rank: 1 },
+        { value: 'sign errors in the factor pair', personalized: false, rank: 2 },
+        { value: 'forgetting to set each factor to zero', personalized: false, rank: 3 },
+        { value: NOT_SURE_CHIP, personalized: false, rank: null },
+      ]);
+    });
+
+    it('skips a commonDefaults entry that duplicates a personalized chip (case-insensitive)', () => {
+      const chips = buildStickingChips(
+        [{ category: 'sign', description: 'Sign errors in the factor pair' }],
+        commonDefaults,
+      );
+      const values = chips.map((chip) => chip.value.toLowerCase());
+      expect(values.filter((value) => value === 'sign errors in the factor pair')).toHaveLength(1);
+    });
+
+    it('with 3 recorded candidates, commonDefaults never appear at all', () => {
+      const chips = buildStickingChips([signErrors, setupErrors, methodChoice], commonDefaults);
+      expect(chips.map((chip) => chip.value)).not.toContain('sign errors in the factor pair');
+    });
+
+    it('omitting the argument keeps the original generic-pool behavior byte-identical', () => {
+      expect(buildStickingChips([])).toEqual(buildStickingChips([], []));
+    });
+  });
 });

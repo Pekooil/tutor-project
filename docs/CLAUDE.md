@@ -12,7 +12,7 @@
 - Extension: WXT + React + TypeScript
 - Backend: Next.js API routes on Vercel
 - Database: Supabase (Postgres + Auth + RLS)
-- AI: Anthropic Claude API (server-side proxy only)
+- AI: OpenAI GPT-4o-mini (server-side proxy only) — the default tutor + study-kit provider per ADR-052 (2026-07-17); Anthropic Claude Haiku retained in-tree as the TUTOR_PROVIDER=anthropic backup/eval path
 - STT: OpenAI Whisper API
 - TTS: ElevenLabs streaming API
 

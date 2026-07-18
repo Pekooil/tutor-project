@@ -2,10 +2,13 @@ import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getConcept } from '@calyxa/curriculum'
 import { clientFromBearer } from '@/lib/auth/bearer'
-import { runOpeningScanTool, runTutorTurn } from '@/lib/ai/claude'
+// Sprint 24 (ADR-038): tutor model calls go through the TutorProvider seam —
+// Anthropic (default) or OpenAI GPT-4o-mini per TUTOR_PROVIDER.
+import { getTutorProvider } from '@/lib/ai/provider'
 import type { PageContext } from '@/lib/ai/page-context'
 import { loadProfile } from '@/lib/learning/profile-read'
 import { predictLikelyStruggle, pickStickingCandidates } from '@/lib/learning/predict'
+import { commonMisconceptionsFor } from '@/lib/learning/misconception-catalog'
 import { detectTopicKeys } from '@/lib/learning/topic'
 import {
   parseMessages,
@@ -139,7 +142,7 @@ async function handleOpeningScan(
     // enum -- detection no longer depends on the page text happening to
     // contain a keyword alias.
     const { envelope, conceptKey: modelConceptKey, topicTitle } = await timed(modelTimer, () =>
-      runOpeningScanTool({ pageContext, profile })
+      getTutorProvider().runOpeningScan({ pageContext, profile })
     )
 
     debugTurn('opening-scan', {
@@ -182,6 +185,15 @@ async function handleOpeningScan(
     // one than what the student is about to confirm on 5a. [] (and so
     // omitted) when no curriculum concept was resolved at all.
     const stickingCandidates = resolvedConceptKey ? pickStickingCandidates(profile, resolvedConceptKey) : []
+    // The concept's curated common misconceptions (misconception-catalog.ts,
+    // Darcy's 2026-07-17 ask): the extension fills whichever ranked chip
+    // slots the student's own history doesn't cover from these BEFORE its
+    // fixed generic pool — so a cold start shows a real, concept-specific
+    // "common first place to check" instead of "Setting up the equation".
+    // A separate additive field, never mixed into stickingCandidates: only
+    // recorded history may render as personalized.
+    const commonSticking =
+      resolvedConceptKey && stickingCandidates.length < 3 ? commonMisconceptionsFor(resolvedConceptKey) : []
 
     return NextResponse.json({
       reply: envelope.say,
@@ -196,6 +208,7 @@ async function handleOpeningScan(
             })),
           }
         : {}),
+      ...(commonSticking.length > 0 ? { commonSticking } : {}),
       ...(prediction
         ? {
             prediction: {
@@ -290,7 +303,7 @@ export async function POST(request: Request) {
   try {
     const modelTimer = { ms: 0 }
     const envelope = await timed(modelTimer, () =>
-      runTutorTurn({
+      getTutorProvider().runTurn({
         messages,
         pageContext,
         profile,

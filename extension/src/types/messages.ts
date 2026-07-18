@@ -529,6 +529,14 @@ export type StickingCandidate = {
   description: string;
 };
 
+// The concept's curated common misconceptions (2026-07-17 ask): display-ready
+// phrases resolved server-side from the curriculum's misconception catalog
+// (@calyxa/curriculum-adjacent content never ships in this bundle). Fills
+// whichever ranked 5b chip slots `stickingCandidates` doesn't cover BEFORE
+// the fixed generic pool — a cold start shows a real, concept-specific
+// "common first place to check" instead of "Setting up the equation". Never
+// personalized: these are curriculum knowledge, not the student's history.
+
 // Mirrors the web route's opening-scan response shape (ADR-030): `reply`
 // may be an empty string -- the model's own "I'm not confident" signal,
 // passed through as-is; the content script (not this type) decides what an
@@ -547,6 +555,7 @@ export type OpeningScanReplyPayload =
       prediction?: StrugglePrediction;
       topic?: PageTopic;
       stickingCandidates?: StickingCandidate[];
+      commonSticking?: string[];
     }
   | { error: string };
 

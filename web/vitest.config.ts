@@ -16,7 +16,14 @@ export default defineConfig({
     // service-role client is vi.mock'd, so it can't go over HTTP like the
     // dev-server suites). Rollup alias rules only rewrite "@/..." — scoped
     // packages like @supabase/* and @calyxa/* are untouched.
-    alias: { '@': fileURLToPath(new URL('.', import.meta.url)) },
+    alias: {
+      '@': fileURLToPath(new URL('.', import.meta.url)),
+      // Sprint 24 (ADR-038): the `server-only` guard throws outside an RSC
+      // build; alias it to a no-op so tests can import server modules
+      // (claude.ts / provider.ts / cost-model.ts) directly. Next's build is
+      // untouched — this alias is vitest-only.
+      'server-only': fileURLToPath(new URL('./test/stubs/server-only.ts', import.meta.url)),
+    },
   },
   test: {
     // session.test.ts and ai-turn.test.ts each spawn their own `next dev`
