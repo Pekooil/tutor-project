@@ -101,31 +101,16 @@ import type { ScrubbedErrorEvent } from '../lib/monitoring';
 //                  it to POST /api/errors -- the extension holds no monitoring
 //                  secret/DSN of any kind (the locked "no key in the extension
 //                  bundle" rule). Fire-and-forget, like SEND_TELEMETRY.
-//   ONBOARDING_STATUS (Sprint 17 Task 7, ADR-042) — overlay -> background, no
-//                  payload: GET /api/onboarding via the worker. Reply
-//                  (OnboardingStatusReplyPayload) is `{needed:false}` on
-//                  either a genuinely-not-needed profile OR any failure
-//                  (auth/network) -- the background degrades silently, same
-//                  posture as OPENING_SCAN's EMPTY_REPLY, so a hiccup here
-//                  never blocks the tutor's existing live-calibration
-//                  fallback. `{needed:true, items}` carries the 8-12
-//                  assessment items -- the extension has no
-//                  @calyxa/curriculum dependency, so this is the one place
-//                  the item bank's output crosses the wire (web/app/api/
-//                  onboarding/route.ts's Task 7 addition).
-//   ONBOARDING_SUBMIT (Sprint 17 Task 7, ADR-042) — overlay -> background:
-//                  OnboardingSubmitPayload ({results}). POSTs to
-//                  /api/onboarding, which seeds the graph through the
-//                  existing FSRS apply path and writes
-//                  onboarding_completed_at. Request/reply (unlike
-//                  telemetry): a failure IS surfaced
-//                  (OnboardingSubmitReplyPayload's {error} variant) so
-//                  Onboarding.tsx can offer a retry rather than silently
-//                  losing the student's answers.
+//   (Public launch, 2026-07-17) ONBOARDING_STATUS / ONBOARDING_SUBMIT
+//                  (Sprint 17 Task 7, ADR-042) are RETIRED with the
+//                  diagnostic onboarding surface: the first-run tutorial that
+//                  replaced it keeps its seen flag in chrome.storage.local
+//                  (content/index.ts) and never crosses this message
+//                  boundary or calls /api/onboarding.
 //   GENERATE_STUDY_KIT (Sprint 21 Task 5, ADR-049) — overlay -> background:
 //                  GenerateStudyKitPayload ({sessionId}). POSTs to
 //                  /api/study/generate (the worker is the sole egress,
-//                  ADR-006). Request/reply, like ONBOARDING_SUBMIT: study-kit
+//                  ADR-006). Request/reply, like SEND_FEEDBACK: study-kit
 //                  generation is a USER-initiated action off the recap card,
 //                  so a failure IS surfaced. Reply (STUDY_KIT_REPLY /
 //                  StudyKitReplyPayload) is {kit} on success, {refused:'cost'}
@@ -161,8 +146,6 @@ export type MessageType =
   | 'SEND_TELEMETRY'
   | 'SEND_FEEDBACK'
   | 'LOG_ERROR'
-  | 'ONBOARDING_STATUS'
-  | 'ONBOARDING_SUBMIT'
   | 'GENERATE_STUDY_KIT'
   | 'STUDY_KIT_REPLY';
 
@@ -716,46 +699,8 @@ export type SendFeedbackReplyPayload = { ok: true } | { error: string };
 // is dropped by the api.ts relay, not sent.
 export type LogErrorPayload = ScrubbedErrorEvent;
 
-// Sprint 17 / Task 7 (ADR-042): the client-side mirror of
-// web/lib/onboarding/item-bank.ts's AssessmentItem/AssessmentChoiceOption/
-// AssessmentResult -- the same by-convention re-declaration as TelemetryEvent
-// above (no shared module spans the extension/web boundary, and the
-// extension deliberately has no @calyxa/curriculum dependency). Keep
-// field-for-field identical to the web source of truth.
-export type Outcome = 'correct' | 'partial' | 'incorrect';
-export type SelfConfidence = 'low' | 'med' | 'high' | 'unknown';
-export type AssessmentItemKind = 'choice' | 'free';
-
-export type AssessmentChoiceOption = {
-  label: string;
-  outcome: Outcome;
-  selfConfidence: SelfConfidence;
-};
-
-export type AssessmentItem = {
-  conceptKey: string;
-  strand: string;
-  strandLabel: string;
-  title: string;
-  prompt: string;
-  kind: AssessmentItemKind;
-  options?: AssessmentChoiceOption[];
-};
-
-// The graded result Onboarding.tsx POSTs per answered item (ONBOARDING_SUBMIT).
-export type AssessmentResult = {
-  conceptKey: string;
-  outcome: Outcome;
-  selfConfidence: SelfConfidence;
-};
-
-// ONBOARDING_STATUS reply (background -> caller). See the header comment
-// above for the degrade-to-{needed:false} discipline -- there is no error
-// variant; a failed check is indistinguishable from "not needed" by design,
-// since onboarding is a nice-to-have gate, not a hard requirement (the tutor's
-// live-calibration fallback is preserved either way, ADR-042).
-export type OnboardingStatusReplyPayload = { needed: false } | { needed: true; items: AssessmentItem[] };
-
-// ONBOARDING_SUBMIT payload/reply (overlay -> background -> caller).
-export type OnboardingSubmitPayload = { results: AssessmentResult[] };
-export type OnboardingSubmitReplyPayload = { seededCount: number } | { error: string };
+// (Public launch, 2026-07-17) The Sprint 17 ADR-042 assessment/onboarding
+// wire types (Assessment*, OnboardingStatusReplyPayload, OnboardingSubmit*)
+// are retired with the diagnostic onboarding surface — the first-run
+// tutorial that replaced it (overlay/Tutorial.tsx) is client-local and
+// carries nothing over the wire.

@@ -3,8 +3,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { Overlay, type TurnResult } from './Overlay';
 import type {
   Annotation,
-  AssessmentResult,
-  OnboardingStatusReplyPayload,
   PageTopic,
   SendFeedbackPayload,
   StickingCandidate,
@@ -82,16 +80,16 @@ export type OverlayTransports = {
   onSendTelemetry?: (events: TelemetryEvent[]) => Promise<void>;
   onReportFeedback?: (payload: SendFeedbackPayload) => Promise<void>;
   /**
-   * Cold-start onboarding transports (Sprint 17 Task 7, ADR-042). The
-   * background owns the /api/onboarding GET (status + items) and POST
-   * (submit) calls -- the extension has no @calyxa/curriculum dependency, so
-   * the item bank itself never ships in the bundle. Optional for the same
-   * reason as the telemetry/feedback transports above. onFetchOnboardingStatus
-   * degrades to {needed:false} on any failure (never rejects); onSubmitOnboarding
-   * rejects on failure so Onboarding.tsx can offer a retry.
+   * First-run tutorial transports (public launch, 2026-07-17), replacing the
+   * Sprint 17 diagnostic onboarding transports (ADR-042 surface retired).
+   * The "seen" flag lives in chrome.storage.local — the content script owns
+   * the read/write (the overlay never imports chrome.*); there is no server
+   * call. Optional for the same reason as the telemetry/feedback transports
+   * above. onFetchTutorialSeen degrades to `true` on failure (a storage
+   * error must never nag); onMarkTutorialSeen is fire-and-forget.
    */
-  onFetchOnboardingStatus?: () => Promise<OnboardingStatusReplyPayload>;
-  onSubmitOnboarding?: (results: AssessmentResult[]) => Promise<{ seededCount: number }>;
+  onFetchTutorialSeen?: () => Promise<boolean>;
+  onMarkTutorialSeen?: () => Promise<void>;
   /**
    * The feedback affordance's sessionId lookup (Sprint 17 Task 7, ADR-039):
    * reuses the existing GET_STATE message (content/index.ts), read fresh at

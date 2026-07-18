@@ -69,7 +69,10 @@ mountOverlay(root, {
   },
   onSendTelemetry: async () => {},
   onReportFeedback: async () => {},
-  onFetchOnboardingStatus: async () => ({ needed: false, items: [] }),
-  onSubmitOnboarding: async () => ({ seededCount: 0 }),
+  // Harness: report the first-run tour as already seen so surfaces under
+  // test aren't pre-empted by the tutorial slot. Open with ?tutorial to
+  // preview the tour itself.
+  onFetchTutorialSeen: async () => !new URLSearchParams(window.location.search).has('tutorial'),
+  onMarkTutorialSeen: async () => {},
   onGetActiveSessionId: async () => undefined,
 });

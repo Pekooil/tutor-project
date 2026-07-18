@@ -27,7 +27,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { Onboarding } from '../src/overlay/Onboarding';
+import { Tutorial } from '../src/overlay/Tutorial';
 import { Composer } from '../src/overlay/Composer';
 import { ConceptCard, ConceptFallbackCard, type ConceptVariant } from '../src/overlay/CheckinCard';
 import { FeedbackCard } from '../src/overlay/FeedbackCard';
@@ -35,7 +35,6 @@ import { PingToast } from '../src/overlay/PingToast';
 import { AnswerFields } from '../src/overlay/Transcript';
 import { App as PopupApp } from '../src/popup/main';
 import type {
-  AssessmentItem,
   SessionStatePayload,
   StatusPin,
 } from '../src/types/messages';
@@ -222,35 +221,23 @@ describe('overlay a11y — FeedbackCard (Sprint 17 affordance, ambient home)', (
 });
 
 // ---------------------------------------------------------------------------
-// Onboarding (Sprint 17)
+// Tutorial (public launch, 2026-07-17 — replaces the Sprint 17 Onboarding
+// diagnostic in the first-run slot)
 // ---------------------------------------------------------------------------
 
-describe('overlay a11y — Onboarding (Sprint 17)', () => {
-  it('Onboarding (answering a self-check item)', async () => {
-    const items: AssessmentItem[] = [
-      {
-        conceptKey: 'linear-equations',
-        strand: 'algebra',
-        strandLabel: 'Algebra',
-        title: 'Solving linear equations',
-        prompt: 'How confident are you solving 2x + 3 = 11?',
-        kind: 'choice',
-        options: [
-          { label: 'I can solve it confidently', outcome: 'correct', selfConfidence: 'high' },
-          { label: 'I could try but might slip', outcome: 'partial', selfConfidence: 'med' },
-          { label: 'I’m not sure where to start', outcome: 'incorrect', selfConfidence: 'low' },
-        ],
-      },
-    ];
-    const c = await mount(
-      h(Onboarding, {
-        items,
-        onSubmit: async () => ({ seededCount: 1 }),
-        onSkip: noop,
-        onComplete: noop,
-      }),
-    );
-    await expectNoAxeViolations(c, 'Onboarding (answering)');
+describe('overlay a11y — Tutorial (first-run tour)', () => {
+  it('Tutorial (first step, with Next/Skip controls)', async () => {
+    const c = await mount(h(Tutorial, { onDone: noop }));
+    await expectNoAxeViolations(c, 'Tutorial (first step)');
+  });
+
+  it('Tutorial (mid-tour, with the Back control present)', async () => {
+    const c = await mount(h(Tutorial, { onDone: noop }));
+    await act(async () => {
+      const next = [...c.querySelectorAll('button')].find((b) => b.textContent === 'Next');
+      next!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await expectNoAxeViolations(c, 'Tutorial (mid-tour)');
   });
 });
 

@@ -18,11 +18,8 @@ import type {
   AiReplyPayload,
   AnswerField,
   Annotation,
-  AssessmentResult,
   CalyxaMessage,
   LogErrorPayload,
-  OnboardingStatusReplyPayload,
-  OnboardingSubmitReplyPayload,
   OpeningScanReplyPayload,
   PageContext,
   PageTopic,
@@ -431,42 +428,37 @@ function sendLogError(event: LogErrorPayload): void {
   });
 }
 
-// The overlay's onboarding transports (Sprint 17 Task 7, ADR-042): same
-// "sole chrome.* surface for the overlay" role as the transports above --
-// the extension has no @calyxa/curriculum dependency, so the item bank
-// itself lives server-side; these relay to the background, which owns the
-// /api/onboarding GET (status + items) and POST (submit) calls.
+// The overlay's first-run tutorial transports (public launch, 2026-07-17),
+// replacing the Sprint 17 diagnostic-onboarding relays (ADR-042 surface
+// retired): same "sole chrome.* surface for the overlay" role as the
+// transports above, but purely LOCAL -- whether the usage tour was seen is
+// a UI fact, so it lives in chrome.storage.local (no background hop, no
+// server call, nothing personal).
+
+const TUTORIAL_SEEN_KEY = 'tutorialSeen';
 
 /**
- * Fetches the cold-start onboarding status. Never throws -- a worker-
- * unreachable sendMessage rejection degrades to {needed:false}, same as the
- * background's own degrade-on-failure posture (handleOnboardingStatus), so
- * Overlay.tsx never needs a separate error path for this check.
+ * Reads whether the first-run tour was already completed/skipped. Never
+ * throws -- a storage failure degrades to `true` (already seen), so a broken
+ * storage layer can never nag the student on every page load.
  */
-async function fetchOnboardingStatus(): Promise<OnboardingStatusReplyPayload> {
-  const message: CalyxaMessage = { type: 'ONBOARDING_STATUS' };
+async function fetchTutorialSeen(): Promise<boolean> {
   try {
-    const response: CalyxaMessage = await chrome.runtime.sendMessage(message);
-    return (response?.payload as OnboardingStatusReplyPayload | undefined) ?? { needed: false };
+    const stored = await chrome.storage.local.get(TUTORIAL_SEEN_KEY);
+    return stored[TUTORIAL_SEEN_KEY] === true;
   } catch {
-    return { needed: false };
+    return true;
   }
 }
 
-/**
- * Submits the completed onboarding self-check. Unlike fetchOnboardingStatus
- * above, THROWS on failure -- Onboarding.tsx surfaces a retry rather than
- * silently stranding the student's answers (the background's own handler
- * mirrors this asymmetry).
- */
-async function submitOnboarding(results: AssessmentResult[]): Promise<{ seededCount: number }> {
-  const message: CalyxaMessage = { type: 'ONBOARDING_SUBMIT', payload: { results } };
-  const response: CalyxaMessage = await chrome.runtime.sendMessage(message);
-  const reply = response?.payload as OnboardingSubmitReplyPayload | undefined;
-  if (!reply || 'error' in reply) {
-    throw new Error(reply && 'error' in reply ? reply.error : 'onboarding submit did not reach the background');
+/** Persists the seen flag (fired on both finish and skip). Best-effort. */
+async function markTutorialSeen(): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [TUTORIAL_SEEN_KEY]: true });
+  } catch {
+    // A failed write means the tour may show once more on the next page
+    // load -- acceptable, and preferable to surfacing an error for it.
   }
-  return reply;
 }
 
 /**
@@ -491,13 +483,13 @@ async function getActiveSessionId(): Promise<string | undefined> {
 
 /**
  * Study-kit generation relay (Sprint 21 Task 5, ADR-049): the SAME "sole
- * chrome.* surface for the overlay" role as the feedback/onboarding relays
- * above -- the recap card can't reach the network (ADR-006), so it relays the
- * just-ended sessionId here and the background owns the /api/study/generate
- * call. Request/reply: returns the { kit } / { refused } outcome, and THROWS on
+ * chrome.* surface for the overlay" role as the feedback relay above -- the
+ * recap card can't reach the network (ADR-006), so it relays the just-ended
+ * sessionId here and the background owns the /api/study/generate call.
+ * Request/reply: returns the { kit } / { refused } outcome, and THROWS on
  * an { error } reply (or an unreachable worker) so the recap card's try/catch
  * shows a retry -- generation is user-initiated, so a failure is surfaced, not
- * swallowed (the submitOnboarding / sendFeedback posture).
+ * swallowed (the sendFeedback posture).
  */
 async function generateStudyKit(sessionId: string): Promise<StudyKitResult> {
   const message: CalyxaMessage = { type: 'GENERATE_STUDY_KIT', payload: { sessionId } };
@@ -831,9 +823,10 @@ export default defineContentScript({
           // props.onSendTelemetry / props.onReportFeedback.
           onSendTelemetry: sendTelemetry,
           onReportFeedback: sendFeedback,
-          // Sprint 17 Task 7 (ADR-042): the onboarding status/submit transports.
-          onFetchOnboardingStatus: fetchOnboardingStatus,
-          onSubmitOnboarding: submitOnboarding,
+          // Public launch (2026-07-17): the first-run tutorial's seen-flag
+          // transports (chrome.storage.local, no server call).
+          onFetchTutorialSeen: fetchTutorialSeen,
+          onMarkTutorialSeen: markTutorialSeen,
           // Sprint 17 Task 7 (ADR-039): the feedback affordance's sessionId lookup.
           onGetActiveSessionId: getActiveSessionId,
           // Sprint 21 Task 5 (ADR-049): the recap card's study-kit generation

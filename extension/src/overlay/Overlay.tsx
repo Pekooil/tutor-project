@@ -13,9 +13,6 @@ import './Overlay.css';
 import type {
   Annotation,
   AnswerField,
-  AssessmentItem,
-  AssessmentResult,
-  OnboardingStatusReplyPayload,
   PageTopic,
   ProfileOverview,
   SendFeedbackPayload,
@@ -34,7 +31,7 @@ import { AnnotationLayer } from './AnnotationLayer';
 import { CONCEPT_CARD_VARIANT, ConceptCard, ConceptFallbackCard } from './CheckinCard';
 import { Composer } from './Composer';
 import { FeedbackCard } from './FeedbackCard';
-import { Onboarding } from './Onboarding';
+import { Tutorial } from './Tutorial';
 import { PingToast } from './PingToast';
 import { RecapCard } from './RecapCard';
 import { ReframeTool } from './ReframeTool';
@@ -459,7 +456,7 @@ export type SurfaceKind =
   | 'bloom'
   | 'recap'
   | 'feedback'
-  | 'onboarding'
+  | 'tutorial'
   | 'transcript'
   | 'caption'
   | 'notice'
@@ -484,7 +481,7 @@ export type SurfaceKind =
 //   surfaces      live transcript · caption / reference (streamed reply) ·
 //                 concept card (the check-in, auto-start drain kept) ·
 //                 history (last exchange) · answer (chips / multi-part
-//                 fields) · ping toasts · onboarding · recap · bloom ·
+//                 fields) · ping toasts · tutorial · recap · bloom ·
 //                 end-confirm · feedback · error notice
 //
 // Text turns: `onSend` streams tokens into the caption card; on resolve the
@@ -506,8 +503,8 @@ export function Overlay({
   onOpeningScan,
   onSendTelemetry,
   onReportFeedback,
-  onFetchOnboardingStatus,
-  onSubmitOnboarding,
+  onFetchTutorialSeen,
+  onMarkTutorialSeen,
   onGetActiveSessionId,
   onGenerateStudyKit,
 }: {
@@ -571,9 +568,14 @@ export function Overlay({
   // hover row's feedback button -> FeedbackCard). Rejects on a save failure
   // so the card can surface a retry.
   onReportFeedback?: (payload: SendFeedbackPayload) => Promise<void>;
-  // Sprint 17 Task 7 (ADR-042): the cold-start onboarding transports.
-  onFetchOnboardingStatus?: () => Promise<OnboardingStatusReplyPayload>;
-  onSubmitOnboarding?: (results: AssessmentResult[]) => Promise<{ seededCount: number }>;
+  // Public launch (2026-07-17): the first-run tutorial transports, replacing
+  // the Sprint 17 diagnostic onboarding (ADR-042 surface retired). Whether
+  // the tour was seen lives in chrome.storage.local (content/index.ts) —
+  // no server round-trip. onFetchTutorialSeen resolves true when the tour
+  // was already completed/skipped (and degrades to true on failure, so a
+  // storage error never nags); onMarkTutorialSeen persists it.
+  onFetchTutorialSeen?: () => Promise<boolean>;
+  onMarkTutorialSeen?: () => Promise<void>;
   // The feedback affordance's sessionId lookup (ADR-039) -- read fresh at
   // submit time, never cached.
   onGetActiveSessionId?: () => Promise<string | undefined>;
@@ -718,10 +720,10 @@ export function Overlay({
   const bloomTimerRef = useRef<number | null>(null);
   const pendingRecapRef = useRef<{ recap: SessionRecap | null; sessionId: string | null } | null>(null);
 
-  // ---- Sprint 17 Task 7 state (ADR-042) ----
-  const [onboardingItems, setOnboardingItems] = useState<AssessmentItem[] | null>(null);
-  const [onboardingResolved, setOnboardingResolved] = useState(false);
-  const onboardingCheckedRef = useRef(false);
+  // ---- First-run tutorial state (public launch, 2026-07-17) ----
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [tutorialResolved, setTutorialResolved] = useState(false);
+  const tutorialCheckedRef = useRef(false);
 
   // ---- Voice plumbing refs (unchanged) ----
   const recordingRef = useRef<RecordingHandle | null>(null);
@@ -737,11 +739,11 @@ export function Overlay({
   // produces no student turn at all).
   const sessionLive = kickoffStarted || messages.some((message) => message.role === 'user');
 
-  // The onboarding assessment (ADR-042): takes priority over the concept
-  // card and the scan -- a brand-new user answers this ONCE before anything
-  // else. Yields once a session starts, a recap arrives, or the close
+  // The first-run tutorial: takes priority over the concept card and the
+  // scan -- a brand-new user sees the tour ONCE before anything else.
+  // Yields once a session starts, a recap arrives, or the close
   // choreography begins.
-  const showOnboarding = !!onboardingItems && !sessionLive && !recap && closeState === 'idle';
+  const showTutorial = tutorialOpen && !sessionLive && !recap && closeState === 'idle';
 
   // ---- The pill's derived state ----
   const pill: PillState =
@@ -774,8 +776,8 @@ export function Overlay({
         ? 'recap'
         : feedbackOpen
           ? 'feedback'
-          : showOnboarding
-            ? 'onboarding'
+          : showTutorial
+            ? 'tutorial'
             : liveTranscript
               ? 'transcript'
               // notice + history sit ABOVE the caption now that a committed
@@ -989,29 +991,30 @@ export function Overlay({
     };
   }, [warmWanted]);
 
-  // The cold-start onboarding status check (ADR-042): fires on the FIRST
-  // real expansion only (onboardingCheckedRef never resets). Degrades to
-  // "not needed" on any failure or an unwired transport -- never blocking
-  // the pill. `onboardingResolved` gates the scan button until the check
-  // has settled either way.
+  // The first-run tutorial check (public launch): fires on the FIRST real
+  // expansion only (tutorialCheckedRef never resets). Reads the persisted
+  // seen flag from chrome.storage.local via the transport; degrades to
+  // "seen" on any failure or an unwired transport -- never blocking the
+  // pill. `tutorialResolved` gates the scan button until the check has
+  // settled either way, so the tour isn't raced by a scan.
   useEffect(() => {
-    if (!expanded || onboardingCheckedRef.current) return;
-    onboardingCheckedRef.current = true;
-    if (!onFetchOnboardingStatus) {
-      setOnboardingResolved(true);
+    if (!expanded || tutorialCheckedRef.current) return;
+    tutorialCheckedRef.current = true;
+    if (!onFetchTutorialSeen) {
+      setTutorialResolved(true);
       return;
     }
     let cancelled = false;
-    onFetchOnboardingStatus()
-      .then((status) => {
+    onFetchTutorialSeen()
+      .then((seen) => {
         if (cancelled) return;
-        if (status.needed && status.items.length > 0) setOnboardingItems(status.items);
+        if (!seen) setTutorialOpen(true);
       })
       .catch(() => {
-        // Degrade silently -- treated as not-needed.
+        // Degrade silently -- treated as already seen.
       })
       .finally(() => {
-        if (!cancelled) setOnboardingResolved(true);
+        if (!cancelled) setTutorialResolved(true);
       });
     return () => {
       cancelled = true;
@@ -1187,14 +1190,18 @@ export function Overlay({
     window.dispatchEvent(new CustomEvent(PANEL_CLOSED_EVENT));
   }
 
-  // ---- Onboarding handlers (ADR-042/043, unchanged) ----
-  function handleOnboardingSkip() {
-    setOnboardingItems(null);
-  }
-
-  function handleOnboardingComplete(info: { itemCount: number; ms: number }) {
-    setOnboardingItems(null);
-    void onSendTelemetry?.([{ kind: 'onboarding_completed', itemCount: info.itemCount, ms: info.ms }]);
+  // ---- Tutorial handler (public launch, 2026-07-17) ----
+  // "Seen" persists on BOTH finish and skip (unlike the retired diagnostic's
+  // skip, which never persisted): a usage tour must never nag on every page
+  // load. The onboarding_completed telemetry kind is reused for a full
+  // step-through — it still means "the first-run flow was completed", with
+  // itemCount now the tour's step count (never emitted on skip, as before).
+  function handleTutorialDone(info: { completed: boolean; stepCount: number; ms: number }) {
+    setTutorialOpen(false);
+    void onMarkTutorialSeen?.().catch(() => {});
+    if (info.completed) {
+      void onSendTelemetry?.([{ kind: 'onboarding_completed', itemCount: info.stepCount, ms: info.ms }]);
+    }
   }
 
   // The report/rate affordance's submit (ADR-039): looks up the CURRENT
@@ -1218,7 +1225,7 @@ export function Overlay({
   // can't double-fire an effect).
   function startScan() {
     if (scanPending || busy || sessionLive || closeState !== 'idle') return;
-    if (!onboardingResolved || onboardingItems) return;
+    if (!tutorialResolved || tutorialOpen) return;
     setShell('idle');
     setScan(null);
     setScanSettled(false);
@@ -1745,7 +1752,7 @@ export function Overlay({
     (surfaceKind === 'caption' && (busy || playing)) ||
     surfaceKind === 'bloom' ||
     surfaceKind === 'recap' ||
-    surfaceKind === 'onboarding' ||
+    surfaceKind === 'tutorial' ||
     surfaceKind === 'endConfirm' ||
     surfaceKind === 'feedback';
 
@@ -1936,15 +1943,10 @@ export function Overlay({
     );
   } else if (surfaceKind === 'feedback') {
     surfaceNode = <FeedbackCard onSubmit={handleFeedbackSubmit} onClose={() => setFeedbackOpen(false)} />;
-  } else if (surfaceKind === 'onboarding' && onboardingItems) {
+  } else if (surfaceKind === 'tutorial') {
     surfaceNode = (
       <div className="cx-card w-[400px] max-w-[calc(100vw-48px)] text-foreground">
-        <Onboarding
-          items={onboardingItems}
-          onSubmit={onSubmitOnboarding ?? (() => Promise.reject(new Error('onboarding submit unavailable')))}
-          onSkip={handleOnboardingSkip}
-          onComplete={handleOnboardingComplete}
-        />
+        <Tutorial onDone={handleTutorialDone} />
       </div>
     );
   } else if (surfaceKind === 'transcript') {
@@ -2188,7 +2190,7 @@ export function Overlay({
         <HoverButton
           label="Analyze screen"
           title={sessionLive ? 'Scanning is a session-start step' : 'Read my screen'}
-          disabled={sessionLive || scanPending || !onboardingResolved}
+          disabled={sessionLive || scanPending || !tutorialResolved}
           onClick={startScan}
         >
           <ViewfinderIcon />
