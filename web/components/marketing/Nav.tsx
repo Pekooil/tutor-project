@@ -41,7 +41,7 @@ export function Nav() {
             Log in
           </Link>
           <Button asChild size="sm">
-            <a href="#hero">Join the waitlist</a>
+            <Link href="/signup">Get started</Link>
           </Button>
         </div>
       </nav>

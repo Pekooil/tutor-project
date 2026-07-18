@@ -41,6 +41,13 @@ import type { CalyxaMessage, SessionStatePayload, SignInPayload } from '../types
 // lib/api.ts's token-bearing helpers (see the header note above).
 const BILLING_URL = 'https://calyxa.app/billing';
 
+// Public launch (2026-07-17): a freshly installed user may have no account
+// yet — the signed-out popup links them to the website's guided setup
+// (/welcome covers account creation, pinning, and the first session). Same
+// plain-string discipline as BILLING_URL above: the popup imports none of
+// lib/api.ts, so the base URL is deliberately duplicated here.
+const WELCOME_URL = 'https://calyxa.app/welcome?src=extension';
+
 const FALLBACK_ERROR: SessionStatePayload = {
   signedIn: false,
   user: null,
@@ -140,6 +147,18 @@ export function App() {
           <Button type="submit" variant="primary" loading={busy}>
             Sign in
           </Button>
+          <p className="m-0 text-xs text-muted-foreground">
+            New to Calyxa?{' '}
+            <a
+              href={WELCOME_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold text-accent-emphasis underline underline-offset-2"
+            >
+              Create a free account on calyxa.app
+            </a>{' '}
+            — then sign in here with the same email and password.
+          </p>
         </form>
       </div>
     );

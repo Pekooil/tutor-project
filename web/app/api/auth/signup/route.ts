@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { CONSENT_VERSION, meetsMinAge } from '@/lib/consent'
 
 export async function POST(request: Request) {
-  const { email, password, birthYear, consent, inviteCode: rawInviteCode } = await request.json()
+  const { email, password, birthYear, consent } = await request.json()
 
   // Age gate FIRST (ADR-004), authoritative and server-side: an under-13
   // attempt creates no auth user, no profile row, and retains no email.
@@ -22,51 +22,41 @@ export async function POST(request: Request) {
     )
   }
 
-  // INVITE ALLOWLIST (Sprint 19, ADR-045): the beta is invite-gated. The email
-  // must be on an INVITED waitlist row, OR the request must carry a valid
-  // invite_code. An uninvited attempt creates NO auth user and NO profile (the
-  // same no-user discipline as the age gate) — but is ADDED to the waitlist and
-  // gets a soft 200 "you're on the waitlist" state, converting a leaked-link
-  // visitor into a waitlist signup rather than turning them away (ADR-045). The
-  // waitlist is deny-all (Shape 3), so this read/write uses the service-role
-  // admin client — the RLS client cannot see it.
+  // OPEN SIGNUP (public launch, 2026-07-17): the Sprint 19 invite-allowlist
+  // gate (ADR-045) is retired — any consenting, age-passing email may create an
+  // account directly. The waitlist table and /api/invite/claim remain in place
+  // for history/idempotency but no longer gate account creation.
+  //
+  // The user is created via the service-role admin API with the email
+  // PRE-CONFIRMED, not `supabase.auth.signUp` (2026-07-17 launch fix): with
+  // the project's "Confirm email" setting on, signUp sends a verification
+  // email through Supabase's built-in SMTP, whose ~2/hour cap 429'd real
+  // signups with "email rate limit exceeded" and left no session for the
+  // profile finalization below. Launch has no email-verification step — this
+  // path sends NO email at all, so it works regardless of the dashboard
+  // toggle. (If verified email is wanted later, that's custom SMTP + a
+  // confirm flow, not a one-line revert.)
   const admin = createAdminClient()
-  const normEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
-  const inviteCode = typeof rawInviteCode === 'string' ? rawInviteCode.trim() : ''
+  const { data: created, error: createError } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  })
 
-  let invited = false
-  if (normEmail) {
-    const { data } = await admin
-      .from('waitlist')
-      .select('id')
-      .eq('email', normEmail)
-      .not('invited_at', 'is', null)
-      .maybeSingle()
-    if (data) invited = true
-  }
-  if (!invited && inviteCode) {
-    const { data } = await admin
-      .from('waitlist')
-      .select('id')
-      .eq('invite_code', inviteCode)
-      .not('invited_at', 'is', null)
-      .maybeSingle()
-    if (data) invited = true
-  }
-  if (!invited) {
-    // Soft waitlist state: capture the email (like POST /api/waitlist), create
-    // no user, and return 200 — never a hard error that leaks invite status.
-    if (normEmail) {
-      await admin
-        .from('waitlist')
-        .upsert({ email: normEmail, source: 'signup' }, { onConflict: 'email', ignoreDuplicates: true })
-    }
-    return NextResponse.json({ waitlisted: true }, { status: 200 })
+  if (createError || !created.user) {
+    const message = createError?.message ?? 'Signup failed.'
+    const exists = /already|registered|exists/i.test(message)
+    return NextResponse.json(
+      { error: exists ? 'An account with this email already exists — log in instead.' : message },
+      { status: 400 }
+    )
   }
 
+  // Establish the cookie session for the just-created user — this is what
+  // signUp used to provide, and what the RLS profile update below (and the
+  // /welcome redirect after it) rely on.
   const supabase = await createClient()
-
-  const { data, error } = await supabase.auth.signUp({ email, password })
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
   if (error || !data.user) {
     return NextResponse.json({ error: error?.message ?? 'Signup failed.' }, { status: 400 })

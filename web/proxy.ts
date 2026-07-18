@@ -7,7 +7,11 @@ import { NextResponse, type NextRequest } from 'next/server'
 // Store reviewer and any signed-out visitor must reach the privacy policy
 // without an account (the policy URL is a hard store requirement), so they are
 // simply public, the same way the landing page is.
-const PUBLIC_PATHS = ['/', '/login', '/signup', '/privacy', '/terms']
+// /welcome (public launch, 2026-07-17) is the guided post-signup setup page,
+// but it is ALSO opened signed-out by the extension's first-install tab
+// (chrome.runtime.onInstalled → calyxa.app/welcome) — so like '/', it must be
+// reachable without a session; the page itself adapts to auth state.
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/welcome', '/privacy', '/terms']
 
 function isPublicPath(pathname: string) {
   // /api/session/*, /api/ai/*, /api/voice/*, and /api/profile/* are

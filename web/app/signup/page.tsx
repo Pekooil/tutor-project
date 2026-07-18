@@ -44,7 +44,9 @@ export default function SignupPage() {
       return
     }
 
-    router.push('/account')
+    // Land new accounts on the guided setup (install the extension, sign in,
+    // first session) rather than the bare account page.
+    router.push('/welcome')
   }
 
   return (
