@@ -23,7 +23,11 @@ export const metadata: Metadata = {
 
 // Effective date is the date the policy was written, not render time — a
 // legal document should not silently change its own date on every request.
-const LAST_UPDATED = 'July 12, 2026'
+// 2026-07-18 (public launch, 0.1.2): added the three data types that shipped
+// since July 12 — generated study materials (Sprint 21), billing/subscription
+// state via Stripe (Sprint 23), and the monthly voice-usage counter
+// (migration 0023) — and corrected the AI processor to OpenAI (ADR-052).
+const LAST_UPDATED = 'July 18, 2026'
 
 // Support/privacy contact (Darcy, 2026-07-12).
 const PRIVACY_CONTACT = 'calyxasupport@gmail.com'
@@ -101,7 +105,7 @@ export default function PrivacyPage() {
               one-way hash, and our usage metrics carry no personal content.
             </p>
             <p className="m-0">
-              Calyxa is currently in a private, invite-only beta.
+              Calyxa offers a free plan with monthly limits and a paid Pro subscription.
             </p>
           </section>
 
@@ -139,6 +143,18 @@ export default function PrivacyPage() {
               <DataRow
                 what="Feedback you choose to send"
                 why="If you use the in-app feedback control, we keep the message and rating you wrote so we can fix issues. This is the one field where you type free text for us on purpose."
+              />
+              <DataRow
+                what="Generated study materials"
+                why="When a session produces a study kit — notes, practice problems, flashcards — we store it so you can come back to it. It is generated from your own session's text and is covered by the same export and delete rights as everything else."
+              />
+              <DataRow
+                what="Billing and subscription status"
+                why="If you subscribe to Pro, our payment processor (Stripe) handles your card — we never see or store your card number. We keep only your subscription tier and status, a Stripe customer reference, and processing bookkeeping, so your account reflects what you've paid for."
+              />
+              <DataRow
+                what="A monthly voice-usage counter"
+                why="On the free plan, premium voice has a small monthly budget. We keep one number per month — an estimate of that spend in cents — so we know when to switch you to the free browser voice. It contains no audio, text, or page data."
               />
             </ul>
           </section>
@@ -195,13 +211,20 @@ export default function PrivacyPage() {
             </p>
             <ul className="m-0 flex list-disc flex-col gap-2 pl-5">
               <li>
-                <span className="font-medium text-foreground">Anthropic</span> — the AI model
-                that generates tutoring replies (receives your session text, never audio).
+                <span className="font-medium text-foreground">OpenAI</span> — the AI model
+                that generates tutoring replies and study materials (receives your session
+                text, never audio), and real-time speech-to-text for voice input
+                (transcribes audio in the moment; no recording is retained).
               </li>
               <li>
-                <span className="font-medium text-foreground">OpenAI</span> — real-time
-                speech-to-text for voice input (transcribes audio in the moment; no
-                recording is retained).
+                <span className="font-medium text-foreground">Anthropic</span> — a backup AI
+                provider we can switch tutoring replies to (same session text, never audio);
+                not used by default.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">Stripe</span> — payment
+                processing for Pro subscriptions. Your card details go directly to Stripe
+                and never touch our servers.
               </li>
               <li>
                 <span className="font-medium text-foreground">ElevenLabs</span> — text-to-speech
@@ -224,8 +247,10 @@ export default function PrivacyPage() {
               Your account and learning data are kept until you delete them. Microphone
               audio is never persisted at all. When you delete your account, everything tied
               to it — sessions, mastery history, misconceptions, reinforcement schedule,
-              telemetry, and feedback — is queued for permanent deletion and removed after a
-              short grace window.
+              telemetry, feedback, generated study materials, the voice-usage counter, and
+              our record of your subscription status — is queued for permanent deletion and
+              removed after a short grace window. (Stripe retains its own transaction
+              records as required for financial compliance.)
             </p>
           </section>
 

@@ -27,7 +27,10 @@ Every row is a real table/column, cross-checked for this disclosure — not reca
 | Hashed page identifier | `sessions.page_url_hash` | HMAC-SHA256(domain, server-only salt). **Not the URL, not the title, not the contents; one-way** (ADR-036) |
 | Product telemetry | `telemetry_event` | Closed **typed** union — counts/timings/kinds only. **No free text, no transcript, no URL, no audio** (ADR-043) |
 | Feedback | `feedback` | The one user-authored free-text field, submitted on purpose (ADR-039) |
-| _(operational, not user-identity data)_ | `cost_ledger` (day-keyed), `waitlist` invite columns | Anonymous; deny-all; not tied to a user |
+| Generated study materials | `study_artifact` | Notes/practice problems/flashcards generated from the user's own session text (ADR-049); export + erasure covered |
+| Billing/subscription status | `users.subscription_tier/status`, `stripe_customer_id`, `stripe_subscription_id`, `subscription_renews_at` | Stripe is the payment processor; **card details never touch our servers** (ADR-050) |
+| Monthly voice-usage counter | `voice_spend` (user + month keyed) | One estimated-cents number per month for the free-tier voice budget (migration 0023); no audio/text/page data |
+| _(operational, not user-identity data)_ | `cost_ledger` (day-keyed), `stripe_events` (event-id-keyed bookkeeping), `waitlist` invite columns | Anonymous; deny-all; not tied to a user |
 
 **Never collected:** microphone audio (real-time STT only, discarded — ADR-011); page
 URLs/titles/contents (only the one-way domain hash); any AI/STT/TTS key in the extension
@@ -48,7 +51,7 @@ marketing* purpose.)
 | **Personally identifiable information** | **Yes** | Email; birth **year** (age) | Account management; App functionality; Security & compliance (age gate) |
 | **Authentication information** | **Yes** | Email + password (via Supabase Auth) | Account management; Security |
 | Health information | No | — | — |
-| Financial and payment information | No | — (beta is free; no billing until Sprint 23) | — |
+| **Financial and payment information** | **Yes** | Subscription tier/status + a Stripe customer reference (Sprint 23). Card numbers go **directly to Stripe** and are never stored or seen by us | Account management; App functionality (Pro entitlements); Security & compliance |
 | **Personal communications** | **Disclose: Yes** | Session transcripts + feedback are user-entered text | App functionality; Personalization; Developer communications (feedback) |
 | Location | No | We do **not** collect GPS/region/IP-as-location | — |
 | **Web history** | **Disclose: Yes (minimal)** | The **hashed** page-domain identifier only | App functionality (session continuity) — see caveat below |
@@ -100,9 +103,10 @@ questions):**
 
 | Provider | Role | Receives |
 |---|---|---|
-| Anthropic | AI tutoring replies | Session **text**; never audio |
-| OpenAI | Real-time speech-to-text | Audio in the moment; **no recording retained** |
+| OpenAI | AI tutoring replies + study-kit generation (ADR-052, default provider), and real-time speech-to-text | Session **text**; audio in the moment for STT, **no recording retained** |
+| Anthropic | Backup AI provider (env-flag switch, not used by default) | Session **text** if enabled; never audio |
 | ElevenLabs | Text-to-speech | The tutor's reply text to speak |
+| Stripe | Payment processing (Pro subscriptions) | Card + billing details, **directly — never via our servers** |
 | Supabase | Database + authentication | Account + learning profile (at rest) |
 | Vercel | Hosting (site + server) | Request traffic |
 
