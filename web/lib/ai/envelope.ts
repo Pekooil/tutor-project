@@ -88,8 +88,19 @@ function parseSolutionProgress(candidate: unknown): number | undefined {
 // rule: the model is only ever prompted to include `session` when actually
 // closing, so anything that doesn't parse cleanly as a genuine close is
 // treated identically to omitting it -- the session simply stays open.
-export type SessionCompletionReason = 'solved' | 'follow-up-declined' | 'follow-up-corrected'
+// 'message-limit' (public launch, 2026-07-18) is the fourth reason, with a
+// crucial asymmetry: it is ROUTE-constructed only (the per-session student-
+// message cap, session-gate.ts's SESSION_STUDENT_MESSAGE_LIMIT), never
+// model-emitted — isValidCompletionReason below deliberately excludes it, so
+// a model that hallucinates the literal still gets the safe non-close.
+export type SessionCompletionReason = 'solved' | 'follow-up-declined' | 'follow-up-corrected' | 'message-limit'
 export type SessionCompletion = { complete: true; reason: SessionCompletionReason }
+
+// The route-side close for a session that hit the student-message cap. Ends
+// with SESSION_CLOSE_SENTENCE so the reply reads exactly like every other
+// close the overlay choreographs; the structured `session` field (reason
+// 'message-limit') is what actually drives the close, same as a model close.
+export const MESSAGE_LIMIT_CLOSE_REASON: SessionCompletionReason = 'message-limit'
 
 // One labeled input in a multi-part answer (design 8d) -- see parseAnswerFields
 // below. `label` is the short field name; `placeholder` an optional example.
@@ -101,6 +112,10 @@ export type AnswerField = { label: string; placeholder?: string }
 // literal can never drift between "what the model is told to write" and "what
 // the parser looks for". Kept as its own export for that import.
 export const SESSION_CLOSE_SENTENCE = 'Now closing tutoring session.'
+
+// See MESSAGE_LIMIT_CLOSE_REASON above — the friendly cap-close reply both
+// turn routes return verbatim (no model call happens on a capped turn).
+export const MESSAGE_LIMIT_CLOSE_MESSAGE = `We've covered a lot this session — let's stop here so it all has room to stick. Start a fresh session whenever you're ready. ${SESSION_CLOSE_SENTENCE}`
 
 // The completion backstop's fired-close reason. The close sentence is the
 // same for all three reasons, so its text alone can't say WHICH one -- and by

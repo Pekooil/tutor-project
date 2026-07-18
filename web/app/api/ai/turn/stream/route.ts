@@ -7,6 +7,8 @@ import { parseMessages, parsePageContext, parseSessionId, parseResponseLatencyMs
 import { completeTurn } from '@/lib/ai/turn-complete'
 import { costGuard } from '@/lib/tier/cost-guard'
 import { estimateCost } from '@/lib/tier/cost-model'
+import { MESSAGE_LIMIT_CLOSE_MESSAGE, MESSAGE_LIMIT_CLOSE_REASON } from '@/lib/ai/envelope'
+import { endSession, sessionInteractionCount, SESSION_STUDENT_MESSAGE_LIMIT } from '@/lib/tier/session-gate'
 
 // Sprint 16 / Task 3 (ADR-041): same friendly hard-cap refusal as
 // /api/ai/turn, verbatim — the two turn-taking paths must show the same
@@ -65,10 +67,45 @@ export async function POST(request: Request) {
   // main turn path (text AND voice), so these serialized DB hops sat on
   // every turn's time-to-first-token.
   const topicKeys = detectTopicKeys(pageContext, messages)
-  const [{ softExceeded, hardExceeded }, profile] = await Promise.all([
+  // The per-session student-message cap's count rides the same parallel round
+  // trip as /api/ai/turn's (public launch, 2026-07-18); null fails open.
+  const [{ softExceeded, hardExceeded }, profile, interactionCount] = await Promise.all([
     costGuard(auth.supabase, estimateCost('claude_turn')),
     loadProfile(auth.supabase, { topicKeys, userId: auth.user.id }),
+    sessionId ? sessionInteractionCount(auth.supabase, sessionId) : Promise.resolve(null),
   ])
+
+  // Session message cap — the streamed twin of /api/ai/turn's branch: end the
+  // session server-side, then a synthetic terminal envelope (the hard-cap
+  // shape below) carrying the close signal. No provider call, nothing to
+  // persist. Checked before the cost caps so a capped session reads as
+  // "session over", never "Calyxa is resting".
+  if (interactionCount !== null && interactionCount >= SESSION_STUDENT_MESSAGE_LIMIT) {
+    await endSession(auth.supabase, sessionId!)
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(sseChunk({ sayDelta: MESSAGE_LIMIT_CLOSE_MESSAGE }))
+        controller.enqueue(
+          sseChunk({
+            envelope: {
+              reply: MESSAGE_LIMIT_CLOSE_MESSAGE,
+              session: { complete: true, reason: MESSAGE_LIMIT_CLOSE_REASON },
+            },
+          })
+        )
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
+      },
+    })
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
+      },
+    })
+  }
 
   if (hardExceeded) {
     const stream = new ReadableStream({

@@ -4,8 +4,8 @@ import { cn } from '@/lib/utils'
 
 // Pricing numbers come from PLAN.md §2.8 verbatim — no invented tiers, no
 // "contact us." FREE_SESSION_LIMIT lives server-side at
-// web/lib/tier/session-gate.ts (Sprint 16 / Task 4 retune: 10 -> 20, see
-// that file's comment for the reasoning); that module pulls in
+// web/lib/tier/session-gate.ts (2026-07-17 public-launch retune: 20 -> 10,
+// see that file's comment for the reasoning); that module pulls in
 // @supabase/supabase-js and is written for server routes, not a marketing
 // page, so this file keeps its own literal rather than importing it —
 // pricing.test.ts binds the two constants so they cannot drift silently.
@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils'
 // their own tagline) share this ONE marketing-side literal instead of each
 // hardcoding it — found already drifted (still "10") while retuning this
 // value for Task 4, exactly the failure mode this sync exists to prevent.
-export const FREE_SESSIONS_PER_MONTH = 20
+export const FREE_SESSIONS_PER_MONTH = 10
 const PRO_PRICE_PER_MONTH = 12
 
 const PLANS = [
@@ -55,16 +55,16 @@ export function Pricing() {
               </p>
               <p className="mb-0 mt-3.5 text-[15px] leading-[1.6] text-muted-foreground">{plan.tagline}</p>
             </div>
-            {/* Sprint 23 / Task 7 (ADR-050): the Pro CTA now routes to the
-                billing page (Stripe Checkout) instead of the waitlist — the GA
-                monetization path. An unauthenticated visitor hits /billing's own
-                redirect to /login. Free stays on the waitlist (free signup is
-                still invite-gated during the private beta). */}
+            {/* Sprint 23 / Task 7 (ADR-050): the Pro CTA routes to the billing
+                page (Stripe Checkout) — the GA monetization path. An
+                unauthenticated visitor hits /billing's own redirect to /login.
+                Public launch (2026-07-17): Free signs up directly — the
+                invite-gated waitlist is retired. */}
             <Button asChild className="mt-auto" variant={plan.accented ? 'default' : 'outline'}>
               {plan.name === 'pro' ? (
                 <a href="/billing">Upgrade to Pro</a>
               ) : (
-                <a href="#final-cta">Join the waitlist</a>
+                <a href="/signup">Start free</a>
               )}
             </Button>
           </div>

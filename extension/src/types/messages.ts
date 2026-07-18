@@ -311,7 +311,10 @@ export type StatusPin = {
 // present (the server's parse drops a malformed/false completion entirely,
 // so "field absent" IS "still open" -- there is no false-shaped value to
 // mirror here).
-export type SessionCompletionReason = 'solved' | 'follow-up-declined' | 'follow-up-corrected';
+// 'message-limit' (public launch, 2026-07-18): the server's per-session
+// student-message cap closed the session — route-constructed, never
+// model-emitted. Takes the generic close choreography (no 'solved' bloom).
+export type SessionCompletionReason = 'solved' | 'follow-up-declined' | 'follow-up-corrected' | 'message-limit';
 
 export type SessionCompletion = { complete: true; reason: SessionCompletionReason };
 
@@ -570,10 +573,12 @@ export type VoiceSttPayload = {
 // The background used to strip that signal, so the overlay saw an undefined
 // transcript / zero audio chunks and the voice turn broke messily instead of
 // degrading to text. These explicit members let the overlay skip the voice
-// legs gracefully.
+// legs gracefully. 'voice_credit' (public launch, 2026-07-18): the per-free-
+// user monthly voice budget — same degrade-to-text behavior, distinct
+// telemetry tag.
 export type VoiceSttReplyPayload =
   | { transcript: string; sttMs: number }
-  | { degraded: true; degradedCap: 'soft' | 'hard' }
+  | { degraded: true; degradedCap: 'soft' | 'hard' | 'voice_credit' }
   | { error: string };
 
 export type VoiceTtsPayload = {
@@ -582,7 +587,7 @@ export type VoiceTtsPayload = {
 
 export type VoiceTtsReplyPayload =
   | { audio: string; ttsMs: number }
-  | { degraded: true; degradedCap: 'soft' | 'hard' }
+  | { degraded: true; degradedCap: 'soft' | 'hard' | 'voice_credit' }
   | { error: string };
 
 // VOICE_TTS_STREAM (Sprint 15 Task 6, ADR-033) -- a dedicated port (the
@@ -674,7 +679,7 @@ export type TelemetryEvent =
   | { kind: 'turn_latency'; sttMs: number; aiMs: number; ttsMs: number; networkMs: number; totalMs: number }
   | { kind: 'annotation_rendered'; count: number; fallback: boolean }
   | { kind: 'voice_used' }
-  | { kind: 'degraded_hit'; cap: 'soft' | 'hard'; source: 'claude_turn' | 'whisper_stt' | 'elevenlabs_tts' };
+  | { kind: 'degraded_hit'; cap: 'soft' | 'hard' | 'voice_credit'; source: 'claude_turn' | 'whisper_stt' | 'elevenlabs_tts' };
 
 // SEND_TELEMETRY payload (overlay/content -> background). A batch of one or
 // more events; the background accumulates across messages and flushes on N or

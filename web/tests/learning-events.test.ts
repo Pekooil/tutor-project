@@ -198,6 +198,15 @@ beforeAll(async () => {
       ...process.env,
       ANTHROPIC_API_KEY: 'sk-ant-test-fake-key-not-real',
       ANTHROPIC_BASE_URL: `http://localhost:${FAKE_ANTHROPIC_PORT}`,
+      // ADR-052 flipped the DEFAULT tutor provider to OpenAI; this suite's
+      // fake server speaks the ANTHROPIC wire shape, so pin the seam to the
+      // retained Anthropic path (the same pin ai-turn.test.ts /
+      // ai-stream.test.ts got at the flip; this file and session.test.ts
+      // were missed — found 2026-07-18). Fake OpenAI key so no stray path
+      // can spend real money from this process.
+      TUTOR_PROVIDER: 'anthropic',
+      STUDY_KIT_PROVIDER: 'anthropic',
+      OPENAI_API_KEY: 'sk-test-fake-key-not-real',
     },
   })
   const startupLog: string[] = []

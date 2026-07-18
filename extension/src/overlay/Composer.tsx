@@ -48,6 +48,11 @@ export function Composer({
         disabled={disabled}
         placeholder={placeholder}
         aria-label="Message Calyxa"
+        // Mirrors the server's MAX_MESSAGE_LENGTH (web/lib/ai/turn-request.ts):
+        // the route 400s past 4000 chars, so stop the overrun at the input
+        // instead of surfacing a failed turn. Display hint only — the server
+        // stays the authority.
+        maxLength={4000}
         onChange={(event) => onChange(event.target.value)}
         className="min-w-0 flex-1 border-none bg-transparent p-0 text-[14.5px] text-foreground outline-none placeholder:text-muted-foreground caret-[var(--color-accent)] disabled:cursor-not-allowed"
       />

@@ -24,7 +24,15 @@ loadEnvLocal()
 
 // A dedicated port, distinct from 3000, so this suite doesn't collide with a
 // developer's already-running `next dev`.
-const PORT = 3100
+// 3118, retired from 3100 (2026-07-18): a parallel working copy's manually
+// started `next dev -p 3100` squatted this suite's port, the spawn below died
+// with EADDRINUSE that nothing surfaced, and waitForServer happily adopted the
+// FOREIGN server — whose env had no fake-Anthropic override and (post-ADR-052)
+// a default-OpenAI provider, so every "fake" turn silently hit real OpenAI and
+// 8-10 learning-persistence tests failed with an empty receivedRequests. The
+// port move dodges that specific squatter; the EADDRINUSE check in
+// waitForServer below is the structural fix (fail loud, never adopt).
+const PORT = 3118
 // Distinct from ai-turn.test.ts's fake Anthropic backend (3102) and
 // voice.test.ts's fake providers (3104).
 const FAKE_ANTHROPIC_PORT = 3105
@@ -45,6 +53,9 @@ function testEmail(label: string) {
 const admin = createClient(url, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } })
 
 let server: ChildProcess
+// Module-scoped (not beforeAll-local) so waitForServer's EADDRINUSE check
+// below can read what the spawned process printed.
+const startupLog: string[] = []
 let userA: { id: string; email: string }
 let userB: { id: string; email: string }
 let clientA: SupabaseClient
@@ -183,6 +194,16 @@ function setFakeTurnReply(text: string) {
 async function waitForServer(timeoutMs: number) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
+    // Fail LOUD if our spawned server lost its port instead of adopting
+    // whatever foreign process answers on it (see the PORT comment above —
+    // a /login probe cannot tell our server from a stranger's, and a
+    // stranger's env makes every assertion in this file quietly meaningless).
+    if (startupLog.join('').includes('EADDRINUSE')) {
+      throw new Error(
+        `port ${PORT} is already in use — the spawned next dev died and whatever is listening ` +
+          `there is NOT this suite's server. Free the port (lsof -nP -iTCP:${PORT} -sTCP:LISTEN) and re-run.`
+      )
+    }
     try {
       await fetch(`${API_BASE}/login`)
       return
@@ -273,13 +294,30 @@ beforeAll(async () => {
       // guarantees no real ANTHROPIC_API_KEY is reachable from this process.
       ANTHROPIC_API_KEY: 'sk-ant-test-fake-key-not-real',
       ANTHROPIC_BASE_URL: `http://localhost:${FAKE_ANTHROPIC_PORT}`,
+      // ADR-052 flipped the DEFAULT tutor provider to OpenAI; this suite's
+      // fake server speaks the ANTHROPIC wire shape, so pin the seam to the
+      // retained Anthropic path (ai-turn.test.ts / ai-stream.test.ts got this
+      // pin at the flip; this file was missed). This suite tests learning
+      // PERSISTENCE (FSRS, misconceptions, reconcile), not the provider.
+      TUTOR_PROVIDER: 'anthropic',
+      STUDY_KIT_PROVIDER: 'anthropic',
+      // Belt-and-braces with the pin: no real OpenAI key in this process, so
+      // if any code path ignores TUTOR_PROVIDER it fails loudly instead of
+      // silently spending real money against assertions it can never satisfy.
+      OPENAI_API_KEY: 'sk-test-fake-key-not-real',
+      // The GLOBAL day-scoped cost_ledger is shared with real usage and every
+      // other suite; a hot day would ride `degraded` onto responses (or, past
+      // the hard cap, suppress the model call entirely — indistinguishable
+      // from this file's 2026-07-18 port-squatter incident). Effectively
+      // infinite, mirroring ai-turn.test.ts; cost-guard.test.ts owns the caps.
+      COST_SOFT_CAP_CENTS_OVERRIDE: '999999999',
+      COST_HARD_CAP_CENTS_OVERRIDE: '999999999',
       // These session-lifecycle tests assert reconcile/mastery, not study kits;
       // disable the session-end auto study-kit hook so a misconception-flagging
       // scenario doesn't fire an (extra, fake-Anthropic) generation call.
       CALYXA_DISABLE_AUTO_STUDY_KIT: '1',
     },
   })
-  const startupLog: string[] = []
   server.stdout?.on('data', (chunk) => startupLog.push(String(chunk)))
   server.stderr?.on('data', (chunk) => startupLog.push(String(chunk)))
 
@@ -1338,5 +1376,88 @@ describe('session-end recap + trend rollup', () => {
     }
 
     expect(lastRecap?.trends ?? []).toEqual([])
+  })
+})
+
+// Public launch (2026-07-18): the per-session student-message cap
+// (SESSION_STUDENT_MESSAGE_LIMIT = 25, session-gate.ts). The authority is the
+// session's own session_interactions count — the request transcript is
+// windowed to 8 turns and can never show 25 — so these seed rows directly
+// (applied_to_profile: true, concept_key: null keeps them inert to the
+// reconcile sweep) instead of paying 25 round trips through the fake model.
+describe('session message cap (SESSION_STUDENT_MESSAGE_LIMIT)', () => {
+  async function seedInteractions(sessionId: string, count: number) {
+    const rows = Array.from({ length: count }, (_, i) => ({
+      session_id: sessionId,
+      user_id: userC.id,
+      turn_index: i + 1,
+      concept_key: null,
+      student_transcript: `seeded turn ${i + 1}`,
+      tutor_response: 'seeded reply',
+      outcome: 'none',
+      applied_to_profile: true,
+    }))
+    const { error } = await admin.from('session_interactions').insert(rows)
+    if (error) throw new Error(`seed interactions failed: ${error.message}`)
+  }
+
+  it('the turn after the 25th message closes the session with no model call, and the session is ended server-side', async () => {
+    const started = await start(tokenC, { pageDomain: 'example.com', mode: 'text' })
+    expect(started.status).toBe(200)
+    const sessionId = started.json.sessionId as string
+    recapSessionIds.push(sessionId)
+
+    await seedInteractions(sessionId, 25)
+
+    const before = receivedRequests.length
+    setFakeTurnReply('the model must never see a capped turn')
+    const capped = await turn(tokenC, {
+      sessionId,
+      messages: [{ role: 'user', content: 'one more question?' }],
+    })
+
+    expect(capped.status).toBe(200)
+    expect(capped.json.session).toEqual({ complete: true, reason: 'message-limit' })
+    expect(capped.json.reply).toContain('Now closing tutoring session.')
+    // The cap must short-circuit BEFORE the provider call — the fake backend
+    // saw nothing.
+    expect(receivedRequests.length).toBe(before)
+
+    // Ended server-side by the route itself, not by trusting the client to
+    // honor the close signal.
+    const { data: sess } = await admin.from('sessions').select('ended_at').eq('id', sessionId).single()
+    expect(sess?.ended_at).not.toBeNull()
+
+    // A client that ignores the close and keeps sending gets the same capped
+    // close every time — never another model call, and the already-ended
+    // session stays a no-op for endSession.
+    const again = await turn(tokenC, {
+      sessionId,
+      messages: [{ role: 'user', content: 'hello? are you still there?' }],
+    })
+    expect(again.status).toBe(200)
+    expect(again.json.session).toEqual({ complete: true, reason: 'message-limit' })
+    expect(receivedRequests.length).toBe(before)
+  })
+
+  it('a session one under the cap still reaches the model normally', async () => {
+    const started = await start(tokenC, { pageDomain: 'example.com', mode: 'text' })
+    expect(started.status).toBe(200)
+    const sessionId = started.json.sessionId as string
+    recapSessionIds.push(sessionId)
+
+    await seedInteractions(sessionId, 24)
+
+    const before = receivedRequests.length
+    setFakeTurnReply('still under the cap — answer normally')
+    const res = await turn(tokenC, {
+      sessionId,
+      messages: [{ role: 'user', content: 'what about the 25th message?' }],
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.json.reply).toBe('still under the cap — answer normally')
+    expect(res.json.session).toBeUndefined()
+    expect(receivedRequests.length).toBe(before + 1)
   })
 })

@@ -21,6 +21,8 @@ import {
 import { completeTurn, groundProfileTags, persistOpeningInteraction } from '@/lib/ai/turn-complete'
 import { costGuard } from '@/lib/tier/cost-guard'
 import { estimateCost } from '@/lib/tier/cost-model'
+import { MESSAGE_LIMIT_CLOSE_MESSAGE, MESSAGE_LIMIT_CLOSE_REASON } from '@/lib/ai/envelope'
+import { endSession, sessionInteractionCount, SESSION_STUDENT_MESSAGE_LIMIT } from '@/lib/tier/session-gate'
 
 // Sprint 16 / Task 3 (ADR-041): the friendly hard-cap refusal, verbatim per
 // the ADR. Never a 500, never a provider call — the global daily ceiling is
@@ -287,10 +289,28 @@ export async function POST(request: Request) {
   // serialized network hop per turn).
   const costGuardTimer = { ms: 0 }
   const profileTimer = { ms: 0 }
-  const [{ softExceeded, hardExceeded }, profile] = await Promise.all([
+  // The per-session student-message cap's count rides the SAME parallel round
+  // trip (public launch, 2026-07-18) — no serial hop added to the turn path.
+  // null (no sessionId, or a count error) fails open: uncapped.
+  const [{ softExceeded, hardExceeded }, profile, interactionCount] = await Promise.all([
     timed(costGuardTimer, () => costGuard(auth.supabase, estimateCost('claude_turn'))),
     timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys, userId: auth.user.id })),
+    sessionId ? sessionInteractionCount(auth.supabase, sessionId) : Promise.resolve(null),
   ])
+
+  // Session message cap (SESSION_STUDENT_MESSAGE_LIMIT): past it, no model
+  // call ever happens again for this session — the route ends the session
+  // server-side itself (idempotent RPC; a repeat call on an ended session is
+  // a no-op) and returns the close envelope the overlay already knows how to
+  // choreograph. Checked before the cost caps' branches so a capped session
+  // reads as "session over", never "Calyxa is resting".
+  if (interactionCount !== null && interactionCount >= SESSION_STUDENT_MESSAGE_LIMIT) {
+    await endSession(auth.supabase, sessionId!)
+    return NextResponse.json({
+      reply: MESSAGE_LIMIT_CLOSE_MESSAGE,
+      session: { complete: true, reason: MESSAGE_LIMIT_CLOSE_REASON },
+    })
+  }
 
   if (hardExceeded) {
     // `degradedCap` (Sprint 18 Task 8, ADR-043): annotates WHICH cap fired so

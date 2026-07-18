@@ -29,7 +29,52 @@ import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js'
 //     a pre-Sprint-14 "sitting" covered ~2 problems on average.
 // Task 9's manual acceptance pass is where this gets revisited against real
 // usage, same as the cost caps in cost-model.ts.
-export const FREE_SESSION_LIMIT = 20
+//
+// 2026-07-17 (public-launch retune, Darcy's call): 20 -> 10 for launch. The
+// Sprint 16 reasoning above assumed text-heavy beta usage; with voice, the
+// study-kit call (Sprint 21), and open signup, 10 holds the worst-case
+// per-free-user month near ~$1 at current provider rates. Revisit against
+// real invoices once launch traffic exists.
+export const FREE_SESSION_LIMIT = 10
+
+// Public launch (2026-07-18): every tutoring session — free AND Pro — closes
+// automatically once the student has sent this many messages. Two jobs in
+// one: a runaway-cost bound per session (each turn is a paid model call, and
+// nothing else bounds a single session's length), and a pedagogy nudge (a
+// 25-exchange sitting has long since stopped being one problem). Enforced
+// server-side in BOTH turn routes against the session's own
+// session_interactions row count (one row per student turn, ADR-019) — the
+// request transcript can't be the authority because parseMessages windows it
+// to the last 8 turns. The capped turn returns the MESSAGE_LIMIT close
+// envelope (web/lib/ai/envelope.ts) with NO model call, and the route ends
+// the session server-side itself — a client that ignores the close signal
+// just keeps receiving the same capped close, never another model call.
+export const SESSION_STUDENT_MESSAGE_LIMIT = 25
+
+// The cap's server-authoritative count: how many interactions (student
+// turns) this session has already persisted. RLS scopes the count to the
+// caller's own rows. Returns null on any error — the cap FAILS OPEN like
+// every other "should this call proceed" source in this codebase (see
+// cost-guard.ts's contract note): a count-layer hiccup must never kill a
+// tutoring turn. The skew window is honest and bounded: rows are written
+// per-turn via after(), so a rapid-fire client might land the cap a turn
+// late — acceptable for a cost/pedagogy bound.
+export async function sessionInteractionCount(
+  supabase: SupabaseClient,
+  sessionId: string
+): Promise<number | null> {
+  const { count, error } = await supabase
+    .from('session_interactions')
+    .select('id', { count: 'exact', head: true })
+    .eq('session_id', sessionId)
+
+  if (error || count === null) {
+    console.error('session-gate: interaction count failed, proceeding uncapped', error)
+    return null
+  }
+
+  return count
+}
 
 export type SessionMode = 'voice' | 'text'
 
