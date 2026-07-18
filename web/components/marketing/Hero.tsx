@@ -23,8 +23,8 @@ export function Hero() {
           <p className="m-0 inline-flex items-center gap-2 self-start rounded-full border border-(--calyxa-sage-border) bg-accent-subtle px-3.5 py-1.5 text-[12.5px] font-semibold text-accent-emphasis">
             chrome extension · free to start
           </p>
-          <h1 className="mkt-display mkt-h1 mt-6 max-w-[16ch] text-foreground">
-            Stop copying. Start learning.
+          <h1 className="mkt-display mkt-h1 mt-6 max-w-[15ch] text-foreground">
+            Stop asking AI for answers. Start learning from it.
           </h1>
           <p className="mt-[22px] max-w-[42ch] text-pretty text-lg leading-[1.6] text-muted-foreground">
             calyxa sees the problem you&apos;re stuck on, talks you through it out loud, and points at the exact step

@@ -10,7 +10,7 @@ import './globals.css'
 // NEXT_PUBLIC_SITE_URL still overrides (e.g. a preview deploy pointing at its
 // own URL); a localhost fallback here would have shipped broken unfurls to the
 // beta cohort.
-const TITLE = 'Calyxa — Stop copying. Start learning.'
+const TITLE = 'Calyxa — Stop asking AI for answers. Start learning from it.'
 const DESCRIPTION =
   "Calyxa sees the problem you're stuck on, talks you through it out loud, and points at the exact step you're missing — without ever just giving you the answer."
 

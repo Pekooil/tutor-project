@@ -29,7 +29,7 @@ describe('Hero (SSR)', () => {
   const html = decode(renderToString(createElement(Hero)))
 
   it('renders the v3 headline, badge, and footnote', () => {
-    expect(html).toContain('Stop copying. Start learning.')
+    expect(html).toContain('Stop asking AI for answers. Start learning from it.')
     expect(html).toContain('chrome extension · free to start')
     expect(html).toContain('free for 10 sessions a month · chrome')
   })
