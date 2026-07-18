@@ -6,6 +6,9 @@ import type {
   LogErrorPayload,
   OpeningScanPayload,
   PageContext,
+  ReferralLinkReplyPayload,
+  ReferralOfferReason,
+  ReferralOfferReplyPayload,
   SendFeedbackPayload,
   SendFeedbackReplyPayload,
   SendTelemetryPayload,
@@ -169,6 +172,17 @@ export default defineBackground(() => {
       // SEND_FEEDBACK: a failure IS surfaced so the card can retry.
       case 'GENERATE_STUDY_KIT':
         void handleGenerateStudyKit(message.payload as GenerateStudyKitPayload).then(sendResponse);
+        return true;
+      // (ADR-053) Referral offers + link creation. Same relay discipline: the
+      // overlay never reaches the network, the worker owns the /api/referral
+      // calls. GET_REFERRAL_OFFER additionally owns the show-it-now decision
+      // (suppression state in chrome.storage.local) so every mounted overlay
+      // shares one nag budget.
+      case 'GET_REFERRAL_OFFER':
+        void handleGetReferralOffer().then(sendResponse);
+        return true;
+      case 'CREATE_REFERRAL_LINK':
+        void handleCreateReferralLink().then(sendResponse);
         return true;
       default:
         return false;
@@ -686,6 +700,84 @@ async function handleGenerateStudyKit(payload: GenerateStudyKitPayload): Promise
   } catch (error) {
     const reply: StudyKitReplyPayload = { error: toErrorMessage(error) };
     return { type: 'STUDY_KIT_REPLY', payload: reply };
+  }
+}
+
+// ---- Referral offer (ADR-053) ----
+
+// Suppression state for the overlay's referral card, chrome.storage.local so
+// it survives worker restarts and is shared across every tab's overlay:
+//   - milestoneShown: the 5-completed-sessions offer fires ONCE ever.
+//   - outOfSessionsShownAt: the ran-out-of-sessions offer re-arms weekly (the
+//     condition persists month over month; the card must not).
+const REFERRAL_PROMPT_KEY = 'calyxa:referral-prompt';
+const OUT_OF_SESSIONS_RESHOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+type ReferralPromptState = {
+  milestoneShown?: boolean;
+  outOfSessionsShownAt?: number;
+};
+
+/**
+ * Decides whether the overlay should show the referral card right now
+ * (called at session close). Fetches /api/referral/status, applies the
+ * suppression rules above, and — when it does return an offer — records the
+ * showing immediately (the caller only asks when it is about to render).
+ * Best-effort by contract: ANY failure resolves { offer: null }; a referral
+ * nudge that can't be computed is simply not shown, never an error surface.
+ */
+async function handleGetReferralOffer(): Promise<CalyxaMessage> {
+  const none: ReferralOfferReplyPayload = { offer: null };
+  try {
+    const status = await api.getReferralStatus();
+    if (status.tier !== 'free') {
+      return { type: 'REFERRAL_OFFER_REPLY', payload: none };
+    }
+
+    const stored = await chrome.storage.local.get(REFERRAL_PROMPT_KEY);
+    const prompt = (stored[REFERRAL_PROMPT_KEY] ?? {}) as ReferralPromptState;
+
+    let reason: ReferralOfferReason | null = null;
+    if (
+      status.outOfSessions &&
+      (!prompt.outOfSessionsShownAt || Date.now() - prompt.outOfSessionsShownAt > OUT_OF_SESSIONS_RESHOW_MS)
+    ) {
+      reason = 'out_of_sessions';
+    } else if (status.completedSessions >= status.milestoneCompletedSessions && !prompt.milestoneShown) {
+      reason = 'milestone';
+    }
+
+    if (!reason) {
+      return { type: 'REFERRAL_OFFER_REPLY', payload: none };
+    }
+
+    const next: ReferralPromptState = {
+      ...prompt,
+      ...(reason === 'milestone' ? { milestoneShown: true } : { outOfSessionsShownAt: Date.now() }),
+    };
+    await chrome.storage.local.set({ [REFERRAL_PROMPT_KEY]: next });
+
+    const reply: ReferralOfferReplyPayload = { offer: { reason, status } };
+    return { type: 'REFERRAL_OFFER_REPLY', payload: reply };
+  } catch (error) {
+    console.warn('Calyxa SW: referral offer check failed, showing nothing', toErrorMessage(error));
+    return { type: 'REFERRAL_OFFER_REPLY', payload: none };
+  }
+}
+
+/**
+ * Allocates (idempotently) the user's referral link via POST
+ * /api/referral/link. Request/reply like SEND_FEEDBACK: user-initiated, so a
+ * failure IS surfaced and the card offers a retry.
+ */
+async function handleCreateReferralLink(): Promise<CalyxaMessage> {
+  try {
+    const { code, link } = await api.createReferralLink();
+    const reply: ReferralLinkReplyPayload = { code, link };
+    return { type: 'REFERRAL_LINK_REPLY', payload: reply };
+  } catch (error) {
+    const reply: ReferralLinkReplyPayload = { error: toErrorMessage(error) };
+    return { type: 'REFERRAL_LINK_REPLY', payload: reply };
   }
 }
 

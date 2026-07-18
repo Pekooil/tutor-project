@@ -4,6 +4,7 @@ import { Overlay, type TurnResult } from './Overlay';
 import type {
   Annotation,
   PageTopic,
+  ReferralOffer,
   SendFeedbackPayload,
   StickingCandidate,
   StudyKitResult,
@@ -109,6 +110,15 @@ export type OverlayTransports = {
    * harness) renders the recap card's placeholder tiles instead.
    */
   onGenerateStudyKit?: (sessionId: string) => Promise<StudyKitResult>;
+  /**
+   * Referral-card transports (ADR-053), optional like the other post-launch
+   * transports. onReferralOffer is asked at session close and resolves the
+   * background's show-it-now decision (null = show nothing; it is best-effort
+   * and never rejects). onCreateReferralLink allocates the shareable link
+   * idempotently and REJECTS on failure so the card can offer a retry.
+   */
+  onReferralOffer?: () => Promise<ReferralOffer | null>;
+  onCreateReferralLink?: () => Promise<{ code: string; link: string }>;
 };
 
 export type MountOverlayOptions = OverlayTransports;

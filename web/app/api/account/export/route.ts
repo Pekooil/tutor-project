@@ -53,6 +53,12 @@ const RLS_SCOPED_TABLES = [
   // (migration 0023). Its `voice_spend_select_own` policy makes this
   // authenticated read Just Work; the FK cascade to users covers erasure.
   'voice_spend',
+  // ADR-053: referred signups. `referral_select_own` is keyed on referrer_id
+  // (not user_id) -- the RLS-scoped read returns the rows where the CALLER is
+  // the referrer, which is exactly their referral data; the row about being
+  // referred lives on their own users.referred_by column, already exported
+  // above. FK cascades on both user columns cover erasure (migration 0024).
+  'referral',
 ] as const
 
 export async function GET(request: Request) {
@@ -95,12 +101,28 @@ export async function GET(request: Request) {
       throw telemetryError
     }
 
+    // signup_ip (ADR-053): the SECOND deliberate service-role exception, for
+    // the same reason as telemetry_event above -- the table is deny-all
+    // (Shape 3, no client SELECT policy), but its one row per account (the
+    // salted hash of the signup network address) is still the user's data
+    // and a GDPR export owes it to them. Explicitly scoped by user_id; the
+    // FK cascade to users covers erasure.
+    const { data: signupIp, error: signupIpError } = await createAdminClient()
+      .from('signup_ip')
+      .select('*')
+      .eq('user_id', auth.user.id)
+
+    if (signupIpError) {
+      throw signupIpError
+    }
+
     const payload = {
       schemaVersion: EXPORT_SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
       userId: auth.user.id,
       ...Object.fromEntries(rlsRows),
       telemetry_event: telemetry ?? [],
+      signup_ip: signupIp ?? [],
     }
 
     return new NextResponse(JSON.stringify(payload, null, 2), {

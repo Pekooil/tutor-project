@@ -15,6 +15,7 @@ import type {
   LogErrorPayload,
   PageContext,
   PageTopic,
+  ReferralStatusPayload,
   SendFeedbackPayload,
   SessionCompletion,
   SessionRecap,
@@ -835,6 +836,36 @@ export async function listStudyKits(sessionId?: string): Promise<StudyArtifact[]
     throw new Error(body.error ?? `study_list failed: ${res.status}`);
   }
   return (Array.isArray(body.artifacts) ? body.artifacts : []) as StudyArtifact[];
+}
+
+/**
+ * The caller's referral state (ADR-053): GET /api/referral/status. The
+ * background's offer logic (handleGetReferralOffer) reads completedSessions /
+ * outOfSessions from it; the numbers are display + decision inputs only --
+ * the reward itself is granted server-side at referred-signup time. THROWS on
+ * a non-2xx like listStudyKits.
+ */
+export async function getReferralStatus(): Promise<ReferralStatusPayload> {
+  const res = await authorizedFetch('/api/referral/status', { method: 'GET' });
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body.error ?? `referral_status failed: ${res.status}`);
+  }
+  return body as ReferralStatusPayload;
+}
+
+/**
+ * Allocate-if-absent the caller's referral code (ADR-053): POST
+ * /api/referral/link. Idempotent server-side -- calling it twice returns the
+ * same code. THROWS on a non-2xx so the referral card can offer a retry.
+ */
+export async function createReferralLink(): Promise<{ code: string; link: string }> {
+  const res = await authorizedFetch('/api/referral/link', { method: 'POST' });
+  const body = await res.json();
+  if (!res.ok || typeof body.link !== 'string' || typeof body.code !== 'string') {
+    throw new Error(body.error ?? `referral_link failed: ${res.status}`);
+  }
+  return { code: body.code, link: body.link };
 }
 
 // (Public launch, 2026-07-17) getOnboardingStatus / submitOnboarding are

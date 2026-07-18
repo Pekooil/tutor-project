@@ -173,15 +173,34 @@ async function seedAllTables(userId: string) {
     })
   if (studyErr) throw new Error(`seed study_artifact failed: ${studyErr.message}`)
 
+  // ADR-053: the two referral-system tables must be export- AND
+  // erasure-covered. signup_ip is deny-all (exported via the route's scoped
+  // service-role read, the telemetry_event pattern); referral is keyed on
+  // referrer_id, so the fixture is a SELF-referral row -- the RPC forbids
+  // self-referral in real flows, but the table doesn't, and one row with both
+  // FKs on this user is exactly what proves both cascades at once.
+  const { error: signupIpErr } = await admin
+    .from('signup_ip')
+    .insert({ user_id: userId, ip_hash: `fixture-hash-${userId}` })
+  if (signupIpErr) throw new Error(`seed signup_ip failed: ${signupIpErr.message}`)
+
+  const { error: referralErr } = await admin
+    .from('referral')
+    .insert({ referrer_id: userId, referred_user_id: userId })
+  if (referralErr) throw new Error(`seed referral failed: ${referralErr.message}`)
+
   return { sessionId: session.id as string }
 }
 
 async function existsInAnyTable(userId: string): Promise<Record<string, number>> {
-  const tables = ['users', 'sessions', 'knowledge_nodes', 'misconceptions', 'session_interactions', 'reinforcement_schedule', 'feedback', 'telemetry_event', 'study_artifact', 'voice_spend']
+  const tables = ['users', 'sessions', 'knowledge_nodes', 'misconceptions', 'session_interactions', 'reinforcement_schedule', 'feedback', 'telemetry_event', 'study_artifact', 'voice_spend', 'signup_ip', 'referral']
   const counts: Record<string, number> = {}
 
   for (const table of tables) {
-    const column = table === 'users' ? 'id' : 'user_id'
+    // referral (ADR-053) has no user_id column -- referrer_id is its
+    // erasure-cascade root (the fixture row is a self-referral, so counting
+    // by referrer_id covers both FKs).
+    const column = table === 'users' ? 'id' : table === 'referral' ? 'referrer_id' : 'user_id'
     // select(column) not select('id'): voice_spend (migration 0023) has a
     // composite (user_id, month) key and no `id` column; the filter column
     // itself exists on every table here, so the count is identical.
@@ -295,6 +314,13 @@ describe('GET /api/account/export', () => {
     // the export too.
     expect(body.study_artifact).toHaveLength(1)
     expect(body.study_artifact[0].kind).toBe('notes')
+    // ADR-053: referral rides the RLS-scoped set (select-own on referrer_id);
+    // signup_ip rides the scoped service-role read (deny-all table, the
+    // telemetry_event pattern).
+    expect(body.referral).toHaveLength(1)
+    expect(body.referral[0].referrer_id).toBe(userA.id)
+    expect(body.signup_ip).toHaveLength(1)
+    expect(body.signup_ip[0].ip_hash).toBe(`fixture-hash-${userA.id}`)
   })
 
   it("never includes a second user's rows (RLS proven, not a query we could get wrong)", async () => {
@@ -322,6 +348,11 @@ describe('GET /api/account/export', () => {
     // Sprint 21: study_artifact rides the RLS-scoped set -- same per-row
     // owner check for symmetry (and to prove B's kit never leaks into A's).
     for (const row of body.study_artifact) expect(row.user_id).toBe(userA.id)
+    // ADR-053: signup_ip is the route's SECOND explicit-`.eq` service-role
+    // read (route code, not RLS, is the scoping) -- assert it directly, like
+    // telemetry_event above. referral's RLS read is checked for symmetry.
+    for (const row of body.signup_ip) expect(row.user_id).toBe(userA.id)
+    for (const row of body.referral) expect(row.referrer_id).toBe(userA.id)
   })
 
   it('rejects an invalid bearer token', async () => {
@@ -407,5 +438,10 @@ describe('GET /api/cron/hard-delete-sweep', () => {
     // stays for the never-queued E -- the FK `on delete cascade` to users
     // (migration 0021) is the erasure path, no deletion code of its own.
     expect(eCounts.study_artifact).toBe(1)
+    // ADR-053: the two referral-system tables cascade-delete for D (covered
+    // by its all-zero check via existsInAnyTable) and stay for E -- FK
+    // `on delete cascade` (migration 0024) is the erasure path for both.
+    expect(eCounts.signup_ip).toBe(1)
+    expect(eCounts.referral).toBe(1)
   })
 })

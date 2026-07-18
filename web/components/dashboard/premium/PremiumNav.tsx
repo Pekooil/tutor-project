@@ -52,6 +52,7 @@ export function PremiumNav({
   const [menuOpen, setMenuOpen] = useState(false)
   const onAccount = pathname === '/account'
   const onBilling = pathname === '/billing'
+  const onReferral = pathname === '/referral'
 
   return (
     <div style={{ position: 'fixed', top: 18, left: '50%', transform: 'translateX(-50%)', zIndex: 50 }}>
@@ -226,6 +227,34 @@ export function PremiumNav({
               <path d="M2 6.5 H14" />
             </svg>
             Billing
+          </Link>
+          <Link
+            href="/referral"
+            role="menuitem"
+            onClick={() => setMenuOpen(false)}
+            className="cx-hover-menu"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              width: '100%',
+              textDecoration: 'none',
+              textAlign: 'left',
+              fontSize: 13,
+              padding: '9px 11px',
+              borderRadius: 11,
+              background: onReferral ? 'rgba(134,239,172,.35)' : 'transparent',
+              color: onReferral ? C.greenDeep : C.ink,
+              fontWeight: onReferral ? 600 : 500,
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2.5" y="6" width="11" height="7.5" rx="1.4" />
+              <path d="M8 6 V13.5 M2.5 9 H13.5" />
+              <path d="M8 6 C8 4 6.8 2.8 5.6 2.8 C4.6 2.8 4 3.4 4 4.2 C4 5.3 5.4 6 8 6 Z" />
+              <path d="M8 6 C8 4 9.2 2.8 10.4 2.8 C11.4 2.8 12 3.4 12 4.2 C12 5.3 10.6 6 8 6 Z" />
+            </svg>
+            Invite friends
           </Link>
         </div>
       )}

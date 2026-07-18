@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CONSENT_VERSION } from '@/lib/consent'
@@ -19,6 +19,17 @@ export default function SignupPage() {
   const [consent, setConsent] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  // Referral attribution (ADR-053): a shared link lands here as
+  // /signup?ref=CODE. Read via window.location in an effect (not
+  // useSearchParams, which would force a Suspense boundary on this page) and
+  // passed through to the signup API, which validates it server-side; a bad
+  // or missing code changes nothing about signup itself.
+  const [referralCode, setReferralCode] = useState<string | null>(null)
+
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get('ref')
+    if (ref) setReferralCode(ref)
+  }, [])
 
   const currentYear = new Date().getFullYear()
   const looksUnder13 = birthYear !== '' && currentYear - Number(birthYear) < 13
@@ -31,7 +42,13 @@ export default function SignupPage() {
     const res = await fetch('/api/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, birthYear: Number(birthYear), consent }),
+      body: JSON.stringify({
+        email,
+        password,
+        birthYear: Number(birthYear),
+        consent,
+        referralCode: referralCode ?? undefined,
+      }),
     })
 
     setSubmitting(false)
@@ -55,6 +72,11 @@ export default function SignupPage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <h1 className="text-xl leading-none font-semibold">Sign up</h1>
+          {referralCode && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              A friend invited you to Calyxa — welcome!
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-6">

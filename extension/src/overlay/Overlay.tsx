@@ -10,11 +10,13 @@ import {
 } from 'react';
 import { CalyxaMark } from '@calyxa/ui';
 import './Overlay.css';
+import { API_BASE } from '../lib/api';
 import type {
   Annotation,
   AnswerField,
   PageTopic,
   ProfileOverview,
+  ReferralOffer,
   SendFeedbackPayload,
   SessionCompletion,
   SessionRecap,
@@ -474,6 +476,7 @@ export type SurfaceKind =
   | 'conceptFallback'
   | 'history'
   | 'answer'
+  | 'referral'
   | 'ping';
 
 // Calyxa overlay — the "Calyxa Ambient Pill" redesign (2026-07-13).
@@ -517,6 +520,8 @@ export function Overlay({
   onMarkTutorialSeen,
   onGetActiveSessionId,
   onGenerateStudyKit,
+  onReferralOffer,
+  onCreateReferralLink,
 }: {
   // `sessionStart` rides ONLY the session's first turn (the concept card's
   // confirm / reframe start), always with an empty `messages` array: the
@@ -597,6 +602,13 @@ export function Overlay({
   // absent. Called with the just-ended session's id (captured from the recap
   // broadcast below); resolves { kit } / { refused }, rejects on failure.
   onGenerateStudyKit?: (sessionId: string) => Promise<StudyKitResult>;
+  // ADR-053: the referral card's transports, optional like the other
+  // post-launch transports. onReferralOffer is asked at session close
+  // (performClose) and resolves the background's show-it-now decision --
+  // best-effort, null means show nothing. onCreateReferralLink allocates the
+  // shareable link idempotently and rejects on failure (the card retries).
+  onReferralOffer?: () => Promise<ReferralOffer | null>;
+  onCreateReferralLink?: () => Promise<{ code: string; link: string }>;
 }) {
   // ---- Shell + theme (the ambient pill's own state) ----
   // The user-driven base state: hover/text are chosen expansions; every
@@ -689,6 +701,17 @@ export function Overlay({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [endConfirmOpen, setEndConfirmOpen] = useState(false);
+
+  // ---- Referral card state (ADR-053) ----
+  // The offer arrives from onReferralOffer at session close and drives the
+  // 'referral' surface; the link sub-state upgrades the card in place once
+  // "Get my invite link" resolves. NOT cleared by performClose -- the offer
+  // is set immediately AFTER a close, over the idle sliver.
+  const [referralOffer, setReferralOffer] = useState<ReferralOffer | null>(null);
+  const [referralLink, setReferralLink] = useState<{ code: string; link: string } | null>(null);
+  const [referralBusy, setReferralBusy] = useState(false);
+  const [referralError, setReferralError] = useState<string | null>(null);
+  const [referralCopied, setReferralCopied] = useState(false);
 
   // ---- Session flow state (ADR-024/025/030, unchanged semantics) ----
   const [recap, setRecap] = useState<SessionRecap | null>(null);
@@ -815,9 +838,16 @@ export function Overlay({
                             !busy &&
                             closeState === 'idle'
                           ? 'answer'
-                          : pinQueue.length > 0
-                            ? 'ping'
-                            : null;
+                          // The referral card (ADR-053) is ambient-priority:
+                          // it only ever fires at session close, so nothing
+                          // above it is normally live -- but if a new
+                          // conversation starts it yields to every working
+                          // surface (and sendStudentMessage clears it).
+                          : referralOffer
+                            ? 'referral'
+                            : pinQueue.length > 0
+                              ? 'ping'
+                              : null;
 
   // ---- Small shared helpers ----
   function appendStreamToken(text: string) {
@@ -1102,6 +1132,7 @@ export function Overlay({
     setCaptionHold(null);
     setCaptionMath(null);
     setNotice(null);
+    setReferralOffer(null); // an explicit collapse dismisses the nudge too
     // A dismissed concept card is consumed -- the student declined the
     // detection, so it never re-pops on the next hover (typing/speaking
     // still starts a session normally).
@@ -1204,6 +1235,55 @@ export function Overlay({
     pendingRecapRef.current = null;
     setBloom(null);
     window.dispatchEvent(new CustomEvent(PANEL_CLOSED_EVENT));
+    // ADR-053: a session just closed -- the one moment the referral card may
+    // appear. The background answers with an offer only when a trigger
+    // (out-of-sessions / the completed-sessions milestone) is live AND not
+    // suppressed; the card then renders over the idle sliver.
+    void maybeOfferReferral();
+  }
+
+  // ---- Referral card (ADR-053) ----
+  async function maybeOfferReferral() {
+    if (!onReferralOffer) return;
+    try {
+      const offer = await onReferralOffer();
+      if (!offer) return;
+      setReferralLink(null);
+      setReferralError(null);
+      setReferralCopied(false);
+      setReferralBusy(false);
+      setReferralOffer(offer);
+    } catch {
+      // Best-effort by contract -- a failed check shows nothing.
+    }
+  }
+
+  async function handleGetReferralLink() {
+    if (!onCreateReferralLink || referralBusy) return;
+    setReferralBusy(true);
+    setReferralError(null);
+    try {
+      setReferralLink(await onCreateReferralLink());
+    } catch (error) {
+      setReferralError(describeError(error, "Couldn't create your invite link — try again."));
+    } finally {
+      setReferralBusy(false);
+    }
+  }
+
+  async function handleCopyReferralLink() {
+    if (!referralLink) return;
+    try {
+      await navigator.clipboard.writeText(referralLink.link);
+      setReferralCopied(true);
+    } catch {
+      // Clipboard can be denied on some pages -- the link text stays visible
+      // and select-all, so manual copy still works.
+    }
+  }
+
+  function dismissReferral() {
+    dismissSurface(() => setReferralOffer(null));
   }
 
   // ---- Tutorial handler (public launch, 2026-07-17) ----
@@ -1447,6 +1527,7 @@ export function Overlay({
     setChips(null);
     setAnswerFields(null);
     setRecap(null); // shown once -- a new conversation replaces it
+    setReferralOffer(null); // same: a new conversation supersedes the nudge
     setHistoryOpen(false);
     setNotice(null);
     setCaptionHold(null);
@@ -2119,6 +2200,92 @@ export function Overlay({
         className="cx-card max-w-[420px] px-[17px] py-[11px] text-[13px] leading-[1.5] text-danger"
       >
         {notice}
+      </div>
+    );
+  } else if (surfaceKind === 'referral' && referralOffer) {
+    // The referral card (ADR-053): offered at session close when the student
+    // ran out of sessions or crossed the completed-sessions milestone. Two
+    // stages in one card: the offer (Not now / Get my invite link), then the
+    // allocated link with copy + a dashboard deep-link.
+    const { reason, status } = referralOffer;
+    surfaceNode = (
+      <div
+        role="dialog"
+        aria-label="Invite friends to Calyxa"
+        className="cx-card w-[380px] max-w-[calc(100vw-48px)] p-4 text-foreground"
+      >
+        <div className="flex items-start gap-2.5">
+          <CalyxaMark aria-hidden="true" className="mt-0.5 h-[17px] w-[17px] flex-none" />
+          <div className="flex min-w-0 flex-col gap-1">
+            <p className="m-0 text-[13.5px] font-semibold">
+              {reason === 'out_of_sessions'
+                ? 'Out of free sessions — earn more by sharing'
+                : 'Enjoying Calyxa? Share it with a friend'}
+            </p>
+            <p className="m-0 text-[12.5px] leading-relaxed text-muted-foreground">
+              Invite friends with your link — when {status.referralsPerReward} of them join, you get{' '}
+              {status.rewardSessions} more free sessions.
+              {status.referralCount > 0 &&
+                ` ${status.referralCount} joined so far — ${status.toNextReward} to go.`}
+            </p>
+          </div>
+        </div>
+        {referralError && (
+          <p role="alert" className="mb-0 mt-2 text-[12px] text-danger">
+            {referralError}
+          </p>
+        )}
+        {referralLink ? (
+          <div className="mt-3 flex flex-col gap-2.5">
+            <div className="flex items-center gap-2 rounded-[10px] border border-border bg-surface px-3 py-2">
+              <span className="min-w-0 flex-1 select-all truncate text-[12px] text-foreground">
+                {referralLink.link}
+              </span>
+              <button
+                type="button"
+                onClick={() => void handleCopyReferralLink()}
+                className="cursor-pointer rounded-full border-0 bg-accent px-3 py-1 text-[11.5px] font-semibold text-accent-foreground outline-none hover:bg-[var(--calyxa-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+              >
+                {referralCopied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+            <div className="flex items-center justify-between">
+              <a
+                href={`${API_BASE}/referral`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[12px] font-medium text-accent-emphasis underline underline-offset-2"
+              >
+                Track progress in your dashboard →
+              </a>
+              <button
+                type="button"
+                onClick={dismissReferral}
+                className="cursor-pointer rounded-full border border-border bg-transparent px-3.5 py-1.5 text-[12.5px] font-medium text-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3.5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={dismissReferral}
+              className="cursor-pointer rounded-full border border-border bg-transparent px-3.5 py-1.5 text-[12.5px] font-medium text-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            >
+              Not now
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleGetReferralLink()}
+              disabled={referralBusy}
+              className="cursor-pointer rounded-full border-0 bg-accent px-3.5 py-1.5 text-[12.5px] font-semibold text-accent-foreground outline-none hover:bg-[var(--calyxa-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {referralBusy ? 'Creating…' : 'Get my invite link'}
+            </button>
+          </div>
+        )}
       </div>
     );
   } else if (surfaceKind === 'concept' && scan?.topic && conceptSticking) {

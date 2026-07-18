@@ -48,6 +48,11 @@ const BILLING_URL = 'https://calyxa.app/billing';
 // lib/api.ts, so the base URL is deliberately duplicated here.
 const WELCOME_URL = 'https://calyxa.app/welcome?src=extension';
 
+// ADR-053: the free-limit state also offers the referral path — the dashboard
+// referral page holds the shareable link (3 friends join → 10 more free
+// sessions). Same plain-string discipline as BILLING_URL above.
+const REFERRAL_URL = 'https://calyxa.app/referral';
+
 const FALLBACK_ERROR: SessionStatePayload = {
   signedIn: false,
   user: null,
@@ -190,6 +195,14 @@ export function App() {
                   className="font-semibold text-accent-emphasis underline underline-offset-2"
                 >
                   Upgrade to Pro for unlimited sessions →
+                </a>
+                <a
+                  href={REFERRAL_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-accent-emphasis underline underline-offset-2"
+                >
+                  Or invite 3 friends — earn 10 free sessions →
                 </a>
               </span>
             ) : (

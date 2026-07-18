@@ -23,6 +23,9 @@ import type {
   OpeningScanReplyPayload,
   PageContext,
   PageTopic,
+  ReferralLinkReplyPayload,
+  ReferralOffer,
+  ReferralOfferReplyPayload,
   SendFeedbackPayload,
   SendFeedbackReplyPayload,
   SessionEndedPayload,
@@ -505,6 +508,38 @@ async function generateStudyKit(sessionId: string): Promise<StudyKitResult> {
   return reply;
 }
 
+/**
+ * Referral-offer relay (ADR-053): asked by the overlay at session close.
+ * The background owns both the /api/referral/status call AND the
+ * show-it-now suppression rules; this just relays the answer. Best-effort
+ * like the telemetry relay -- any failure resolves null (no card), never an
+ * error surface.
+ */
+async function fetchReferralOffer(): Promise<ReferralOffer | null> {
+  try {
+    const response: CalyxaMessage = await chrome.runtime.sendMessage({ type: 'GET_REFERRAL_OFFER' });
+    return (response?.payload as ReferralOfferReplyPayload | undefined)?.offer ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Referral-link relay (ADR-053): the referral card's "Get my invite link"
+ * click. Request/reply with the sendFeedback/generateStudyKit posture --
+ * user-initiated, so an { error } reply (or an unreachable worker) THROWS
+ * and the card offers a retry.
+ */
+async function createReferralLink(): Promise<{ code: string; link: string }> {
+  const message: CalyxaMessage = { type: 'CREATE_REFERRAL_LINK' };
+  const response: CalyxaMessage = await chrome.runtime.sendMessage(message);
+  const reply = response?.payload as ReferralLinkReplyPayload | undefined;
+  if (!reply || 'error' in reply) {
+    throw new Error(reply && 'error' in reply ? reply.error : 'referral link request did not reach the background');
+  }
+  return reply;
+}
+
 // Set by sendAiTurn's voice-path branch above when a reply arrives, and
 // consumed the moment TTS playback actually starts (handleVoicePlaybackStart
 // below) -- the gap between the two is exactly the onSynthesize + audio-
@@ -837,6 +872,11 @@ export default defineContentScript({
           // transport -- relays the just-ended sessionId to the background,
           // which owns the /api/study/generate call.
           onGenerateStudyKit: generateStudyKit,
+          // ADR-053: the referral card's transports -- the offer check (asked
+          // at session close; background owns the API call + suppression) and
+          // the link creation (user-initiated, throws so the card can retry).
+          onReferralOffer: fetchReferralOffer,
+          onCreateReferralLink: createReferralLink,
         });
       },
       onRemove: (root) => {

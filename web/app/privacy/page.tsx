@@ -156,6 +156,14 @@ export default function PrivacyPage() {
                 what="A monthly voice-usage counter"
                 why="On the free plan, premium voice has a small monthly budget. We keep one number per month — an estimate of that spend in cents — so we know when to switch you to the free browser voice. It contains no audio, text, or page data."
               />
+              <DataRow
+                what="A hashed signup network identifier"
+                why="When you create an account, we record a one-way HMAC hash of your network (IP) address — never the address itself — solely to limit how many accounts can be created from one network (abuse prevention). We cannot recover your IP from the hash, we never use it for location, and it is deleted with your account."
+              />
+              <DataRow
+                what="Referral data"
+                why="If you share your invite link, we keep your referral code, which accounts joined through it (so we can credit your bonus sessions), and — if you signed up through someone's link — a reference to who invited you."
+              />
             </ul>
           </section>
 

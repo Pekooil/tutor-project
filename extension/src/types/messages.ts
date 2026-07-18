@@ -147,7 +147,11 @@ export type MessageType =
   | 'SEND_FEEDBACK'
   | 'LOG_ERROR'
   | 'GENERATE_STUDY_KIT'
-  | 'STUDY_KIT_REPLY';
+  | 'STUDY_KIT_REPLY'
+  | 'GET_REFERRAL_OFFER'
+  | 'REFERRAL_OFFER_REPLY'
+  | 'CREATE_REFERRAL_LINK'
+  | 'REFERRAL_LINK_REPLY';
 
 export interface CalyxaMessage {
   type: MessageType;
@@ -481,6 +485,49 @@ export type StudyKitReplyPayload =
 // unreachable worker), so the recap card's single try/catch treats every
 // failure as one case, then branches kit-vs-refused on success.
 export type StudyKitResult = { kit: StudyKit } | { refused: 'cost' | 'empty' };
+
+// ---- Referral system (ADR-053) ----
+
+// Mirror of the /api/referral/status response, wire-shape source of truth in
+// web/lib/referral/referral.ts's ReferralStatus. The extension only DISPLAYS
+// these numbers -- reward math and the out-of-sessions determination are
+// server-side.
+export type ReferralStatusPayload = {
+  code: string | null;
+  link: string | null;
+  tier: string;
+  referralCount: number;
+  referralsPerReward: number;
+  rewardSessions: number;
+  toNextReward: number;
+  bonusSessions: number;
+  completedSessions: number;
+  milestoneCompletedSessions: number;
+  outOfSessions: boolean;
+};
+
+// Why the overlay is being offered the referral card: the student just ran
+// out of sessions (monthly allowance + bonus both spent), or they crossed the
+// completed-sessions milestone (they demonstrably like the product).
+export type ReferralOfferReason = 'out_of_sessions' | 'milestone';
+
+export type ReferralOffer = {
+  reason: ReferralOfferReason;
+  status: ReferralStatusPayload;
+};
+
+// REFERRAL_OFFER_REPLY payload (background -> caller). `offer: null` means
+// "don't show anything" -- no status fetched, suppressed, or ineligible. The
+// offer path is best-effort and NEVER surfaces an error (an offer that fails
+// to compute is simply not shown).
+export type ReferralOfferReplyPayload = { offer: ReferralOffer | null };
+
+// REFERRAL_LINK_REPLY payload (background -> caller). Request/reply like
+// SEND_FEEDBACK: creating a link is user-initiated, so a failure IS surfaced
+// ({error}) and the card offers a retry.
+export type ReferralLinkReplyPayload =
+  | { code: string; link: string }
+  | { error: string };
 
 // The proactive opening scan (Sprint 14 Task 6, ADR-030): content ->
 // background, no `messages` at all -- the content script only sends this

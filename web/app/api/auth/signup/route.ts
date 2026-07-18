@@ -2,9 +2,11 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { CONSENT_VERSION, meetsMinAge } from '@/lib/consent'
+import { clientIp, hashSignupIp } from '@/lib/referral/ip-hash'
+import { SIGNUP_IP_ACCOUNT_LIMIT } from '@/lib/referral/referral'
 
 export async function POST(request: Request) {
-  const { email, password, birthYear, consent } = await request.json()
+  const { email, password, birthYear, consent, referralCode } = await request.json()
 
   // Age gate FIRST (ADR-004), authoritative and server-side: an under-13
   // attempt creates no auth user, no profile row, and retains no email.
@@ -37,6 +39,37 @@ export async function POST(request: Request) {
   // toggle. (If verified email is wanted later, that's custom SMTP + a
   // confirm flow, not a one-line revert.)
   const admin = createAdminClient()
+
+  // Per-network account cap (ADR-053): at most SIGNUP_IP_ACCOUNT_LIMIT
+  // accounts per hashed signup IP, checked BEFORE any auth user exists. Only
+  // the HMAC hash is ever compared or stored (lib/referral/ip-hash.ts) — the
+  // raw IP never touches the database. Fails OPEN like checkRateLimit: no
+  // discernible IP, missing salt, or a query error logs and admits the signup
+  // rather than locking out legitimate users on an infra hiccup. Deleted
+  // accounts free their slot via the signup_ip FK cascade.
+  const ipHash = hashSignupIp(clientIp(request))
+
+  if (!ipHash) {
+    console.error('signup: no ip hash (missing header or URL_HASH_SALT) — skipping per-network cap')
+  } else {
+    const { count: ipCount, error: ipError } = await admin
+      .from('signup_ip')
+      .select('id', { count: 'exact', head: true })
+      .eq('ip_hash', ipHash)
+
+    if (ipError) {
+      console.error('signup: per-network cap check failed, allowing signup', ipError)
+    } else if ((ipCount ?? 0) >= SIGNUP_IP_ACCOUNT_LIMIT) {
+      return NextResponse.json(
+        {
+          error:
+            'Account limit reached for this network. If you think this is a mistake, contact support@calyxa.app.',
+        },
+        { status: 403 }
+      )
+    }
+  }
+
   const { data: created, error: createError } = await admin.auth.admin.createUser({
     email,
     password,
@@ -77,6 +110,48 @@ export async function POST(request: Request) {
 
   if (profileError) {
     return NextResponse.json({ error: profileError.message }, { status: 400 })
+  }
+
+  // Best-effort bookkeeping from here down (ADR-053): the account exists and
+  // the signup has succeeded — a failure in the per-network ledger or referral
+  // attribution logs and never fails the response.
+  if (ipHash) {
+    const { error: ipInsertError } = await admin
+      .from('signup_ip')
+      .insert({ ip_hash: ipHash, user_id: data.user.id })
+
+    if (ipInsertError) {
+      console.error('signup: signup_ip record failed', ipInsertError)
+    }
+  }
+
+  // Referral attribution: resolve the shared code to its owner, then let the
+  // record_referral RPC do the atomic insert-once + count + reward-grant
+  // (+10 sessions per 3 referred signups, ADR-053). Self-referral and unknown
+  // codes are silently ignored — the signup itself is never blocked on a bad
+  // code.
+  if (typeof referralCode === 'string' && referralCode.trim()) {
+    const code = referralCode.trim().toUpperCase()
+
+    const { data: referrer, error: referrerError } = await admin
+      .from('users')
+      .select('id')
+      .eq('referral_code', code)
+      .is('deleted_at', null)
+      .maybeSingle()
+
+    if (referrerError) {
+      console.error('signup: referral code lookup failed', referrerError)
+    } else if (referrer && referrer.id !== data.user.id) {
+      const { error: recordError } = await admin.rpc('record_referral', {
+        p_referrer: referrer.id,
+        p_referred: data.user.id,
+      })
+
+      if (recordError) {
+        console.error('signup: record_referral failed', recordError)
+      }
+    }
   }
 
   return NextResponse.json({ user: data.user })

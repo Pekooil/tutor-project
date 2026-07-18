@@ -92,7 +92,14 @@ function isPublicPath(pathname: string) {
     // and every webhook would silently fail. Only the WEBHOOK path is exempted:
     // /api/billing/checkout and /api/billing/portal are cookie-authed from the
     // dashboard (a signed-in user passes the gate below), so they are NOT public.
-    pathname.startsWith('/api/billing/webhook')
+    pathname.startsWith('/api/billing/webhook') ||
+    // ADR-053, the SAME class as /api/study above: /api/referral/* is
+    // bearer-OR-cookie (clientFromBearerOrCookie) — the extension's referral
+    // card calls it with a bearer token, the dashboard referral page with the
+    // cookie session. Without this exemption every extension call would be
+    // 307'd to /login before the handler runs (fourth instance of that gap —
+    // see the /api/cron, /api/telemetry, and /api/study notes above).
+    pathname.startsWith('/api/referral')
   )
 }
 

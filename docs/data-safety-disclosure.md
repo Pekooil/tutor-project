@@ -30,6 +30,8 @@ Every row is a real table/column, cross-checked for this disclosure — not reca
 | Generated study materials | `study_artifact` | Notes/practice problems/flashcards generated from the user's own session text (ADR-049); export + erasure covered |
 | Billing/subscription status | `users.subscription_tier/status`, `stripe_customer_id`, `stripe_subscription_id`, `subscription_renews_at` | Stripe is the payment processor; **card details never touch our servers** (ADR-050) |
 | Monthly voice-usage counter | `voice_spend` (user + month keyed) | One estimated-cents number per month for the free-tier voice budget (migration 0023); no audio/text/page data |
+| Hashed signup network identifier | `signup_ip.ip_hash` | HMAC-SHA256(IP, server-only salt) recorded once at account creation, **solely** to cap accounts-per-network (abuse prevention, ADR-053). **The raw IP is never stored**; one-way; never used for location; deleted with the account |
+| Referral data | `users.referral_code/referred_by/referral_bonus_sessions`, `referral` | The user's shareable invite code, who invited them, which accounts joined via their link, and the bonus-session balance earned (ADR-053) |
 | _(operational, not user-identity data)_ | `cost_ledger` (day-keyed), `stripe_events` (event-id-keyed bookkeeping), `waitlist` invite columns | Anonymous; deny-all; not tied to a user |
 
 **Never collected:** microphone audio (real-time STT only, discarded — ADR-011); page
@@ -48,12 +50,12 @@ marketing* purpose.)
 
 | CWS data type | Collected? | Maps to | Purposes |
 |---|---|---|---|
-| **Personally identifiable information** | **Yes** | Email; birth **year** (age) | Account management; App functionality; Security & compliance (age gate) |
+| **Personally identifiable information** | **Yes** | Email; birth **year** (age); a one-way **hashed** network identifier at signup (abuse prevention); referral code/attribution | Account management; App functionality; Security & compliance (age gate, per-network account cap) |
 | **Authentication information** | **Yes** | Email + password (via Supabase Auth) | Account management; Security |
 | Health information | No | — | — |
 | **Financial and payment information** | **Yes** | Subscription tier/status + a Stripe customer reference (Sprint 23). Card numbers go **directly to Stripe** and are never stored or seen by us | Account management; App functionality (Pro entitlements); Security & compliance |
 | **Personal communications** | **Disclose: Yes** | Session transcripts + feedback are user-entered text | App functionality; Personalization; Developer communications (feedback) |
-| Location | No | We do **not** collect GPS/region/IP-as-location | — |
+| Location | No | We do **not** collect GPS/region/IP-as-location. (A one-way **hash** of the signup IP is kept solely for the per-network account cap — it cannot be reversed to an address and is never used to infer location; disclosed under PII/security below, not Location) | — |
 | **Web history** | **Disclose: Yes (minimal)** | The **hashed** page-domain identifier only | App functionality (session continuity) — see caveat below |
 | **User activity** | **Yes** | Learning-profile signals + typed telemetry | App functionality; Personalization; **Analytics** (telemetry) |
 | **Website content** | **Yes** | The math problem text / conversation content the user works through | App functionality; Personalization |
