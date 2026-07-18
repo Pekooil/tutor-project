@@ -719,6 +719,10 @@ export function Overlay({
   // tint (handoff: "no extra UI region").
   const [tutorMode, setTutorMode] = useState<TutorModeKey>('explore');
   const missStreakRef = useRef(0);
+  // Mirror of missStreak for consecutive progress-UP turns — the momentum
+  // input that lets the mode climb (explore→build→practice→verify) on quiet
+  // turns instead of waiting for an explicit model signal (2026-07-18 ask).
+  const advanceStreakRef = useRef(0);
   const finalStepFiredRef = useRef(false);
   // The eased solution-progress value lives in a ref only now: the bar that
   // rendered it retired with the panel, but the signal still drives the
@@ -1178,6 +1182,7 @@ export function Overlay({
     progressRef.current = 0;
     finalStepFiredRef.current = false;
     missStreakRef.current = 0;
+    advanceStreakRef.current = 0;
     setTutorMode('explore');
     setPinQueue([]);
     setAnnotationColors({});
@@ -1362,8 +1367,13 @@ export function Overlay({
     const previous = progressRef.current;
     const eased = easeProgress(previous, result.solutionProgress, result.session?.reason === 'solved');
     progressRef.current = eased;
-    if (eased < previous) missStreakRef.current += 1;
-    else if (eased > previous) missStreakRef.current = 0;
+    if (eased < previous) {
+      missStreakRef.current += 1;
+      advanceStreakRef.current = 0;
+    } else if (eased > previous) {
+      missStreakRef.current = 0;
+      advanceStreakRef.current += 1;
+    }
     const finalStepPin: StatusPin | null =
       !result.session?.complete && eased >= FINAL_STEP_THRESHOLD && !finalStepFiredRef.current
         ? { category: 'progress', kind: 'final-step', conceptKey: null, label: 'Final step' }
@@ -1376,6 +1386,8 @@ export function Overlay({
       deriveTutorMode(current, {
         pins: [...(result.pins ?? []), ...(finalStepPin ? [finalStepPin] : [])],
         missStreak: missStreakRef.current,
+        advanceStreak: advanceStreakRef.current,
+        progress: eased,
         complete: !!result.session?.complete,
       }),
     );

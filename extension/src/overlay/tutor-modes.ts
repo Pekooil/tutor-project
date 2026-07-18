@@ -52,10 +52,14 @@ export const TUTOR_MODES: Record<TutorModeKey, TutorMode> = {
 // dedupe is still real evidence of where the session is. `missStreak` is
 // Overlay.tsx's count of consecutive turns whose eased progress moved
 // DOWN (easeProgress regression = a wrong step -- the closest client-side
-// read of the design's "two misses in a row").
+// read of the design's "two misses in a row"); `advanceStreak` is its
+// mirror for consecutive UP moves, and `progress` is the turn's eased
+// solution progress (ADR-028) -- the momentum inputs added 2026-07-18.
 export type TurnSignal = {
   pins: readonly Pick<StatusPin, 'kind'>[];
   missStreak: number;
+  advanceStreak: number;
+  progress: number;
   complete: boolean;
 };
 
@@ -92,6 +96,22 @@ export function deriveTutorMode(current: TutorModeKey, signal: TurnSignal): Tuto
   for (const kind of kinds) {
     if (COACH_KINDS.has(kind)) return 'coach';
   }
+
+  // ---- Momentum transitions (2026-07-18, Darcy's ask) ----
+  // The signal-driven table above fires only when the model emits an explicit
+  // pin, which real sessions do rarely -- so the mode sat in Explore (idle
+  // default) or Coach (the broad corrective set) most of the time. When a
+  // quiet turn carries no pin, the mode now follows the arc of the SOLUTION
+  // itself, from inputs every turn already has: eased progress and its
+  // movement. The ladder mirrors the earned order above -- Explore climbs to
+  // Build once real steps land, Build to Practice past mid-solution, anything
+  // to Verify in the final stretch -- and one good step climbs OUT of the
+  // corrective modes (coach/recover -> build). Pins still outrank momentum:
+  // a misconception at 90% progress is Coaching, not Verifying.
+  if (signal.progress >= STAGE_3_THRESHOLD) return 'verify';
+  if (signal.advanceStreak >= 1 && (current === 'coach' || current === 'recover')) return 'build';
+  if (signal.advanceStreak >= 2 && signal.progress >= STAGE_2_THRESHOLD) return 'practice';
+  if (signal.advanceStreak >= 2 && current === 'explore') return 'build';
   return current;
 }
 

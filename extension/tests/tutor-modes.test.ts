@@ -16,7 +16,14 @@ import {
 
 function signal(overrides: Partial<TurnSignal> & { kinds?: StatusPinKind[] } = {}): TurnSignal {
   const { kinds = [], ...rest } = overrides;
-  return { pins: kinds.map((kind) => ({ kind })), missStreak: 0, complete: false, ...rest };
+  return {
+    pins: kinds.map((kind) => ({ kind })),
+    missStreak: 0,
+    advanceStreak: 0,
+    progress: 0,
+    complete: false,
+    ...rest,
+  };
 }
 
 describe('TUTOR_MODES — the eight-mode catalog', () => {
@@ -93,6 +100,53 @@ describe('deriveTutorMode — the transition table', () => {
     expect(mode).toBe('verify');
     mode = deriveTutorMode(mode, signal({ complete: true }));
     expect(mode).toBe('review');
+  });
+
+  // ---- Momentum transitions (2026-07-18): quiet turns follow the solution
+  // arc instead of idling in Explore / sticking in Coach ----
+  describe('momentum on signal-less turns', () => {
+    it('two advancing steps climb Explore into Build even with no pin', () => {
+      expect(deriveTutorMode('explore', signal({ advanceStreak: 2, progress: 0.2 }))).toBe('build');
+    });
+
+    it('one advancing step climbs OUT of the corrective modes (coach/recover → build)', () => {
+      expect(deriveTutorMode('coach', signal({ advanceStreak: 1, progress: 0.3 }))).toBe('build');
+      expect(deriveTutorMode('recover', signal({ advanceStreak: 1, progress: 0.3 }))).toBe('build');
+    });
+
+    it('sustained advance past mid-solution enters Practice', () => {
+      expect(deriveTutorMode('build', signal({ advanceStreak: 2, progress: STAGE_2_THRESHOLD }))).toBe('practice');
+      expect(deriveTutorMode('explore', signal({ advanceStreak: 2, progress: 0.5 }))).toBe('practice');
+    });
+
+    it('the final stretch is Verify regardless of current mode', () => {
+      expect(deriveTutorMode('practice', signal({ progress: STAGE_3_THRESHOLD }))).toBe('verify');
+      expect(deriveTutorMode('explore', signal({ progress: 0.9 }))).toBe('verify');
+    });
+
+    it('explicit pins still OUTRANK momentum (a misconception at 90% is Coaching, not Verifying)', () => {
+      expect(
+        deriveTutorMode('practice', signal({ kinds: ['misconception-detected'], advanceStreak: 2, progress: 0.9 })),
+      ).toBe('coach');
+      expect(deriveTutorMode('explore', signal({ missStreak: 2, progress: 0.9 }))).toBe('recover');
+    });
+
+    it('a genuinely quiet turn (no streak, low progress) still keeps the current mode', () => {
+      expect(deriveTutorMode('explore', signal({ advanceStreak: 0, progress: 0.2 }))).toBe('explore');
+      expect(deriveTutorMode('build', signal({ advanceStreak: 1, progress: 0.3 }))).toBe('build');
+    });
+
+    it('the momentum walk holds without a single model signal: Explore → Build → Practice → Verify', () => {
+      let mode: ReturnType<typeof deriveTutorMode> = 'explore';
+      mode = deriveTutorMode(mode, signal({ advanceStreak: 2, progress: 0.25 }));
+      expect(mode).toBe('build');
+      mode = deriveTutorMode(mode, signal({ advanceStreak: 3, progress: 0.5 }));
+      expect(mode).toBe('practice');
+      mode = deriveTutorMode(mode, signal({ advanceStreak: 4, progress: 0.88 }));
+      expect(mode).toBe('verify');
+      mode = deriveTutorMode(mode, signal({ complete: true, progress: 1 }));
+      expect(mode).toBe('review');
+    });
   });
 });
 
