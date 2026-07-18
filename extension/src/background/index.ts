@@ -645,7 +645,7 @@ function reportSessionStarted(mode: 'voice' | 'text'): void {
  * "exported for the test task" convention as reduceTelemetryBatch/flushTelemetry.
  */
 export function emitDegradedHit(
-  cap: 'soft' | 'hard',
+  cap: 'soft' | 'hard' | 'voice_credit',
   source: 'claude_turn' | 'whisper_stt' | 'elevenlabs_tts',
 ): void {
   void enqueueTelemetry([{ kind: 'degraded_hit', cap, source }]);

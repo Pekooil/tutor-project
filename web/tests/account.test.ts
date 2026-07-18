@@ -177,12 +177,15 @@ async function seedAllTables(userId: string) {
 }
 
 async function existsInAnyTable(userId: string): Promise<Record<string, number>> {
-  const tables = ['users', 'sessions', 'knowledge_nodes', 'misconceptions', 'session_interactions', 'reinforcement_schedule', 'feedback', 'telemetry_event', 'study_artifact']
+  const tables = ['users', 'sessions', 'knowledge_nodes', 'misconceptions', 'session_interactions', 'reinforcement_schedule', 'feedback', 'telemetry_event', 'study_artifact', 'voice_spend']
   const counts: Record<string, number> = {}
 
   for (const table of tables) {
     const column = table === 'users' ? 'id' : 'user_id'
-    const { data } = await admin.from(table).select('id').eq(column, userId)
+    // select(column) not select('id'): voice_spend (migration 0023) has a
+    // composite (user_id, month) key and no `id` column; the filter column
+    // itself exists on every table here, so the count is identical.
+    const { data } = await admin.from(table).select(column).eq(column, userId)
     counts[table] = data?.length ?? 0
   }
 

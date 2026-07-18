@@ -13,7 +13,11 @@
 // session index.
 
 export type SessionMode = 'voice' | 'text'
-export type DegradedCap = 'soft' | 'hard'
+// 'voice_credit' (public launch, 2026-07-18): the per-free-user monthly
+// voice budget (migration 0023) — distinct from the global soft/hard caps so
+// the degraded-hit rate can separate fleet-wide heat from one user's spent
+// credit.
+export type DegradedCap = 'soft' | 'hard' | 'voice_credit'
 // Mirrors web/lib/tier/cost-model.ts's CostKind (Sprint 16, ADR-041) by NAME
 // only -- deliberately not imported, so this module carries no dependency on
 // Sprint 16's cost internals (out of scope per sprint-17-plan.md).
@@ -48,7 +52,7 @@ export type TelemetryEventKind = TelemetryEvent['kind']
 type FieldSpec = 'number' | 'boolean' | { enum: readonly string[] }
 
 const SESSION_MODES: readonly SessionMode[] = ['voice', 'text']
-const DEGRADED_CAPS: readonly DegradedCap[] = ['soft', 'hard']
+const DEGRADED_CAPS: readonly DegradedCap[] = ['soft', 'hard', 'voice_credit']
 const DEGRADED_SOURCES: readonly DegradedSource[] = ['claude_turn', 'whisper_stt', 'elevenlabs_tts']
 
 const EVENT_FIELD_SPECS: Record<TelemetryEventKind, Record<string, FieldSpec>> = {

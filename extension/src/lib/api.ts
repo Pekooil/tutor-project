@@ -549,8 +549,10 @@ export async function sttTranscribe(audio: { bytes: ArrayBuffer; mimeType: strin
   // route degrades this leg (`{ degraded, degradedCap }`, no transcript), these
   // are surfaced so the background can emit `degraded_hit`; the transcript/sttMs
   // are absent exactly as before (unchanged degrade-to-text behavior).
+  // 'voice_credit' (public launch, 2026-07-18): the per-free-user monthly
+  // voice budget — same degrade, distinct telemetry tag.
   degraded?: true;
-  degradedCap?: 'soft' | 'hard';
+  degradedCap?: 'soft' | 'hard' | 'voice_credit';
 }> {
   const res = await authorizedFetch('/api/voice/stt', {
     method: 'POST',
@@ -566,7 +568,8 @@ export async function sttTranscribe(audio: { bytes: ArrayBuffer; mimeType: strin
   return {
     transcript: body.transcript,
     sttMs: body.sttMs,
-    ...(body.degraded === true && (body.degradedCap === 'soft' || body.degradedCap === 'hard')
+    ...(body.degraded === true &&
+    (body.degradedCap === 'soft' || body.degradedCap === 'hard' || body.degradedCap === 'voice_credit')
       ? { degraded: true as const, degradedCap: body.degradedCap }
       : {}),
   };
@@ -583,7 +586,7 @@ export async function sttTranscribe(audio: { bytes: ArrayBuffer; mimeType: strin
  */
 export async function ttsSynthesize(
   text: string,
-): Promise<{ audio: ArrayBuffer; ttsMs: number; degraded?: true; degradedCap?: 'soft' | 'hard' }> {
+): Promise<{ audio: ArrayBuffer; ttsMs: number; degraded?: true; degradedCap?: 'soft' | 'hard' | 'voice_credit' }> {
   const res = await authorizedFetch('/api/voice/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -608,7 +611,8 @@ export async function ttsSynthesize(
         audio: new ArrayBuffer(0),
         ttsMs: 0,
         degraded: true,
-        degradedCap: body.degradedCap === 'hard' ? 'hard' : 'soft',
+        degradedCap:
+          body.degradedCap === 'hard' || body.degradedCap === 'voice_credit' ? body.degradedCap : 'soft',
       };
     }
   }
@@ -641,7 +645,7 @@ export async function ttsSynthesize(
 export async function ttsSynthesizeStream(
   text: string,
   onChunk: (chunk: Uint8Array) => void,
-): Promise<{ ttsMs: number; degraded?: true; degradedCap?: 'soft' | 'hard' }> {
+): Promise<{ ttsMs: number; degraded?: true; degradedCap?: 'soft' | 'hard' | 'voice_credit' }> {
   const res = await authorizedFetch('/api/voice/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -660,7 +664,12 @@ export async function ttsSynthesizeStream(
   if (res.headers.get('content-type')?.includes('application/json')) {
     const body = await res.json().catch(() => ({}));
     if (body.degraded === true) {
-      return { ttsMs: 0, degraded: true, degradedCap: body.degradedCap === 'hard' ? 'hard' : 'soft' };
+      return {
+        ttsMs: 0,
+        degraded: true,
+        degradedCap:
+          body.degradedCap === 'hard' || body.degradedCap === 'voice_credit' ? body.degradedCap : 'soft',
+      };
     }
   }
 

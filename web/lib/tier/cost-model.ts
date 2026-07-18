@@ -67,6 +67,16 @@ export const STUDY_KIT_CENTS = 3
 export const SOFT_CAP_CENTS = Number(process.env.COST_SOFT_CAP_CENTS_OVERRIDE) || 2000 // $20.00/day
 export const HARD_CAP_CENTS = Number(process.env.COST_HARD_CAP_CENTS_OVERRIDE) || 5000 // $50.00/day
 
+// Public launch (2026-07-18): the PER-USER monthly voice budget for the free
+// tier — 50 cents of estimated Whisper+ElevenLabs spend per UTC calendar
+// month, enforced by the voice_credit_guard RPC (migration 0023) via
+// web/lib/tier/voice-credit.ts. Past it, the voice legs degrade to text +
+// browser TTS exactly like the global soft cap; non-'free' tiers are
+// unmetered. The env override mirrors the COST_*_OVERRIDE pattern above:
+// voice-credit.test.ts drives the cap down inside its own spawned process
+// without touching the deployed default.
+export const VOICE_CREDIT_CAP_CENTS = Number(process.env.VOICE_CREDIT_CAP_CENTS_OVERRIDE) || 50 // $0.50/month per free user
+
 export type CostKind = 'claude_turn' | 'whisper_stt' | 'elevenlabs_tts' | 'study_kit'
 
 // web/overlay/VoiceController.ts's toWavUtterance: gpt-4o-mini-transcribe

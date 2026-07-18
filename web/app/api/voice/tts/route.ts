@@ -3,6 +3,7 @@ import { clientFromBearer } from '@/lib/auth/bearer'
 import { synthesize } from '@/lib/voice/elevenlabs'
 import { timed } from '@/lib/voice/latency'
 import { costGuard } from '@/lib/tier/cost-guard'
+import { voiceCreditGuard } from '@/lib/tier/voice-credit'
 import { estimateCost } from '@/lib/tier/cost-model'
 
 // No persistence, no DB write — the synthesized audio stream is relayed
@@ -31,16 +32,26 @@ export async function POST(request: Request) {
   // Sprint 16 / Task 3 (ADR-041): the global cost guard, before the
   // ElevenLabs call. Either cap crossed degrades this leg to text — see
   // voice/stt/route.ts's identical guard for the fail-open contract.
-  const { softExceeded, hardExceeded } = await costGuard(
-    auth.supabase,
-    estimateCost('elevenlabs_tts', text.length)
-  )
+  //
+  // Public launch (2026-07-18): the per-free-user monthly voice credit
+  // (migration 0023) rides in PARALLEL, same as voice/stt/route.ts.
+  const estimatedCents = estimateCost('elevenlabs_tts', text.length)
+  const [{ softExceeded, hardExceeded }, voiceCredit] = await Promise.all([
+    costGuard(auth.supabase, estimatedCents),
+    voiceCreditGuard(auth.supabase, estimatedCents),
+  ])
 
   if (softExceeded || hardExceeded) {
     // `degradedCap` (Sprint 18 Task 8, ADR-043): telemetry support so the
     // extension can emit `degraded_hit.cap`. Hard takes precedence when both
     // are crossed. No change to the degrade-to-text behavior.
     return NextResponse.json({ degraded: true, degradedCap: hardExceeded ? 'hard' : 'soft' })
+  }
+
+  if (voiceCredit.exceeded) {
+    // Same degrade-to-text contract; distinct tag so telemetry separates the
+    // global caps from a free user's spent monthly voice credit.
+    return NextResponse.json({ degraded: true, degradedCap: 'voice_credit' })
   }
 
   try {

@@ -49,6 +49,10 @@ const RLS_SCOPED_TABLES = [
   // the export here + the erasure sweep (the FK cascade) -- both, asserted in
   // tests/account.test.ts.
   'study_artifact',
+  // Public launch (2026-07-18): the per-user monthly voice-credit ledger
+  // (migration 0023). Its `voice_spend_select_own` policy makes this
+  // authenticated read Just Work; the FK cascade to users covers erasure.
+  'voice_spend',
 ] as const
 
 export async function GET(request: Request) {

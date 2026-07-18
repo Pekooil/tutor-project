@@ -3,6 +3,7 @@ import { clientFromBearer } from '@/lib/auth/bearer'
 import { transcribe } from '@/lib/voice/whisper'
 import { timed } from '@/lib/voice/latency'
 import { costGuard } from '@/lib/tier/cost-guard'
+import { voiceCreditGuard } from '@/lib/tier/voice-credit'
 import { estimateCost } from '@/lib/tier/cost-model'
 
 // No storage/Blob/DB import in this module (ADR-011) — the request body is
@@ -46,16 +47,28 @@ export async function POST(request: Request) {
   // expected to fall back rather than retry voice for this turn (see
   // web/lib/tier/cost-guard.ts's fail-open note: an RPC error here proceeds
   // as under-cap, never blocking transcription on a guard-layer hiccup).
-  const { softExceeded, hardExceeded } = await costGuard(
-    auth.supabase,
-    estimateCost('whisper_stt', audio.byteLength)
-  )
+  //
+  // Public launch (2026-07-18): the per-free-user monthly voice credit
+  // (migration 0023) rides the same round trip in PARALLEL — no added
+  // latency on the voice-critical path. Both guards fail open independently.
+  const estimatedCents = estimateCost('whisper_stt', audio.byteLength)
+  const [{ softExceeded, hardExceeded }, voiceCredit] = await Promise.all([
+    costGuard(auth.supabase, estimatedCents),
+    voiceCreditGuard(auth.supabase, estimatedCents),
+  ])
 
   if (softExceeded || hardExceeded) {
     // `degradedCap` (Sprint 18 Task 8, ADR-043): telemetry support so the
     // extension can emit `degraded_hit.cap`. Hard takes precedence when both
     // are crossed. No change to the degrade-to-text behavior.
     return NextResponse.json({ degraded: true, degradedCap: hardExceeded ? 'hard' : 'soft' })
+  }
+
+  if (voiceCredit.exceeded) {
+    // Same degrade-to-text contract as the global caps; the distinct cap tag
+    // lets telemetry separate "the fleet is hot" from "this free user spent
+    // their monthly voice credit".
+    return NextResponse.json({ degraded: true, degradedCap: 'voice_credit' })
   }
 
   try {
