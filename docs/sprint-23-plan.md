@@ -306,16 +306,23 @@ With Stripe in test mode:
      self-heals within a run.
   7. Confirm no Stripe secret in the extension bundle (the Sprint 18 CI gate is green).
 
-## Acceptance criteria (full checklist)
-- [ ] ADR-050/051 written; pointers + architecture.md updated
-- [ ] stripe_events (deny-all, keyed on event id, NOT user-scoped / not on export-erasure) lands in 0021; db reset clean
-- [ ] Checkout creates/reuses a Customer on stripe_customer_id and returns a session URL; portal route works; Stripe SDK server-only
-- [ ] Webhook verifies the raw-body signature (bad sig → 400), is idempotent via stripe_events, and maps all four events to the correct tier/status transitions; past_due grace, deleted → free
-- [ ] Reconcile cron (stub → real) self-heals stale/dropped-webhook rows daily, CRON_SECRET-gated, enforces grace-window downgrade
-- [ ] Entitlements resolver computes the PLAN §2.8 flag set from tier+status; attached to /api/session/start for display; re-checked server-side via assertEntitlement (client value never authorizes)
-- [ ] Pro unlocks the session cap via the EXISTING RPC tier exemption (no gate/RPC change); upsell (dashboard + popup) + manage (portal) UI wired
-- [ ] No Stripe code/secret in the extension bundle (Sprint 18 CI gate green)
-- [ ] `turbo run typecheck lint build test` green; Task 9 Stripe-test-mode pass complete
+## Acceptance criteria (full checklist) — ✅ COMPLETE 2026-07-18
+- [x] ADR-050/051 written; pointers + architecture.md updated
+- [x] stripe_events (deny-all, keyed on event id, NOT user-scoped / not on export-erasure) lands in the migration (renumbered `0022_stripe_events.sql` — `0021` was stale); db reset clean
+- [x] Checkout creates/reuses a Customer on stripe_customer_id and returns a session URL; portal route works; Stripe SDK server-only
+- [x] Webhook verifies the raw-body signature (bad sig → 400), is idempotent via stripe_events, and maps all four events to the correct tier/status transitions; past_due grace, deleted → free
+- [x] Reconcile cron (stub → real) self-heals stale/dropped-webhook rows daily, CRON_SECRET-gated, enforces grace-window downgrade
+- [x] Entitlements resolver computes the PLAN §2.8 flag set from tier+status; attached to /api/session/start for display; re-checked server-side via assertEntitlement (client value never authorizes)
+- [x] Pro unlocks the session cap via the EXISTING RPC tier exemption (no gate/RPC change); upsell (dashboard + popup) + manage (portal) UI wired
+- [x] No Stripe code/secret in the extension bundle (Sprint 18 CI gate green)
+- [x] `turbo run typecheck lint build test` green (544/544 after scoping chart-tokens to the chart components); Task 9 Stripe-test-mode pass complete — see the carry-forward note below
+
+### Task 9 close-out (2026-07-18)
+Live-verified in Stripe test mode against the deployed calyxa.app + Supabase: (1) a real checkout flipped a user to Pro via the `checkout.session.completed` webhook (`tier=pro/active`, `stripe_events` recorded); (5) a webhook redelivery was idempotent (`{received:true,duplicate:true}`, no new event row, no double-apply); (3) an immediate cancel downgraded the user to free (`tier=free/canceled`, renewal cleared) via `customer.subscription.deleted`; (7) no Stripe secret in the extension bundle. **Root-cause fix during acceptance:** no webhook endpoint existed in the Stripe sandbox — created (`https://calyxa.app/api/billing/webhook`, 4 events) + signing secret wired into Vercel prod.
+
+**Accepted carry-forwards (Darcy's call 2026-07-18, NOT blockers):** step 4 (`invoice.payment_failed`→`past_due` grace→expiry downgrade) and step 6 (dropped-webhook reconcile self-heal) were not exercised LIVE, but both are directly covered + mutation-verified by the Task 8 unit tests (`billing-webhook.test.ts`, `stripe-reconcile.test.ts`).
+
+**Not part of this sprint (GO-LIVE for real income):** activate the Stripe account for live payments (business + bank/payout) and swap Vercel prod to live-mode `sk_live_…` / live Price / live webhook secret — configuration, not code.
 
 ## Risks
 **A dropped webhook leaves a paying user on free (or a canceled user on Pro).**
