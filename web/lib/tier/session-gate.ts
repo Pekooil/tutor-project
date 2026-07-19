@@ -51,6 +51,61 @@ export const FREE_SESSION_LIMIT = 10
 // just keeps receiving the same capped close, never another model call.
 export const SESSION_STUDENT_MESSAGE_LIMIT = 25
 
+// The friendly refusal shown when a free user is past their monthly session
+// allowance and tries to tutor. Mirrors COST_RESTING_MESSAGE's tone; the two
+// envelope turn routes and /api/ai/stream all import THIS one constant so the
+// text can never drift between paths. Points at Pro because that is how the
+// cap is lifted (Pro is quota-exempt in start_session).
+export const FREE_LIMIT_MESSAGE =
+  "You've used all your free sessions this month. Upgrade to Calyxa Pro for unlimited tutoring, or come back next month."
+
+// Public-launch free-cap enforcement (2026-07-18). `start_session` decides the
+// monthly free allowance ONCE, at session start, and records the verdict on
+// the row: a free user's 11th+ session (FREE_SESSION_LIMIT) is created with
+// counts_against_free = false — it did not fit the allowance, the same rows
+// the RPC flags `degraded`. The turn routes call this to RE-DERIVE that
+// verdict server-side, because "free tier limits are enforced server-side;
+// the client is a hint only" (CLAUDE.md): the extension's `degraded` UI never
+// gates the model call, so WITHOUT this a free user past their quota keeps
+// getting full AI turns forever (the launch bug this fixes).
+//
+// A session is over the free cap iff its owner is STILL on the free tier AND
+// counts_against_free = false. The tier predicate is REQUIRED, not incidental:
+// Pro sessions also carry counts_against_free = false (Pro is quota-exempt),
+// and a paying user must never be refused. Reading the session's stored
+// verdict — not the user's live free_session_count — is deliberate: session
+// #10 starts UNDER quota (counts_against_free = true) and all its turns must
+// run even though the live count now equals the limit.
+//
+// Fails OPEN (returns false) on any error, missing row, or sessionless turn,
+// matching costGuard + sessionInteractionCount's contract: a lookup hiccup, or
+// a rare sessionless turn, must never wrongly block a paid-for or in-quota
+// turn. The sessions RLS + the users!inner embed are both scoped to the
+// caller's own rows (the session's user_id and the embedded user id are both
+// auth.uid()), so this reads only the caller's own state.
+export async function sessionOverFreeCap(
+  supabase: SupabaseClient,
+  sessionId: string
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('sessions')
+    .select('counts_against_free, users!inner(subscription_tier)')
+    .eq('id', sessionId)
+    .maybeSingle()
+
+  if (error || !data) {
+    if (error) console.error('session-gate: free-cap lookup failed, proceeding uncapped', error)
+    return false
+  }
+
+  const row = data as unknown as {
+    counts_against_free: boolean
+    users: { subscription_tier: string } | { subscription_tier: string }[] | null
+  }
+  const owner = Array.isArray(row.users) ? row.users[0] : row.users
+  return owner?.subscription_tier === 'free' && row.counts_against_free === false
+}
+
 // The cap's server-authoritative count: how many interactions (student
 // turns) this session has already persisted. RLS scopes the count to the
 // caller's own rows. Returns null on any error — the cap FAILS OPEN like

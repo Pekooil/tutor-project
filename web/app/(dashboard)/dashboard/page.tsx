@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { CONCEPT_KEYS } from '@calyxa/curriculum'
 import { createClient } from '@/lib/supabase/server'
 import { loadDashboard } from '@/lib/learning/dashboard-read'
+import { loadSessionQuota } from '@/lib/learning/activity-read'
 import { loadNavUser } from '@/components/dashboard/premium/user-info'
 import { loadStudyKits } from '@/components/dashboard/premium/kits-read'
 import { OverviewScreen } from '@/components/dashboard/premium/OverviewScreen'
@@ -22,14 +23,22 @@ export default async function DashboardOverviewPage() {
     redirect('/login')
   }
 
-  const [data, navUser, kits] = await Promise.all([
+  const [data, navUser, kits, quota] = await Promise.all([
     loadDashboard(supabase),
     loadNavUser(supabase),
     loadStudyKits(supabase),
+    loadSessionQuota(supabase),
   ])
   const firstName = navUser.name.split(' ')[0]
 
   return (
-    <OverviewScreen data={data} now={new Date()} firstName={firstName} totalCurriculum={CONCEPT_KEYS.length} kits={kits} />
+    <OverviewScreen
+      data={data}
+      now={new Date()}
+      firstName={firstName}
+      totalCurriculum={CONCEPT_KEYS.length}
+      kits={kits}
+      quota={quota}
+    />
   )
 }

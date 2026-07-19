@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import type { DashboardData } from '@/lib/learning/dashboard-read'
+import type { SessionQuota } from '@/lib/learning/activity-read'
 import { GlassCard, CardHead, Badge } from './primitives'
 import { C, glassCardSoft, eyebrow, pillAction, entrance } from './theme'
 import { kitHrefForConcept, type StudyKit } from './kits-read'
@@ -22,12 +23,14 @@ export function OverviewScreen({
   firstName,
   totalCurriculum,
   kits,
+  quota,
 }: {
   data: DashboardData
   now: Date
   firstName: string
   totalCurriculum: number
   kits: StudyKit[]
+  quota: SessionQuota
 }) {
   const stats = overviewStats(data)
   const practice = practiceNext(data).map((r) => ({ ...r, kitHref: kitHrefForConcept(kits, r.conceptKey) }))
@@ -64,7 +67,7 @@ export function OverviewScreen({
       </header>
 
       {/* Stat strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', ...glassCardSoft, marginBottom: 16, ...entrance(0.12) }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', ...glassCardSoft, marginBottom: 16, ...entrance(0.12) }}>
         <div style={cellPad}>
           <span style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,0) 55%)', pointerEvents: 'none' }} />
           <span style={eyebrow}>Mastered</span>
@@ -101,6 +104,16 @@ export function OverviewScreen({
                 since {new Date(stats.streakSince + 'T00:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })}
               </span>
             )}
+          </span>
+        </div>
+        <div style={{ ...cellPad, borderLeft: `1px solid ${C.hair}` }}>
+          <span style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,0) 55%)', pointerEvents: 'none' }} />
+          <span style={eyebrow}>Free sessions</span>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontSize: 24, fontWeight: 600, lineHeight: '28px' }}>{quota.isPro ? '∞' : quota.remaining}</span>
+            <span style={{ fontSize: 12, color: C.muted }}>
+              {quota.isPro ? 'unlimited' : `left · ${quota.used}/${quota.limit} used`}
+            </span>
           </span>
         </div>
       </div>

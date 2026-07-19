@@ -1,9 +1,42 @@
+import Link from 'next/link'
 import type { DashboardData } from '@/lib/learning/dashboard-read'
+import type { SessionQuota, RecentSession } from '@/lib/learning/activity-read'
 import type { TrendPoint } from '@/components/dashboard/TrendChart'
-import { C, glassCard, sheen, eyebrow, entrance } from './theme'
+import { C, glassCard, glassCardSoft, sheen, eyebrow, entrance } from './theme'
 import { heatmap, answerBars, sessionsPerWeek } from './derive'
 
 const MS_PER_DAY = 86_400_000
+
+const cellPad = {
+  position: 'relative' as const,
+  padding: '15px 20px',
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: 4,
+}
+const cellSheen = {
+  position: 'absolute' as const,
+  inset: 0,
+  background: 'linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,0) 55%)',
+  pointerEvents: 'none' as const,
+}
+const bigNum = { fontSize: 24, fontWeight: 600, lineHeight: '28px' }
+const numSub = { fontSize: 12, color: C.muted }
+
+function sessionDateTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function resetsInDays(iso: string | null): number | null {
+  if (!iso) return null
+  const ms = new Date(iso).getTime() - Date.now()
+  return ms > 0 ? Math.ceil(ms / MS_PER_DAY) : 0
+}
 
 function TrendSvg({ points, now }: { points: TrendPoint[]; now: Date }) {
   const yFor = (m: number) => 142 - Math.max(0, Math.min(1, m)) * 126
@@ -47,11 +80,22 @@ function TrendSvg({ points, now }: { points: TrendPoint[]; now: Date }) {
   )
 }
 
-export function ActivityScreen({ data, trend }: { data: DashboardData; trend: TrendPoint[] }) {
+export function ActivityScreen({
+  data,
+  trend,
+  quota,
+  sessions,
+}: {
+  data: DashboardData
+  trend: TrendPoint[]
+  quota: SessionQuota
+  sessions: RecentSession[]
+}) {
   const now = new Date()
   const heat = heatmap(data, now)
   const bars = answerBars(data, now)
   const weeks = sessionsPerWeek(data, now)
+  const resetDays = resetsInDays(quota.resetsAt)
 
   return (
     <section data-screen-label="Activity">
@@ -59,6 +103,114 @@ export function ActivityScreen({ data, trend }: { data: DashboardData; trend: Tr
         <p style={{ margin: '0 0 7px', fontSize: 10, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: C.muted }}>Activity</p>
         <h1 style={{ margin: 0, fontSize: 28, lineHeight: '34px', fontWeight: 600, letterSpacing: '-.015em' }}>How your studying adds up</h1>
       </header>
+
+      {/* Free-session quota strip — this period's usage at a glance */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', ...glassCardSoft, marginBottom: 16, ...entrance(0.04) }}>
+        <div style={cellPad}>
+          <span style={cellSheen} />
+          <span style={eyebrow}>Free sessions left</span>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={bigNum}>{quota.isPro ? '∞' : quota.remaining}</span>
+            <span style={numSub}>{quota.isPro ? 'unlimited on Plus' : `of ${quota.limit}`}</span>
+          </span>
+        </div>
+        <div style={{ ...cellPad, borderLeft: `1px solid ${C.hair}` }}>
+          <span style={cellSheen} />
+          <span style={eyebrow}>Sessions this month</span>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={bigNum}>{quota.used}</span>
+            <span style={numSub}>{quota.isPro ? 'logged' : 'logged this period'}</span>
+          </span>
+        </div>
+        <div style={{ ...cellPad, borderLeft: `1px solid ${C.hair}` }}>
+          <span style={cellSheen} />
+          <span style={eyebrow}>{quota.isPro ? 'Plan' : 'Allowance resets'}</span>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={bigNum}>{quota.isPro ? 'Plus' : resetDays == null ? '—' : resetDays}</span>
+            <span style={numSub}>
+              {quota.isPro ? 'unlimited sessions' : resetDays == null ? '' : resetDays === 1 ? 'day' : 'days'}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      {/* Recent sessions — line by line, each linking to its study kit */}
+      <div style={{ ...glassCard, padding: '16px 19px', marginBottom: 16, ...entrance(0.06) }}>
+        <span style={sheen} />
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 11, paddingBottom: 13 }}>
+          <span style={{ flex: 'none', width: 34, height: 34, borderRadius: 11, background: C.mintTile, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#166534" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 4v4l2.5 1.5" /><circle cx="8" cy="8" r="6" /></svg>
+          </span>
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1, minWidth: 0 }}>
+            <span style={eyebrow}>Your tutoring sessions · newest first</span>
+            <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-.005em' }}>Recent sessions</span>
+          </span>
+        </div>
+        <div style={{ position: 'relative', height: 1, background: C.hair }} />
+        {sessions.length === 0 ? (
+          <p style={{ position: 'relative', margin: '14px 2px 2px', fontSize: 13, color: C.muted }}>
+            No sessions yet — start one from the Calyxa pill on any math page and it’ll show up here.
+          </p>
+        ) : (
+          <div style={{ position: 'relative' }}>
+            {sessions.map((s, i) => (
+              <div
+                key={s.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  padding: '11px 2px',
+                  borderTop: i === 0 ? 'none' : '1px solid rgba(28,28,26,.06)',
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 500 }}>{sessionDateTime(s.startedAt)}</span>
+                  <span
+                    style={{
+                      flex: 'none',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      letterSpacing: '.06em',
+                      textTransform: 'uppercase',
+                      color: C.muted,
+                      background: 'rgba(28,28,26,.06)',
+                      borderRadius: 99,
+                      padding: '2px 8px',
+                    }}
+                  >
+                    {s.mode === 'voice' ? 'Voice' : 'Text'}
+                  </span>
+                  {s.endedAt == null && (
+                    <span style={{ flex: 'none', fontSize: 11, color: C.amber }}>In progress</span>
+                  )}
+                </span>
+                {s.kitHref ? (
+                  <Link
+                    href={s.kitHref}
+                    className="cx-hover-mint"
+                    style={{
+                      flex: 'none',
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      color: C.greenDeep,
+                      background: C.mint,
+                      borderRadius: 99,
+                      padding: '5px 13px',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    View study kit →
+                  </Link>
+                ) : (
+                  <span style={{ flex: 'none', fontSize: 12, color: C.faint }}>No study kit</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Heatmap */}
       <div style={{ ...glassCard, padding: '16px 19px', marginBottom: 16, ...entrance(0.08) }}>

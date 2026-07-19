@@ -12,6 +12,7 @@ import {
 } from '@/lib/ai/page-context'
 import { costGuard } from '@/lib/tier/cost-guard'
 import { estimateCost } from '@/lib/tier/cost-model'
+import { sessionOverFreeCap, FREE_LIMIT_MESSAGE } from '@/lib/tier/session-gate'
 
 // Sprint 16 / Task 3 (ADR-041): same resting text as the other two turn
 // paths. This route currently has no client caller (extension/src/lib/
@@ -115,18 +116,27 @@ export async function POST(request: Request) {
   }
 
   const pageContext = parsePageContext(body)
+  const sessionId =
+    typeof body === 'object' && body !== null && typeof (body as { sessionId?: unknown }).sessionId === 'string'
+      ? (body as { sessionId: string }).sessionId
+      : null
 
   // Sprint 16 / Task 3 (ADR-041): the global cost guard, before the profile
   // read or the Claude call. Only the hard cap applies — this route has no
   // envelope/voice concept to thread a `degraded` flag through (it streams
   // raw text deltas only), so soft-cap voice degradation has nothing to act
-  // on here.
-  const { hardExceeded } = await costGuard(auth.supabase, estimateCost('claude_turn'))
+  // on here. The per-user free monthly cap (public launch, 2026-07-18) rides
+  // the same parallel round trip so this otherwise-uninvoked-but-reachable
+  // Claude surface enforces the quota exactly like the two live turn paths.
+  const [{ hardExceeded }, overFreeCap] = await Promise.all([
+    costGuard(auth.supabase, estimateCost('claude_turn')),
+    sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : Promise.resolve(false),
+  ])
 
-  if (hardExceeded) {
+  if (hardExceeded || overFreeCap) {
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue(sseChunk({ text: COST_RESTING_MESSAGE }))
+        controller.enqueue(sseChunk({ text: overFreeCap ? FREE_LIMIT_MESSAGE : COST_RESTING_MESSAGE }))
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         controller.close()
       },

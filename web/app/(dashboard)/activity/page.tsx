@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { loadDashboard } from '@/lib/learning/dashboard-read'
+import { loadSessionQuota, loadRecentSessions } from '@/lib/learning/activity-read'
+import { loadStudyKits } from '@/components/dashboard/premium/kits-read'
 import type { TrendPoint } from '@/components/dashboard/TrendChart'
 import { ActivityScreen } from '@/components/dashboard/premium/ActivityScreen'
 
@@ -40,7 +42,17 @@ export default async function ActivityPage() {
     redirect('/login')
   }
 
-  const data = await loadDashboard(supabase)
+  const [data, quota, kits] = await Promise.all([
+    loadDashboard(supabase),
+    loadSessionQuota(supabase),
+    loadStudyKits(supabase),
+  ])
+
+  // A kit's href is its session id (or an artifact id for a session-less kit,
+  // which simply won't match any session), so this set tags each recent
+  // session with whether it produced a kit.
+  const kitSessionIds = new Set(kits.map((k) => k.href))
+  const sessions = await loadRecentSessions(supabase, kitSessionIds)
 
   const { data: snapshotRows } = await supabase
     .from('mastery_snapshot')
@@ -50,5 +62,5 @@ export default async function ActivityPage() {
 
   const trend = aggregateTrend((snapshotRows ?? []) as SnapshotRow[])
 
-  return <ActivityScreen data={data} trend={trend} />
+  return <ActivityScreen data={data} trend={trend} quota={quota} sessions={sessions} />
 }

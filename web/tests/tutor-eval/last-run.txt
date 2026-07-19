@@ -1,0 +1,16 @@
+========================================================================
+TUTOR EVAL — Haiku 4.5 vs GPT-4o-mini  (higher = better; latency ms lower = better)
+fixtures: 5  (⚠️ synthetic — replace with recorded turns for a production gate)
+========================================================================
+                                     anthropic          openai
+  ------------------------------------------------------------
+  envelope valid                          100%            100%
+  assessment present                      100%            100%
+  annotation grounded                     100%            100%
+  chips shape ok                          100%            100%
+  session-close discipline                 80%             80%
+  no fabricated turn                      100%            100%
+  latency p50                          10953ms          3750ms
+  latency p95                          35924ms          4449ms
+========================================================================
+GATE: switch traffic only if GPT-4o-mini >= Haiku on EVERY compliance row AND on latency.

@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import http, { type Server } from 'node:http'
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from 'vitest'
 import { createClient } from '@supabase/supabase-js'
+import { FREE_LIMIT_MESSAGE } from '../lib/tier/session-gate'
 
 // vitest doesn't auto-load .env.local the way `next dev`/`next build` do
 // (rls.test.ts / session.test.ts convention).
@@ -2474,5 +2475,95 @@ describe('/api/ai/turn: the session-start kickoff (structured sessionStart, no m
     const system = systemText(receivedRequests[receivedRequests.length - 1].system)
     expect(system).toContain('NOT sure where it usually goes wrong')
     expect(system).not.toContain('which they confirmed')
+  })
+})
+
+// Public-launch free monthly session cap (2026-07-18). start_session creates
+// EVERY session, only flagging a free user's over-allowance session `degraded`
+// (counts_against_free = false) — so before this the cap was enforced only by
+// the extension's UI, and a free user past FREE_SESSION_LIMIT got unlimited AI
+// turns (the launch bug). These tests pin the SERVER-SIDE enforcement the
+// locked rule requires: a degraded free session refuses the model call, an
+// in-quota session and a Pro session proceed, keyed on the session's own
+// stored verdict (not the live counter) so session #10's turns still run.
+describe('/api/ai/turn: free monthly session cap (server-side enforcement)', () => {
+  let capUser: { id: string }
+  let capToken: string
+
+  beforeAll(async () => {
+    const email = `darcy20080911+calyxafreecap${Date.now()}@gmail.com`
+    const { data: created, error } = await admin.auth.admin.createUser({
+      email,
+      password: PASSWORD,
+      email_confirm: true,
+    })
+    if (error || !created.user) throw new Error(`free-cap fixture setup failed: ${error?.message}`)
+    capUser = { id: created.user.id }
+
+    const client = createClient(url, anonKey)
+    const { data: signIn, error: signInErr } = await client.auth.signInWithPassword({ email, password: PASSWORD })
+    if (signInErr || !signIn.session) throw new Error(`free-cap sign-in failed: ${signInErr?.message}`)
+    capToken = signIn.session.access_token
+  })
+
+  afterAll(async () => {
+    await admin.from('sessions').delete().eq('user_id', capUser.id)
+    await admin.auth.admin.deleteUser(capUser.id)
+  })
+
+  // Seed a session row directly (fixture, not the write path — start_session's
+  // own verdict logic is session.test.ts's job): counts_against_free = false
+  // is exactly what start_session stamps on a free user's over-cap session.
+  async function seedSession(countsAgainstFree: boolean): Promise<string> {
+    const { data, error } = await admin
+      .from('sessions')
+      .insert({ user_id: capUser.id, mode: 'text', counts_against_free: countsAgainstFree })
+      .select('id')
+      .single()
+    if (error || !data) throw new Error(`free-cap session seed failed: ${error?.message}`)
+    return data.id as string
+  }
+
+  it('refuses a turn on a degraded (over-cap) free session with the upgrade prompt and NO model call', async () => {
+    const sessionId = await seedSession(false)
+    nextResponse = { status: 200, body: fakeTextMessage('MUST NOT REACH THE MODEL') }
+
+    const { status, json } = await turn(capToken, {
+      messages: [{ role: 'user', content: 'what is the next step?' }],
+      sessionId,
+    })
+
+    expect(status).toBe(200)
+    expect(json.reply).toBe(FREE_LIMIT_MESSAGE)
+    expect(json.degraded).toBe(true)
+    // The whole point of the fix: the paid model call never happens.
+    expect(receivedRequests).toHaveLength(0)
+  })
+
+  it('lets a turn on an in-quota free session (counts_against_free true) proceed to the model as normal', async () => {
+    const sessionId = await seedSession(true)
+    nextResponse = { status: 200, body: fakeTextMessage('a normal tutor reply') }
+
+    const { status, json } = await turn(capToken, {
+      messages: [{ role: 'user', content: 'what is the next step?' }],
+      sessionId,
+    })
+
+    expect(status).toBe(200)
+    expect(json.reply).toBe('a normal tutor reply')
+    expect(json.degraded).toBeUndefined()
+    expect(receivedRequests).toHaveLength(1)
+  })
+
+  it('a sessionless turn is never blocked by the free cap (fails open, same as before)', async () => {
+    nextResponse = { status: 200, body: fakeTextMessage('a normal tutor reply') }
+
+    const { status, json } = await turn(capToken, {
+      messages: [{ role: 'user', content: 'what is the next step?' }],
+    })
+
+    expect(status).toBe(200)
+    expect(json.reply).toBe('a normal tutor reply')
+    expect(receivedRequests).toHaveLength(1)
   })
 })

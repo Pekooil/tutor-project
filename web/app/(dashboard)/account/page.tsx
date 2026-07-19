@@ -4,6 +4,7 @@ import { loadNavUser } from '@/components/dashboard/premium/user-info'
 import { Logomark } from '@/components/dashboard/premium/primitives'
 import { C, glassCard, glassCardSoft, sheen, entrance } from '@/components/dashboard/premium/theme'
 import { AccountActions } from './account-actions'
+import { BillingActions } from '../billing/billing-actions'
 
 // Account view — the design's Profile / Subscription / Export / Delete layout,
 // wired to the real `users` row (email, tier, renewal, member-since) with the
@@ -88,12 +89,12 @@ export default async function AccountPage() {
           <p style={{ position: 'relative', margin: '0 0 16px', fontSize: 13, color: C.muted }}>
             {isPro ? `${renews ? `Renews ${renews} · ` : ''}$8 / month` : 'You’re on the free plan.'}
           </p>
-          <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <button disabled title="Coming soon" style={{ border: 'none', background: 'rgba(28,28,26,.05)', borderRadius: 99, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, color: C.muted, cursor: 'not-allowed' }}>
-              {isPro ? 'Manage subscription' : 'Upgrade to Plus'}
-            </button>
-            <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: C.muted, border: '1px dashed #c9c7c0', borderRadius: 99, padding: '1px 6px' }}>Soon</span>
-          </span>
+          <BillingActions isPro={isPro} upgradeLabel="Upgrade to Plus" />
+          {!isPro && (
+            <p style={{ position: 'relative', margin: '10px 0 0', fontSize: 12, color: C.faint }}>
+              Unlimited sessions and full learning insights. Secure checkout by Stripe · cancel anytime.
+            </p>
+          )}
         </div>
       </div>
 

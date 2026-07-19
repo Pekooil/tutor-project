@@ -1,0 +1,132 @@
+{
+  "aggregates": [
+    {
+      "provider": "anthropic",
+      "valid": 100,
+      "assessment": 100,
+      "annotation": 100,
+      "chips": 100,
+      "close": 80,
+      "notFabricated": 100,
+      "p50": 10953,
+      "p95": 35924
+    },
+    {
+      "provider": "openai",
+      "valid": 100,
+      "assessment": 100,
+      "annotation": 100,
+      "chips": 100,
+      "close": 80,
+      "notFabricated": 100,
+      "p50": 3750,
+      "p95": 4449
+    }
+  ],
+  "perScenario": {
+    "anthropic": [
+      {
+        "scenario": "regular · combine like terms (annotate-when-referenced)",
+        "ms": 4362.014709,
+        "valid": true,
+        "assessmentOk": true,
+        "annotationOk": true,
+        "chipsOk": true,
+        "closeOk": true,
+        "notFabricated": true
+      },
+      {
+        "scenario": "regular · small-answer question (chips shape)",
+        "ms": 3440.039334,
+        "valid": true,
+        "assessmentOk": true,
+        "annotationOk": true,
+        "chipsOk": true,
+        "closeOk": true,
+        "notFabricated": true
+      },
+      {
+        "scenario": "regular · final answer (session-close discipline)",
+        "ms": 10952.740791,
+        "valid": true,
+        "assessmentOk": true,
+        "annotationOk": true,
+        "chipsOk": true,
+        "closeOk": false,
+        "notFabricated": true
+      },
+      {
+        "scenario": "opening-scan · name the visible problem",
+        "ms": 35923.877875,
+        "valid": true,
+        "assessmentOk": true,
+        "annotationOk": true,
+        "chipsOk": true,
+        "closeOk": true,
+        "notFabricated": true
+      },
+      {
+        "scenario": "session-start · dive at the sticking point (no fabricated turn)",
+        "ms": 25776.415790999992,
+        "valid": true,
+        "assessmentOk": true,
+        "annotationOk": true,
+        "chipsOk": true,
+        "closeOk": true,
+        "notFabricated": true
+      }
+    ],
+    "openai": [
+      {
+        "scenario": "regular · combine like terms (annotate-when-referenced)",
+        "ms": 3822.983666,
+        "valid": true,
+        "assessmentOk": true,
+        "annotationOk": true,
+        "chipsOk": true,
+        "closeOk": true,
+        "notFabricated": true
+      },
+      {
+        "scenario": "regular · small-answer question (chips shape)",
+        "ms": 4449.096250000002,
+        "valid": true,
+        "assessmentOk": true,
+        "annotationOk": true,
+        "chipsOk": true,
+        "closeOk": true,
+        "notFabricated": true
+      },
+      {
+        "scenario": "regular · final answer (session-close discipline)",
+        "ms": 3171.847790999993,
+        "valid": true,
+        "assessmentOk": true,
+        "annotationOk": true,
+        "chipsOk": true,
+        "closeOk": false,
+        "notFabricated": true
+      },
+      {
+        "scenario": "opening-scan · name the visible problem",
+        "ms": 3749.7855830000044,
+        "valid": true,
+        "assessmentOk": true,
+        "annotationOk": true,
+        "chipsOk": true,
+        "closeOk": true,
+        "notFabricated": true
+      },
+      {
+        "scenario": "session-start · dive at the sticking point (no fabricated turn)",
+        "ms": 2194.618208,
+        "valid": true,
+        "assessmentOk": true,
+        "annotationOk": true,
+        "chipsOk": true,
+        "closeOk": true,
+        "notFabricated": true
+      }
+    ]
+  }
+}

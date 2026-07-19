@@ -13,7 +13,18 @@ import { C } from '@/components/dashboard/premium/theme'
 // is same-origin, so cookies ride along) — no token handling here, and Stripe
 // itself is never imported into the client (ADR-006: the browser only ever
 // receives a URL to redirect to).
-export function BillingActions({ isPro }: { isPro: boolean }) {
+//
+// `upgradeLabel` lets a surface override the free-user button text (the account
+// page calls the paid tier "Plus" while the billing page calls it "Pro" — a
+// pre-existing label split; each surface passes its own wording). The checkout
+// flow itself is identical.
+export function BillingActions({
+  isPro,
+  upgradeLabel = 'Upgrade to Pro',
+}: {
+  isPro: boolean
+  upgradeLabel?: string
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -79,7 +90,7 @@ export function BillingActions({ isPro }: { isPro: boolean }) {
             onClick={() => redirectTo('/api/billing/checkout')}
             disabled={busy}
           >
-            {busy ? 'Redirecting…' : 'Upgrade to Pro'}
+            {busy ? 'Redirecting…' : upgradeLabel}
           </button>
         )}
       </span>

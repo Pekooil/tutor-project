@@ -2,7 +2,9 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Logomark } from '@/components/dashboard/premium/primitives'
 import { C, glassCard, sheen, entrance } from '@/components/dashboard/premium/theme'
+import { readReferralStatus } from '@/lib/referral/referral'
 import { BillingActions } from './billing-actions'
+import { ReferralActions } from '../referral/referral-actions'
 
 // Sprint 23 / Task 7 (ADR-050/051): the billing page — the dashboard surface
 // where a student upgrades to Pro and manages their subscription. Server-
@@ -56,6 +58,11 @@ export default async function BillingPage({
   const status = profile?.subscription_status ?? null
   const pastDue = status === 'past_due'
   const renews = longDay(profile?.subscription_renews_at ?? null)
+
+  // Referral (ADR-053): the invite link lives on the current-plan card too, so
+  // a user managing their plan can earn free sessions without leaving for the
+  // dedicated /referral page. RLS-scoped read as the caller.
+  const referral = await readReferralStatus(supabase, user.id)
 
   // Post-checkout return notice (success/cancel URLs point back here with
   // ?checkout=…). The webhook is the source of truth for the plan flip, so this
@@ -168,6 +175,23 @@ export default async function BillingPage({
 
         <div style={{ position: 'relative' }}>
           <BillingActions isPro={isPro} />
+        </div>
+
+        {/* Referral (ADR-053): earn free sessions by inviting friends, right
+            from the plan card. */}
+        <div style={{ position: 'relative', height: 1, background: C.hair, margin: '16px 0' }} />
+        <p style={{ position: 'relative', margin: '0 0 3px', fontSize: 14, fontWeight: 600 }}>
+          Invite friends, earn free sessions
+        </p>
+        <p style={{ position: 'relative', margin: '0 0 12px', fontSize: 13, color: C.muted }}>
+          Share your link — when {referral?.referralsPerReward ?? 3} friends sign up, you get{' '}
+          {referral?.rewardSessions ?? 10} free sessions.
+          {referral && referral.referralCount > 0
+            ? ` ${referral.referralCount} joined so far — ${referral.toNextReward} to go.`
+            : ''}
+        </p>
+        <div style={{ position: 'relative' }}>
+          <ReferralActions initialLink={referral?.link ?? null} />
         </div>
       </div>
 

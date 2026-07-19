@@ -22,7 +22,13 @@ import { completeTurn, groundProfileTags, persistOpeningInteraction } from '@/li
 import { costGuard } from '@/lib/tier/cost-guard'
 import { estimateCost } from '@/lib/tier/cost-model'
 import { MESSAGE_LIMIT_CLOSE_MESSAGE, MESSAGE_LIMIT_CLOSE_REASON } from '@/lib/ai/envelope'
-import { endSession, sessionInteractionCount, SESSION_STUDENT_MESSAGE_LIMIT } from '@/lib/tier/session-gate'
+import {
+  endSession,
+  sessionInteractionCount,
+  sessionOverFreeCap,
+  SESSION_STUDENT_MESSAGE_LIMIT,
+  FREE_LIMIT_MESSAGE,
+} from '@/lib/tier/session-gate'
 
 // Sprint 16 / Task 3 (ADR-041): the friendly hard-cap refusal, verbatim per
 // the ADR. Never a 500, never a provider call — the global daily ceiling is
@@ -128,12 +134,19 @@ async function handleOpeningScan(
   // auth.getUser() round trip (clientFromBearer already resolved the user).
   const profileTimer = { ms: 0 }
   const topicKeys = detectTopicKeys(pageContext, [])
-  const [{ hardExceeded }, profile] = await Promise.all([
+  const [{ hardExceeded }, profile, overFreeCap] = await Promise.all([
     costGuard(auth.supabase, estimateCost('claude_turn')),
     timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys, userId: auth.user.id })),
+    sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : Promise.resolve(false),
   ])
 
-  if (hardExceeded) {
+  // Free monthly cap (public launch, 2026-07-18): a proactive scan is exactly
+  // as much "a new AI turn" as any other, so a free user past their allowance
+  // gets the SAME silent-open (ADR-030's EMPTY_REPLY contract) as a hard cost
+  // cap — no check-in card is surfaced. The student's first real turn then
+  // returns the FREE_LIMIT_MESSAGE upgrade prompt (handleTurn below). Rides
+  // the parallel read above; fails open when the scan has no session yet.
+  if (hardExceeded || overFreeCap) {
     return NextResponse.json({ reply: '' })
   }
 
@@ -292,10 +305,14 @@ export async function POST(request: Request) {
   // The per-session student-message cap's count rides the SAME parallel round
   // trip (public launch, 2026-07-18) — no serial hop added to the turn path.
   // null (no sessionId, or a count error) fails open: uncapped.
-  const [{ softExceeded, hardExceeded }, profile, interactionCount] = await Promise.all([
+  // The free monthly cap's verdict rides the SAME parallel round trip (public
+  // launch, 2026-07-18) — no serial hop added. false (no sessionId, or a
+  // lookup error) fails open: uncapped.
+  const [{ softExceeded, hardExceeded }, profile, interactionCount, overFreeCap] = await Promise.all([
     timed(costGuardTimer, () => costGuard(auth.supabase, estimateCost('claude_turn'))),
     timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys, userId: auth.user.id })),
     sessionId ? sessionInteractionCount(auth.supabase, sessionId) : Promise.resolve(null),
+    sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : Promise.resolve(false),
   ])
 
   // Session message cap (SESSION_STUDENT_MESSAGE_LIMIT): past it, no model
@@ -310,6 +327,22 @@ export async function POST(request: Request) {
       reply: MESSAGE_LIMIT_CLOSE_MESSAGE,
       session: { complete: true, reason: MESSAGE_LIMIT_CLOSE_REASON },
     })
+  }
+
+  // Free monthly session cap (public launch, 2026-07-18): the server-side
+  // enforcement the locked "free limits are enforced server-side" rule
+  // requires. This session was started while the free user was already over
+  // FREE_SESSION_LIMIT (start_session flagged it `degraded`, counts_against_free
+  // = false), so every turn refuses the model call and returns the upgrade
+  // prompt — no provider call, nothing persisted, structurally identical to
+  // the hard cost cap below. `degraded: true` (no `degradedCap`) tells the
+  // extension to skip the voice legs without emitting a cost-cap
+  // `degraded_hit`. Pro users never reach here (sessionOverFreeCap's tier
+  // predicate). Deliberately NOT a `session.complete` close: the session stays
+  // open and every attempt re-shows the prompt, mirroring the cost cap — a
+  // clean, type-safe refusal that needs no new SessionCompletionReason.
+  if (overFreeCap) {
+    return NextResponse.json({ reply: FREE_LIMIT_MESSAGE, degraded: true })
   }
 
   if (hardExceeded) {

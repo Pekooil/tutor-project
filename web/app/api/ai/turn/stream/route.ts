@@ -8,7 +8,13 @@ import { completeTurn } from '@/lib/ai/turn-complete'
 import { costGuard } from '@/lib/tier/cost-guard'
 import { estimateCost } from '@/lib/tier/cost-model'
 import { MESSAGE_LIMIT_CLOSE_MESSAGE, MESSAGE_LIMIT_CLOSE_REASON } from '@/lib/ai/envelope'
-import { endSession, sessionInteractionCount, SESSION_STUDENT_MESSAGE_LIMIT } from '@/lib/tier/session-gate'
+import {
+  endSession,
+  sessionInteractionCount,
+  sessionOverFreeCap,
+  SESSION_STUDENT_MESSAGE_LIMIT,
+  FREE_LIMIT_MESSAGE,
+} from '@/lib/tier/session-gate'
 
 // Sprint 16 / Task 3 (ADR-041): same friendly hard-cap refusal as
 // /api/ai/turn, verbatim — the two turn-taking paths must show the same
@@ -69,10 +75,13 @@ export async function POST(request: Request) {
   const topicKeys = detectTopicKeys(pageContext, messages)
   // The per-session student-message cap's count rides the same parallel round
   // trip as /api/ai/turn's (public launch, 2026-07-18); null fails open.
-  const [{ softExceeded, hardExceeded }, profile, interactionCount] = await Promise.all([
+  // The free monthly cap's verdict rides the same parallel round trip as
+  // /api/ai/turn's (public launch, 2026-07-18); false fails open (uncapped).
+  const [{ softExceeded, hardExceeded }, profile, interactionCount, overFreeCap] = await Promise.all([
     costGuard(auth.supabase, estimateCost('claude_turn')),
     loadProfile(auth.supabase, { topicKeys, userId: auth.user.id }),
     sessionId ? sessionInteractionCount(auth.supabase, sessionId) : Promise.resolve(null),
+    sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : Promise.resolve(false),
   ])
 
   // Session message cap — the streamed twin of /api/ai/turn's branch: end the
@@ -93,6 +102,33 @@ export async function POST(request: Request) {
             },
           })
         )
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
+      },
+    })
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
+      },
+    })
+  }
+
+  // Free monthly session cap (public launch, 2026-07-18): the streamed twin of
+  // /api/ai/turn's branch — a free user whose session was started over
+  // FREE_SESSION_LIMIT (start_session flagged it `degraded`) gets the upgrade
+  // prompt as a synthetic terminal envelope, no provider call, nothing
+  // persisted. `degraded: true` (no `degradedCap`) skips the voice legs
+  // without emitting a cost-cap `degraded_hit`. Pro users never reach here.
+  // Checked before the cost cap so a per-user free block reads as the upgrade
+  // prompt, never "Calyxa is resting".
+  if (overFreeCap) {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(sseChunk({ sayDelta: FREE_LIMIT_MESSAGE }))
+        controller.enqueue(sseChunk({ envelope: { reply: FREE_LIMIT_MESSAGE, degraded: true } }))
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         controller.close()
       },
