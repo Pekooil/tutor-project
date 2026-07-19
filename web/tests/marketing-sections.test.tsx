@@ -2,21 +2,23 @@ import { renderToString } from 'react-dom/server'
 import { createElement } from 'react'
 import { describe, expect, it } from 'vitest'
 import { Hero } from '../components/marketing/Hero'
-import { WhyUs } from '../components/marketing/WhyUs'
-import { SessionShowcase } from '../components/marketing/SessionShowcase'
+import { BeforeAfter } from '../components/marketing/BeforeAfter'
+import { Features } from '../components/marketing/Features'
+import { WallOfLove } from '../components/marketing/WallOfLove'
+import { Pricing } from '../components/marketing/Pricing'
 import { FinalCta } from '../components/marketing/FinalCta'
+import { Footer } from '../components/marketing/Footer'
 
-// Landing v3 render tests: SSR smoke renders (react-dom/server), matching
+// Landing v5 render tests: SSR smoke renders (react-dom/server), matching
 // how Next first paints them — no DOM emulation, no timers, deterministic
-// markup. Client-only motion (the hero beat machine, the scroll scrub, the
-// once-in-view playbacks) is covered by the manual pass; what THESE tests
-// pin is composition: the sections present with their copy, and no retired
-// panel-era vocabulary in what actually renders.
+// markup. Client-only motion (the hero demo machine, the step ticker, the
+// tab rotator) is covered by the manual pass; what THESE tests pin is
+// composition: each section presents with its v5 copy, and the
+// showPlaceholders flag actually gates the placeholder chrome.
 
-// React escapes quotes/apostrophes in attributes and text ("tuesday's" →
-// &#x27;); decode the common entities so assertions can use plain strings.
-// Also strips React's SSR text-boundary markers (<!-- -->) so assertions
-// can span interpolated values like the free-session count.
+// React escapes quotes/apostrophes ("you're" → &#x27;); decode the common
+// entities and strip SSR text-boundary markers so assertions can use plain
+// strings across interpolated values.
 function decode(html: string): string {
   return html
     .replaceAll('&#x27;', "'")
@@ -26,63 +28,145 @@ function decode(html: string): string {
 }
 
 describe('Hero (SSR)', () => {
-  const html = decode(renderToString(createElement(Hero)))
+  const html = decode(renderToString(createElement(Hero, { showPlaceholders: true })))
 
-  it('renders the v3 headline, badge, and footnote', () => {
-    expect(html).toContain('Stop asking AI for answers. Start learning from it.')
-    expect(html).toContain('chrome extension · free to start')
-    expect(html).toContain('free for 10 sessions a month · chrome')
+  it('renders the v5 headline, sub, and both CTAs', () => {
+    expect(html).toContain('Turn AI into your tutor, not your shortcut.')
+    expect(html).toContain('it sees the problem on your screen and talks you through it')
+    expect(html).toContain('Add to Chrome — free')
+    expect(html).toContain('See how it works')
   })
 
-  it('renders the auto-playing demo card with the problem sheet and play control', () => {
-    expect(html).toContain('mathpath.example/unit-4')
-    expect(html).toContain('Problem 2 · solve by factoring')
-    expect(html).toContain('Play the demo — hear one tutor reply')
+  it('renders the Chrome-window demo scene idle state', () => {
+    expect(html).toContain('khanacademy.org/math/trigonometry/right-triangles-trig')
+    expect(html).toContain('Solve for a side in right triangles | Khan Academy')
+    expect(html).toContain('sees this page')
+    expect(html).toContain('hero-khan.png')
+    // idle: the three suggestion chips + the pill input, no transcript yet
+    expect(html).toContain('stuck on this one')
+    expect(html).toContain('which ratio do I use?')
+    expect(html).toContain('just tell me AB')
+    expect(html).toContain('Ask about this problem…')
+    expect(html).not.toContain('✧ Exploring')
+  })
+
+  it('renders the works-where strip with the v5 platform set', () => {
+    for (const platform of ['Canvas', 'MyLab Math', 'Khan Academy', 'DeltaMath', 'IXL', 'WebAssign', 'a worksheet PDF']) {
+      expect(html).toContain(platform)
+    }
+  })
+
+  it('gates the scripted-demo footnote behind showPlaceholders', () => {
+    expect(html).toContain('scripted demo — the real calyxa floats over your actual homework tab')
+    const hidden = decode(renderToString(createElement(Hero, { showPlaceholders: false })))
+    expect(hidden).not.toContain('scripted demo')
   })
 })
 
-describe('SessionShowcase (SSR)', () => {
-  const html = decode(renderToString(createElement(SessionShowcase)))
+describe('BeforeAfter (SSR)', () => {
+  const html = decode(renderToString(createElement(BeforeAfter)))
 
-  it('renders all four rewritten beats', () => {
-    expect(html).toContain('it talks you through the problem, live.')
-    expect(html).toContain('it points at the problem.')
-    expect(html).toContain('the moment it clicks, it’s on the record.')
-    expect(html).toContain('it saw that mistake coming.')
-    expect(html).toContain('talk it through out loud.')
-    expect(html).toContain('scrolling back rewinds it')
+  it('renders the heading and all 8 before-steps', () => {
+    expect(html).toContain('Skip the copy-paste loop.')
+    for (const step of [
+      'Screenshot the problem',
+      'Open a new chat',
+      'Paste it in',
+      "Type where you're stuck",
+      'Read the full solution',
+      'Copy it down',
+      'Turn it in',
+      'Miss the same step on the test',
+    ]) {
+      expect(html).toContain(step)
+    }
   })
 
-  it('speaks the pill language, not the retired panel vocabulary', () => {
-    expect(html).toContain('the pill switches from exploring to coaching')
-    expect(html).not.toMatch(/board strip|milestone row|chat bubble|header timer/i)
+  it('renders the after card with the one-step exchange', () => {
+    expect(html).toContain("“hey calyxa — I'm stuck on 2b.”")
+    expect(html).toContain('x² − 5x + 6 = 0')
+    expect(html).toContain('already looking at 2b — what did you try first?')
+    expect(html).toContain('no screenshot, no paste — and it never hands over the answer.')
   })
 })
 
-describe('WhyUs (SSR)', () => {
-  const html = decode(renderToString(createElement(WhyUs)))
+describe('Features (SSR)', () => {
+  const html = decode(renderToString(createElement(Features)))
 
-  it('renders the three-column comparison with its headers', () => {
-    expect(html).toContain('why not just a chatbot? why not a real tutor?')
-    expect(html).toContain('a general AI chatbot')
-    expect(html).toContain('a tutor that sees your screen')
-    expect(html).toContain('a human tutor')
+  it('renders the three tabs with Annotations active by default', () => {
+    expect(html).toContain('Everything a tutor does, in one session.')
+    expect(html).toContain('Annotations')
+    expect(html).toContain('Voice')
+    expect(html).toContain('Study kits')
+    expect(html).toContain('It draws on the problem itself.')
   })
 
-  it('keeps the honest rows — the concession and the equal availability call', () => {
-    expect(html).toContain('no — honestly')
-    expect(html).toContain('yes — nothing replaces that')
-    // "always on" appears for BOTH the chatbot and calyxa.
-    expect(html.match(/always on/g)?.length).toBe(2)
-    expect(html).toContain('calyxa is for the other 165 hours a week.')
+  it('keeps the quadratic example in the annotation mock (intentional per handoff)', () => {
+    expect(html).toContain('x²')
+    expect(html).toContain('they add to +5')
+    expect(html).toContain('they multiply to +6')
+    expect(html).toContain('Coaching')
+  })
+})
+
+describe('WallOfLove (SSR)', () => {
+  const html = decode(renderToString(createElement(WallOfLove, { showPlaceholders: true })))
+
+  it('renders the heading, quotes, and placeholder chrome', () => {
+    expect(html).toContain('Loved by students who hate being stuck.')
+    expect(html).toContain('sample quotes — swapped for real ones when beta cohort 3 wraps.')
+    expect(html).toContain('placeholder')
+    expect(html).toContain("it never just tells me. it's annoying for five seconds and then it clicks.")
+  })
+
+  it('hides all placeholder chrome when the flag is off', () => {
+    const hidden = decode(renderToString(createElement(WallOfLove, { showPlaceholders: false })))
+    expect(hidden).not.toContain('sample quotes')
+    expect(hidden).not.toContain('placeholder')
+  })
+})
+
+describe('Pricing (SSR)', () => {
+  const html = decode(renderToString(createElement(Pricing)))
+
+  it('defaults to annual: $8/mo with the annual note and the toggle', () => {
+    expect(html).toContain('Simple, honest pricing.')
+    expect(html).toContain('Monthly')
+    expect(html).toContain('Annual · save 33%')
+    expect(html).toContain('$8')
+    expect(html).toContain('billed annually — $96/yr')
+    expect(html).not.toContain('$12')
+  })
+
+  it('renders the free tier and the honest cost comparison', () => {
+    expect(html).toContain('$0')
+    expect(html).toContain('10 tutoring sessions a month.')
+    expect(html).toContain('Start free')
+    expect(html).toContain('Upgrade to Pro')
+    expect(html).toContain('a human tutor is $40–80 an hour. a month of calyxa costs less than 20 minutes of one.')
   })
 })
 
 describe('FinalCta (SSR)', () => {
   const html = decode(renderToString(createElement(FinalCta)))
 
-  it('renders the closing line with the idle pill band copy', () => {
+  it('renders the keycap closer with the fine print', () => {
+    expect(html).toContain('Press ⌥ C and start talking.')
     expect(html).toContain('your homework is already open. so is the tutor.')
-    expect(html).toContain('free for 10 sessions a month · chrome, for now')
+    expect(html).toContain('10 free sessions a month · chrome, for now · alt + shift + C on windows')
+  })
+})
+
+describe('Footer (SSR)', () => {
+  const html = decode(renderToString(createElement(Footer)))
+
+  it('renders the tagline, live links only, and the baseline row', () => {
+    expect(html).toContain("the tutor that's already on the page.")
+    expect(html).toContain('made for students, not answers.')
+    expect(html).toContain('/privacy')
+    expect(html).toContain('/terms')
+    // dead design links stay dropped until the pages exist
+    expect(html).not.toContain('beta notes')
+    expect(html).not.toContain('changelog')
   })
 })

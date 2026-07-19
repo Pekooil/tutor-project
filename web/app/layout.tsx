@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
-import { Geist } from 'next/font/google'
+import { Geist, Schibsted_Grotesk } from 'next/font/google'
 import { canonicalizeSiteUrl, CANONICAL_SITE_URL } from '@/lib/site-url'
 import './globals.css'
 
@@ -11,9 +11,11 @@ import './globals.css'
 // NEXT_PUBLIC_SITE_URL still overrides (e.g. a preview deploy pointing at its
 // own URL); a localhost fallback here would have shipped broken unfurls to the
 // beta cohort.
-const TITLE = 'Calyxa — Stop asking AI for answers. Start learning from it.'
+// Landing v5 (2026-07-19): title/description track the live H1 + hero sub so
+// unfurls match what the page actually says.
+const TITLE = 'Calyxa — Turn AI into your tutor, not your shortcut.'
 const DESCRIPTION =
-  "Calyxa sees the problem you're stuck on, talks you through it out loud, and points at the exact step you're missing — without ever just giving you the answer."
+  "Calyxa sees the problem on your screen and talks you through it — never the answer, just the step you're missing."
 
 export const metadata: Metadata = {
   metadataBase: new URL(canonicalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL, CANONICAL_SITE_URL)),
@@ -42,9 +44,18 @@ const geistSans = Geist({
   subsets: ['latin'],
 })
 
+// The Landing v5 display face (design handoff 2026-07-19): Schibsted Grotesk
+// 500–700, consumed only through the .mkt token layer's --font-display —
+// product surfaces keep Geist.
+const schibstedGrotesk = Schibsted_Grotesk({
+  variable: '--font-schibsted-grotesk',
+  subsets: ['latin'],
+  weight: ['500', '600', '700'],
+})
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={geistSans.variable}>
+    <html lang="en" className={`${geistSans.variable} ${schibstedGrotesk.variable}`}>
       <body className="font-[family-name:var(--font-geist-sans)]">{children}</body>
     </html>
   )

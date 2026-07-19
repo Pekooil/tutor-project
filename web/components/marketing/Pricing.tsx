@@ -1,6 +1,6 @@
-import { Button } from '@/components/ui/button'
-import { Section } from '@/components/marketing/Section'
-import { cn } from '@/lib/utils'
+'use client'
+
+import { useState } from 'react'
 
 // Pricing numbers come from PLAN.md §2.8 verbatim — no invented tiers, no
 // "contact us." FREE_SESSION_LIMIT lives server-side at
@@ -9,70 +9,117 @@ import { cn } from '@/lib/utils'
 // @supabase/supabase-js and is written for server routes, not a marketing
 // page, so this file keeps its own literal rather than importing it —
 // pricing.test.ts binds the two constants so they cannot drift silently.
-// Exported so Hero.tsx and FinalCta.tsx (which both echo this same number in
-// their own tagline) share this ONE marketing-side literal instead of each
-// hardcoding it — found already drifted (still "10") while retuning this
-// value for Task 4, exactly the failure mode this sync exists to prevent.
+// Exported so Hero/FinalCta copy that echoes the number shares this ONE
+// marketing-side literal.
 export const FREE_SESSIONS_PER_MONTH = 10
-const PRO_PRICE_PER_MONTH = 12
+const PRO_MONTHLY = 12
+// Landing v5 introduces the annual plan price (annual is the default view).
+const PRO_ANNUAL_PER_MONTH = 8
+const PRO_ANNUAL_TOTAL = 96
 
-const PLANS = [
-  {
-    name: 'free',
-    price: '$0',
-    tagline: `${FREE_SESSIONS_PER_MONTH} tutoring sessions a month.`,
-    accented: false,
-  },
-  {
-    name: 'pro',
-    price: `$${PRO_PRICE_PER_MONTH}`,
-    tagline: 'unlimited sessions. everything calyxa learns about you, working for you.',
-    accented: true,
-  },
-] as const
+const FREE_FEATURES = ['annotations on any page', 'voice tutoring', 'session notes']
+const PRO_FEATURES = [
+  'unlimited sessions',
+  'remembers your misconceptions',
+  'study kits after every session',
+  'priority support',
+]
 
-// Landing v3 restyle (numbers unchanged): Free on the card wash, Pro on
-// white with the sage border + ring; the honest cost comparison closes it.
+// Landing v5 pricing: segmented Monthly/Annual pill (annual default, no
+// animation on swap), Free card on the board wash, Pro on the green wash
+// with the accent ring. Mobile stacks Pro first and trims the checklists.
+// The Pro CTA routes to /billing (Stripe Checkout, ADR-050); Free signs up
+// directly.
 export function Pricing() {
+  const [annual, setAnnual] = useState(true)
+
   return (
-    <Section id="pricing" align="center" kicker="pricing" heading="simple, honest pricing.">
-      <div className="mx-auto grid w-full max-w-[880px] gap-6 sm:grid-cols-2">
-        {PLANS.map((plan) => (
-          <div
-            key={plan.name}
-            className={cn(
-              'flex flex-col gap-7 rounded-2xl px-[38px] py-9 text-left',
-              plan.accented
-                ? 'border border-(--color-accent-fill) bg-background shadow-[0_0_0_4px_rgba(134,239,172,0.16),0_18px_44px_-16px_rgba(28,40,30,0.18)]'
-                : 'border border-(--mkt-hairline-soft) bg-(--calyxa-board-bg)'
-            )}
+    <section
+      id="pricing"
+      className="flex flex-col items-center border-t border-(--mkt-hairline-soft) bg-background px-[22px] py-14 sm:px-[72px] sm:py-[104px]"
+    >
+      <p className="mkt-eyebrow m-0">pricing</p>
+      <h2 className="mkt-display mkt-h2-sm mb-0 mt-3 text-center text-foreground sm:mt-4">Simple, honest pricing.</h2>
+
+      <div className="mt-[22px] flex gap-1 rounded-full border border-(--mkt-hairline) bg-(--calyxa-board-bg) p-1 sm:mt-[30px]">
+        {[
+          { label: 'Monthly', value: false },
+          { label: 'Annual · save 33%', value: true },
+        ].map(({ label, value }) => (
+          <button
+            key={label}
+            type="button"
+            aria-pressed={annual === value}
+            onClick={() => setAnnual(value)}
+            className={`cursor-pointer rounded-full px-[13px] py-1.5 text-[11.5px] font-semibold sm:px-4 sm:py-[7px] sm:text-[13px] ${
+              annual === value ? 'bg-accent-fill text-accent-fill-foreground' : 'text-muted-foreground'
+            }`}
           >
-            <div>
-              <p className={cn('mkt-kicker m-0', !plan.accented && 'text-(--mkt-faint)')}>{plan.name}</p>
-              <p className="mkt-display mt-3.5 text-[52px] leading-none text-foreground">
-                {plan.price}
-                <span className="font-sans text-[17px] font-normal text-muted-foreground">/mo</span>
-              </p>
-              <p className="mb-0 mt-3.5 text-[15px] leading-[1.6] text-muted-foreground">{plan.tagline}</p>
-            </div>
-            {/* Sprint 23 / Task 7 (ADR-050): the Pro CTA routes to the billing
-                page (Stripe Checkout) — the GA monetization path. An
-                unauthenticated visitor hits /billing's own redirect to /login.
-                Public launch (2026-07-17): Free signs up directly — the
-                invite-gated waitlist is retired. */}
-            <Button asChild className="mt-auto" variant={plan.accented ? 'default' : 'outline'}>
-              {plan.name === 'pro' ? (
-                <a href="/billing">Upgrade to Pro</a>
-              ) : (
-                <a href="/signup">Start free</a>
-              )}
-            </Button>
-          </div>
+            {label}
+          </button>
         ))}
       </div>
-      <p className="mb-0 mt-[22px] text-center text-[13.5px] text-(--mkt-faint)">
+
+      <div className="mt-6 grid w-full max-w-[880px] items-stretch gap-3.5 sm:mt-9 sm:grid-cols-2 sm:gap-[22px]">
+        {/* Free — second on mobile, first on desktop */}
+        <div className="flex flex-col gap-4 rounded-2xl border border-(--mkt-hairline) bg-(--calyxa-board-bg) p-6 max-sm:order-2 sm:gap-[22px] sm:rounded-[20px] sm:px-9 sm:py-[34px]">
+          <div>
+            <p className="mkt-eyebrow m-0 text-(--mkt-faint)">free</p>
+            <p className="mkt-display m-0 mt-2.5 text-[38px] leading-none tracking-[-0.02em] text-foreground sm:mt-3.5 sm:text-[52px]">
+              $0
+              <span className="font-sans text-sm font-normal text-muted-foreground sm:text-base">/mo</span>
+            </p>
+            <p className="mb-0 mt-2 text-[12.5px] leading-[1.6] text-muted-foreground sm:mt-3 sm:text-[14.5px]">
+              {FREE_SESSIONS_PER_MONTH} tutoring sessions a month.
+            </p>
+          </div>
+          <div className="hidden flex-col gap-[9px] text-[13.5px] text-(--mkt-strip-text) sm:flex">
+            {FREE_FEATURES.map((feature) => (
+              <span key={feature}>✓&nbsp; {feature}</span>
+            ))}
+          </div>
+          <a
+            href="/signup"
+            className="mt-auto inline-flex items-center justify-center rounded-[9px] border border-[#79766e] bg-transparent px-0 py-[11px] text-[13px] font-semibold text-foreground transition-colors hover:bg-[#f7f7f5] sm:justify-start sm:self-start sm:px-5 sm:py-2.5 sm:text-[13.5px]"
+          >
+            Start free
+          </a>
+        </div>
+
+        {/* Pro — first on mobile */}
+        <div className="flex flex-col gap-4 rounded-2xl border border-(--calyxa-sage-border) bg-accent-subtle p-6 shadow-[0_0_0_3px_rgba(134,239,172,0.14),0_14px_34px_-14px_rgba(28,40,30,0.18)] max-sm:order-1 sm:gap-[22px] sm:rounded-[20px] sm:px-9 sm:py-[34px] sm:shadow-[0_0_0_4px_rgba(134,239,172,0.14),0_18px_44px_-16px_rgba(28,40,30,0.18)]">
+          <div>
+            <p className="mkt-eyebrow m-0">pro</p>
+            <p className="mkt-display m-0 mt-2.5 text-[38px] leading-none tracking-[-0.02em] text-foreground sm:mt-3.5 sm:text-[52px]">
+              {annual ? `$${PRO_ANNUAL_PER_MONTH}` : `$${PRO_MONTHLY}`}
+              <span className="font-sans text-sm font-normal text-muted-foreground sm:text-base">/mo</span>
+            </p>
+            <p className="mb-0 mt-1.5 text-[11px] text-(--mkt-faint) sm:mt-2 sm:text-[12.5px]">
+              {annual ? `billed annually — $${PRO_ANNUAL_TOTAL}/yr` : 'billed monthly'}
+            </p>
+            <p className="mb-0 mt-3 hidden text-[14.5px] leading-[1.6] text-muted-foreground sm:block">
+              unlimited sessions. everything calyxa learns about you, working for you.
+            </p>
+          </div>
+          <div className="flex flex-col gap-[7px] text-[12.5px] text-(--mkt-strip-text) sm:gap-[9px] sm:text-[13.5px]">
+            {PRO_FEATURES.map((feature, index) => (
+              <span key={feature} className={index === PRO_FEATURES.length - 1 ? 'max-sm:hidden' : undefined}>
+                ✓&nbsp; {feature}
+              </span>
+            ))}
+          </div>
+          <a
+            href="/billing"
+            className="mt-auto inline-flex items-center justify-center rounded-[9px] bg-accent-fill px-0 py-[11px] text-[13px] font-semibold text-accent-fill-foreground transition-colors hover:bg-[#6ee7a0] sm:justify-start sm:self-start sm:px-5 sm:py-2.5 sm:text-[13.5px]"
+          >
+            Upgrade to Pro
+          </a>
+        </div>
+      </div>
+
+      <p className="mb-0 mt-[18px] text-center text-[11.5px] leading-[1.6] text-(--mkt-faint) sm:mt-6 sm:text-[13.5px]">
         a human tutor is $40–80 an hour. a month of calyxa costs less than 20 minutes of one.
       </p>
-    </Section>
+    </section>
   )
 }

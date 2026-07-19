@@ -15,11 +15,10 @@
  */
 
 .mkt {
-  /* Display face: Geist bold (Darcy, 2026-07-17 — Bricolage Grotesque
-   * retired for a bolder, stricter look; this also re-aligns marketing
-   * titles with brand.md §5's Geist lock, so the marketing-only font
-   * exception is gone). */
-  --font-display: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  /* Display face: Schibsted Grotesk 600 (Landing v5 handoff, 2026-07-19 —
+   * supersedes the 2026-07-17 Geist-only display; the marketing-only font
+   * exception returns, scoped to .mkt as before. Body/UI stays Geist). */
+  --font-display: var(--font-schibsted-grotesk), ui-sans-serif, system-ui, sans-serif;
 
   /* The v3 handoff's neutral set. Hairline/hairline-soft are the product's
    * decorative border hexes (--color-border / CheckinCard's soft divider),
@@ -53,29 +52,55 @@
 
 /* ---- Display type ---- */
 
-/* Display scale: H1 60, H2 44, beats 32 — Geist 700, tight tracking. */
+/* Display scale (Landing v5): H1 84/37, H2 52/32 (+ the 46/29 -sm variant),
+ * H3 34 — Schibsted Grotesk 600, tight tracking. The clamps interpolate
+ * linearly between the 390px and 1440px artboards. */
 .mkt-display {
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 
 .mkt-h1 {
-  font-size: clamp(2.5rem, 1.9rem + 2.6vw, 3.75rem);
-  line-height: 1.05;
+  font-size: clamp(2.3125rem, 1.2213rem + 4.4762vw, 5.25rem);
+  line-height: 1.08;
   letter-spacing: -0.028em;
 }
 
 .mkt-h2 {
-  font-size: clamp(2rem, 1.7rem + 1.5vw, 2.75rem);
+  font-size: clamp(2rem, 1.5357rem + 1.9048vw, 3.25rem);
   line-height: 1.08;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.024em;
+}
+
+/* The smaller H2 tier (features / wall of love / pricing / closer-mobile). */
+.mkt-h2-sm {
+  font-size: clamp(1.8125rem, 1.4181rem + 1.619vw, 2.875rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 
 .mkt-h3 {
-  font-size: clamp(1.625rem, 1.5rem + 0.6vw, 2rem);
-  line-height: 1.12;
-  letter-spacing: -0.02em;
+  font-size: 2.125rem;
+  line-height: 1.1;
+  letter-spacing: -0.024em;
+}
+
+@media (min-width: 640px) {
+  .mkt-h1 {
+    line-height: 1.02;
+    letter-spacing: -0.032em;
+  }
+
+  .mkt-h2 {
+    line-height: 1.05;
+    letter-spacing: -0.028em;
+  }
+
+  .mkt-h2-sm {
+    line-height: 1.06;
+    letter-spacing: -0.028em;
+  }
 }
 
 .mkt-kicker {
@@ -84,6 +109,28 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--color-accent-emphasis);
+}
+
+/* Landing v5 math face: the mock problems render serif (Georgia), matching
+ * the artboards' equation styling. */
+.mkt-math {
+  font-family: Georgia, serif;
+}
+
+/* Landing v5 eyebrow: mono, uppercase, accent-emphasis. */
+.mkt-eyebrow {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-accent-emphasis);
+}
+
+@media (min-width: 640px) {
+  .mkt-eyebrow {
+    font-size: 0.6875rem;
+  }
 }
 
 /* The faint variant: platform-strip kicker, bookend labels, mono beat
@@ -570,4 +617,50 @@
   background: var(--calyxa-ping-watch-bg);
   border: 1px solid var(--calyxa-ping-watch-border);
   color: var(--calyxa-ping-watch-text);
+}
+
+/* ══ Landing v5 additions ════════════════════════════════════════════════
+ * The wall-of-love vertical marquee and the feature-tab progress bar. Per
+ * the v5 handoff, reduced motion PAUSES these at their current frame
+ * (animation-play-state) rather than removing them — a snapped-to-static
+ * marquee column would clip mid-card. */
+
+@keyframes mkt-vmarquee {
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes mkt-tabprog {
+  from {
+    width: 0;
+  }
+
+  to {
+    width: 100%;
+  }
+}
+
+.mkt-vmarquee {
+  display: flex;
+  flex-direction: column;
+  height: max-content;
+  animation: mkt-vmarquee var(--mkt-vmarquee-duration, 26s) linear infinite;
+}
+
+.mkt-tabprog {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--color-accent-foreground);
+  opacity: 0.3;
+  animation: mkt-tabprog 5s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mkt-vmarquee,
+  .mkt-tabprog {
+    animation-play-state: paused;
+  }
 }

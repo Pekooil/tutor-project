@@ -71,18 +71,15 @@ export default defineConfig({
     ],
     host_permissions: [
       '<all_urls>', // content script must run on any page the student visits
-      // Backend origins the background worker's fetch calls in src/lib/api.ts
-      // reach (ADR-006). Dev localhost + the production origin (calyxa.app,
-      // the custom domain on the same Vercel project — the old
-      // tutor-project-web.vercel.app alias is being retired from every
-      // hardcoded reference, 2026-07-13), ADDED ALONGSIDE (not replacing) the
-      // dev one per this sprint's plan.
-      // NOTE: api.ts's API_BASE was flipped to the prod origin
-      // (https://calyxa.app) for the beta submission build in Sprint 19 Task 9.
-      // Both origins stay listed here: prod is what the shipped build calls, and
-      // localhost is kept so a dev revert of the API_BASE constant needs no
-      // permissions change / re-review.
-      'http://localhost:3000/*',
+      // The single backend origin the background worker's fetch calls in
+      // src/lib/api.ts reach (ADR-006): the production custom domain. API_BASE
+      // was flipped to https://calyxa.app for the store build (Sprint 19 Task 9)
+      // and that is the ONLY origin the shipped extension talks to.
+      //
+      // The http://localhost:3000/* dev origin was DROPPED for the 0.1.2 CWS
+      // submission (Darcy's call) to keep the review footprint minimal — a store
+      // build never calls localhost. A developer who reverts API_BASE back to
+      // localhost must re-add this line locally (it does not ship).
       'https://calyxa.app/*',
     ],
     // Keyboard command (Sprint 02, rebound Sprint 10). A custom command,

@@ -1,38 +1,73 @@
 import Link from 'next/link'
+import { CalyxaMark } from '@calyxa/ui'
+
+// Landing v5 footer: logo block + tagline, three link columns, baseline row.
+// The design's dead links (beta notes / changelog / about / contact) are
+// dropped until those pages exist (Darcy 2026-07-19); the company column
+// becomes the account column so every link has a real target.
+
+const COLUMNS: Array<{ heading: string; links: Array<{ label: string; href: string }> }> = [
+  {
+    heading: 'product',
+    links: [
+      { label: 'how it works', href: '#how-it-works' },
+      { label: 'pricing', href: '#pricing' },
+    ],
+  },
+  {
+    heading: 'account',
+    links: [
+      { label: 'log in', href: '/login' },
+      { label: 'sign up', href: '/signup' },
+    ],
+  },
+  {
+    heading: 'legal',
+    links: [
+      { label: 'terms', href: '/terms' },
+      { label: 'privacy', href: '/privacy' },
+    ],
+  },
+]
 
 export function Footer() {
   return (
-    <footer className="border-t border-border">
-      <div className="mx-auto max-w-6xl px-6 py-12">
-        <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex flex-col gap-3">
-            <img src="/logo.svg" alt="Calyxa" className="h-6 w-auto self-start" />
-            <p className="m-0 text-sm text-muted-foreground">Stop asking AI for answers. Start learning from it.</p>
-          </div>
-          <div className="flex gap-16 text-sm">
-            <div className="flex flex-col gap-2">
-              <span className="font-medium text-foreground">Product</span>
-              <a href="#session-showcase" className="text-muted-foreground hover:text-foreground">
-                See it work
-              </a>
-              <a href="#pricing" className="text-muted-foreground hover:text-foreground">
-                Pricing
-              </a>
-            </div>
-            <div className="flex flex-col gap-2">
-              <span className="font-medium text-foreground">Account</span>
-              <Link href="/login" className="text-muted-foreground hover:text-foreground">
-                Log in
-              </Link>
-              <Link href="/signup" className="text-muted-foreground hover:text-foreground">
-                Sign up
-              </Link>
-            </div>
-          </div>
+    <footer className="flex flex-col gap-6 border-t border-(--mkt-hairline-soft) bg-(--calyxa-board-bg) px-[22px] pb-7 pt-9 sm:gap-11 sm:px-[72px] sm:pb-10 sm:pt-14">
+      <div className="flex flex-col gap-6 sm:flex-row sm:gap-20">
+        <div className="flex flex-col gap-2 sm:mr-auto sm:gap-3">
+          <span className="flex items-center gap-2 sm:gap-[9px]">
+            <CalyxaMark className="h-[19px] w-[19px] sm:h-[22px] sm:w-[22px]" />
+            <span className="text-sm font-semibold tracking-[-0.01em] text-foreground sm:text-base">calyxa</span>
+          </span>
+          <span className="text-[11.5px] text-(--mkt-faint) sm:text-[13px]">
+            the tutor that&apos;s already on the page.
+          </span>
         </div>
-        <p className="mt-12 text-sm text-muted-foreground">
-          &copy; {new Date().getFullYear()} Calyxa. All rights reserved.
-        </p>
+        <div className="grid grid-cols-3 gap-4 sm:flex sm:gap-20">
+          {COLUMNS.map((column) => (
+            <div
+              key={column.heading}
+              className="flex flex-col gap-[7px] text-[11.5px] text-(--mkt-strip-text) sm:gap-2.5 sm:text-[13px]"
+            >
+              <span className="text-[10.5px] font-semibold text-foreground sm:text-xs">{column.heading}</span>
+              {column.links.map((link) =>
+                link.href.startsWith('#') ? (
+                  <a key={link.label} href={link.href} className="transition-colors hover:text-foreground">
+                    {link.label}
+                  </a>
+                ) : (
+                  <Link key={link.label} href={link.href} className="transition-colors hover:text-foreground">
+                    {link.label}
+                  </Link>
+                )
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="flex justify-between border-t border-(--mkt-hairline-soft) pt-3.5 text-[10.5px] text-(--mkt-faint) sm:pt-5 sm:text-[12.5px]">
+        <span>© {new Date().getFullYear()} calyxa</span>
+        <span>made for students, not answers.</span>
       </div>
     </footer>
   )
