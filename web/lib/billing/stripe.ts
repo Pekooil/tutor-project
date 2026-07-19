@@ -2,6 +2,7 @@ import 'server-only'
 import Stripe from 'stripe'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { canonicalizeSiteUrl } from '@/lib/site-url'
 
 // Sprint 23 / Task 3 (ADR-050): the one server-only entry point to Stripe.
 // The `server-only` import turns any accidental import from a Client Component
@@ -49,7 +50,10 @@ export function getProPriceId(): string {
 // request Host header, so a spoofed Host can't redirect a post-checkout user off
 // to an attacker origin.
 export function siteBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+  // canonicalizeSiteUrl guarantees a stale/preview NEXT_PUBLIC_SITE_URL can
+  // never send a Stripe return_url/success_url to a retired *.vercel.app host
+  // (see lib/site-url.ts). Dev falls back to localhost.
+  return canonicalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL, 'http://localhost:3000')
 }
 
 type EnsureCustomerResult = { customerId: string } | { error: string }

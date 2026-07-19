@@ -2,6 +2,7 @@ import 'server-only'
 import { randomBytes } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { FREE_SESSION_LIMIT } from '@/lib/tier/session-gate'
+import { canonicalizeSiteUrl, CANONICAL_SITE_URL } from '@/lib/site-url'
 
 // ADR-053 referral constants. Server-side single source of truth — the
 // extension and dashboard only ever display numbers the API returns, never
@@ -16,7 +17,10 @@ export const REFERRAL_MILESTONE_COMPLETED_SESSIONS = 5
 export const SIGNUP_IP_ACCOUNT_LIMIT = 2
 
 export function referralLink(code: string): string {
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://calyxa.app'
+  // A referral link is user-shared and navigable, so it must never carry a
+  // retired *.vercel.app origin — canonicalizeSiteUrl forces calyxa.app
+  // (see lib/site-url.ts).
+  const base = canonicalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL, CANONICAL_SITE_URL)
   return `${base}/signup?ref=${code}`
 }
 

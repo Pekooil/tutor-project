@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { Geist } from 'next/font/google'
+import { canonicalizeSiteUrl, CANONICAL_SITE_URL } from '@/lib/site-url'
 import './globals.css'
 
 // Sprint 20 Task 9: SEO/unfurl metadata. The production domain is now decided
@@ -15,7 +16,7 @@ const DESCRIPTION =
   "Calyxa sees the problem you're stuck on, talks you through it out loud, and points at the exact step you're missing — without ever just giving you the answer."
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://calyxa.app'),
+  metadataBase: new URL(canonicalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL, CANONICAL_SITE_URL)),
   title: TITLE,
   description: DESCRIPTION,
   openGraph: {
