@@ -30,11 +30,12 @@ function decode(html: string): string {
 describe('Hero (SSR)', () => {
   const html = decode(renderToString(createElement(Hero, { showPlaceholders: true })))
 
-  it('renders the v5 headline, sub, and both CTAs', () => {
-    expect(html).toContain('Turn AI into your tutor, not your shortcut.')
-    expect(html).toContain('it sees the problem on your screen and talks you through it')
+  it('renders the hero badge, headline, sub, and CTA', () => {
+    expect(html).toContain('Featured on')
+    expect(html).toContain('Product Hunt')
+    expect(html).toContain('Stop copying, start learning.')
+    expect(html).toContain('Calyxa listens, looks at the problem with you, and asks the question that gets you unstuck.')
     expect(html).toContain('Add to Chrome — free')
-    expect(html).toContain('See how it works')
   })
 
   it('renders the Chrome-window demo scene idle state', () => {
@@ -48,12 +49,6 @@ describe('Hero (SSR)', () => {
     expect(html).toContain('just tell me AB')
     expect(html).toContain('Ask about this problem…')
     expect(html).not.toContain('✧ Exploring')
-  })
-
-  it('renders the works-where strip with the v5 platform set', () => {
-    for (const platform of ['Canvas', 'MyLab Math', 'Khan Academy', 'DeltaMath', 'IXL', 'WebAssign', 'a worksheet PDF']) {
-      expect(html).toContain(platform)
-    }
   })
 
   it('gates the scripted-demo footnote behind showPlaceholders', () => {
@@ -129,13 +124,14 @@ describe('WallOfLove (SSR)', () => {
 describe('Pricing (SSR)', () => {
   const html = decode(renderToString(createElement(Pricing)))
 
-  it('defaults to annual: $8/mo with the annual note and the toggle', () => {
+  it('is monthly-only at $10/mo with no annual toggle (launch pricing)', () => {
     expect(html).toContain('Simple, honest pricing.')
-    expect(html).toContain('Monthly')
-    expect(html).toContain('Annual · save 33%')
-    expect(html).toContain('$8')
-    expect(html).toContain('billed annually — $96/yr')
-    expect(html).not.toContain('$12')
+    expect(html).toContain('$10')
+    expect(html).toContain('billed monthly')
+    // Annual is disabled at launch — no toggle, no annual copy.
+    expect(html).not.toContain('Annual')
+    expect(html).not.toContain('billed annually')
+    expect(html).not.toContain('$8')
   })
 
   it('renders the free tier and the honest cost comparison', () => {

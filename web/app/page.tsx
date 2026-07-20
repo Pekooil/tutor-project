@@ -1,4 +1,3 @@
-import { Nav } from '@/components/marketing/Nav'
 import { Footer } from '@/components/marketing/Footer'
 import { Hero } from '@/components/marketing/Hero'
 import { BeforeAfter } from '@/components/marketing/BeforeAfter'
@@ -24,7 +23,6 @@ const SHOW_PLACEHOLDERS = process.env.NEXT_PUBLIC_SHOW_PLACEHOLDERS !== '0'
 export default function Home() {
   return (
     <div className="mkt">
-      <Nav />
       <main>
         <Hero showPlaceholders={SHOW_PLACEHOLDERS} />
 

@@ -753,3 +753,43 @@
     animation-play-state: paused;
   }
 }
+
+/* ---- Hero card motion (design_handoff_calyxa_hero_2a) ----
+ * The zip's three keyframes for the live voice/mode pill + reduced-motion
+ * fallback. .cx-anim marks every element that keyframe-animates so a single
+ * rule can freeze them all. */
+@keyframes cxWave {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes cxBreathePill {
+  0%,
+  100% {
+    transform: scale(0.94);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes cxModeBreathe {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cx-anim {
+    animation: none !important;
+  }
+}
