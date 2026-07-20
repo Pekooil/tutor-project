@@ -501,17 +501,25 @@
     animation: mkt-fade-up 0.4s ease-out both;
   }
 
+  /* Draw-on timings matched to the extension's M1 spec (Overlay.css):
+   * stroke 480ms, tint fade 260ms, explanation rise 320ms. */
   .mkt-annot-draw {
     stroke-dasharray: 1;
-    animation: mkt-draw 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) var(--mkt-annot-delay, 0.2s) both;
+    animation: mkt-draw 0.48s cubic-bezier(0.2, 0.8, 0.2, 1) var(--mkt-annot-delay, 0.2s) both;
   }
 
   .mkt-annot-fill {
-    animation: mkt-fade 0.3s ease-out var(--mkt-annot-delay, 0.5s) both;
+    animation: mkt-fade 0.26s ease-out var(--mkt-annot-delay, 0.5s) both;
   }
 
   .mkt-annot-label {
     animation: mkt-rise-x 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) var(--mkt-annot-delay, 0.7s) both;
+  }
+
+  /* The hero demo's left-aligned explanation (label pill + why-note) — the
+   * extension's cx-annot-rise, without mkt-rise-x's centering transform. */
+  .mkt-annot-explain {
+    animation: mkt-rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) var(--mkt-annot-delay, 0.48s) both;
   }
 
   .mkt-rise {
@@ -529,6 +537,87 @@
 
   .mkt-thinkdot {
     opacity: 1;
+  }
+}
+
+/* ── Hero demo extension-mirror bits ──────────────────────────────────────
+ * The pieces of the real overlay's motion language (Overlay.css) the hero
+ * demo replays: streaming word entry (cx-word-in), pill-content swap
+ * (cx-fade-up), and the breathing tutor-mode frame (cx-mode-frame). */
+
+@keyframes mkt-word-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes mkt-pillfade {
+  0% {
+    opacity: 0;
+    transform: translateX(-5px) scale(0.9);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes mkt-mode-breathe {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* The mode frame: a masked gradient ring (2px rim) just inside the pill's
+ * border, tinted by --mkt-mode-frame-color, breathing while a session is
+ * live. Rides the pill morph via border-radius: inherit. */
+.mkt-mode-frame {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: linear-gradient(
+    130deg,
+    var(--mkt-mode-frame-color),
+    transparent 42%,
+    transparent 58%,
+    var(--mkt-mode-frame-color)
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mkt-word-in {
+    animation: mkt-word-in 0.28s ease-out both;
+  }
+
+  .mkt-pillfade {
+    animation: mkt-pillfade 0.4s cubic-bezier(0.3, 1.4, 0.4, 1) both;
+  }
+
+  .mkt-mode-frame {
+    animation: mkt-mode-breathe 3.2s ease-in-out infinite;
   }
 }
 
