@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { Geist, Schibsted_Grotesk } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 import { canonicalizeSiteUrl, CANONICAL_SITE_URL } from '@/lib/site-url'
 import './globals.css'
 
@@ -60,6 +61,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="font-[family-name:var(--font-geist-sans)]">
         {children}
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   )
