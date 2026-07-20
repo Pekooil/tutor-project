@@ -519,7 +519,7 @@ export function HeroDemo({
       : null
 
   return (
-    <div id="hero-demo" className="relative mt-8 flex w-full max-w-[1200px] flex-col gap-2 sm:mt-12 sm:gap-3">
+    <div id="hero-demo" className="relative mt-8 flex w-full max-w-[1020px] flex-col gap-2 sm:mt-12 sm:gap-3">
       {/* mac desktop backdrop */}
       <div
         className="relative overflow-hidden rounded-[14px] border border-[rgba(28,28,26,0.12)] sm:rounded-[18px]"

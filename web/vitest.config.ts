@@ -26,6 +26,12 @@ export default defineConfig({
     },
   },
   test: {
+    // Pre-run janitor: deletes any leaked `darcy20080911+...@gmail.com` test
+    // users before the suite starts, so an interrupted run's orphans (whose
+    // afterAll never fired) self-heal on the next run instead of accumulating
+    // in the live `users` table. Runs once per `vitest run`. See the file
+    // header for why the plus-address pattern can't touch the real accounts.
+    globalSetup: ['./test/global-setup.ts'],
     // session.test.ts and ai-turn.test.ts each spawn their own `next dev`
     // (Next.js 16 allows only one dev server per project directory,
     // regardless of port), so test files must run one at a time rather

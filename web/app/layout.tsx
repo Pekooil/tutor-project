@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { Geist, Schibsted_Grotesk } from 'next/font/google'
+import { Analytics } from '@vercel/analytics/next'
 import { canonicalizeSiteUrl, CANONICAL_SITE_URL } from '@/lib/site-url'
 import './globals.css'
 
@@ -56,7 +57,10 @@ const schibstedGrotesk = Schibsted_Grotesk({
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${geistSans.variable} ${schibstedGrotesk.variable}`}>
-      <body className="font-[family-name:var(--font-geist-sans)]">{children}</body>
+      <body className="font-[family-name:var(--font-geist-sans)]">
+        {children}
+        <Analytics />
+      </body>
     </html>
   )
 }
