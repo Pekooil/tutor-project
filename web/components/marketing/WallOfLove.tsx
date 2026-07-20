@@ -102,7 +102,7 @@ const MASK = 'linear-gradient(180deg, transparent, #000 9%, #000 91%, transparen
 
 export function WallOfLove({ showPlaceholders }: { showPlaceholders: boolean }) {
   return (
-    <section className="flex flex-col items-center border-t border-(--mkt-hairline-soft) bg-(--calyxa-board-bg) px-[22px] py-14 sm:px-20 sm:py-[104px]">
+    <section className="flex flex-col items-center bg-background px-[22px] py-14 sm:px-20 sm:py-[104px]">
       <p className="mkt-eyebrow m-0">beta cohort</p>
       <h2 className="mkt-display mkt-h2-sm mb-0 mt-3 text-center text-foreground sm:mt-4">
         Loved by students who hate being stuck.

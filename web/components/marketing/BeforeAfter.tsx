@@ -30,7 +30,7 @@ export function BeforeAfter() {
   return (
     <section
       id="how-it-works"
-      className="flex flex-col items-center border-t border-(--mkt-hairline-soft) bg-(--calyxa-board-bg) px-[22px] py-14 sm:px-14 sm:py-[104px]"
+      className="flex flex-col items-center bg-background px-[22px] py-14 sm:px-14 sm:py-[104px]"
     >
       <p className="mkt-eyebrow m-0">getting unstuck</p>
       <h2 className="mkt-display mkt-h2 mb-0 mt-3 text-center text-foreground sm:mt-4">Skip the copy-paste loop.</h2>
@@ -79,6 +79,11 @@ export function BeforeAfter() {
               )
             })}
           </div>
+          <p className="mt-auto hidden border-t border-(--mkt-hairline) pt-4 text-[15px] font-medium leading-[1.5] text-foreground sm:block">
+            ~10 minutes of screenshot-and-paste busywork to hand in an answer you can&apos;t
+            explain — you end up{' '}
+            <span className="font-bold text-[#8a4106]">cheating and learning nothing</span>.
+          </p>
         </div>
 
         {/* After */}
@@ -117,8 +122,12 @@ export function BeforeAfter() {
                 </div>
               </div>
             </div>
-            <p className="m-0 hidden text-[13.5px] leading-[1.6] text-accent-emphasis sm:block">
-              no screenshot, no paste — and it never hands over the answer.
+            <p className="m-0 hidden border-t border-(--calyxa-sage-border) pt-4 text-[15px] font-medium leading-[1.5] text-accent-emphasis sm:block">
+              seconds to ask, zero busywork — you think it through and{' '}
+              <span className="font-bold text-accent-fill-foreground">
+                actually understand the concept your test needs
+              </span>
+              .
             </p>
           </div>
         </div>

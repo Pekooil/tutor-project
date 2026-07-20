@@ -32,7 +32,7 @@ const COLUMNS: Array<{ heading: string; links: Array<{ label: string; href: stri
 
 export function Footer() {
   return (
-    <footer className="flex flex-col gap-6 border-t border-(--mkt-hairline-soft) bg-(--calyxa-board-bg) px-[22px] pb-7 pt-9 sm:gap-11 sm:px-[72px] sm:pb-10 sm:pt-14">
+    <footer className="flex flex-col gap-6 border-t border-(--mkt-hairline-soft) bg-background px-[22px] pb-7 pt-9 sm:gap-11 sm:px-[72px] sm:pb-10 sm:pt-14">
       <div className="flex flex-col gap-6 sm:flex-row sm:gap-20">
         <div className="flex flex-col gap-2 sm:mr-auto sm:gap-3">
           <span className="flex items-center gap-2 sm:gap-[9px]">

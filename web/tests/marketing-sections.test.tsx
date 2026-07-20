@@ -33,8 +33,8 @@ describe('Hero (SSR)', () => {
   it('renders the hero badge, headline, sub, and CTA', () => {
     expect(html).toContain('Featured on')
     expect(html).toContain('Product Hunt')
-    expect(html).toContain('Stop copying, start learning.')
-    expect(html).toContain('Calyxa listens, looks at the problem with you, and asks the question that gets you unstuck.')
+    expect(html).toContain('Stop copying. Start learning')
+    expect(html).toContain('Your Adaptive AI tutor that teaches directly on any homework, website, or PDF.')
     expect(html).toContain('Add to Chrome — free')
   })
 
@@ -81,7 +81,7 @@ describe('BeforeAfter (SSR)', () => {
     expect(html).toContain("“hey calyxa — I'm stuck on 2b.”")
     expect(html).toContain('x² − 5x + 6 = 0')
     expect(html).toContain('already looking at 2b — what did you try first?')
-    expect(html).toContain('no screenshot, no paste — and it never hands over the answer.')
+    expect(html).toContain('actually understand the concept your test needs')
   })
 })
 

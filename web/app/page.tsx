@@ -2,7 +2,11 @@ import { Footer } from '@/components/marketing/Footer'
 import { Hero } from '@/components/marketing/Hero'
 import { BeforeAfter } from '@/components/marketing/BeforeAfter'
 import { Features } from '@/components/marketing/Features'
-import { WallOfLove } from '@/components/marketing/WallOfLove'
+// PARKED 2026-07-20: the beta-cohort "wall of love" is temporarily removed from
+// the landing pending real beta feedback (see the restore note in the body).
+// Keep this import commented rather than deleted so restoring is a two-line
+// uncomment.
+// import { WallOfLove } from '@/components/marketing/WallOfLove'
 import { Pricing } from '@/components/marketing/Pricing'
 import { FinalCta } from '@/components/marketing/FinalCta'
 import { Reveal } from '@/components/marketing/Reveal'
@@ -10,7 +14,9 @@ import '@/components/marketing/marketing.css'
 
 // Landing v5 ("light", design_handoff_landing_v5, 2026-07-19): hero with the
 // live scripted Khan-Academy demo → before/after step loop → tabbed features
-// → wall of love → pricing → keycap closer. The `.mkt` wrapper scopes the
+// → pricing → keycap closer. (The wall-of-love/beta-cohort section sits between
+// features and pricing when restored — parked 2026-07-20, see below.) The
+// `.mkt` wrapper scopes the
 // marketing token layer (marketing.css) to this page only — product surfaces
 // never inherit it.
 //
@@ -34,9 +40,16 @@ export default function Home() {
           <Features />
         </Reveal>
 
+        {/* Beta-cohort "wall of love" — PARKED 2026-07-20 pending real beta
+            feedback. The full section is preserved intact at
+            components/marketing/WallOfLove.tsx (still exercised by its SSR tests
+            in tests/marketing-sections.test.tsx), so nothing needs recreating.
+            To restore: uncomment the import above and this block — done. */}
+        {/*
         <Reveal>
           <WallOfLove showPlaceholders={SHOW_PLACEHOLDERS} />
         </Reveal>
+        */}
 
         <Reveal>
           <Pricing />

@@ -9,7 +9,7 @@ export function FinalCta() {
   return (
     <section
       id="final-cta"
-      className="flex flex-col items-center border-t border-(--mkt-hairline-soft) px-[22px] pb-[76px] pt-[68px] sm:px-14 sm:pb-32 sm:pt-[120px]"
+      className="flex flex-col items-center px-[22px] pb-[76px] pt-[68px] sm:px-14 sm:pb-32 sm:pt-[120px]"
       style={{ background: 'linear-gradient(180deg, #ffffff 0%, #f0fdf4 100%)' }}
     >
       <div aria-hidden="true" className="flex items-center gap-3 sm:gap-4">

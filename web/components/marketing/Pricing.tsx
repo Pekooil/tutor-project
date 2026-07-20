@@ -28,7 +28,7 @@ export function Pricing() {
   return (
     <section
       id="pricing"
-      className="flex flex-col items-center border-t border-(--mkt-hairline-soft) bg-background px-[22px] py-14 sm:px-[72px] sm:py-[104px]"
+      className="flex flex-col items-center bg-background px-[22px] py-14 sm:px-[72px] sm:py-[104px]"
     >
       <p className="mkt-eyebrow m-0">pricing</p>
       <h2 className="mkt-display mkt-h2-sm mb-0 mt-3 text-center text-foreground sm:mt-4">Simple, honest pricing.</h2>

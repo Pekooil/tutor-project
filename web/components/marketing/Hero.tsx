@@ -244,7 +244,7 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
                   color: '#1c1c1a',
                 }}
               >
-                Stop copying, start learning.
+                Stop copying. Start learning.
               </h1>
               <p
                 style={{
@@ -257,7 +257,7 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
                   textWrap: 'pretty',
                 }}
               >
-                Calyxa listens, looks at the problem with you, and asks the question that gets you unstuck.
+                Your Adaptive AI tutor that teaches directly on any homework, website, or PDF.
               </p>
               <a
                 href="/signup"
