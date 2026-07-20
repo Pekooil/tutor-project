@@ -1,7 +1,3 @@
-'use client'
-
-import { useState } from 'react'
-
 // Pricing numbers come from PLAN.md §2.8 verbatim — no invented tiers, no
 // "contact us." FREE_SESSION_LIMIT lives server-side at
 // web/lib/tier/session-gate.ts (2026-07-17 public-launch retune: 20 -> 10,
@@ -12,10 +8,9 @@ import { useState } from 'react'
 // Exported so Hero/FinalCta copy that echoes the number shares this ONE
 // marketing-side literal.
 export const FREE_SESSIONS_PER_MONTH = 10
-const PRO_MONTHLY = 12
-// Landing v5 introduces the annual plan price (annual is the default view).
-const PRO_ANNUAL_PER_MONTH = 8
-const PRO_ANNUAL_TOTAL = 96
+// Monthly-only for now (2026-07-19): annual is disabled at launch. This literal
+// must match the live Stripe Price behind STRIPE_PRICE_ID ($10/mo).
+const PRO_MONTHLY = 10
 
 const FREE_FEATURES = ['annotations on any page', 'voice tutoring', 'session notes']
 const PRO_FEATURES = [
@@ -25,14 +20,11 @@ const PRO_FEATURES = [
   'priority support',
 ]
 
-// Landing v5 pricing: segmented Monthly/Annual pill (annual default, no
-// animation on swap), Free card on the board wash, Pro on the green wash
-// with the accent ring. Mobile stacks Pro first and trims the checklists.
-// The Pro CTA routes to /billing (Stripe Checkout, ADR-050); Free signs up
-// directly.
+// Landing v5 pricing: Free card on the board wash, Pro on the green wash with
+// the accent ring. Mobile stacks Pro first and trims the checklists. The Pro
+// CTA routes to /billing (Stripe Checkout, ADR-050); Free signs up directly.
+// Monthly-only for now (2026-07-19) — the annual toggle is disabled at launch.
 export function Pricing() {
-  const [annual, setAnnual] = useState(true)
-
   return (
     <section
       id="pricing"
@@ -40,25 +32,6 @@ export function Pricing() {
     >
       <p className="mkt-eyebrow m-0">pricing</p>
       <h2 className="mkt-display mkt-h2-sm mb-0 mt-3 text-center text-foreground sm:mt-4">Simple, honest pricing.</h2>
-
-      <div className="mt-[22px] flex gap-1 rounded-full border border-(--mkt-hairline) bg-(--calyxa-board-bg) p-1 sm:mt-[30px]">
-        {[
-          { label: 'Monthly', value: false },
-          { label: 'Annual · save 33%', value: true },
-        ].map(({ label, value }) => (
-          <button
-            key={label}
-            type="button"
-            aria-pressed={annual === value}
-            onClick={() => setAnnual(value)}
-            className={`cursor-pointer rounded-full px-[13px] py-1.5 text-[11.5px] font-semibold sm:px-4 sm:py-[7px] sm:text-[13px] ${
-              annual === value ? 'bg-accent-fill text-accent-fill-foreground' : 'text-muted-foreground'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
 
       <div className="mt-6 grid w-full max-w-[880px] items-stretch gap-3.5 sm:mt-9 sm:grid-cols-2 sm:gap-[22px]">
         {/* Free — second on mobile, first on desktop */}
@@ -91,11 +64,11 @@ export function Pricing() {
           <div>
             <p className="mkt-eyebrow m-0">pro</p>
             <p className="mkt-display m-0 mt-2.5 text-[38px] leading-none tracking-[-0.02em] text-foreground sm:mt-3.5 sm:text-[52px]">
-              {annual ? `$${PRO_ANNUAL_PER_MONTH}` : `$${PRO_MONTHLY}`}
+              {`$${PRO_MONTHLY}`}
               <span className="font-sans text-sm font-normal text-muted-foreground sm:text-base">/mo</span>
             </p>
             <p className="mb-0 mt-1.5 text-[11px] text-(--mkt-faint) sm:mt-2 sm:text-[12.5px]">
-              {annual ? `billed annually — $${PRO_ANNUAL_TOTAL}/yr` : 'billed monthly'}
+              billed monthly
             </p>
             <p className="mb-0 mt-3 hidden text-[14.5px] leading-[1.6] text-muted-foreground sm:block">
               unlimited sessions. everything calyxa learns about you, working for you.
