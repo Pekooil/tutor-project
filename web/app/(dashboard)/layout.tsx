@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { AmbientGlow } from '@/components/dashboard/premium/AmbientGlow'
 import { PremiumNav } from '@/components/dashboard/premium/PremiumNav'
+import { MobileTabBar } from '@/components/dashboard/premium/MobileTabBar'
 import { AskPill } from '@/components/dashboard/premium/AskPill'
 import { loadNavUser } from '@/components/dashboard/premium/user-info'
 
@@ -21,10 +22,11 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     <div className="cx-app" style={{ position: 'relative', minHeight: '100vh' }}>
       <AmbientGlow />
       <PremiumNav name={navUser.name} initials={navUser.initials} planLabel={navUser.planLabel} />
-      <main style={{ position: 'relative', maxWidth: 960, margin: '0 auto', padding: '104px 24px 88px' }}>
+      <main className="cx-main" style={{ position: 'relative', maxWidth: 960, margin: '0 auto', padding: '104px 24px 88px' }}>
         {children}
       </main>
       <AskPill />
+      <MobileTabBar />
     </div>
   )
 }

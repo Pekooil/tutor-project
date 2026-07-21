@@ -18,14 +18,16 @@ import { C } from './theme'
 // (concepts are sections inside it) — then tutoring history (Sessions) and every
 // generated resource (Library). `match` keeps a tab lit on its legacy detail
 // routes so deep links stay oriented.
-const NAV = [
+// Exported so the mobile bottom tab bar (MobileTabBar) shares the exact same
+// nav items + active-route logic — the two chrome treatments never drift.
+export const NAV = [
   { href: '/dashboard', label: 'Dashboard', match: ['/dashboard', '/'] },
   { href: '/notebook', label: 'Notebook', match: ['/notebook', '/concepts', '/misconceptions'] },
   { href: '/sessions', label: 'Sessions', match: ['/sessions'] },
   { href: '/library', label: 'Library', match: ['/library', '/kits'] },
 ] as const
 
-function isActive(pathname: string, match: readonly string[]): boolean {
+export function isActive(pathname: string, match: readonly string[]): boolean {
   return match.some((m) => (m === '/' ? pathname === '/' : pathname === m || pathname.startsWith(m + '/')))
 }
 
@@ -85,16 +87,20 @@ export function PremiumNav({
           <Logomark size={20} id="cxgNav" />
           <span style={{ fontSize: 14.5, fontWeight: 600 }}>calyxa</span>
         </Link>
-        <span style={{ width: 1, height: 18, background: 'rgba(28,28,26,.1)', margin: '0 6px 0 2px' }} />
-        {NAV.map((item) => {
-          const active = isActive(pathname, item.match)
-          return (
-            <Link key={item.href} href={item.href} aria-current={active ? 'page' : undefined} style={itemStyle(active)}>
-              {item.label}
-            </Link>
-          )
-        })}
-        <span style={{ width: 1, height: 18, background: 'rgba(28,28,26,.1)', margin: '0 4px' }} />
+        {/* Inline nav links — hidden on mobile (the bottom tab bar replaces
+            them); `display: contents` keeps the desktop pill layout identical. */}
+        <span className="cx-nav-inline" style={{ display: 'contents' }}>
+          <span style={{ width: 1, height: 18, background: 'rgba(28,28,26,.1)', margin: '0 6px 0 2px' }} />
+          {NAV.map((item) => {
+            const active = isActive(pathname, item.match)
+            return (
+              <Link key={item.href} href={item.href} aria-current={active ? 'page' : undefined} style={itemStyle(active)}>
+                {item.label}
+              </Link>
+            )
+          })}
+          <span style={{ width: 1, height: 18, background: 'rgba(28,28,26,.1)', margin: '0 4px' }} />
+        </span>
         <button
           onClick={() => setMenuOpen((o) => !o)}
           aria-haspopup="menu"

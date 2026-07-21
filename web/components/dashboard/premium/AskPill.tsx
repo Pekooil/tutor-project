@@ -8,7 +8,7 @@ import { C } from './theme'
 // without competing with the page's primary action.
 export function AskPill() {
   return (
-    <div style={{ position: 'fixed', bottom: 18, right: 18, zIndex: 40 }}>
+    <div className="cx-askpill" style={{ position: 'fixed', bottom: 18, right: 18, zIndex: 40 }}>
       <span
         title="Ask Calyxa — coming soon"
         aria-disabled="true"

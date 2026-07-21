@@ -257,3 +257,69 @@ html {
     overflow: visible;
   }
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Dashboard — mobile (≤640px). The floating pill nav (PremiumNav) can't hold
+ * its four inline links on a phone, so on mobile the inline links are hidden
+ * (leaving a compact logo + avatar pill) and a native-app-style bottom tab bar
+ * (MobileTabBar) takes over navigation. Everything here is gated behind the
+ * mobile media query or a mobile-only element (`.cx-tabbar` is display:none by
+ * default), so the desktop dashboard renders exactly as before.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.cx-tabbar {
+  display: none;
+}
+.cx-tabbar-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 0 5px;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.cx-app .cx-tabbar-item:hover {
+  text-decoration: none;
+}
+.cx-tabbar-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 28px;
+  border-radius: 99px;
+  transition: background 0.18s ease;
+}
+
+@media (max-width: 640px) {
+  /* Hide the pill's inline nav links + their dividers; the bottom bar owns nav. */
+  .cx-app .cx-nav-inline {
+    display: none !important;
+  }
+  /* The non-functional "Ask Calyxa — soon" chip would sit under the tab bar. */
+  .cx-app .cx-askpill {
+    display: none;
+  }
+  /* Tighten the content column and clear the fixed bottom tab bar. */
+  .cx-app .cx-main {
+    padding: 84px 16px calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+  .cx-tabbar {
+    display: flex;
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    z-index: 50;
+    align-items: stretch;
+    gap: 2px;
+    padding: 4px 6px;
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid rgba(28, 28, 26, 0.1);
+    border-radius: 22px;
+    backdrop-filter: blur(24px) saturate(1.5);
+    -webkit-backdrop-filter: blur(24px) saturate(1.5);
+    box-shadow: 0 18px 44px rgba(28, 40, 30, 0.16), 0 2px 8px rgba(28, 40, 30, 0.08);
+  }
+}

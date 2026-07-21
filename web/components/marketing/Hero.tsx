@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CalyxaMark } from '@calyxa/ui'
 import { HeroDemo } from '@/components/marketing/HeroDemo'
+import { Nav } from '@/components/marketing/Nav'
 
 // useLayoutEffect warns during SSR; fall back to useEffect on the server so the
 // scale-to-fit measurement stays flash-free on the client without the warning.
@@ -144,12 +145,20 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
 
   return (
     <>
+      {/* Mobile hero (<640px): the scaled 1440-wide artboard below renders its
+          nav + copy at ~0.26× on a phone (≈4px nav links, ≈19px H1), so on
+          mobile it is hidden and this properly-sized, tap-friendly layout takes
+          its place. Desktop (≥640px) is untouched — the artboard shows exactly
+          as before. */}
+      <MobileHero />
+
       {/* Full-bleed hero: the design's green wash spans the page width (no grey
           frame, no rounded card, no shadow) so the hero reads as part of the
-          site. The 1440-wide content is centered and scaled to fit. */}
+          site. The 1440-wide content is centered and scaled to fit. Hidden on
+          mobile (see MobileHero above). */}
       <div
         ref={stageRef}
-        className="flex justify-center overflow-hidden"
+        className="hidden justify-center overflow-hidden sm:flex"
         style={{
           background:
             'radial-gradient(80rem 40rem at 50% -14rem, rgba(187,247,208,0.55), rgba(240,253,244,0.5) 42%, transparent 72%), #ffffff',
@@ -464,5 +473,58 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
         <HeroDemo askRef={askRef} showPlaceholders={showPlaceholders} />
       </section>
     </>
+  )
+}
+
+// The mobile hero (<640px): the responsive Nav + a properly-sized, tap-friendly
+// copy block on the same green wash as the desktop artboard. Rendered only on
+// mobile (`sm:hidden`); the desktop scaled artboard above is hidden there. Copy
+// mirrors the desktop hero exactly so the two never drift.
+function MobileHero() {
+  return (
+    <div className="sm:hidden">
+      <Nav />
+      <div
+        className="flex flex-col items-center px-6 pb-11 pt-10 text-center"
+        style={{
+          background:
+            'radial-gradient(48rem 26rem at 50% -6rem, rgba(187,247,208,0.6), rgba(240,253,244,0.5) 44%, transparent 74%), #ffffff',
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] text-(--mkt-strip-text)">Featured on</span>
+          <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" aria-hidden="true">
+            <path fill="#da552f" d="M12 0C5.372 0 0 5.372 0 12s5.372 12 12 12 12-5.372 12-12S18.628 0 12 0z" />
+            <path
+              fill="#ffffff"
+              d="M13.6 8H8.8v8h1.87v-2.4h2.93a2.8 2.8 0 100-5.6zm0 3.73h-2.93v-1.86h2.93a.93.93 0 010 1.86z"
+            />
+          </svg>
+          <span className="text-[13.5px] font-semibold text-foreground">Product Hunt</span>
+        </div>
+
+        <h1 className="mkt-display mkt-h1 mt-[18px] text-balance text-foreground">Stop copying. Start learning.</h1>
+        <p className="mt-4 max-w-[21rem] text-pretty text-[15.5px] leading-[1.55] text-(--mkt-strip-text)">
+          Your Adaptive AI tutor that teaches directly on any homework, website, or PDF.
+        </p>
+
+        <a
+          href="/signup"
+          className="mt-7 inline-flex w-full max-w-[21rem] items-center justify-center rounded-full px-6 py-[15px] text-[15.5px] font-semibold"
+          style={{
+            background: ACCENT,
+            color: '#14532d',
+            border: '1px solid rgba(20,83,45,0.18)',
+            boxShadow: '0 12px 30px rgba(28,40,30,0.18), 0 2px 8px rgba(28,40,30,0.08)',
+          }}
+        >
+          Add to Chrome — free
+        </a>
+
+        <p className="mt-5 text-[12px] leading-[1.5] text-(--mkt-faint)">
+          Works on Khan Academy, Canvas, Google Classroom &amp; more.
+        </p>
+      </div>
+    </div>
   )
 }
