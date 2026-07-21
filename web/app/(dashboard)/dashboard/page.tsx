@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import { CONCEPT_KEYS } from '@calyxa/curriculum'
 import { createClient } from '@/lib/supabase/server'
 import { loadDashboard } from '@/lib/learning/dashboard-read'
 import { loadRecentSessions } from '@/lib/learning/activity-read'
@@ -39,7 +38,6 @@ export default async function DashboardPage() {
       data={data}
       now={new Date()}
       firstName={firstName}
-      totalCurriculum={CONCEPT_KEYS.length}
       kits={kits}
       recentSessions={recentSessions}
     />

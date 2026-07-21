@@ -9,7 +9,7 @@ import {
 } from '@/lib/learning/dashboard-read'
 import { loadStudyKits, kitHrefForConcept } from './kits-read'
 import { loadStudyKit, type StudyKitDetail } from './kit-read'
-import { parseNotebook, isEmptyNotebook } from '@/lib/notebook/tool'
+import { parseNotebook, isEmptyNotebook, type Notebook } from '@/lib/notebook/tool'
 import { loadConceptSnapshots, type WorkedSnapshot } from './snapshots-read'
 import { strandStyle } from './theme'
 
@@ -26,8 +26,8 @@ export type RelatedConcept = { conceptKey: string; title: string; mastery: numbe
  *  type) so the client-boundary screen imports only data. */
 export type ConceptNotebookView = {
   summary: string
-  reminders: string[]
-  explanations: { title: string; body: string }[]
+  mustKnow: Notebook['mustKnow']
+  method: Notebook['method']
   /** How many sessions have fed this notebook — the "updated after N sessions"
    *  line in the workspace. */
   sessionCount: number
@@ -56,8 +56,8 @@ export async function loadConceptNotebook(
 
   return {
     summary: parsed.summary,
-    reminders: parsed.reminders,
-    explanations: parsed.explanations,
+    mustKnow: parsed.mustKnow,
+    method: parsed.method,
     sessionCount: (data as { session_count?: number }).session_count ?? 1,
     updatedAt: (data as { updated_at?: string | null }).updated_at ?? null,
   }

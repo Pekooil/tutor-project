@@ -1,59 +1,54 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardData } from '../lib/learning/dashboard-read'
 import { STRAND_ORDER, STRAND_LABELS } from '../lib/onboarding/item-bank'
 
-// Sprint 22 Task 8 (ADR-047): render tests for the dashboard pages. Each page is
-// an async Server Component that (1) reads the auth'd user via the cookie
-// client, redirecting to /login when signed out, then (2) reads its data via
-// loadDashboard and renders. These tests pin that contract WITHOUT a browser or
-// a live DB: the cookie client, loadDashboard, and next/navigation's redirect
-// are mocked, and the resolved element is SSR-rendered (renderToStaticMarkup,
-// the same way Next first paints it — the marketing-sections.test.tsx pattern),
-// so we assert: renders for an authed user WITH data, renders a graceful empty
-// state for a fresh user, and redirects unauthed. loadDashboard's own real
-// behavior is covered by dashboard-read.test.ts; here it is a controlled stub.
+// Render test for the dashboard home (/dashboard) after the IA redesign
+// collapsed the old five-view analytics dashboard into a single daily-loop
+// surface (ContinueLearningScreen). The page is an async Server Component that
+// (1) reads the auth'd user via the cookie client, redirecting to /login when
+// signed out, then (2) loads its data (loadDashboard + loadNavUser +
+// loadStudyKits + loadRecentSessions) and renders the "Today's Review" home.
+// These tests pin that contract WITHOUT a browser or DB: every read is mocked
+// and the resolved element is SSR-rendered (renderToStaticMarkup, the same way
+// Next first paints it). loadDashboard's own real behavior is covered by
+// dashboard-read.test.ts; the deleted /mastery, /misconceptions, /activity index
+// pages (replaced by the Notebook + Library) are no longer part of this suite.
 
-const { createClientMock, loadDashboardMock, redirectMock } = vi.hoisted(() => ({
-  createClientMock: vi.fn(),
-  loadDashboardMock: vi.fn(),
-  // Next's real redirect() throws to halt rendering; the mock does the same so
-  // the page stops exactly where the real one would, and the call is asserted.
-  redirectMock: vi.fn((url: string) => {
-    throw new Error(`REDIRECT:${url}`)
-  }),
-}))
+const { createClientMock, loadDashboardMock, redirectMock, navUserMock, kitsMock, recentSessionsMock } = vi.hoisted(
+  () => ({
+    createClientMock: vi.fn(),
+    loadDashboardMock: vi.fn(),
+    // Next's real redirect() throws to halt rendering; the mock does the same so
+    // the page stops exactly where the real one would, and the call is asserted.
+    redirectMock: vi.fn((url: string) => {
+      throw new Error(`REDIRECT:${url}`)
+    }),
+    navUserMock: vi.fn(),
+    kitsMock: vi.fn(),
+    recentSessionsMock: vi.fn(),
+  })
+)
 
-// The Overview/Account pages import a `server-only`-guarded helper (user-info);
-// neutralize the guard so the module imports under vitest (the convention used
-// across the suite, e.g. dashboard-read.test.ts).
+// The page's reads import `server-only`-guarded helpers; neutralize the guard so
+// the modules import under vitest (the convention across the suite).
 vi.mock('server-only', () => ({}))
 vi.mock('next/navigation', () => ({ redirect: redirectMock }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: createClientMock }))
 vi.mock('@/lib/learning/dashboard-read', () => ({ loadDashboard: loadDashboardMock }))
+vi.mock('@/lib/learning/activity-read', () => ({ loadRecentSessions: recentSessionsMock }))
+vi.mock('@/components/dashboard/premium/user-info', () => ({ loadNavUser: navUserMock }))
+// ContinueLearningScreen imports kitHrefForConcept from kits-read; stub it to
+// "no kit" so review links fall back to the concept workspace.
+vi.mock('@/components/dashboard/premium/kits-read', () => ({
+  loadStudyKits: kitsMock,
+  kitHrefForConcept: () => null,
+}))
 
-const overviewPage = await import('../app/(dashboard)/dashboard/page')
-const masteryPage = await import('../app/(dashboard)/mastery/page')
-const misconceptionsPage = await import('../app/(dashboard)/misconceptions/page')
-const activityPage = await import('../app/(dashboard)/activity/page')
+const dashboardPage = await import('../app/(dashboard)/dashboard/page')
 
-type SnapshotRow = { day: string; mastery: number }
-
-// A minimal cookie-client stand-in. `auth.getUser()` returns the given user (or
-// null for signed-out); `from(...).select(...).eq(...).order(...)` resolves the
-// given snapshot rows (only the Activity page reads a table directly — the
-// mastery_snapshot trend).
-function fakeSupabase(user: { id: string } | null, snapshotRows: SnapshotRow[] = []) {
-  return {
-    auth: { getUser: async () => ({ data: { user }, error: null }) },
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          order: async () => ({ data: snapshotRows, error: null }),
-        }),
-      }),
-    }),
-  }
+function fakeSupabase(user: { id: string } | null) {
+  return { auth: { getUser: async () => ({ data: { user }, error: null }) } }
 }
 
 const USER = { id: 'user-fixture-id' }
@@ -62,8 +57,7 @@ function emptyStateCounts() {
   return { unseen: 0, learning: 0, weak: 0, mastered: 0, forgotten: 0 }
 }
 
-// A fresh account: six empty strands, empty sections, isEmpty true — the exact
-// shape loadDashboard returns for a cold start.
+// A fresh account: six empty strands, empty sections, isEmpty true.
 const EMPTY_DATA: DashboardData = {
   strands: STRAND_ORDER.map((strand) => ({
     strand,
@@ -80,9 +74,8 @@ const EMPTY_DATA: DashboardData = {
   isEmpty: true,
 }
 
-// A user with real data across every section.
 const NODE_TITLE = 'Solving linear equations'
-const MISCONCEPTION_TITLE = 'Parallel-line angles'
+const DUE_TITLE = 'Parallel-line angles'
 const RICH_DATA: DashboardData = {
   strands: STRAND_ORDER.map((strand) => {
     const nodes =
@@ -93,7 +86,7 @@ const RICH_DATA: DashboardData = {
               title: NODE_TITLE,
               strand: 'algebra',
               strandLabel: STRAND_LABELS.algebra,
-              mastery: 0.72,
+              mastery: 0.42,
               state: 'weak' as const,
               confidenceBand: 'medium' as const,
               observationCount: 5,
@@ -105,7 +98,7 @@ const RICH_DATA: DashboardData = {
       strand,
       strandLabel: STRAND_LABELS[strand] ?? strand,
       nodes,
-      averageMastery: nodes.length ? 0.72 : 0,
+      averageMastery: nodes.length ? 0.42 : 0,
       stateCounts: { ...emptyStateCounts(), ...(nodes.length ? { weak: 1 } : {}) },
     }
   }),
@@ -115,7 +108,7 @@ const RICH_DATA: DashboardData = {
     {
       id: 'misc-active-1',
       conceptKey: 'geometry.angles.parallel-lines',
-      title: MISCONCEPTION_TITLE,
+      title: DUE_TITLE,
       strand: 'geometry',
       strandLabel: STRAND_LABELS.geometry,
       category: 'sign-error',
@@ -127,26 +120,11 @@ const RICH_DATA: DashboardData = {
       lastSeenAt: '2026-07-12T00:00:00.000Z',
       resolvedAt: null,
     },
-    {
-      id: 'misc-resolved-1',
-      conceptKey: 'algebra.linear-equations.one-variable',
-      title: 'Transposition',
-      strand: 'algebra',
-      strandLabel: STRAND_LABELS.algebra,
-      category: 'transposition',
-      description: '',
-      status: 'resolved',
-      occurrenceCount: 5,
-      consecutiveCorrect: 4,
-      firstSeenAt: '2026-07-01T00:00:00.000Z',
-      lastSeenAt: '2026-07-08T00:00:00.000Z',
-      resolvedAt: '2026-07-09T00:00:00.000Z',
-    },
   ],
   dueQueue: [
     {
       conceptKey: 'geometry.angles.parallel-lines',
-      title: MISCONCEPTION_TITLE,
+      title: DUE_TITLE,
       strand: 'geometry',
       strandLabel: STRAND_LABELS.geometry,
       dueAt: '2026-07-10T00:00:00.000Z',
@@ -163,25 +141,21 @@ const RICH_DATA: DashboardData = {
   isEmpty: false,
 }
 
-const RICH_SNAPSHOT: SnapshotRow[] = [
-  { day: '2026-07-12', mastery: 0.4 },
-  { day: '2026-07-13', mastery: 0.55 },
-]
-
-async function render(
-  mod: { default: () => Promise<React.ReactElement> },
-  user: { id: string } | null,
-  data: DashboardData,
-  snapshotRows: SnapshotRow[] = []
-): Promise<string> {
-  createClientMock.mockResolvedValue(fakeSupabase(user, snapshotRows))
+async function render(user: { id: string } | null, data: DashboardData): Promise<string> {
+  createClientMock.mockResolvedValue(fakeSupabase(user))
   loadDashboardMock.mockResolvedValue(data)
-  return renderToStaticMarkup(await mod.default())
+  navUserMock.mockResolvedValue({ name: 'Ada Lovelace', initials: 'AL', planLabel: 'Free' })
+  kitsMock.mockResolvedValue([])
+  recentSessionsMock.mockResolvedValue([])
+  return renderToStaticMarkup(await dashboardPage.default())
 }
 
 beforeEach(() => {
   createClientMock.mockReset()
   loadDashboardMock.mockReset()
+  navUserMock.mockReset()
+  kitsMock.mockReset()
+  recentSessionsMock.mockReset()
   redirectMock.mockClear()
 })
 
@@ -189,72 +163,34 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-// Copy markers match the "Calyxa Dashboard Premium" redesign (Design handoff).
-const PAGES = [
-  {
-    name: 'Overview (/dashboard)',
-    mod: overviewPage,
-    withData: ['By strand', 'Algebra 1', 'Where concepts stand'],
-    empty: 'No open misconceptions',
-  },
-  {
-    name: 'Mastery (/mastery)',
-    mod: masteryPage,
-    withData: [NODE_TITLE, 'Algebra 1'],
-    empty: 'No concepts practiced yet',
-  },
-  {
-    name: 'Misconceptions (/misconceptions)',
-    mod: misconceptionsPage,
-    withData: [MISCONCEPTION_TITLE, 'Resolved'],
-    empty: 'Nothing resolved yet',
-  },
-] as const
-
-describe.each(PAGES)('$name', ({ mod, withData, empty }) => {
-  it('renders for an authed user with data', async () => {
-    const html = await render(mod, USER, RICH_DATA)
-    for (const marker of withData) {
-      if (marker) expect(html).toContain(marker)
-    }
-    expect(html).not.toContain(empty)
+describe('Dashboard home (/dashboard)', () => {
+  it('renders the daily-loop home for an authed user with data', async () => {
+    const html = await render(USER, RICH_DATA)
+    // Greeting uses the first name; Today's Review is the dominant action; the
+    // weakest practiced concept surfaces in the "Get ahead" cards.
+    expect(html).toContain('Ada')
+    expect(html).toContain('Start review')
+    expect(html).toContain('Weakest concepts')
+    expect(html).toContain(NODE_TITLE)
     expect(loadDashboardMock).toHaveBeenCalledOnce()
   })
 
-  it('renders a graceful empty state for a fresh user (no crash)', async () => {
-    const html = await render(mod, USER, EMPTY_DATA)
-    expect(html).toContain(empty)
+  it('renders the activation state for a fresh user (no crash)', async () => {
+    const html = await render(USER, EMPTY_DATA)
+    // Cold start → a single "set up + first session" call, not the daily loop.
+    expect(html).toContain('Welcome to Calyxa')
+    expect(html).toContain('Start your first session')
+    expect(html).toContain('Set up Calyxa')
+    expect(html).toContain('/welcome')
+    // No daily-loop surfaces for an empty account.
+    expect(html).not.toContain('Weakest concepts')
+    expect(html).not.toContain('Start review')
   })
 
   it('redirects to /login when unauthed', async () => {
-    await expect(render(mod, null, RICH_DATA)).rejects.toThrow('REDIRECT:/login')
+    await expect(render(null, RICH_DATA)).rejects.toThrow('REDIRECT:/login')
     expect(redirectMock).toHaveBeenCalledWith('/login')
-    // Never reads data for a signed-out request.
+    // Never reads dashboard data for a signed-out request.
     expect(loadDashboardMock).not.toHaveBeenCalled()
-  })
-})
-
-// The Activity page also reads mastery_snapshot directly (the forward-only
-// trend), so it gets its own tests with snapshot rows in the fake client.
-describe('Activity (/activity)', () => {
-  it('renders accuracy history and the mastery trend for a user with data', async () => {
-    const html = await render(activityPage, USER, RICH_DATA, RICH_SNAPSHOT)
-    expect(html).toContain('Study heatmap')
-    expect(html).toContain('Answers')
-    expect(html).toContain('Mastery over time')
-  })
-
-  it('renders honest empty states at launch (no activity, no snapshot history)', async () => {
-    const html = await render(activityPage, USER, EMPTY_DATA, [])
-    // The charts always render (the design's honest empty state is an empty
-    // grid, not a "no data" card); the forward-only trend says so plainly.
-    expect(html).toContain('Study heatmap')
-    expect(html).toContain('No snapshots yet')
-    expect(html).toContain('Builds as you practice')
-  })
-
-  it('redirects to /login when unauthed', async () => {
-    await expect(render(activityPage, null, RICH_DATA)).rejects.toThrow('REDIRECT:/login')
-    expect(redirectMock).toHaveBeenCalledWith('/login')
   })
 })

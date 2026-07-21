@@ -30,7 +30,7 @@ vi.mock('@/components/dashboard/premium/detail-read', () => ({
 }))
 vi.mock('@/components/dashboard/premium/kit-read', () => ({ loadStudyKit: kitMock }))
 
-const conceptPage = await import('../app/(dashboard)/mastery/[conceptKey]/page')
+const conceptPage = await import('../app/(dashboard)/concepts/[conceptKey]/page')
 const misconceptionPage = await import('../app/(dashboard)/misconceptions/[id]/page')
 const kitPage = await import('../app/(dashboard)/kits/[key]/page')
 
@@ -53,8 +53,8 @@ const NODE = {
 
 afterEach(() => vi.clearAllMocks())
 
-describe('Concept detail (/mastery/[conceptKey])', () => {
-  it('renders mastery, prerequisites and a practice-kit link', async () => {
+describe('Concept detail (/concepts/[conceptKey])', () => {
+  it('renders mastery, prerequisites and inline practice from the study kit', async () => {
     createClientMock.mockResolvedValue(fakeSupabase(USER))
     conceptMock.mockResolvedValue({
       conceptKey: NODE.conceptKey,
@@ -66,12 +66,23 @@ describe('Concept detail (/mastery/[conceptKey])', () => {
       dependents: [],
       misconceptions: [],
       kitHref: 'session-9',
+      review: null,
+      // The kit is rendered inline now (reveal-solution problems + flip cards),
+      // not as an out-link to /kits/[key].
+      kit: {
+        notes: ['Isolate the variable'],
+        problems: [{ statement: 'Solve 2x + 3 = 7', solution: 'x = 2' }],
+        flashcards: [{ front: 'Inverse of addition', back: 'subtraction' }],
+        empty: false,
+      },
+      notebook: null,
+      snapshots: [],
     })
     const html = renderToStaticMarkup(await conceptPage.default({ params: Promise.resolve({ conceptKey: NODE.conceptKey }) }))
     expect(html).toContain('Solving linear equations')
     expect(html).toContain('Order of operations')
-    expect(html).toContain('Practice with study kit')
-    expect(html).toContain('/kits/session-9')
+    expect(html).toContain('Solve 2x + 3 = 7')
+    expect(html).toContain('Show solution')
   })
 
   it('404s an unknown concept', async () => {

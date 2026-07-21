@@ -25,5 +25,5 @@ export default async function ConceptWorkspacePage({ params }: { params: Promise
     notFound()
   }
 
-  return <ConceptDetailScreen detail={detail} hrefBase="/concepts" />
+  return <ConceptDetailScreen detail={detail} />
 }

@@ -47,17 +47,23 @@ const NOTEBOOK_MAX_TOKENS = 1000
 // in the session — the two ways a running document most easily drifts (invent
 // coverage, or silently drop what was still true).
 const NOTEBOOK_SYSTEM =
-  'You maintain a student\'s personal notebook for ONE math concept — a living document they re-read ' +
-  'to study. You are given their CURRENT notebook for this concept (possibly empty) and what happened ' +
-  'in today\'s tutoring session on it.\n\n' +
+  'You maintain a student\'s personal notebook for ONE math concept — a living, re-readable study ' +
+  'document, like great hand-written notes. You are given their CURRENT notebook for this concept ' +
+  '(possibly empty) and what happened in today\'s tutoring session on it: the transcript, the outcome ' +
+  'of each turn, the steps the tutor HIGHLIGHTED, and the misconceptions seen.\n\n' +
   'Produce the UPDATED notebook:\n' +
   '- summary: a short running summary of the concept and where the student stands, updated for today.\n' +
-  '- reminders: the things to remember — especially what they keep getting wrong. Carry forward the ' +
-  'still-true ones and add any new one from today.\n' +
-  '- explanations: the methods worth keeping, in the tutor\'s voice, refined with today\'s work. Revise ' +
-  'an existing explanation in place rather than duplicating it.\n\n' +
-  'Keep only what the sessions actually support — do not invent coverage this concept did not get. ' +
-  'Reply ONLY by calling the submit_concept_notebook tool.'
+  '- mustKnow: the key things the student must know before solving — numbered points, each with its ' +
+  'own sub-bullets and, where it helps, ONE short highlighted expression. These are the facts/results, ' +
+  'not the procedure.\n' +
+  '- method: the ORDERED procedure for solving this type of problem — the steps the student walks ' +
+  'through, each with an optional short highlighted expression. For any step the student GOT WRONG ' +
+  '(from the outcomes / highlighted mistakes / misconceptions), attach a mistake annotation: what they ' +
+  'did wrong and what to watch for next time. Tag it with the EXACT misconception category from the ' +
+  'MISCONCEPTIONS list so the notebook can show how often and when it happened.\n\n' +
+  'Revise in place — carry forward what is still true, refine steps rather than duplicating them. Keep ' +
+  'only what the sessions actually support — never invent coverage this concept did not get. Reply ' +
+  'ONLY by calling the submit_concept_notebook tool.'
 
 // The user message: the current notebook first (what to revise), then this
 // concept's session material (the new evidence). Kept plain-text like
@@ -69,22 +75,32 @@ function buildNotebookUserMessage(existing: Notebook, slice: ConceptSlice): stri
   lines.push('')
 
   lines.push('CURRENT NOTEBOOK (revise this — keep what is still true):')
-  if (existing.summary === '' && existing.reminders.length === 0 && existing.explanations.length === 0) {
+  if (existing.summary === '' && existing.mustKnow.length === 0 && existing.method.length === 0) {
     lines.push('(empty — this is the first session on this concept)')
   } else {
     lines.push(`- Summary: ${existing.summary || '(none yet)'}`)
-    if (existing.reminders.length > 0) {
-      lines.push('- Reminders:')
-      for (const r of existing.reminders) lines.push(`    • ${r}`)
+    if (existing.mustKnow.length > 0) {
+      lines.push('- Must know:')
+      for (const k of existing.mustKnow) {
+        lines.push(`    • ${k.heading}${k.expression ? ` [${k.expression}]` : ''}`)
+        for (const p of k.points) lines.push(`        - ${p}`)
+      }
     }
-    if (existing.explanations.length > 0) {
-      lines.push('- Explanations:')
-      for (const e of existing.explanations) lines.push(`    • ${e.title}: ${e.body}`)
+    if (existing.method.length > 0) {
+      lines.push('- Method:')
+      existing.method.forEach((s, i) => {
+        lines.push(`    ${i + 1}. ${s.step}${s.expression ? ` [${s.expression}]` : ''}`)
+        if (s.mistake) {
+          lines.push(
+            `        (known slip${s.mistake.category ? ` · ${s.mistake.category}` : ''}: ${s.mistake.whatWentWrong})`
+          )
+        }
+      })
     }
   }
 
   lines.push('')
-  lines.push("TODAY'S SESSION ON THIS CONCEPT (in order):")
+  lines.push("TODAY'S SESSION ON THIS CONCEPT (in order — [outcome] shows if the step was right/wrong):")
   if (slice.turns.length === 0) {
     lines.push('(no transcript turns recorded for this concept)')
   } else {
@@ -92,6 +108,13 @@ function buildNotebookUserMessage(existing: Notebook, slice: ConceptSlice): stri
       lines.push(`- Turn ${turn.turnIndex} [${turn.outcome}]:`)
       if (turn.studentTranscript) lines.push(`    Student: ${turn.studentTranscript}`)
       if (turn.tutorResponse) lines.push(`    Tutor: ${turn.tutorResponse}`)
+      if (turn.misconception) lines.push(`    Mistake here: ${turn.misconception}`)
+      // The tutor's highlighted step(s) on this turn — the exact spans it marked
+      // and why. This is the richest evidence for a step-level annotation.
+      for (const a of turn.annotations) {
+        const parts = [a.targetText ? `"${a.targetText}"` : null, a.label, a.note].filter(Boolean)
+        if (parts.length > 0) lines.push(`    Tutor highlighted: ${parts.join(' — ')}`)
+      }
     }
   }
 
@@ -103,19 +126,21 @@ function buildNotebookUserMessage(existing: Notebook, slice: ConceptSlice): stri
     )
   }
 
+  // The tracked misconceptions on this concept — use these EXACT category strings
+  // when tagging a step's mistake so the notebook can join the live count/date.
   if (slice.misconceptionsAdded.length > 0) {
     lines.push('')
-    lines.push('MISCONCEPTIONS TO REINFORCE (add a reminder for these):')
+    lines.push('MISCONCEPTIONS (attach a step mistake for these; tag it with the exact category string):')
     for (const m of slice.misconceptionsAdded) {
-      lines.push(`- ${m.category}${m.description ? ` — ${m.description}` : ''}`)
+      lines.push(`- category: ${m.category}${m.description ? ` — ${m.description}` : ''}`)
     }
   }
 
   if (slice.misconceptionsResolved.length > 0) {
     lines.push('')
-    lines.push('MISCONCEPTIONS THE STUDENT RESOLVED THIS SESSION (reinforce the correct idea):')
+    lines.push('MISCONCEPTIONS THE STUDENT RESOLVED THIS SESSION (reinforce the correct idea in the method):')
     for (const m of slice.misconceptionsResolved) {
-      lines.push(`- ${m.category}${m.description ? ` — ${m.description}` : ''}`)
+      lines.push(`- category: ${m.category}${m.description ? ` — ${m.description}` : ''}`)
     }
   }
 

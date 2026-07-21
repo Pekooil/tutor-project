@@ -8,7 +8,7 @@ import {
   type StateCounts,
 } from '@/lib/learning/dashboard-read'
 import { loadRecentSessions } from '@/lib/learning/activity-read'
-import { parseNotebook, isEmptyNotebook } from '@/lib/notebook/tool'
+import { parseNotebook, isEmptyNotebook, type Notebook } from '@/lib/notebook/tool'
 import { loadUserSnapshotsByConcept, type WorkedSnapshot } from './snapshots-read'
 import type { KitProblem, KitFlashcard } from './kit-read'
 import { overviewStats } from './derive'
@@ -52,6 +52,7 @@ export type NbMisconception = {
   occurrenceCount: number
   consecutiveCorrect: number
   firstSeenAt: string
+  lastSeenAt: string
   resolvedAt: string | null
 }
 
@@ -59,7 +60,11 @@ export type NbKit = { notes: string[]; problems: KitProblem[]; flashcards: KitFl
 
 export type NbReview = { dueAt: string; intervalDays: number; overdue: boolean; lapses: number }
 
-export type NbNotebook = { summary: string; reminders: string[]; explanations: { title: string; body: string }[] }
+// The "live notebook" content (ADR-054 v2): a running summary, numbered
+// must-know key points, and the ordered solving method (steps carry an optional
+// highlighted expression + a mistake annotation the render layer joins to a
+// misconception's live count/date). Same shape parseNotebook produces.
+export type NbNotebook = Notebook
 
 /** One dated event on a concept's Review Timeline — always a real signal (a
  *  spotted/resolved misconception, a worked turn, a mastery-snapshot crossing,
@@ -87,6 +92,9 @@ export type NbConcept = {
   hasContent: boolean
   /** `/review/[key]` when a kit exists to review with, else null. */
   reviewHref: string | null
+  /** `/kits/[key]` for the study-kit viewer (practice + flashcards bundle), or
+   *  null when the concept has no kit. */
+  studyKitHref: string | null
 }
 
 export type NbChapter = {
@@ -381,6 +389,7 @@ export async function loadNotebook(supabase: SupabaseClient, subjectKey: string)
       occurrenceCount: m.occurrenceCount,
       consecutiveCorrect: m.consecutiveCorrect,
       firstSeenAt: m.firstSeenAt,
+      lastSeenAt: m.lastSeenAt,
       resolvedAt: m.resolvedAt,
     }
     const list = miscByKey.get(m.conceptKey)
@@ -426,6 +435,7 @@ export async function loadNotebook(supabase: SupabaseClient, subjectKey: string)
       timeline,
       hasContent,
       reviewHref: kit ? `/review/${key}` : null,
+      studyKitHref: kitBundle.hrefByConcept.has(key) ? `/kits/${kitBundle.hrefByConcept.get(key)}` : null,
     }
   }
 

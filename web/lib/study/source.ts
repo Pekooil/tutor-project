@@ -34,12 +34,26 @@ import { buildSessionRecap, type RecapConcept, type RecapMisconception } from '@
 // generator a narrative with a hole at the start. Every turn in the session
 // is included, in order.
 
+/** A single tutor annotation from a turn — the expression it highlighted plus
+ *  its short label and why-note. The notebook generator uses these to attach
+ *  step-level mistake annotations; the study kit ignores them. */
+export type TurnAnnotation = {
+  targetText: string | null
+  label: string | null
+  note: string | null
+}
+
 export type SessionSourceTurn = {
   turnIndex: number
   conceptKey: string | null
   studentTranscript: string | null
   tutorResponse: string | null
   outcome: string
+  /** The per-turn misconception (description preferred, else the raw category),
+   *  or null — what the student got wrong on this turn. */
+  misconception: string | null
+  /** The tutor's highlighted-step annotations on this turn (may be empty). */
+  annotations: TurnAnnotation[]
 }
 
 export type SessionSource = {
@@ -55,6 +69,40 @@ type TranscriptRow = {
   student_transcript: string | null
   tutor_response: string | null
   outcome: string
+  misconception_category: string | null
+  misconception_description: string | null
+  annotations: unknown
+}
+
+function turnCleanString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function humanizeCategory(category: string): string {
+  return category.replace(/[-_.]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+// Coerce a turn's stored `annotations` jsonb (an `Annotation[]` written by
+// turn-complete.ts) into the light {targetText,label,note} shape the notebook
+// generator prompts from. Mirrors snapshots-read.ts's coerceAnnotations posture:
+// a malformed element is dropped, never thrown on. Only annotations that carry
+// something worth prompting from (a target OR a note) are kept.
+function coerceTurnAnnotations(raw: unknown): TurnAnnotation[] {
+  if (!Array.isArray(raw)) return []
+  const out: TurnAnnotation[] = []
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) continue
+    const a = item as Record<string, unknown>
+    const target = (typeof a.target === 'object' && a.target !== null ? a.target : {}) as Record<string, unknown>
+    const targetText = turnCleanString(target.text)
+    const label = turnCleanString(a.label)
+    const note = turnCleanString(a.note)
+    if (!targetText && !label && !note) continue
+    out.push({ targetText, label, note })
+  }
+  return out
 }
 
 // Loads the per-session material a study-kit generation prompt needs:
@@ -79,7 +127,9 @@ export async function loadSessionSource(
     buildSessionRecap(supabase, userId, sessionId),
     supabase
       .from('session_interactions')
-      .select('turn_index, concept_key, student_transcript, tutor_response, outcome')
+      .select(
+        'turn_index, concept_key, student_transcript, tutor_response, outcome, misconception_category, misconception_description, annotations'
+      )
       .eq('session_id', sessionId)
       .eq('user_id', userId)
       .is('deleted_at', null)
@@ -98,6 +148,10 @@ export async function loadSessionSource(
     studentTranscript: row.student_transcript,
     tutorResponse: row.tutor_response,
     outcome: row.outcome,
+    misconception:
+      turnCleanString(row.misconception_description) ??
+      (row.misconception_category ? humanizeCategory(row.misconception_category) : null),
+    annotations: coerceTurnAnnotations(row.annotations),
   }))
 
   return {

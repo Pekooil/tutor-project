@@ -21,7 +21,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     <div className="cx-app" style={{ position: 'relative', minHeight: '100vh' }}>
       <AmbientGlow />
       <PremiumNav name={navUser.name} initials={navUser.initials} planLabel={navUser.planLabel} />
-      <main style={{ position: 'relative', maxWidth: 960, margin: '0 auto', padding: '104px 24px 150px' }}>
+      <main style={{ position: 'relative', maxWidth: 960, margin: '0 auto', padding: '104px 24px 88px' }}>
         {children}
       </main>
       <AskPill />

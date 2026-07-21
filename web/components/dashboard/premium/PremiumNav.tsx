@@ -20,8 +20,8 @@ import { C } from './theme'
 // routes so deep links stay oriented.
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', match: ['/dashboard', '/'] },
-  { href: '/notebook', label: 'Notebook', match: ['/notebook', '/concepts', '/mastery', '/misconceptions'] },
-  { href: '/sessions', label: 'Sessions', match: ['/sessions', '/activity'] },
+  { href: '/notebook', label: 'Notebook', match: ['/notebook', '/concepts', '/misconceptions'] },
+  { href: '/sessions', label: 'Sessions', match: ['/sessions'] },
   { href: '/library', label: 'Library', match: ['/library', '/kits'] },
 ] as const
 

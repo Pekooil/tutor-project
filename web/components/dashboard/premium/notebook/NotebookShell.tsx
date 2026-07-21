@@ -354,7 +354,7 @@ function SubjectHeader({ data, lastSession }: { data: NotebookData; lastSession:
             </h1>
             {lastSession && (
               <Link
-                href={lastSession.kitHref ?? '/sessions'}
+                href={lastSession.kitHref ?? `/sessions/${lastSession.id}`}
                 className="cx-hover-pill"
                 style={{ fontSize: 12.5, fontWeight: 600, color: C.greenDeep, background: C.mintPill, borderRadius: 99, padding: '8px 15px' }}
               >

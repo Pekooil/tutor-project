@@ -5,9 +5,9 @@ import { C, glassCard, sheen, eyebrow, entrance, pillAction, STATE_STYLE, pct } 
 
 function BackLink() {
   return (
-    <Link href="/misconceptions" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: C.greenDeep, textDecoration: 'none', marginBottom: 14 }}>
+    <Link href="/notebook" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: C.greenDeep, textDecoration: 'none', marginBottom: 14 }}>
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M10 3 L5 8 L10 13" /></svg>
-      All misconceptions
+      Notebook
     </Link>
   )
 }
@@ -65,7 +65,7 @@ export function MisconceptionDetailScreen({ detail }: { detail: MisconceptionDet
         <div style={{ ...glassCard, padding: '16px 19px', ...entrance(0.18) }}>
           <span style={sheen} />
           <span style={{ ...eyebrow, position: 'relative', display: 'block', marginBottom: 10 }}>Concept</span>
-          <Link href={`/mastery/${m.conceptKey}`} className="cx-hover-soft" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 8px', borderRadius: 12, textDecoration: 'none', color: C.ink }}>
+          <Link href={`/concepts/${m.conceptKey}`} className="cx-hover-soft" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 8px', borderRadius: 12, textDecoration: 'none', color: C.ink }}>
             <span style={{ fontSize: 13.5, fontWeight: 500, flex: 1, minWidth: 0 }}>{node?.title ?? m.title}</span>
             {nodeStyle && node ? (
               <>

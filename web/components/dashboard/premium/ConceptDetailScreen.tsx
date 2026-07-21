@@ -1,25 +1,30 @@
 import Link from 'next/link'
 import type { ConceptDetail, ConceptNotebookView, RelatedConcept } from './detail-read'
+import type { DashboardMisconception } from '@/lib/learning/dashboard-read'
+import type { NbMisconception } from './notebook-read'
 import { formatLastPracticed } from '@/components/dashboard/format'
 import { C, glassCard, sheen, eyebrow, entrance, pillAction, STATE_STYLE, pct } from './theme'
 import { relativeDueLabel } from './derive'
 import { FlashcardsGrid, ProblemsList } from './study-cards'
 import { SnapshotBoardList } from './study-snapshots-board'
+import { MustKnowList, MethodFlow, LooseMistakes, attachedCategories } from './notebook/ConceptNotes'
 import type { MasteryState } from '@/lib/ai/profile'
 
-function BackLink({ hrefBase }: { hrefBase: string }) {
+// The concept workspace lives under the Notebook section of the IA, so its
+// back-link returns to the Notebook (the concepts home) — not a standalone list.
+function BackLink() {
   return (
-    <Link href={hrefBase} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: C.greenDeep, textDecoration: 'none', marginBottom: 14 }}>
+    <Link href="/notebook" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: C.greenDeep, textDecoration: 'none', marginBottom: 14 }}>
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M10 3 L5 8 L10 13" /></svg>
-      All concepts
+      Notebook
     </Link>
   )
 }
 
-function RelatedRow({ r, hrefBase }: { r: RelatedConcept; hrefBase: string }) {
+function RelatedRow({ r }: { r: RelatedConcept }) {
   const style = r.state ? STATE_STYLE[r.state as MasteryState] : null
   return (
-    <Link href={`${hrefBase}/${r.conceptKey}`} className="cx-hover-soft" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 8px', borderRadius: 12, textDecoration: 'none', color: C.ink }}>
+    <Link href={`/concepts/${r.conceptKey}`} className="cx-hover-soft" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 8px', borderRadius: 12, textDecoration: 'none', color: C.ink }}>
       <span style={{ fontSize: 13.5, fontWeight: 500, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</span>
       {style ? (
         <span style={{ flex: 'none', fontSize: 10, fontWeight: 600, letterSpacing: '.09em', textTransform: 'uppercase', borderRadius: 99, padding: '3px 9px', background: style.chipBg, color: style.ink }}>{style.label}</span>
@@ -32,13 +37,24 @@ function RelatedRow({ r, hrefBase }: { r: RelatedConcept; hrefBase: string }) {
   )
 }
 
-/** The Personal Notebook (ADR-054): a per-concept, cumulative study document —
- *  a running summary, the reminders the student keeps needing, and the tutor
- *  explanations worth keeping. Auto-revised after every session that practiced
- *  the concept. The workspace's "second brain" seat, right after the summary. */
-function NotebookCard({ notebook }: { notebook: ConceptNotebookView }) {
+/** The Personal Notebook (ADR-054, "live notebook"): a per-concept, cumulative
+ *  study document — a running summary, the numbered "must know" key points, and
+ *  the ordered solving method with the student's mistakes flagged on the steps
+ *  they slipped on. Auto-revised after every session that practiced the concept.
+ *  Renders the same note components as the full Notebook page, joining the live
+ *  mistake count/date from this concept's misconceptions. */
+function NotebookCard({
+  notebook,
+  misconceptions,
+}: {
+  notebook: ConceptNotebookView
+  misconceptions: DashboardMisconception[]
+}) {
   const sessionsLabel =
     notebook.sessionCount === 1 ? 'Updated after 1 session' : `Updated across ${notebook.sessionCount} sessions`
+  const miscByCategory = new Map<string, NbMisconception>(misconceptions.map((m) => [m.category, m]))
+  const attached = attachedCategories(notebook.method)
+  const loose: NbMisconception[] = misconceptions.filter((m) => m.status === 'active' && !attached.has(m.category))
 
   return (
     <div style={{ ...glassCard, padding: '16px 19px', marginBottom: 16, ...entrance(0.08) }}>
@@ -50,31 +66,21 @@ function NotebookCard({ notebook }: { notebook: ConceptNotebookView }) {
         </div>
 
         {notebook.summary && (
-          <p style={{ margin: '0 0 14px', fontSize: 14, lineHeight: '22px', color: C.ink }}>{notebook.summary}</p>
+          <p style={{ margin: '0 0 16px', fontSize: 14, lineHeight: '22px', color: C.ink }}>{notebook.summary}</p>
         )}
 
-        {notebook.reminders.length > 0 && (
-          <div style={{ marginBottom: notebook.explanations.length > 0 ? 16 : 0 }}>
-            <span style={{ ...eyebrow, display: 'block', marginBottom: 8 }}>Keep in mind</span>
-            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {notebook.reminders.map((r, i) => (
-                <li key={i} style={{ display: 'flex', gap: 9, fontSize: 13.5, lineHeight: '20px' }}>
-                  <span style={{ flex: 'none', width: 5, height: 5, marginTop: 7, borderRadius: 99, background: C.amber }} />
-                  <span>{r}</span>
-                </li>
-              ))}
-            </ul>
+        {notebook.mustKnow.length > 0 && (
+          <div style={{ marginBottom: notebook.method.length > 0 ? 20 : 0 }}>
+            <span style={{ ...eyebrow, display: 'block', marginBottom: 12 }}>Must know</span>
+            <MustKnowList items={notebook.mustKnow} />
           </div>
         )}
 
-        {notebook.explanations.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {notebook.explanations.map((e, i) => (
-              <div key={i} style={{ padding: '11px 13px', borderRadius: 13, background: C.mintTile }}>
-                <p style={{ margin: '0 0 4px', fontSize: 13.5, fontWeight: 600, color: C.greenDeep }}>{e.title}</p>
-                <p style={{ margin: 0, fontSize: 13.5, lineHeight: '20px', color: C.ink }}>{e.body}</p>
-              </div>
-            ))}
+        {notebook.method.length > 0 && (
+          <div>
+            <span style={{ ...eyebrow, display: 'block', marginBottom: 12 }}>How to solve it</span>
+            <MethodFlow steps={notebook.method} miscByCategory={miscByCategory} />
+            <LooseMistakes items={loose} />
           </div>
         )}
       </div>
@@ -92,7 +98,7 @@ function ScheduleStat({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function ConceptDetailScreen({ detail, hrefBase = '/mastery' }: { detail: ConceptDetail; hrefBase?: string }) {
+export function ConceptDetailScreen({ detail }: { detail: ConceptDetail }) {
   const { node, review, kit, notebook, snapshots } = detail
   const style = node ? STATE_STYLE[node.state] : null
   const now = new Date()
@@ -104,7 +110,7 @@ export function ConceptDetailScreen({ detail, hrefBase = '/mastery' }: { detail:
   return (
     <section data-screen-label="Concept">
       <header style={{ marginBottom: 22, animation: 'cxPop .5s cubic-bezier(.3,1.4,.4,1) both' }}>
-        <BackLink hrefBase={hrefBase} />
+        <BackLink />
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20 }}>
           <div>
             <p style={{ margin: '0 0 7px', fontSize: 10, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: detail.strandColor }}>{detail.strandLabel}</p>
@@ -144,7 +150,7 @@ export function ConceptDetailScreen({ detail, hrefBase = '/mastery' }: { detail:
       {/* Personal notebook — the concept's cumulative, auto-generated study
           document (ADR-054). Right after the summary, per the product brief's
           §2 order. Absent until the first session revises it. */}
-      {notebook && <NotebookCard notebook={notebook} />}
+      {notebook && <NotebookCard notebook={notebook} misconceptions={detail.misconceptions} />}
 
       {/* Review schedule — the "when does this come back" panel (replaces the
           calendar's role at the concept level). Shown when the scheduler has an
@@ -236,7 +242,7 @@ export function ConceptDetailScreen({ detail, hrefBase = '/mastery' }: { detail:
           <span style={{ ...eyebrow, position: 'relative', display: 'block', marginBottom: 10 }}>Build on first</span>
           <div style={{ position: 'relative' }}>
             {detail.prerequisites.length > 0 ? (
-              detail.prerequisites.map((r) => <RelatedRow key={r.conceptKey} r={r} hrefBase={hrefBase} />)
+              detail.prerequisites.map((r) => <RelatedRow key={r.conceptKey} r={r} />)
             ) : (
               <p style={{ fontSize: 13, color: C.muted, padding: '4px 8px' }}>No prerequisites — this is a foundation concept.</p>
             )}
@@ -249,7 +255,7 @@ export function ConceptDetailScreen({ detail, hrefBase = '/mastery' }: { detail:
           <span style={{ ...eyebrow, position: 'relative', display: 'block', marginBottom: 10 }}>Leads to</span>
           <div style={{ position: 'relative' }}>
             {detail.dependents.length > 0 ? (
-              detail.dependents.map((r) => <RelatedRow key={r.conceptKey} r={r} hrefBase={hrefBase} />)
+              detail.dependents.map((r) => <RelatedRow key={r.conceptKey} r={r} />)
             ) : (
               <p style={{ fontSize: 13, color: C.muted, padding: '4px 8px' }}>Nothing depends on this concept yet.</p>
             )}
