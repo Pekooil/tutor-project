@@ -130,6 +130,40 @@ export async function loadConceptSnapshots(
   return (data as InteractionRow[]).map(toSnapshot)
 }
 
+// Every annotated turn for the caller, grouped by concept (newest first, capped
+// per concept) — the notebook's bulk snapshot feed (redesign). One query for the
+// whole notebook instead of loadConceptSnapshots per concept, so a subject with
+// N practiced concepts still does a single read. RLS-scoped; never throws.
+export async function loadUserSnapshotsByConcept(
+  supabase: SupabaseClient,
+  perConcept = 4,
+  scanLimit = 600
+): Promise<Map<string, WorkedSnapshot[]>> {
+  const byConcept = new Map<string, WorkedSnapshot[]>()
+  const { data, error } = await supabase
+    .from('session_interactions')
+    .select(INTERACTION_COLUMNS)
+    .not('annotations', 'is', null)
+    .not('concept_key', 'is', null)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(scanLimit)
+
+  if (error || !data) return byConcept
+
+  for (const row of data as InteractionRow[]) {
+    const key = row.concept_key
+    if (!key) continue
+    const list = byConcept.get(key)
+    if (list) {
+      if (list.length < perConcept) list.push(toSnapshot(row))
+    } else {
+      byConcept.set(key, [toSnapshot(row)])
+    }
+  }
+  return byConcept
+}
+
 // One session's full ordered timeline + meta — the Sessions detail view (brief
 // §3). Includes every turn in order (annotations render when present); returns
 // null when the session isn't the caller's or doesn't exist, so the page can

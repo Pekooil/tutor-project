@@ -12,13 +12,15 @@ import { C } from './theme'
 // a real route Link, so navigation keeps the app's server-rendered, RLS-scoped
 // per-route reads — the pill is the design's chrome over the existing routing.
 
-// The product's information architecture: what to do next (Dashboard), the
-// concept workspaces that absorb mastery + misconceptions + practice (Concepts),
-// tutoring history (Sessions), and every generated resource (Library). `match`
-// keeps a tab lit on its legacy detail routes so deep links stay oriented.
+// The product's information architecture (redesign): what to do next
+// (Dashboard), then the CENTER of the product — the Notebook, the per-subject
+// study document that absorbs mastery + misconceptions + practice + snapshots
+// (concepts are sections inside it) — then tutoring history (Sessions) and every
+// generated resource (Library). `match` keeps a tab lit on its legacy detail
+// routes so deep links stay oriented.
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', match: ['/dashboard', '/'] },
-  { href: '/concepts', label: 'Concepts', match: ['/concepts', '/mastery', '/misconceptions'] },
+  { href: '/notebook', label: 'Notebook', match: ['/notebook', '/concepts', '/mastery', '/misconceptions'] },
   { href: '/sessions', label: 'Sessions', match: ['/sessions', '/activity'] },
   { href: '/library', label: 'Library', match: ['/library', '/kits'] },
 ] as const

@@ -1,9 +1,11 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import { CONCEPTS } from '@calyxa/curriculum'
+import { STRAND_LABELS, strandOf } from '@/lib/onboarding/item-bank'
 import type { DashboardData } from '@/lib/learning/dashboard-read'
 import type { RecentSession } from '@/lib/learning/activity-read'
 import { GlassCard, CardHead, Badge } from './primitives'
-import { C, glassCardSoft, eyebrow, pillAction, entrance, pct } from './theme'
+import { C, glassCardSoft, eyebrow, pillAction, entrance, pct, strandStyle } from './theme'
 import { kitHrefForConcept, type StudyKit } from './kits-read'
 import {
   greeting,
@@ -75,6 +77,15 @@ export function ContinueLearningScreen({
 
       {/* ── TODAY'S REVIEW — the dominant action ──────────────────────────── */}
       <TodaysReview due={due} minutes={minutes} reviewHref={reviewHref} weakest={weakest} />
+
+      {/* ── YOUR NOTEBOOK + CONTINUE LAST SESSION ─────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) minmax(0,1fr)', gap: 16, marginBottom: 16, alignItems: 'stretch' }}>
+        <NotebookHero data={data} />
+        <ContinueLastSession session={recentSessions[0] ?? null} />
+      </div>
+
+      {/* ── TUTOR INSIGHTS teaser ─────────────────────────────────────────── */}
+      <InsightsTeaser data={data} />
 
       {/* ── WEAKEST CONCEPTS ──────────────────────────────────────────────── */}
       {weakest.length > 0 && (
@@ -288,6 +299,122 @@ function RecentSessions({ sessions }: { sessions: RecentSession[] }) {
         )}
       </div>
     </GlassCard>
+  )
+}
+
+// The notebook is the center of the product — the dashboard's second action,
+// right under Today's Review. Shows the student's most-developed subject
+// notebooks with a link straight into each, and a prominent "open notebook" CTA.
+function NotebookHero({ data }: { data: DashboardData }) {
+  const totalsBySubject = new Map<string, number>()
+  for (const c of CONCEPTS) totalsBySubject.set(strandOf(c.key), (totalsBySubject.get(strandOf(c.key)) ?? 0) + 1)
+
+  const rows = data.strands
+    .map((s) => ({
+      key: s.strand,
+      label: STRAND_LABELS[s.strand] ?? s.strandLabel,
+      color: strandStyle(s.strand).color,
+      practiced: s.nodes.length,
+      total: totalsBySubject.get(s.strand) ?? 0,
+      avg: s.averageMastery,
+    }))
+    .filter((s) => s.practiced > 0)
+    .sort((a, b) => b.practiced - a.practiced)
+    .slice(0, 3)
+
+  return (
+    <GlassCard style={{ padding: '18px 20px 16px', ...entrance(0.16), display: 'flex', flexDirection: 'column' }}>
+      <CardHead
+        icon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#166534" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 2.5 H12 A1 1 0 0 1 13 3.5 V13.5 L8 11 L3 13.5 V3.5 A1 1 0 0 1 4 2.5" /></svg>}
+        kicker="Your notebook"
+        title="Everything you've learned"
+        right={<Link href="/notebook" className="cx-hover-pill" style={pillAction}>Open notebook &rarr;</Link>}
+      />
+      <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
+        {rows.length > 0 ? (
+          rows.map((s) => {
+            const p = pct(s.avg)
+            return (
+              <Link key={s.key} href={`/notebook/${s.key}`} className="cx-hover-soft" style={{ display: 'block', textDecoration: 'none', color: C.ink, padding: '9px 10px', borderRadius: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <span style={{ flex: 'none', width: 9, height: 9, borderRadius: 3, background: s.color }} />
+                  <span style={{ fontSize: 13.5, fontWeight: 500, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</span>
+                  <span style={{ flex: 'none', fontSize: 12, color: C.muted }}>{s.practiced}/{s.total} · {p}%</span>
+                </div>
+                <span style={{ display: 'block', height: 5, borderRadius: 99, background: 'rgba(28,28,26,.06)', overflow: 'hidden' }}>
+                  <span style={{ display: 'block', height: 5, borderRadius: 99, width: `${p}%`, background: s.color }} />
+                </span>
+              </Link>
+            )
+          })
+        ) : (
+          <p style={{ fontSize: 13, color: C.muted, padding: '9px 10px' }}>
+            Your notebook writes itself as you study. Start a session and each concept gets its own living page here.
+          </p>
+        )}
+      </div>
+    </GlassCard>
+  )
+}
+
+// Priority 3: pick up the most recent session where the student left off.
+function ContinueLastSession({ session }: { session: RecentSession | null }) {
+  const href = session ? (session.kitHref ?? '/sessions') : '/sessions'
+  const when = session
+    ? new Date(session.startedAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    : null
+  return (
+    <GlassCard style={{ padding: '18px 20px', ...entrance(0.2), display: 'flex', flexDirection: 'column' }}>
+      <CardHead
+        icon={<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#166534" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 3.5 L12 8 L5 12.5 Z" /></svg>}
+        kicker="Pick up where you left off"
+        title="Continue"
+      />
+      <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {session ? (
+          <>
+            <p style={{ margin: '0 0 3px', fontSize: 14, fontWeight: 500, textTransform: 'capitalize' }}>{session.mode} session</p>
+            <p style={{ margin: 0, fontSize: 12.5, color: C.muted }}>{when}{session.hasKit ? ' · study kit ready' : ''}</p>
+            <Link href={href} style={{ marginTop: 'auto', border: 'none', borderRadius: 99, background: C.mint, color: C.greenDeep, fontSize: 13.5, fontWeight: 600, padding: '10px 0', textAlign: 'center', textDecoration: 'none' }}>
+              {session.hasKit ? 'Open study kit →' : 'View session →'}
+            </Link>
+          </>
+        ) : (
+          <p style={{ margin: 0, fontSize: 13, color: C.muted }}>No sessions yet — your most recent one will land here to resume.</p>
+        )}
+      </div>
+    </GlassCard>
+  )
+}
+
+// Priority 4: a compact "how you learn" teaser that opens the notebook's full
+// Tutor Insights. Uses only the numbers already on the dashboard read.
+function InsightsTeaser({ data }: { data: DashboardData }) {
+  const stats = overviewStats(data)
+  const items = [
+    { label: 'Concepts mastered', value: String(stats.mastered) },
+    { label: 'Recent accuracy', value: stats.accuracy != null ? `${stats.accuracy}%` : '—' },
+    { label: 'Active misconceptions', value: String(stats.activeMisconceptions) },
+    { label: 'Day streak', value: String(stats.streak) },
+  ]
+  return (
+    <div style={{ marginBottom: 16, ...entrance(0.24) }}>
+      <GlassCard soft style={{ padding: '15px 18px' }}>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginRight: 'auto' }}>
+            <span style={eyebrow}>Tutor insights</span>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>How you learn</span>
+          </div>
+          {items.map((it, i) => (
+            <div key={it.label} style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingLeft: i === 0 ? 0 : 16, borderLeft: i === 0 ? 'none' : `1px solid ${C.hair}` }}>
+              <span style={{ fontSize: 19, fontWeight: 600, lineHeight: '22px' }}>{it.value}</span>
+              <span style={{ fontSize: 11, color: C.muted }}>{it.label}</span>
+            </div>
+          ))}
+          <Link href="/notebook#insights" className="cx-hover-pill" style={{ ...pillAction, marginLeft: 8 }}>See profile &rarr;</Link>
+        </div>
+      </GlassCard>
+    </div>
   )
 }
 

@@ -4,7 +4,7 @@ import { formatLastPracticed } from '@/components/dashboard/format'
 import { C, glassCard, sheen, eyebrow, entrance, pillAction, STATE_STYLE, pct } from './theme'
 import { relativeDueLabel } from './derive'
 import { FlashcardsGrid, ProblemsList } from './study-cards'
-import { SnapshotList } from './study-snapshots'
+import { SnapshotBoardList } from './study-snapshots-board'
 import type { MasteryState } from '@/lib/ai/profile'
 
 function BackLink({ hrefBase }: { hrefBase: string }) {
@@ -224,7 +224,7 @@ export function ConceptDetailScreen({ detail, hrefBase = '/mastery' }: { detail:
             <span style={{ fontSize: 12, color: C.muted }}>{snapshots.length}</span>
           </div>
           <div style={{ position: 'relative' }}>
-            <SnapshotList snapshots={snapshots} />
+            <SnapshotBoardList snapshots={snapshots} />
           </div>
         </div>
       )}

@@ -11,7 +11,11 @@ import { NextResponse, type NextRequest } from 'next/server'
 // but it is ALSO opened signed-out by the extension's first-install tab
 // (chrome.runtime.onInstalled → calyxa.app/welcome) — so like '/', it must be
 // reachable without a session; the page itself adapts to auth state.
-const PUBLIC_PATHS = ['/', '/login', '/signup', '/welcome', '/privacy', '/terms']
+// /notebook-preview (redesign) is a self-contained design harness for the
+// Personal Notebook — seeded mock data only, NO user data — viewable without a
+// session so the notebook redesign can be reviewed/screenshotted (the sibling of
+// the extension's pill-harness). Public like '/'; safe to drop before GA.
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/welcome', '/privacy', '/terms', '/notebook-preview']
 
 function isPublicPath(pathname: string) {
   // /api/session/*, /api/ai/*, /api/voice/*, and /api/profile/* are

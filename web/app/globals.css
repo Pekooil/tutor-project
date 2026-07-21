@@ -190,3 +190,70 @@
 .cx-hover-mint:hover {
   background: #6ee7a0 !important;
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Personal Notebook (redesign) — the two-pane notebook shell.
+ * The notebook route breaks out of the layout's centered 960px column to a
+ * full-width sidebar + document. `overflow-x: clip` on the scope kills the
+ * 100vw horizontal overflow WITHOUT establishing a scroll container, so the
+ * sticky sidebar still sticks (which `overflow-x: hidden` would break).
+ * ─────────────────────────────────────────────────────────────────────────── */
+.cx-app {
+  overflow-x: clip;
+}
+.nb-breakout {
+  position: relative;
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+}
+.nb-grid {
+  display: grid;
+  grid-template-columns: 276px minmax(0, 1fr);
+  gap: 34px;
+  align-items: start;
+  max-width: 1260px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+.nb-aside {
+  position: sticky;
+  top: 86px;
+  max-height: calc(100vh - 108px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.nb-aside::-webkit-scrollbar {
+  width: 7px;
+}
+.nb-aside::-webkit-scrollbar-thumb {
+  background: rgba(28, 28, 26, 0.14);
+  border-radius: 99px;
+}
+.nb-doc {
+  min-width: 0;
+  max-width: 780px;
+}
+/* Smooth-scroll targets clear the fixed pill nav. */
+.nb-anchor {
+  scroll-margin-top: 92px;
+}
+html {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+@media (max-width: 900px) {
+  .nb-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .nb-aside {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}

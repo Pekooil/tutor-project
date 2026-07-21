@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import type { SessionDetail } from './snapshots-read'
 import { C, glassCard, sheen, eyebrow, entrance } from './theme'
-import { SnapshotList } from './study-snapshots'
+import { SnapshotBoardList } from './study-snapshots-board'
 
 // ADR-055: the Sessions detail view (brief §3) — one tutoring session replayed
 // as its ordered timeline of worked-problem snapshots (the tutor's annotated
@@ -52,7 +52,7 @@ export function SessionDetailScreen({ detail }: { detail: SessionDetail }) {
             {withAnnotations > 0 && <span style={{ fontSize: 12, color: C.muted }}>{withAnnotations} annotated</span>}
           </div>
           <div style={{ position: 'relative' }}>
-            <SnapshotList snapshots={detail.snapshots} showConcept />
+            <SnapshotBoardList snapshots={detail.snapshots} showConcept />
           </div>
         </div>
       )}
