@@ -177,6 +177,47 @@ export async function seedNodeObservation(
   await applyMasteryUpdate(supabase, userId, conceptKey, observation)
 }
 
+// A guided concept review (the dashboard "Start review" flow) applied to the
+// learning model. Like onboarding's seed, a review is SELF-GRADED, not a
+// tutor-verified line of reasoning, so it goes through the SAME FSRS write a
+// tutoring turn / an onboarding answer uses (`applyMasteryUpdate`), with the
+// same derived `reasoningQuality` discipline seed.ts documents: a claimed
+// correct/partial is modelled 'sound' (no lucky-guess discount that would invert
+// the priors) and only an "I missed it" (incorrect) is 'none'. selfConfidence is
+// 'med' — a review has no confidence prompt. Then it reschedules off the
+// JUST-UPDATED node (PLAN §2.4 calls scheduleReinforcement with the post-update
+// node), so mastery AND the next-review date both move from one review.
+//
+// It deliberately does NOT touch misconception streaks: resolving a recurring
+// misconception requires the tutor pipeline's graded evidence (a category-
+// matched sound answer), not a binary self-grade, so that stays in
+// applyInteraction. It also writes no `session_interactions` row — a review is
+// not a tutored session — so reviews don't appear in the activity/accuracy
+// history and there is no double-apply surface. Tolerates its own partial
+// failure the way the rest of this module does (a scheduling hiccup never
+// unwinds the landed mastery write).
+export async function applyReviewObservation(
+  supabase: SupabaseClient,
+  userId: string,
+  conceptKey: string,
+  outcome: Outcome
+): Promise<void> {
+  const { stability, state } = await applyMasteryUpdate(supabase, userId, conceptKey, {
+    outcome,
+    reasoningQuality: outcome === 'incorrect' ? 'none' : 'sound',
+    selfConfidence: 'med',
+  })
+
+  const active = await hasActiveMisconception(supabase, userId, conceptKey)
+  await scheduleReinforcement(
+    supabase,
+    userId,
+    conceptKey,
+    { stability, state },
+    { hasActiveMisconception: active, lastOutcomeFailed: outcome === 'incorrect' }
+  )
+}
+
 // Exact-category match first; else `pg_trgm` trigram similarity > 0.6 on
 // `description` via the `match_misconception_trigram` RPC (0006,
 // ADR-017) -- PostgREST has no filterable similarity() operator, so the

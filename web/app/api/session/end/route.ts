@@ -4,6 +4,7 @@ import { endSession } from '@/lib/tier/session-gate'
 import { reconcileSession } from '@/lib/learning/apply'
 import { buildSessionRecap, type SessionRecap } from '@/lib/learning/recap'
 import { generateAndPersistStudyKit } from '@/lib/study/generate-and-persist'
+import { updateSessionNotebooks } from '@/lib/notebook/update'
 
 // Ends a session (Sprint 04 behaviour, unchanged). ADR-019 retires the
 // end-of-session summariser Anthropic call (ADR-015) -- learning state is
@@ -90,6 +91,27 @@ export async function POST(request: Request) {
       }
     } catch (err) {
       console.error('session/end: auto study-kit generation failed', err)
+    }
+  }
+
+  // Personal Notebook (ADR-054): after EVERY session that practiced a concept,
+  // revise that concept's running notebook. updateSessionNotebooks loads the
+  // session source once, ranks the practiced concepts, caps to the most-worked
+  // few, and cost-guards each revision — so this block just gates on the kill
+  // switch and delegates. Best-effort, the same posture as the reconcile / recap
+  // / study-kit blocks above: a failure is logged and never alters the
+  // already-successful end response. The `recap.concepts` check is an early skip
+  // for sessions with nothing gradable (updateSessionNotebooks re-derives the
+  // same set from its own source read and no-ops safely either way). The kill
+  // switch is the prod valve AND the opt-out the session-lifecycle integration
+  // tests set so they never call the model (the CALYXA_DISABLE_AUTO_STUDY_KIT
+  // convention).
+  const notebooksEnabled = process.env.CALYXA_DISABLE_NOTEBOOK !== '1'
+  if (notebooksEnabled && recap && recap.concepts.length > 0) {
+    try {
+      await updateSessionNotebooks(auth.supabase, auth.user.id, body.sessionId)
+    } catch (err) {
+      console.error('session/end: notebook update failed', err)
     }
   }
 

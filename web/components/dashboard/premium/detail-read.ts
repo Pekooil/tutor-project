@@ -1,8 +1,16 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { CONCEPTS, getConcept, prerequisitesOf } from '@calyxa/curriculum'
-import { loadDashboard, type DashboardMasteryNode, type DashboardMisconception } from '@/lib/learning/dashboard-read'
+import {
+  loadDashboard,
+  type DashboardMasteryNode,
+  type DashboardMisconception,
+  type DashboardDueItem,
+} from '@/lib/learning/dashboard-read'
 import { loadStudyKits, kitHrefForConcept } from './kits-read'
+import { loadStudyKit, type StudyKitDetail } from './kit-read'
+import { parseNotebook, isEmptyNotebook } from '@/lib/notebook/tool'
+import { loadConceptSnapshots, type WorkedSnapshot } from './snapshots-read'
 import { strandStyle } from './theme'
 
 // Server reads for the drill-down detail pages. Both reuse `loadDashboard`
@@ -12,6 +20,48 @@ import { strandStyle } from './theme'
 // page can `notFound()`.
 
 export type RelatedConcept = { conceptKey: string; title: string; mastery: number | null; state: string | null }
+
+/** The concept's Personal Notebook (ADR-054) for the workspace, or null when no
+ *  notebook exists yet. A plain display shape (not the server-only `Notebook`
+ *  type) so the client-boundary screen imports only data. */
+export type ConceptNotebookView = {
+  summary: string
+  reminders: string[]
+  explanations: { title: string; body: string }[]
+  /** How many sessions have fed this notebook — the "updated after N sessions"
+   *  line in the workspace. */
+  sessionCount: number
+  updatedAt: string | null
+}
+
+// Reads the caller's Personal Notebook for one concept, RLS-scoped (the
+// `concept_notebook_select_own` policy is the ownership guarantee, and
+// unique(user_id, concept_key) makes this at most one row). Never throws — a
+// read hiccup or a genuinely-empty notebook returns null so the workspace just
+// omits the card. parseNotebook defensively coerces the stored jsonb.
+export async function loadConceptNotebook(
+  supabase: SupabaseClient,
+  conceptKey: string
+): Promise<ConceptNotebookView | null> {
+  const { data, error } = await supabase
+    .from('concept_notebook')
+    .select('content, session_count, updated_at')
+    .eq('concept_key', conceptKey)
+    .maybeSingle()
+
+  if (error || !data) return null
+
+  const parsed = parseNotebook((data as { content?: unknown }).content ?? null)
+  if (isEmptyNotebook(parsed)) return null
+
+  return {
+    summary: parsed.summary,
+    reminders: parsed.reminders,
+    explanations: parsed.explanations,
+    sessionCount: (data as { session_count?: number }).session_count ?? 1,
+    updatedAt: (data as { updated_at?: string | null }).updated_at ?? null,
+  }
+}
 
 export type ConceptDetail = {
   conceptKey: string
@@ -23,6 +73,16 @@ export type ConceptDetail = {
   dependents: RelatedConcept[]
   misconceptions: DashboardMisconception[]
   kitHref: string | null
+  /** This concept's reinforcement-schedule entry (next review), or null. */
+  review: DashboardDueItem | null
+  /** The concept's study-kit content (notes/problems/flashcards) for inline
+   *  practice in the workspace, or null when no kit covers it. */
+  kit: StudyKitDetail | null
+  /** The concept's Personal Notebook (ADR-054), or null when none exists yet. */
+  notebook: ConceptNotebookView | null
+  /** Worked-problem snapshots for this concept (ADR-055) — annotated turns,
+   *  newest first. Empty when no annotated turns exist yet. */
+  snapshots: WorkedSnapshot[]
 }
 
 function nodeIndex(strands: Awaited<ReturnType<typeof loadDashboard>>['strands']): Map<string, DashboardMasteryNode> {
@@ -44,7 +104,12 @@ function related(key: string, byKey: Map<string, DashboardMasteryNode>): Related
 
 export async function loadConceptDetail(supabase: SupabaseClient, conceptKey: string): Promise<ConceptDetail | null> {
   const concept = getConcept(conceptKey)
-  const [data, kits] = await Promise.all([loadDashboard(supabase), loadStudyKits(supabase)])
+  const [data, kits, notebook, snapshots] = await Promise.all([
+    loadDashboard(supabase),
+    loadStudyKits(supabase),
+    loadConceptNotebook(supabase, conceptKey),
+    loadConceptSnapshots(supabase, conceptKey),
+  ])
   const byKey = nodeIndex(data.strands)
   const node = byKey.get(conceptKey) ?? null
 
@@ -57,6 +122,11 @@ export async function loadConceptDetail(supabase: SupabaseClient, conceptKey: st
   const prerequisites = prerequisitesOf(conceptKey).map((k) => related(k, byKey))
   const dependents = CONCEPTS.filter((c) => c.prerequisites.includes(conceptKey)).map((c) => related(c.key, byKey))
   const misconceptions = data.misconceptions.filter((m) => m.conceptKey === conceptKey)
+  const review = data.dueQueue.find((d) => d.conceptKey === conceptKey) ?? null
+  const kitHref = kitHrefForConcept(kits, conceptKey)
+  // Pull the concept's kit content for inline practice (best-effort; a read
+  // hiccup just omits the practice sections, never fails the page).
+  const kit = kitHref ? await loadStudyKit(supabase, kitHref) : null
 
   return {
     conceptKey,
@@ -67,7 +137,11 @@ export async function loadConceptDetail(supabase: SupabaseClient, conceptKey: st
     prerequisites,
     dependents,
     misconceptions,
-    kitHref: kitHrefForConcept(kits, conceptKey),
+    kitHref,
+    review,
+    kit,
+    notebook,
+    snapshots,
   }
 }
 

@@ -26,9 +26,9 @@ const EXPORT_SCHEMA_VERSION = 1
 // database is the scoping guarantee. `users`/`sessions`/`knowledge_nodes`/
 // `misconceptions`/`session_interactions`/`reinforcement_schedule` (per
 // docs/architecture.md) plus `feedback` (Sprint 17), `mastery_snapshot`
-// (Sprint 22), and `study_artifact` (Sprint 21) are the complete set of
-// user-scoped tables that expose an owner SELECT policy; any new such table a
-// future sprint adds MUST be added here too.
+// (Sprint 22), `study_artifact` (Sprint 21), and `concept_notebook` (ADR-054)
+// are the complete set of user-scoped tables that expose an owner SELECT
+// policy; any new such table a future sprint adds MUST be added here too.
 const RLS_SCOPED_TABLES = [
   'users',
   'sessions',
@@ -49,6 +49,14 @@ const RLS_SCOPED_TABLES = [
   // the export here + the erasure sweep (the FK cascade) -- both, asserted in
   // tests/account.test.ts.
   'study_artifact',
+  // ADR-054: the per-concept Personal Notebook -- the second *generated*
+  // content this product persists (after study_artifact). Its
+  // `concept_notebook_select_own` policy makes this authenticated read Just
+  // Work (like study_artifact/feedback, not the service-role exception
+  // telemetry_event needs); the FK cascade to users covers erasure
+  // (migration 0026). Same Sprint 16 invariant: export here + erasure sweep,
+  // both asserted in tests/account.test.ts.
+  'concept_notebook',
   // Public launch (2026-07-18): the per-user monthly voice-credit ledger
   // (migration 0023). Its `voice_spend_select_own` policy makes this
   // authenticated read Just Work; the FK cascade to users covers erasure.

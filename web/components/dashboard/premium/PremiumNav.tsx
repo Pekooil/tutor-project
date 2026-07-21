@@ -12,13 +12,20 @@ import { C } from './theme'
 // a real route Link, so navigation keeps the app's server-rendered, RLS-scoped
 // per-route reads — the pill is the design's chrome over the existing routing.
 
+// The product's information architecture: what to do next (Dashboard), the
+// concept workspaces that absorb mastery + misconceptions + practice (Concepts),
+// tutoring history (Sessions), and every generated resource (Library). `match`
+// keeps a tab lit on its legacy detail routes so deep links stay oriented.
 const NAV = [
-  { href: '/dashboard', label: 'Overview' },
-  { href: '/mastery', label: 'Mastery' },
-  { href: '/misconceptions', label: 'Misconceptions' },
-  { href: '/kits', label: 'Study kits' },
-  { href: '/activity', label: 'Activity' },
+  { href: '/dashboard', label: 'Dashboard', match: ['/dashboard', '/'] },
+  { href: '/concepts', label: 'Concepts', match: ['/concepts', '/mastery', '/misconceptions'] },
+  { href: '/sessions', label: 'Sessions', match: ['/sessions', '/activity'] },
+  { href: '/library', label: 'Library', match: ['/library', '/kits'] },
 ] as const
+
+function isActive(pathname: string, match: readonly string[]): boolean {
+  return match.some((m) => (m === '/' ? pathname === '/' : pathname === m || pathname.startsWith(m + '/')))
+}
 
 const linkBase: CSSProperties = {
   border: 'none',
@@ -78,7 +85,7 @@ export function PremiumNav({
         </Link>
         <span style={{ width: 1, height: 18, background: 'rgba(28,28,26,.1)', margin: '0 6px 0 2px' }} />
         {NAV.map((item) => {
-          const active = pathname === item.href || (item.href === '/dashboard' && pathname === '/')
+          const active = isActive(pathname, item.match)
           return (
             <Link key={item.href} href={item.href} aria-current={active ? 'page' : undefined} style={itemStyle(active)}>
               {item.label}

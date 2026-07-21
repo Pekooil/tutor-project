@@ -294,6 +294,8 @@ const EXPECTED_SESSION_INTERACTIONS_COLUMNS = [
   'reasoning_quality',
   'misconception_description',
   'claimed_at',
+  // ADR-055: the persisted tutor annotations (worked-problem snapshots).
+  'annotations',
 ].sort()
 
 beforeAll(async () => {

@@ -173,6 +173,25 @@ async function seedAllTables(userId: string) {
     })
   if (studyErr) throw new Error(`seed study_artifact failed: ${studyErr.message}`)
 
+  // ADR-054: the per-concept Personal Notebook must be export- AND
+  // erasure-covered like every other user-scoped table (Sprint 16 invariant).
+  // One row per (user, concept) (migration 0026); content is the validated
+  // { summary, reminders, explanations } shape. source_session_id links it to
+  // the seeded session (on delete set null), user_id is the erasure-cascade root.
+  const { error: notebookErr } = await admin
+    .from('concept_notebook')
+    .insert({
+      user_id: userId,
+      concept_key: 'algebra.test.fixture',
+      content: {
+        summary: 'Fixture notebook summary.',
+        reminders: ['Watch the signs when factoring.'],
+        explanations: [{ title: 'Factoring', body: 'Two numbers multiply to c and add to b.' }],
+      },
+      source_session_id: session.id,
+    })
+  if (notebookErr) throw new Error(`seed concept_notebook failed: ${notebookErr.message}`)
+
   // ADR-053: the two referral-system tables must be export- AND
   // erasure-covered. signup_ip is deny-all (exported via the route's scoped
   // service-role read, the telemetry_event pattern); referral is keyed on
@@ -193,7 +212,7 @@ async function seedAllTables(userId: string) {
 }
 
 async function existsInAnyTable(userId: string): Promise<Record<string, number>> {
-  const tables = ['users', 'sessions', 'knowledge_nodes', 'misconceptions', 'session_interactions', 'reinforcement_schedule', 'feedback', 'telemetry_event', 'study_artifact', 'voice_spend', 'signup_ip', 'referral']
+  const tables = ['users', 'sessions', 'knowledge_nodes', 'misconceptions', 'session_interactions', 'reinforcement_schedule', 'feedback', 'telemetry_event', 'study_artifact', 'concept_notebook', 'voice_spend', 'signup_ip', 'referral']
   const counts: Record<string, number> = {}
 
   for (const table of tables) {
@@ -314,6 +333,10 @@ describe('GET /api/account/export', () => {
     // the export too.
     expect(body.study_artifact).toHaveLength(1)
     expect(body.study_artifact[0].kind).toBe('notes')
+    // ADR-054: the per-concept Personal Notebook (RLS-scoped read) lands in the
+    // export too.
+    expect(body.concept_notebook).toHaveLength(1)
+    expect(body.concept_notebook[0].concept_key).toBe('algebra.test.fixture')
     // ADR-053: referral rides the RLS-scoped set (select-own on referrer_id);
     // signup_ip rides the scoped service-role read (deny-all table, the
     // telemetry_event pattern).
@@ -348,6 +371,9 @@ describe('GET /api/account/export', () => {
     // Sprint 21: study_artifact rides the RLS-scoped set -- same per-row
     // owner check for symmetry (and to prove B's kit never leaks into A's).
     for (const row of body.study_artifact) expect(row.user_id).toBe(userA.id)
+    // ADR-054: concept_notebook rides the RLS-scoped set -- same per-row owner
+    // check for symmetry (and to prove B's notebook never leaks into A's).
+    for (const row of body.concept_notebook) expect(row.user_id).toBe(userA.id)
     // ADR-053: signup_ip is the route's SECOND explicit-`.eq` service-role
     // read (route code, not RLS, is the scoping) -- assert it directly, like
     // telemetry_event above. referral's RLS read is checked for symmetry.
@@ -438,6 +464,11 @@ describe('GET /api/cron/hard-delete-sweep', () => {
     // stays for the never-queued E -- the FK `on delete cascade` to users
     // (migration 0021) is the erasure path, no deletion code of its own.
     expect(eCounts.study_artifact).toBe(1)
+    // ADR-054: the Personal Notebook cascade-deletes for D (its all-zero check
+    // above covers it via existsInAnyTable's added 'concept_notebook') and
+    // stays for the never-queued E -- the FK `on delete cascade` to users
+    // (migration 0026) is the erasure path, no deletion code of its own.
+    expect(eCounts.concept_notebook).toBe(1)
     // ADR-053: the two referral-system tables cascade-delete for D (covered
     // by its all-zero check via existsInAnyTable) and stay for E -- FK
     // `on delete cascade` (migration 0024) is the erasure path for both.

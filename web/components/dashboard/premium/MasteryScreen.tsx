@@ -30,10 +30,16 @@ export function MasteryScreen({
   strands,
   nowMs,
   totalConcepts,
+  hrefBase = '/mastery',
+  heading,
 }: {
   strands: DashboardStrandGroup[]
   nowMs: number
   totalConcepts: number
+  /** Route prefix each concept row links to (`/mastery` or `/concepts`). */
+  hrefBase?: string
+  /** Optional header copy override (the Concepts view reframes this grid). */
+  heading?: { kicker: string; title: string; subtitle: string }
 }) {
   const [sort, setSort] = useState<Sort>('weakest')
   const now = new Date(nowMs)
@@ -51,9 +57,9 @@ export function MasteryScreen({
     <section data-screen-label="Mastery">
       <header style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 22, animation: 'cxPop .5s cubic-bezier(.3,1.4,.4,1) both' }}>
         <div>
-          <p style={{ margin: '0 0 7px', fontSize: 10, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: C.muted }}>Mastery</p>
-          <h1 style={{ margin: 0, fontSize: 28, lineHeight: '34px', fontWeight: 600, letterSpacing: '-.015em' }}>All six strands</h1>
-          <p style={{ margin: '8px 0 0', fontSize: 14, color: C.muted }}>Updated as you study · {totalConcepts} concept{totalConcepts === 1 ? '' : 's'} practiced so far</p>
+          <p style={{ margin: '0 0 7px', fontSize: 10, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: C.muted }}>{heading?.kicker ?? 'Mastery'}</p>
+          <h1 style={{ margin: 0, fontSize: 28, lineHeight: '34px', fontWeight: 600, letterSpacing: '-.015em' }}>{heading?.title ?? 'All six strands'}</h1>
+          <p style={{ margin: '8px 0 0', fontSize: 14, color: C.muted }}>{heading?.subtitle ?? `Updated as you study · ${totalConcepts} concept${totalConcepts === 1 ? '' : 's'} practiced so far`}</p>
         </div>
         <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,.72)', border: '1px solid rgba(28,28,26,.09)', borderRadius: 99, padding: 4, backdropFilter: 'blur(22px) saturate(1.5)', WebkitBackdropFilter: 'blur(22px) saturate(1.5)', boxShadow: '0 2px 8px rgba(28,40,30,.06)' }}>
           <button onClick={() => setSort('weakest')} style={toggleStyle(sort === 'weakest')}>Weakest first</button>
@@ -94,7 +100,7 @@ export function MasteryScreen({
               const style = STATE_STYLE[n.state]
               const p = pct(n.mastery)
               return (
-                <Link key={n.conceptKey} href={`/mastery/${n.conceptKey}`} className="cx-hover-soft" style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) 86px minmax(0,1fr) minmax(140px,180px)', gap: 14, alignItems: 'center', padding: '9px 8px', borderRadius: 12, textDecoration: 'none', color: C.ink }}>
+                <Link key={n.conceptKey} href={`${hrefBase}/${n.conceptKey}`} className="cx-hover-soft" style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) 86px minmax(0,1fr) minmax(140px,180px)', gap: 14, alignItems: 'center', padding: '9px 8px', borderRadius: 12, textDecoration: 'none', color: C.ink }}>
                   <span style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</span>
                   <span style={{ justifySelf: 'start', fontSize: 10, fontWeight: 600, letterSpacing: '.09em', textTransform: 'uppercase', borderRadius: 99, padding: '3px 9px', background: style.chipBg, color: style.ink }}>{style.label}</span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

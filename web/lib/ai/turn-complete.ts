@@ -195,6 +195,10 @@ export async function persistInteraction(
         misconception_category: assessment.misconceptionCategory,
         misconception_description: assessment.misconceptionDescription,
         applied_to_profile: false,
+        // ADR-055: persist the tutor's annotations so this turn can be replayed
+        // as a worked-problem snapshot. NULL (not []) when the turn drew nothing,
+        // keeping a bare turn's row byte-identical to before.
+        annotations: envelope.annotations && envelope.annotations.length > 0 ? envelope.annotations : null,
       })
       .select('id')
       .single()
@@ -266,6 +270,9 @@ export async function persistOpeningInteraction(
       misconception_category: null,
       misconception_description: null,
       applied_to_profile: false,
+      // ADR-055: the opening scan frames the whole problem — its annotations are
+      // the snapshot's base layer, so persist them too (NULL when it drew none).
+      annotations: envelope.annotations && envelope.annotations.length > 0 ? envelope.annotations : null,
     })
 
     if (error) {

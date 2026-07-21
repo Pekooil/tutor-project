@@ -49,6 +49,18 @@ export const ELEVENLABS_PER_CHAR_CENTS = 0.006
 // every constant here, tuned in a one-line diff from Task 8's real numbers.
 export const STUDY_KIT_CENTS = 3
 
+// ADR-054: the Personal Notebook generation call (web/lib/notebook/generate.ts).
+// A flat per-call estimate like STUDY_KIT_CENTS, but SMALLER: a notebook update
+// is ONE concept's revised document (a short summary + a handful of reminders +
+// a few titled explanations, NOTEBOOK_MAX_TOKENS = 1000), not the whole
+// session's notes+problems+flashcards. The cost RISK it carries is different in
+// kind, not per-call size: the session-end hook makes ONE of these calls PER
+// CONCEPT practiced (capped at 3), so a session costs up to ~3x this — the cap
+// + the per-call guard below are what bound it. Two cents is a deliberately
+// rough under-a-kit placeholder, same "budget-accurate, not invoice-accurate"
+// bar as every constant here, tuned in a one-line diff from real numbers.
+export const NOTEBOOK_CENTS = 2
+
 // The global daily ceiling (UTC day, cost_ledger's key — migration 0013).
 // SOFT: the normal ceiling — voice degrades to text + browser TTS past this
 // point, text turns keep working. HARD: the spike/abuse backstop, set well
@@ -77,7 +89,7 @@ export const HARD_CAP_CENTS = Number(process.env.COST_HARD_CAP_CENTS_OVERRIDE) |
 // without touching the deployed default.
 export const VOICE_CREDIT_CAP_CENTS = Number(process.env.VOICE_CREDIT_CAP_CENTS_OVERRIDE) || 50 // $0.50/month per free user
 
-export type CostKind = 'claude_turn' | 'whisper_stt' | 'elevenlabs_tts' | 'study_kit'
+export type CostKind = 'claude_turn' | 'whisper_stt' | 'elevenlabs_tts' | 'study_kit' | 'notebook'
 
 // web/overlay/VoiceController.ts's toWavUtterance: gpt-4o-mini-transcribe
 // rejects Chrome's native webm/opus recording, so every utterance is
@@ -115,5 +127,12 @@ export function estimateCost(kind: CostKind, size = 0): number {
     // as the estimate. It refuses under the hard cap like every other paid call.
     case 'study_kit':
       return STUDY_KIT_CENTS
+    // ADR-054: a flat per-call estimate, `size`-independent like 'study_kit' —
+    // the notebook generator is one call per concept whose token shape (current
+    // notebook + one concept's session slice in, a revised document out) is
+    // roughly uniform, so the caller passes no `size` and NOTEBOOK_CENTS stands.
+    // Guarded per call; refuses under the hard cap like every other paid call.
+    case 'notebook':
+      return NOTEBOOK_CENTS
   }
 }

@@ -27,7 +27,12 @@ export const metadata: Metadata = {
 // since July 12 — generated study materials (Sprint 21), billing/subscription
 // state via Stripe (Sprint 23), and the monthly voice-usage counter
 // (migration 0023) — and corrected the AI processor to OpenAI (ADR-052).
-const LAST_UPDATED = 'July 18, 2026'
+// 2026-07-20 (ADR-054): added personal concept notebooks — the second piece of
+// AI-generated content we persist, alongside generated study materials.
+// 2026-07-20 (ADR-055): added saved worked-problem snapshots — the tutor's
+// on-problem annotations, persisted so a session can be replayed. Still no
+// screenshots, page URLs, or page contents stored.
+const LAST_UPDATED = 'July 20, 2026'
 
 // Support/privacy contact (Darcy, 2026-07-12).
 const PRIVACY_CONTACT = 'calyxasupport@gmail.com'
@@ -149,6 +154,14 @@ export default function PrivacyPage() {
                 why="When a session produces a study kit — notes, practice problems, flashcards — we store it so you can come back to it. It is generated from your own session's text and is covered by the same export and delete rights as everything else."
               />
               <DataRow
+                what="Personal notebooks"
+                why="For each concept you practice, Calyxa keeps a short study notebook — a running summary, reminders, and explanations — that it updates after your sessions. It is generated from your own session's text and is covered by the same export and delete rights as everything else."
+              />
+              <DataRow
+                what="Saved worked-problem snapshots"
+                why="When the tutor marks up a problem during a session — highlighting a step, labelling what to notice — we save those annotations (the short problem spans it points at, plus its notes) so you can revisit the worked problem later. This is the tutor's own markup on text you were already working through; we still never store a screenshot, the page's URL, or the page's contents."
+              />
+              <DataRow
                 what="Billing and subscription status"
                 why="If you subscribe to Pro, our payment processor (Stripe) handles your card — we never see or store your card number. We keep only your subscription tier and status, a Stripe customer reference, and processing bookkeeping, so your account reflects what you've paid for."
               />
@@ -255,8 +268,9 @@ export default function PrivacyPage() {
               Your account and learning data are kept until you delete them. Microphone
               audio is never persisted at all. When you delete your account, everything tied
               to it — sessions, mastery history, misconceptions, reinforcement schedule,
-              telemetry, feedback, generated study materials, the voice-usage counter, and
-              our record of your subscription status — is queued for permanent deletion and
+              telemetry, feedback, generated study materials, personal notebooks, the
+              voice-usage counter, and our record of your subscription status — is queued
+              for permanent deletion and
               removed after a short grace window. (Stripe retains its own transaction
               records as required for financial compliance.)
             </p>

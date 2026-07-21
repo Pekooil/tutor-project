@@ -450,6 +450,138 @@ export function answerBars(data: DashboardData, now: Date): AnswerBar[] {
   return bars
 }
 
+// ── Continue Learning dashboard (the "what should I learn next" surface) ─────
+//
+// The new post-login dashboard is action-oriented, not analytics-oriented: the
+// adaptive scheduler (`reinforcement_schedule` → data.dueQueue) drives a "Today's
+// Review" queue of CONCEPTS, weakest concepts get quick-review cards, and the old
+// month-calendar is replaced by a forward-looking "Upcoming reviews" list. These
+// are pure view-model derivations over the same `loadDashboard` read.
+
+/** A concept-level review target used across the dashboard's action surfaces. */
+export type ReviewConcept = {
+  conceptKey: string
+  title: string
+  strand: string
+  strandShort: string
+  strandColor: string
+  /** Decay-adjusted mastery in [0,1], or null when the concept is unpracticed. */
+  mastery: number | null
+  /** ISO due date from the reinforcement schedule, or null when unscheduled. */
+  dueAt: string | null
+  /** True when due_at has passed. */
+  overdue: boolean
+}
+
+// A conceptKey → decay-adjusted mastery lookup across every strand's nodes.
+function masteryByKey(data: DashboardData): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const s of data.strands) for (const n of s.nodes) map.set(n.conceptKey, n.mastery)
+  return map
+}
+
+// Human "when is this due" label, relative to `now` (UTC-day granularity).
+export function relativeDueLabel(dueAtIso: string | null, now: Date): string {
+  if (!dueAtIso) return 'Not scheduled'
+  const today = parseUtcDay(utcDayStr(now))
+  const due = parseUtcDay(utcDayStr(new Date(dueAtIso)))
+  const diff = Math.round((due - today) / MS_PER_DAY)
+  if (diff < 0) return diff === -1 ? 'Due yesterday' : `Overdue ${-diff} days`
+  if (diff === 0) return 'Due today'
+  if (diff === 1) return 'Tomorrow'
+  if (diff <= 6) return new Date(dueAtIso).toLocaleDateString(undefined, { weekday: 'long', timeZone: 'UTC' })
+  return new Date(dueAtIso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
+// A rough "how long will this take" estimate for the review queue — ~2.5 min of
+// notes + flashcards + a few questions per concept. Display-only.
+export function reviewMinutes(count: number): number {
+  return count === 0 ? 0 : Math.max(3, Math.round(count * 2.5))
+}
+
+function reviewConcept(item: DashboardData['dueQueue'][number], mByKey: Map<string, number>): ReviewConcept {
+  const st = strandStyle(item.strand)
+  const m = mByKey.get(item.conceptKey)
+  return {
+    conceptKey: item.conceptKey,
+    title: item.title,
+    strand: item.strand,
+    strandShort: st.short,
+    strandColor: st.color,
+    mastery: m ?? null,
+    dueAt: item.dueAt,
+    overdue: item.overdue,
+  }
+}
+
+// "Today's Review": concepts whose review date has arrived (overdue or due
+// today), overdue-first then soonest-due. This is the dominant dashboard action.
+export function todaysReview(data: DashboardData, now: Date): ReviewConcept[] {
+  const mByKey = masteryByKey(data)
+  const todayEnd = parseUtcDay(utcDayStr(now)) + MS_PER_DAY // exclusive end of today (UTC)
+  return data.dueQueue
+    .filter((d) => parseUtcDay(utcDayStr(new Date(d.dueAt))) < todayEnd)
+    .sort((a, b) => Number(b.overdue) - Number(a.overdue) || a.dueAt.localeCompare(b.dueAt))
+    .map((d) => reviewConcept(d, mByKey))
+}
+
+// The weakest practiced concepts (decay-adjusted mastery ascending), each
+// annotated with its next review date when the scheduler has one. Powers the
+// "Weakest concepts" quick-review cards.
+export function weakestConcepts(data: DashboardData, limit = 5): ReviewConcept[] {
+  const dueByKey = new Map(data.dueQueue.map((d) => [d.conceptKey, d]))
+  return data.strands
+    .flatMap((s) => s.nodes)
+    .filter((n) => n.observationCount > 0)
+    .sort((a, b) => a.mastery - b.mastery)
+    .slice(0, limit)
+    .map((n) => {
+      const st = strandStyle(n.strand)
+      const due = dueByKey.get(n.conceptKey)
+      return {
+        conceptKey: n.conceptKey,
+        title: n.title,
+        strand: n.strand,
+        strandShort: st.short,
+        strandColor: st.color,
+        mastery: n.mastery,
+        dueAt: due?.dueAt ?? null,
+        overdue: due?.overdue ?? false,
+      }
+    })
+}
+
+export type UpcomingBucket = { label: string; count: number; concepts: string[] }
+
+// Forward-looking review schedule grouped into day buckets (Today / Tomorrow /
+// weekday / date) — the replacement for the month calendar. Overdue items fold
+// into "Today". Returns up to `maxBuckets` non-empty buckets in chronological
+// order.
+export function upcomingReviews(data: DashboardData, now: Date, maxBuckets = 5): UpcomingBucket[] {
+  const today = parseUtcDay(utcDayStr(now))
+  const byLabel = new Map<string, { order: number; concepts: string[] }>()
+  for (const d of data.dueQueue) {
+    const due = parseUtcDay(utcDayStr(new Date(d.dueAt)))
+    const diff = Math.round((due - today) / MS_PER_DAY)
+    const order = Math.max(0, diff) // overdue and today share order 0
+    const label =
+      diff <= 0
+        ? 'Today'
+        : diff === 1
+          ? 'Tomorrow'
+          : diff <= 6
+            ? new Date(d.dueAt).toLocaleDateString(undefined, { weekday: 'long', timeZone: 'UTC' })
+            : new Date(d.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+    const bucket = byLabel.get(label)
+    if (bucket) bucket.concepts.push(d.title)
+    else byLabel.set(label, { order, concepts: [d.title] })
+  }
+  return [...byLabel.entries()]
+    .sort((a, b) => a[1].order - b[1].order)
+    .slice(0, maxBuckets)
+    .map(([label, b]) => ({ label, count: b.concepts.length, concepts: b.concepts }))
+}
+
 export type WeekBar = { height: number; label: string; current: boolean }
 
 export function sessionsPerWeek(data: DashboardData, now: Date): WeekBar[] {

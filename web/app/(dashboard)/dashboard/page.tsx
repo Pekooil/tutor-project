@@ -2,18 +2,19 @@ import { redirect } from 'next/navigation'
 import { CONCEPT_KEYS } from '@calyxa/curriculum'
 import { createClient } from '@/lib/supabase/server'
 import { loadDashboard } from '@/lib/learning/dashboard-read'
-import { loadSessionQuota } from '@/lib/learning/activity-read'
+import { loadRecentSessions } from '@/lib/learning/activity-read'
 import { loadNavUser } from '@/components/dashboard/premium/user-info'
 import { loadStudyKits } from '@/components/dashboard/premium/kits-read'
-import { OverviewScreen } from '@/components/dashboard/premium/OverviewScreen'
+import { ContinueLearningScreen } from '@/components/dashboard/premium/ContinueLearningScreen'
 
-// Overview. Server-rendered fresh per request (ADR-047: dashboard reads are
-// eventually consistent with the last turn's apply, so no cache). loadDashboard
-// reuses loadProfile's decay math, so these numbers match the overlay's
-// overview; the premium OverviewScreen shapes them into the design's layout.
+// The post-login home — reframed as "Continue learning" (what to review next),
+// not an analytics overview. Server-rendered fresh per request (ADR-047: reads
+// are eventually consistent with the last turn's apply, so no cache).
+// loadDashboard reuses loadProfile's decay math so these numbers match the
+// overlay's; the adaptive review queue is driven by reinforcement_schedule.
 export const dynamic = 'force-dynamic'
 
-export default async function DashboardOverviewPage() {
+export default async function DashboardPage() {
   const supabase = await createClient()
   const {
     data: { user },
@@ -23,22 +24,24 @@ export default async function DashboardOverviewPage() {
     redirect('/login')
   }
 
-  const [data, navUser, kits, quota] = await Promise.all([
+  const [data, navUser, kits] = await Promise.all([
     loadDashboard(supabase),
     loadNavUser(supabase),
     loadStudyKits(supabase),
-    loadSessionQuota(supabase),
   ])
+  // Kit hrefs are session ids (or artifact ids for session-less kits) — the set
+  // tags which recent sessions produced a kit.
+  const recentSessions = await loadRecentSessions(supabase, new Set(kits.map((k) => k.href)))
   const firstName = navUser.name.split(' ')[0]
 
   return (
-    <OverviewScreen
+    <ContinueLearningScreen
       data={data}
       now={new Date()}
       firstName={firstName}
       totalCurriculum={CONCEPT_KEYS.length}
       kits={kits}
-      quota={quota}
+      recentSessions={recentSessions}
     />
   )
 }

@@ -6,10 +6,10 @@ product actually collects (Sprints 03/16/17), and to the human-readable
 [`/privacy`](../web/app/privacy/page.tsx) page. See **ADR-046**.
 
 > **Load-bearing rule:** if a future sprint changes what is collected (Sprint 21
-> study-materials artifacts, Sprint 23 billing/Stripe customer data), this doc **and**
-> `/privacy` **and** the live CWS form must all be updated **before** it ships to beta
-> users. Nothing here may be declared that isn't collected; nothing collected may be
-> omitted.
+> study-materials artifacts, Sprint 23 billing/Stripe customer data, ADR-054 personal
+> concept notebooks, ADR-055 saved worked-problem snapshots), this doc **and** `/privacy`
+> **and** the live CWS form must all be updated **before** it ships to beta users. Nothing
+> here may be declared that isn't collected; nothing collected may be omitted.
 
 ---
 
@@ -28,6 +28,8 @@ Every row is a real table/column, cross-checked for this disclosure — not reca
 | Product telemetry | `telemetry_event` | Closed **typed** union — counts/timings/kinds only. **No free text, no transcript, no URL, no audio** (ADR-043) |
 | Feedback | `feedback` | The one user-authored free-text field, submitted on purpose (ADR-039) |
 | Generated study materials | `study_artifact` | Notes/practice problems/flashcards generated from the user's own session text (ADR-049); export + erasure covered |
+| Personal concept notebooks | `concept_notebook` | Per-concept running notes (summary/reminders/explanations) revised from the user's own session text (ADR-054); export + erasure covered |
+| Saved worked-problem snapshots | `session_interactions.annotations` | The tutor's per-turn annotations (short problem spans + labels/notes) saved so a session can be replayed as text (ADR-055). **No screenshot, no URL, no page contents**; rides `session_interactions`' existing export + erasure |
 | Billing/subscription status | `users.subscription_tier/status`, `stripe_customer_id`, `stripe_subscription_id`, `subscription_renews_at` | Stripe is the payment processor; **card details never touch our servers** (ADR-050) |
 | Monthly voice-usage counter | `voice_spend` (user + month keyed) | One estimated-cents number per month for the free-tier voice budget (migration 0023); no audio/text/page data |
 | Hashed signup network identifier | `signup_ip.ip_hash` | HMAC-SHA256(IP, server-only salt) recorded once at account creation, **solely** to cap accounts-per-network (abuse prevention, ADR-053). **The raw IP is never stored**; one-way; never used for location; deleted with the account |
