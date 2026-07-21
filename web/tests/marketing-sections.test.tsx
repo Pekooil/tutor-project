@@ -31,8 +31,8 @@ describe('Hero (SSR)', () => {
   const html = decode(renderToString(createElement(Hero, { showPlaceholders: true })))
 
   it('renders the hero badge, headline, sub, and CTA', () => {
-    expect(html).toContain('Featured on')
-    expect(html).toContain('Product Hunt')
+    expect(html).toContain('producthunt.com/products/calyxa')
+    expect(html).toContain('embed-image/v1/featured.svg')
     expect(html).toContain('Stop copying. Start learning')
     expect(html).toContain('Your Adaptive AI tutor that teaches directly on any homework, website, or PDF.')
     expect(html).toContain('Add to Chrome — free')

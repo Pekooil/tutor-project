@@ -10,7 +10,7 @@ import { Nav } from '@/components/marketing/Nav'
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
 // Hero (design_handoff_calyxa_hero_2a, 2026-07-20): the design's hero content
-// — top nav, the "Featured on Product Hunt" copy block, and the bottom motion
+// — top nav, the Product Hunt featured badge, and the bottom motion
 // layer (flowing student questions along an invisible curve, the live
 // voice/mode pill cycling the 8 tutor modes every 3s, and the platform chips
 // flowing out along a second curve) — rendered full-bleed as part of the page
@@ -229,17 +229,19 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
                 zIndex: 2,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <span style={{ fontSize: 16, color: '#55554f' }}>Featured on</span>
-                <svg viewBox="0 0 24 24" style={{ width: 22, height: 22 }} aria-hidden="true">
-                  <path fill="#da552f" d="M12 0C5.372 0 0 5.372 0 12s5.372 12 12 12 12-5.372 12-12S18.628 0 12 0z" />
-                  <path
-                    fill="#ffffff"
-                    d="M13.6 8H8.8v8h1.87v-2.4h2.93a2.8 2.8 0 100-5.6zm0 3.73h-2.93v-1.86h2.93a.93.93 0 010 1.86z"
-                  />
-                </svg>
-                <span style={{ fontSize: 16.5, fontWeight: 600, color: '#1c1c1a' }}>Product Hunt</span>
-              </div>
+              <a
+                href="https://www.producthunt.com/products/calyxa?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-calyxa"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt="Calyxa - Adaptive AI math tutoring that lives in your browser | Product Hunt"
+                  width={250}
+                  height={54}
+                  src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1202106&theme=light&t=1784615962865"
+                />
+              </a>
               <h1
                 style={{
                   margin: '22px 0 0',
@@ -491,17 +493,19 @@ function MobileHero() {
             'radial-gradient(48rem 26rem at 50% -6rem, rgba(187,247,208,0.6), rgba(240,253,244,0.5) 44%, transparent 74%), #ffffff',
         }}
       >
-        <div className="flex items-center gap-2">
-          <span className="text-[13px] text-(--mkt-strip-text)">Featured on</span>
-          <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" aria-hidden="true">
-            <path fill="#da552f" d="M12 0C5.372 0 0 5.372 0 12s5.372 12 12 12 12-5.372 12-12S18.628 0 12 0z" />
-            <path
-              fill="#ffffff"
-              d="M13.6 8H8.8v8h1.87v-2.4h2.93a2.8 2.8 0 100-5.6zm0 3.73h-2.93v-1.86h2.93a.93.93 0 010 1.86z"
-            />
-          </svg>
-          <span className="text-[13.5px] font-semibold text-foreground">Product Hunt</span>
-        </div>
+        <a
+          href="https://www.producthunt.com/products/calyxa?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-calyxa"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt="Calyxa - Adaptive AI math tutoring that lives in your browser | Product Hunt"
+            width={250}
+            height={54}
+            src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1202106&theme=light&t=1784615962865"
+          />
+        </a>
 
         <h1 className="mkt-display mkt-h1 mt-[18px] text-balance text-foreground">Stop copying. Start learning.</h1>
         <p className="mt-4 max-w-[21rem] text-pretty text-[15.5px] leading-[1.55] text-(--mkt-strip-text)">
