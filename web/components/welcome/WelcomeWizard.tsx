@@ -26,9 +26,10 @@ import {
 //
 //   Step 1 — Add Calyxa to Chrome (the store link, or the graceful
 //            not-listed-yet state).
-//   Step 2 — Find it in the toolbar: a bouncing arrow pinned to the TOP
-//            RIGHT of the viewport points at Chrome's own extension area
-//            while the card walks through pin + sign-in.
+//   Step 2 — Find it in the toolbar: a bouncing arrow pinned near the top
+//            of the viewport, a bit in from the right corner and pointing up
+//            and to the LEFT at Chrome's own extension row, while the card
+//            walks through pin + sign-in.
 //   Step 3 — A guided LIVE demo, not instructions: the marketing pill
 //            primitives replay the extension's real first-session loop and
 //            the student drives every beat themselves (click the pill →
@@ -356,20 +357,96 @@ function DemoCard({ machine }: { machine: ReturnType<typeof useDemoMachine> }) {
   )
 }
 
+// ── Mobile: Calyxa is desktop-only ────────────────────────────────────────
+
+function MonitorIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-7 w-7" aria-hidden="true">
+      <rect x="2.5" y="3.5" width="19" height="13" rx="2" />
+      <path d="M8 20.5h8M12 16.5v4" />
+    </svg>
+  )
+}
+
+/** The screen a phone/tablet signup lands on instead of the setup wizard.
+ * Their account is already created — this only tells them Calyxa runs on a
+ * desktop browser and points them at the Chrome Web Store to finish there. */
+function MobileDesktopOnly({ email, storeUrl }: { email: string | null; storeUrl: string | null }) {
+  return (
+    <main className="mkt min-h-svh bg-background px-4 py-12">
+      <div className="mx-auto flex w-full max-w-[420px] flex-col items-center gap-7 text-center">
+        <Link href="/">
+          <img src="/logo.svg" alt="Calyxa" className="h-7 w-auto" />
+        </Link>
+
+        <section className="flex flex-col items-center gap-5 rounded-2xl border border-(--mkt-hairline) bg-card p-8">
+          <span className="flex h-14 w-14 items-center justify-center rounded-full border border-(--calyxa-sage-border) bg-accent-subtle text-accent-emphasis">
+            <MonitorIcon />
+          </span>
+
+          <div className="flex flex-col gap-2.5">
+            <h1 className="m-0 text-[23px] font-semibold tracking-[-0.01em] text-foreground">
+              You’re signed up! Finish on your computer
+            </h1>
+            <p className="m-0 text-[14.5px] leading-relaxed text-muted-foreground">
+              Calyxa is a Chrome extension that lives right on your homework page, so it works on a{' '}
+              <span className="font-medium text-foreground">desktop or laptop</span> — not on phones or
+              tablets{email ? '.' : ' yet.'}
+            </p>
+            <p className="m-0 text-[14.5px] leading-relaxed text-muted-foreground">
+              Open Chrome on your computer, add Calyxa from the Chrome Web Store, and sign in with{' '}
+              <span className="font-medium text-foreground">{email ?? 'the email you just used'}</span>.
+              Your account is ready and waiting.
+            </p>
+          </div>
+
+          {storeUrl && (
+            <div className="flex w-full flex-col items-center gap-2">
+              <Button asChild size="lg" className="w-full">
+                <a href={storeUrl} target="_blank" rel="noreferrer">
+                  View on the Chrome Web Store ↗
+                </a>
+              </Button>
+              <span className="text-[12px] text-(--mkt-faint)">
+                You’ll add it from your desktop — this link won’t install on mobile.
+              </span>
+            </div>
+          )}
+        </section>
+
+        <p className="m-0 text-[12.5px] text-muted-foreground">
+          Tip: on your computer, head to <span className="font-medium text-foreground">calyxa.app</span> and
+          you’ll pick up right here.
+        </p>
+      </div>
+    </main>
+  )
+}
+
 // ── The wizard shell ──────────────────────────────────────────────────────
 
 export function WelcomeWizard({
   email,
   storeUrl,
   initialStep,
+  isMobile = false,
 }: {
   email: string | null
   storeUrl: string | null
   initialStep: 1 | 2 | 3
+  isMobile?: boolean
 }) {
   const [step, setStep] = useState<number>(initialStep)
   const reduceMotion = useReducedMotion() ?? false
   const machine = useDemoMachine(reduceMotion)
+
+  // Calyxa is a desktop Chrome extension, so the install/toolbar/demo steps
+  // are meaningless on a phone or tablet. Mobile signups are already saved —
+  // we just send them to their desktop to finish. (See page.tsx for the UA
+  // detection that flips this.)
+  if (isMobile) {
+    return <MobileDesktopOnly email={email} storeUrl={storeUrl} />
+  }
 
   const titles: Record<number, string> = {
     1: 'Add Calyxa to Chrome',
@@ -395,25 +472,29 @@ export function WelcomeWizard({
         }
       `}</style>
 
-      {/* Step 2's pointer at the browser's own top-right extension area.
-          Fixed to the viewport, not the card — it points at Chrome, not at
-          anything on this page. */}
+      {/* Step 2's pointer at the browser's own extension area — a bit in from
+          the top-right corner, where the toolbar icons actually sit. Fixed to
+          the viewport, not the card — it points at Chrome, not at anything on
+          this page. The arrow is mirrored (scaleX(-1)) so it points up and to
+          the LEFT, at the extension row, not off into the corner. */}
       {step === 2 && (
-        <div aria-hidden="true" className="pointer-events-none fixed right-8 top-3 z-50 flex flex-col items-end gap-2.5">
-          <svg className="wlc-bob" width="58" height="58" viewBox="0 0 58 58" fill="none">
-            <path
-              d="M10 48 C 22 40, 34 28, 44 16"
-              stroke="var(--color-accent-emphasis)"
-              strokeWidth="4"
-              strokeLinecap="round"
-            />
-            <path
-              d="M44 16 L 32.5 17.5 M44 16 L 42.5 27.5"
-              stroke="var(--color-accent-emphasis)"
-              strokeWidth="4"
-              strokeLinecap="round"
-            />
-          </svg>
+        <div aria-hidden="true" className="pointer-events-none fixed right-24 top-3 z-50 flex flex-col items-end gap-2.5">
+          <div style={{ transform: 'scaleX(-1)' }}>
+            <svg className="wlc-bob" width="58" height="58" viewBox="0 0 58 58" fill="none">
+              <path
+                d="M10 48 C 22 40, 34 28, 44 16"
+                stroke="var(--color-accent-emphasis)"
+                strokeWidth="4"
+                strokeLinecap="round"
+              />
+              <path
+                d="M44 16 L 32.5 17.5 M44 16 L 42.5 27.5"
+                stroke="var(--color-accent-emphasis)"
+                strokeWidth="4"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
           <span className="rounded-full border border-(--calyxa-sage-border) bg-background px-3.5 py-1.5 text-[12.5px] font-semibold text-accent-emphasis shadow-[0_4px_14px_rgba(28,40,30,0.12)]">
             your extensions live up here
           </span>
@@ -478,8 +559,8 @@ export function WelcomeWizard({
         {step === 2 && (
           <section className="flex flex-col gap-6 rounded-2xl border border-(--mkt-hairline) bg-card p-8">
             <p className="m-0 text-[15px] leading-relaxed text-muted-foreground">
-              Chrome tucks new extensions into the <span className="font-medium text-foreground">top-right corner</span> of
-              your window — follow the arrow.
+              Chrome keeps your extensions in the <span className="font-medium text-foreground">toolbar</span> near the
+              top-right of your window — follow the arrow.
             </p>
             <ol className="m-0 flex list-none flex-col gap-4 p-0">
               {[

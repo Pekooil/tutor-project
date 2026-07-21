@@ -1,14 +1,13 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import type { DashboardData } from '@/lib/learning/dashboard-read'
-import type { RecentSession } from '@/lib/learning/activity-read'
+import type { RecentSession, SessionQuota } from '@/lib/learning/activity-read'
 import { GlassCard, Badge } from './primitives'
 import { C, eyebrow, pillAction, entrance, pct } from './theme'
 import { kitHrefForConcept, type StudyKit } from './kits-read'
 import {
   greeting,
   longDate,
-  overviewStats,
   todaysReview,
   weakestConcepts,
   relativeDueLabel,
@@ -31,12 +30,14 @@ export function ContinueLearningScreen({
   firstName,
   kits,
   recentSessions,
+  quota,
 }: {
   data: DashboardData
   now: Date
   firstName: string
   kits: StudyKit[]
   recentSessions: RecentSession[]
+  quota: SessionQuota
 }) {
   // Cold start — a brand-new user with no practiced concepts. The daily loop has
   // nothing to show yet, so replace it with one unambiguous activation call:
@@ -46,7 +47,6 @@ export function ContinueLearningScreen({
     return <ActivationView firstName={firstName} now={now} />
   }
 
-  const stats = overviewStats(data)
   const due = todaysReview(data, now)
   const weakest = weakestConcepts(data, 4)
   const lastSession = recentSessions[0] ?? null
@@ -70,14 +70,7 @@ export function ContinueLearningScreen({
           <h1 style={{ margin: 0, fontSize: 32, lineHeight: '38px', fontWeight: 600, letterSpacing: '-.015em' }}>
             {greeting(now)}, {firstName}
           </h1>
-          {stats.streak > 0 && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: C.greenDeep, background: C.mintPill, borderRadius: 99, padding: '5px 12px' }}>
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#166534" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M8 1.8 C9.4 4 11.5 4.8 11.5 8 A3.5 3.5 0 0 1 4.5 8 C4.5 6.6 5.2 5.8 5.8 5.2 C6 6.4 6.8 6.8 7.2 6.6 C6.6 5 7.2 3 8 1.8 Z" />
-              </svg>
-              {stats.streak}-day streak
-            </span>
-          )}
+          <SessionsLeftPill quota={quota} />
         </div>
         <p style={{ margin: '8px 0 0', fontSize: 14.5, color: C.muted }}>
           {due.length > 0
@@ -110,6 +103,51 @@ export function ContinueLearningScreen({
         </div>
       )}
     </section>
+  )
+}
+
+// Sessions-left pill (replaces the old study-streak pill in the status header).
+// Shows how many free tutoring sessions remain this billing period; Pro users
+// are quota-exempt and see an "Unlimited" pill instead. When the free allowance
+// is spent it turns amber as a gentle nudge to upgrade.
+function SessionsLeftPill({ quota }: { quota: SessionQuota }) {
+  if (quota.isPro) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: C.greenDeep, background: C.mintPill, borderRadius: 99, padding: '5px 12px' }}>
+        <SessionsIcon stroke="#166534" />
+        Unlimited sessions
+      </span>
+    )
+  }
+  const spent = quota.remaining <= 0
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        fontSize: 12.5,
+        fontWeight: 600,
+        color: spent ? C.amber : C.greenDeep,
+        background: spent ? 'rgba(146,64,14,.09)' : C.mintPill,
+        borderRadius: 99,
+        padding: '5px 12px',
+      }}
+    >
+      <SessionsIcon stroke={spent ? '#92400e' : '#166534'} />
+      {spent
+        ? 'No sessions left this month'
+        : `${quota.remaining} of ${quota.limit} session${quota.remaining === 1 ? '' : 's'} left this month`}
+    </span>
+  )
+}
+
+function SessionsIcon({ stroke }: { stroke: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2.2" y="3.2" width="11.6" height="10.6" rx="2" />
+      <path d="M2.2 6.2 H13.8 M5.4 1.8 V4 M10.6 1.8 V4" />
+    </svg>
   )
 }
 

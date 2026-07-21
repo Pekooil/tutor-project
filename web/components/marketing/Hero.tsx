@@ -468,7 +468,7 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
       <section
         id="hero-demo-section"
         className="relative z-10 flex flex-col items-center px-[22px] sm:px-14"
-        style={{ marginTop: -Math.round(120 * scale) }}
+        style={{ marginTop: -Math.round(150 * scale) }}
       >
         <HeroDemo askRef={askRef} showPlaceholders={showPlaceholders} />
       </section>

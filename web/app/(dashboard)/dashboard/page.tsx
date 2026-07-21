@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { loadDashboard } from '@/lib/learning/dashboard-read'
-import { loadRecentSessions } from '@/lib/learning/activity-read'
+import { loadRecentSessions, loadSessionQuota } from '@/lib/learning/activity-read'
 import { loadNavUser } from '@/components/dashboard/premium/user-info'
 import { loadStudyKits } from '@/components/dashboard/premium/kits-read'
 import { ContinueLearningScreen } from '@/components/dashboard/premium/ContinueLearningScreen'
@@ -23,10 +23,11 @@ export default async function DashboardPage() {
     redirect('/login')
   }
 
-  const [data, navUser, kits] = await Promise.all([
+  const [data, navUser, kits, quota] = await Promise.all([
     loadDashboard(supabase),
     loadNavUser(supabase),
     loadStudyKits(supabase),
+    loadSessionQuota(supabase),
   ])
   // Kit hrefs are session ids (or artifact ids for session-less kits) — the set
   // tags which recent sessions produced a kit.
@@ -40,6 +41,7 @@ export default async function DashboardPage() {
       firstName={firstName}
       kits={kits}
       recentSessions={recentSessions}
+      quota={quota}
     />
   )
 }

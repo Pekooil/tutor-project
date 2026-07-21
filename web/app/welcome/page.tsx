@@ -1,3 +1,4 @@
+import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { WelcomeWizard } from '@/components/welcome/WelcomeWizard'
@@ -19,12 +20,27 @@ import '@/components/marketing/marketing.css'
 // completes it — see WelcomeWizard. ?src=extension starts at the find-it
 // step (that visitor has, by definition, just installed).
 //
-// The Chrome Web Store link comes from NEXT_PUBLIC_CALYXA_STORE_URL; unset
-// (the listing is not live yet) the install step renders a graceful
-// "landing on the store" state instead of a dead link.
+// Calyxa is a desktop Chrome extension — it can't run on phones or tablets.
+// We still let mobile visitors sign up (so they don't lose their spot), but
+// instead of the install/toolbar/demo steps we show a "finish on your
+// desktop" screen. Mobile is detected from the request User-Agent here and
+// passed to the wizard; a dev-only ?device=mobile|desktop override lets both
+// views be previewed from one machine.
+//
+// The Chrome Web Store link comes from NEXT_PUBLIC_CALYXA_STORE_URL, falling
+// back to the live listing below (the extension is now published) so the
+// install step always shows a real "Add to Chrome" button. Set the env var
+// to override (e.g. a staging listing).
 export const dynamic = 'force-dynamic'
 
-const STORE_URL = process.env.NEXT_PUBLIC_CALYXA_STORE_URL ?? null
+const STORE_URL =
+  process.env.NEXT_PUBLIC_CALYXA_STORE_URL ??
+  'https://chromewebstore.google.com/detail/gedmlagmmllpohdkdpeocpbnmofegnbm'
+
+// Phones and tablets can't run a desktop Chrome extension. Best-effort UA
+// sniff — the goal is only to route mobile signups to the "finish on desktop"
+// screen, so a false negative just shows the normal wizard.
+const MOBILE_UA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Silk/i
 
 export default async function WelcomePage({
   searchParams,
@@ -47,11 +63,19 @@ export default async function WelcomePage({
 
   const fromExtension = sp.src === 'extension'
 
+  const ua = (await headers()).get('user-agent') ?? ''
+  const deviceOverride =
+    process.env.NODE_ENV === 'development' && (sp.device === 'mobile' || sp.device === 'desktop')
+      ? sp.device
+      : null
+  const isMobile = deviceOverride ? deviceOverride === 'mobile' : MOBILE_UA.test(ua)
+
   return (
     <WelcomeWizard
       email={user?.email ?? null}
       storeUrl={STORE_URL}
       initialStep={fromExtension ? 2 : 1}
+      isMobile={isMobile}
     />
   )
 }

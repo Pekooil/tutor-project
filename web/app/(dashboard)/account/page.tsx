@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { loadNavUser } from '@/components/dashboard/premium/user-info'
+import { loadSessionQuota } from '@/lib/learning/activity-read'
 import { Logomark } from '@/components/dashboard/premium/primitives'
 import { C, glassCard, glassCardSoft, sheen, entrance } from '@/components/dashboard/premium/theme'
 import { AccountActions } from './account-actions'
@@ -34,17 +35,19 @@ export default async function AccountPage() {
     redirect('/login')
   }
 
-  const [{ data: profile }, navUser] = await Promise.all([
+  const [{ data: profile }, navUser, quota] = await Promise.all([
     supabase
       .from('users')
       .select('email, subscription_tier, subscription_renews_at, birth_year, created_at')
       .eq('id', user.id)
       .single(),
     loadNavUser(supabase),
+    loadSessionQuota(supabase),
   ])
 
   const isPro = profile?.subscription_tier === 'pro'
   const renews = longDay(profile?.subscription_renews_at ?? null)
+  const quotaResets = longDay(quota.resetsAt)
 
   return (
     <section data-screen-label="Account">
@@ -86,9 +89,27 @@ export default async function AccountPage() {
           </div>
           <div style={{ position: 'relative', height: 1, background: C.hair, marginBottom: 12 }} />
           <p style={{ position: 'relative', margin: '0 0 2px', fontSize: 18, fontWeight: 600 }}>{isPro ? 'Calyxa Plus' : 'Calyxa Free'}</p>
-          <p style={{ position: 'relative', margin: '0 0 16px', fontSize: 13, color: C.muted }}>
+          <p style={{ position: 'relative', margin: '0 0 14px', fontSize: 13, color: C.muted }}>
             {isPro ? `${renews ? `Renews ${renews} · ` : ''}$8 / month` : 'You’re on the free plan.'}
           </p>
+
+          {/* Sessions left this month — the free-tier allowance the extension
+              enforces (users.free_session_count vs FREE_SESSION_LIMIT). Pro is
+              quota-exempt, so it shows "Unlimited" instead of a countdown. */}
+          <div style={{ position: 'relative', borderRadius: 12, background: C.mintTile, padding: '11px 13px', marginBottom: 16 }}>
+            <div style={{ ...rowStyle, alignItems: 'baseline' }}>
+              <span style={label}>Sessions left this month</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: C.greenDeep }}>
+                {isPro ? 'Unlimited' : `${quota.remaining} of ${quota.limit}`}
+              </span>
+            </div>
+            {!isPro && quotaResets && (
+              <p style={{ margin: '5px 0 0', fontSize: 11.5, color: C.muted }}>
+                {quota.remaining > 0 ? `Resets ${quotaResets}` : `Your allowance resets ${quotaResets}`}
+              </p>
+            )}
+          </div>
+
           <BillingActions isPro={isPro} upgradeLabel="Upgrade to Plus" />
           {!isPro && (
             <p style={{ position: 'relative', margin: '10px 0 0', fontSize: 12, color: C.faint }}>
