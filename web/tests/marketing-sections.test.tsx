@@ -147,7 +147,7 @@ describe('FinalCta (SSR)', () => {
   const html = decode(renderToString(createElement(FinalCta)))
 
   it('renders the keycap closer with the fine print', () => {
-    expect(html).toContain('Press ⌥ C and start talking.')
+    expect(html).toContain('Press and start talking.')
     expect(html).toContain('your homework is already open. so is the tutor.')
     expect(html).toContain('10 free sessions a month · chrome, for now · alt + shift + C on windows')
   })
