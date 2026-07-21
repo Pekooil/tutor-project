@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CalyxaMark } from '@calyxa/ui'
+import { CompatibleWith, type Platform } from '@/components/marketing/CompatibleWith'
 import { HeroDemo } from '@/components/marketing/HeroDemo'
 import { Nav } from '@/components/marketing/Nav'
 
@@ -10,50 +11,18 @@ import { Nav } from '@/components/marketing/Nav'
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
 // Hero (design_handoff_calyxa_hero_2a, 2026-07-20): the design's hero content
-// — top nav, the Product Hunt featured badge, and the bottom motion
-// layer (flowing student questions along an invisible curve, the live
-// voice/mode pill cycling the 8 tutor modes every 3s, and the platform chips
-// flowing out along a second curve) — rendered full-bleed as part of the page
-// (the design's grey frame / rounded card / shadow are intentionally dropped;
-// only the green wash remains, spanning the page width). Because every
-// coordinate in the motion layer is authored against the design's 1440-wide
-// frame, the content renders at its exact design size and is uniformly scaled
-// to fit the viewport width (identical proportions at any width). Everything
-// from the Mac-mockup live demo down (HeroDemo + the
-// works-where-your-homework-is marquee) is unchanged — it just moves below
-// this hero.
-
-// The 8 tutor modes (extension/src/overlay/tutor-modes.ts) + their light-theme
-// --calyxa-mode-*-border tokens, cycled in order every 3000ms.
-const MODES = [
-  { name: 'Exploring', glyph: '✧', border: '#7dd3fc' },
-  { name: 'Coaching', glyph: '✚', border: '#fdba74' },
-  { name: 'Building', glyph: '▲', border: '#c4b5fd' },
-  { name: 'Practicing', glyph: '●', border: '#4ade80' },
-  { name: 'Challenging', glyph: '◆', border: '#f0abfc' },
-  { name: 'Verifying', glyph: '✓', border: '#5eead4' },
-  { name: 'Reviewing', glyph: '↺', border: '#a5b4fc' },
-  { name: 'Recovering', glyph: '♡', border: '#fda4af' },
-] as const
-
-// The three incoming questions ride #cxpath2a, evenly offset by 33.3%.
-const FLOW = [
-  { text: 'the slope is rise over run, right?', phase: '0' },
-  { text: 'can you check where my signs flipped…', phase: '33.3' },
-  { text: "what's a negative minus a negative?", phase: '66.6' },
-] as const
-
-// The 7 platform chips, distributed at exact 1/7 phase intervals along
-// #cxchips2a. `c` is the platform accent fed to the color-mix soft tint.
-const CHIPS = [
-  { name: 'Canvas', c: '#e2323b', phase: 0 },
-  { name: 'Khan Academy', c: '#14a07a', phase: 0.1429 },
-  { name: 'MyLab Math', c: '#9a5cb4', phase: 0.2857 },
-  { name: 'DeltaMath', c: '#2f9e6f', phase: 0.4286 },
-  { name: 'WebAssign', c: '#c8102e', phase: 0.5714 },
-  { name: 'AP Classroom', c: '#0077c8', phase: 0.7143 },
-  { name: 'Google Classroom', c: '#0f9d58', phase: 0.8571 },
-] as const
+// — top nav, the Product Hunt featured badge, and the centered copy block —
+// rendered full-bleed as part of the page (the design's grey frame / rounded
+// card / shadow are intentionally dropped; only the green wash remains,
+// spanning the page width). Because the artboard is authored against the
+// design's 1440-wide frame, the content renders at its exact design size and
+// is uniformly scaled to fit the viewport width (identical proportions at any
+// width). The Mac-mockup live demo (HeroDemo) sits directly beneath it.
+//
+// 2026-07-21: the bottom motion layer — the flowing student questions, the
+// live voice/mode pill, and the flowing platform chips — was removed at
+// Darcy's ask, and the artboard shortened to CARD_H so the Mac demo rides up
+// right under the CTA.
 
 const NAV_LINKS = [
   { label: 'how it works', href: '#how-it-works' },
@@ -61,11 +30,35 @@ const NAV_LINKS = [
   { label: 'log in', href: '/login' },
 ]
 
-const FLOW_SPEED = 26 // seconds — loop duration for the flowing text; chips run at ×1.4
-const GLOW_INTENSITY = 0.95 // opacity of the mode pill's glow halo
+// The platforms rotated through the hero's "Compatible with" pill — the same
+// 7 names, in the same order, with the same brand accents the removed motion
+// layer's chips used. Name-only (no brand logos), so nothing here is a
+// third-party brand asset or a redrawn approximation.
+const PLATFORMS: Platform[] = [
+  { name: 'Canvas', color: '#e2323b' },
+  { name: 'Khan Academy', color: '#14a07a' },
+  { name: 'MyLab Math', color: '#9a5cb4' },
+  { name: 'DeltaMath', color: '#2f9e6f' },
+  { name: 'WebAssign', color: '#c8102e' },
+  { name: 'AP Classroom', color: '#0077c8' },
+  { name: 'Google Classroom', color: '#0f9d58' },
+]
+
+// Rightward nudge (design px) applied to the hero badge row — see the row's
+// comment for why. 93 puts the page centre line exactly at the midpoint of the
+// gap between the Product Hunt badge and the "Compatible with" label.
+const BADGE_ROW_NUDGE = 93
 
 const CARD_W = 1440
-const CARD_H = 880
+// Just the nav + copy block now that the motion layer is gone. The artboard
+// clips (`overflow: hidden`), so it must stay tall enough for the CTA's
+// `0 14px 36px` drop shadow to fade out completely inside it — cutting it off
+// leaves a hard-edged band of half-drawn shadow under the button. CARD_TRIM
+// below then pulls the demo back up, so this height costs no visible gap.
+const CARD_H = 555
+// How much of the artboard's shadow-clearance tail the demo section rides back
+// over. Kept in design units so it scales with the artboard.
+const CARD_TRIM = 45
 
 // One primary-CTA style shared by the nav pill and the hero CTA (values are
 // each element's own; this only carries the accent hover, applied inline so it
@@ -74,22 +67,17 @@ const ACCENT = '#86efac'
 const ACCENT_HOVER = '#6ee7a0'
 
 export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
-  const [modeIdx, setModeIdx] = useState(0)
   const [scale, setScale] = useState(1)
-  const rootRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const askRef = useRef<((question: string) => void) | null>(null)
 
-  const mode = MODES[modeIdx]
-  const modeGlow = `radial-gradient(closest-side,${mode.border} 0%,${mode.border} 48%,transparent 74%)`
-
-  // Uniform scale-to-fit: the card is authored at 1440×880, so scale it to the
-  // stage's available width and reserve the scaled height in layout so the
+  // Uniform scale-to-fit: the card is authored at CARD_W×CARD_H, so scale it to
+  // the stage's available width and reserve the scaled height in layout so the
   // demo below flows right after it.
   useIsomorphicLayoutEffect(() => {
-    // Scale to fill the full viewport width at any size — uncapped, so on
-    // screens wider than the 1440 design frame the flowing text + platform
-    // chips still run to the real screen edges instead of clipping inset.
+    // Scale to fill the full viewport width at any size — uncapped, so the
+    // green wash and copy keep the design's proportions on screens wider than
+    // the 1440 design frame.
     const measure = () => {
       const avail = stageRef.current?.clientWidth ?? CARD_W
       setScale(avail / CARD_W)
@@ -97,50 +85,6 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
     measure()
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
-  }, [])
-
-  // Mode cycling every 3s.
-  useEffect(() => {
-    const timer = setInterval(() => setModeIdx((i) => (i + 1) % MODES.length), 3000)
-    return () => clearInterval(timer)
-  }, [])
-
-  // A single rAF loop drives both the flowing text and the flowing chips, by
-  // mutating DOM directly (no per-frame React state). Queries are scoped to the
-  // component root. Frozen at phase offsets under prefers-reduced-motion.
-  useEffect(() => {
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    let raf = 0
-    const dur = FLOW_SPEED * 1000
-    const chipDur = dur * 1.4
-    const tick = (now: number) => {
-      const scope = rootRef.current
-      if (scope) {
-        scope.querySelectorAll<SVGTextPathElement>('.cx-flow').forEach((tp) => {
-          const phase = parseFloat(tp.dataset.phase || '0')
-          if (reduced) {
-            tp.setAttribute('startOffset', `${phase}%`)
-          } else {
-            const t = (now % dur) / dur
-            tp.setAttribute('startOffset', `${((t * 100 + phase) % 100).toFixed(2)}%`)
-          }
-        })
-        scope.querySelectorAll<HTMLElement>('.cx-chip').forEach((chip) => {
-          const path = scope.querySelector<SVGPathElement>(`#${chip.dataset.path}`)
-          if (!path) return
-          const len = path.getTotalLength()
-          const phase = parseFloat(chip.dataset.phase || '0')
-          const t = reduced ? phase : (now / chipDur + phase) % 1
-          const p = path.getPointAtLength(t * len)
-          const p2 = path.getPointAtLength(Math.min(len, t * len + 24))
-          const ang = (Math.atan2(p2.y - p.y, p2.x - p.x) * 180) / Math.PI
-          chip.style.transform = `translate(${p.x.toFixed(1)}px,${p.y.toFixed(1)}px) translate(-50%,-50%) rotate(${ang.toFixed(1)}deg)`
-        })
-      }
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
   }, [])
 
   return (
@@ -167,7 +111,6 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
         {/* Height reservation for the scaled card so the demo flows below it. */}
         <div style={{ width: CARD_W * scale, height: CARD_H * scale, flex: 'none' }}>
           <div
-            ref={rootRef}
             style={{
               position: 'relative',
               width: CARD_W,
@@ -229,22 +172,43 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
                 zIndex: 2,
               }}
             >
-              <a
-                href="https://www.producthunt.com/products/calyxa?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-calyxa"
-                target="_blank"
-                rel="noopener noreferrer"
+              {/* Badge row (2026-07-21): the Product Hunt badge and the
+                  rotating "Compatible with" pill sit as one centered group —
+                  not pinned to the page edges — which lands Product Hunt just
+                  left of centre and the pill to its right.
+                  The nudge right compensates for the pill slot's fixed width:
+                  its trailing dead space (the slot is sized to the longest
+                  platform name) drags the row's geometric centre left of what
+                  the eye reads as centre. BADGE_ROW_NUDGE puts the page's
+                  centre line in the gap between the two badges. Measured, not
+                  eyeballed — a transform so it costs no layout. */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 40,
+                  transform: `translateX(${BADGE_ROW_NUDGE}px)`,
+                }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt="Calyxa - Adaptive AI math tutoring that lives in your browser | Product Hunt"
-                  width={250}
-                  height={54}
-                  src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1202106&theme=light&t=1784615962865"
-                />
-              </a>
+                <a
+                  href="https://www.producthunt.com/products/calyxa?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-calyxa"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    alt="Calyxa - Adaptive AI math tutoring that lives in your browser | Product Hunt"
+                    width={250}
+                    height={54}
+                    src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1202106&theme=light&t=1784615962865"
+                  />
+                </a>
+                <CompatibleWith platforms={PLATFORMS} />
+              </div>
               <h1
                 style={{
-                  margin: '22px 0 0',
+                  margin: '30px 0 0',
                   fontFamily: 'var(--font-display)',
                   fontWeight: 700,
                   fontSize: 72,
@@ -294,183 +258,20 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
               </a>
             </div>
 
-            {/* Bottom motion layer */}
-            <div style={{ position: 'absolute', inset: 'auto 0 0 0', height: 360, pointerEvents: 'none' }}>
-              <svg
-                viewBox="0 0 1440 360"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}
-                aria-hidden="true"
-              >
-                <path id="cxpath2a" d="M -220,60 C 100,10 300,150 480,112 C 540,90 601,92 648,97" fill="none" stroke="none" />
-                {FLOW.map((line) => (
-                  <text
-                    key={line.phase}
-                    style={{ fontFamily: 'var(--font-geist-sans), sans-serif', fontSize: 15.5, fill: '#9b988f', letterSpacing: '0.01em' }}
-                  >
-                    <textPath href="#cxpath2a" className="cx-flow" data-phase={line.phase} startOffset={`${line.phase}%`}>
-                      {line.text}
-                    </textPath>
-                  </text>
-                ))}
-                <path
-                  id="cxchips2a"
-                  d="M 832,94 C 950,102 1060,132 1165,180 C 1268,227 1368,282 1460,338 C 1544,389 1628,434 1710,472"
-                  fill="none"
-                  stroke="none"
-                />
-              </svg>
-
-              {/* Live mode pill (the product cameo) */}
-              <div style={{ position: 'absolute', left: 612, bottom: 240, zIndex: 3 }}>
-                {/* Bigger/stronger ambient glow (Darcy's ask): the app's tight
-                    -1/blur-10 halo, expanded to a broad mode-tinted wash and
-                    with the gradient moved onto the breathing span so the
-                    scale pulse actually reads. Same gradient + cxBreathePill
-                    keyframe the extension pill uses. */}
-                <div
-                  className="cx-glow"
-                  style={{
-                    position: 'absolute',
-                    inset: -28,
-                    borderRadius: 99,
-                    filter: 'blur(26px)',
-                    opacity: GLOW_INTENSITY,
-                    transition: 'opacity 0.6s ease',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  <span
-                    className="cx-anim"
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      height: '100%',
-                      borderRadius: 99,
-                      background: modeGlow,
-                      animation: 'cxBreathePill 3s ease-in-out infinite',
-                    }}
-                  />
-                </div>
-                <div
-                  style={{
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 11,
-                    width: 216,
-                    height: 52,
-                    borderRadius: 26,
-                    background: 'rgba(24,26,23,0.78)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    backdropFilter: 'blur(24px) saturate(1.5)',
-                    WebkitBackdropFilter: 'blur(24px) saturate(1.5)',
-                    boxShadow: '0 18px 44px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35)',
-                  }}
-                >
-                  {/* Animated border sheen */}
-                  <span
-                    className="cx-anim"
-                    aria-hidden="true"
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      borderRadius: 'inherit',
-                      padding: 2,
-                      background: `linear-gradient(130deg, ${mode.border}, transparent 42%, transparent 58%, ${mode.border})`,
-                      WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                      WebkitMaskComposite: 'xor',
-                      maskComposite: 'exclude',
-                      pointerEvents: 'none',
-                      opacity: 0.5,
-                      animation: 'cxModeBreathe 3.2s ease-in-out infinite',
-                    }}
-                  />
-                  {/* Waveform */}
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 3, height: 22 }}>
-                    {[
-                      { h: 11, d: '0s' },
-                      { h: 18, d: '0.12s' },
-                      { h: 22, d: '0.24s' },
-                      { h: 15, d: '0.36s' },
-                      { h: 9, d: '0.48s' },
-                    ].map((bar, i) => (
-                      <span
-                        key={i}
-                        className="cx-anim"
-                        style={{
-                          width: 3,
-                          height: bar.h,
-                          borderRadius: 2,
-                          background: mode.border,
-                          animation: `cxWave 0.85s ease-in-out ${bar.d} infinite`,
-                        }}
-                      />
-                    ))}
-                  </span>
-                  {/* Match the extension pill's label exactly: the glyph must
-                      render in the overlay's --font-sans system stack (theme.css),
-                      not the marketing body font — same symbol, but Geist drew it
-                      differently. 13px / 500, the app's speak-state values. */}
-                  <span
-                    style={{
-                      fontFamily: 'var(--font-sans)',
-                      fontSize: 13,
-                      fontWeight: 500,
-                      whiteSpace: 'nowrap',
-                      color: mode.border,
-                    }}
-                  >
-                    {mode.glyph}
-                    &nbsp;&nbsp;
-                    {mode.name}
-                  </span>
-                </div>
-              </div>
-
-              {/* Flowing platform chips */}
-              {CHIPS.map((chip) => (
-                <div
-                  key={chip.name}
-                  className="cx-chip"
-                  data-path="cxchips2a"
-                  data-phase={chip.phase}
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: 0,
-                    willChange: 'transform',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    padding: '7px 15px',
-                    borderRadius: 999,
-                    background: `color-mix(in srgb, ${chip.c} 11%, #ffffff)`,
-                    border: `1px solid color-mix(in srgb, ${chip.c} 30%, #ffffff)`,
-                    boxShadow: '0 6px 18px rgba(28,28,26,0.08)',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: `color-mix(in srgb, ${chip.c} 62%, #1c1c1a)`,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {chip.name}
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       </div>
 
-      {/* The Mac-mockup live demo, moved down beneath the hero. A scaled
-          negative margin lifts it up so the top of the Mac demo peeks in just
-          under the flowing hero; a transparent background lets the hero's
-          flowing chips show through the small overlap instead of being
-          covered. (The works-where-your-homework-is eyebrow + platform-pill
-          marquee that used to close this band were removed 2026-07-20.) */}
+      {/* The Mac-mockup live demo, directly beneath the hero copy. The scaled
+          negative margin reclaims the artboard's CARD_TRIM shadow-clearance
+          tail (see CARD_H) so the demo sits right under the CTA without
+          clipping its drop shadow. (The works-where-your-homework-is eyebrow +
+          platform-pill marquee that used to close this band were removed
+          2026-07-20; the motion layer, 2026-07-21.) */}
       <section
         id="hero-demo-section"
         className="relative z-10 flex flex-col items-center px-[22px] sm:px-14"
-        style={{ marginTop: -Math.round(150 * scale) }}
+        style={{ marginTop: -Math.round(CARD_TRIM * scale) }}
       >
         <HeroDemo askRef={askRef} showPlaceholders={showPlaceholders} />
       </section>
