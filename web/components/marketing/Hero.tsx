@@ -49,6 +49,12 @@ const PLATFORMS: Platform[] = [
 // gap between the Product Hunt badge and the "Compatible with" label.
 const BADGE_ROW_NUDGE = 93
 
+// Same correction for the mobile hero's compact row, in real CSS px: the
+// compact slot is sized to "Google Classroom", so shorter names leave dead
+// space on the right and the line reads left-of-centre. 24 optically centres
+// the average name (the extremes land within ~17px either side).
+const MOBILE_ROW_NUDGE = 24
+
 const CARD_W = 1440
 // Just the nav + copy block now that the motion layer is gone. The artboard
 // clips (`overflow: hidden`), so it must stay tall enough for the CTA's
@@ -326,9 +332,16 @@ function MobileHero() {
           Add to Chrome — free
         </a>
 
-        <p className="mt-5 text-[12px] leading-[1.5] text-(--mkt-faint)">
-          Works on Khan Academy, Canvas, Google Classroom &amp; more.
-        </p>
+        {/* The same rotating "Compatible with" pill the desktop badge row
+            carries, at the compact size (2026-07-21). It replaces the static
+            "Works on Khan Academy, Canvas…" line that used to sit here — same
+            information, and it now names every supported platform rather than
+            three plus "& more". Kept below the CTA rather than beside the
+            Product Hunt badge: there is no room for a side-by-side badge row
+            at phone widths. */}
+        <div className="mt-6" style={{ transform: `translateX(${MOBILE_ROW_NUDGE}px)` }}>
+          <CompatibleWith platforms={PLATFORMS} size="compact" />
+        </div>
       </div>
     </div>
   )

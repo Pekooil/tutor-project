@@ -26,13 +26,30 @@ export type Platform = {
 const ROTATE_MS = 2600
 const FLIP_MS = 420
 
-// The pill sits in a fixed-width slot so the centered badge row never shifts
-// as names of different lengths swap through. Sized to the widest name
-// ("Google Classroom") with a little slack.
-const SLOT_W = 258
-const PILL_H = 54
+// Two size presets. `hero` is authored in the 1440-wide artboard's design px
+// (it gets scaled with the rest of the artboard); `compact` is real CSS px for
+// the mobile hero, which renders unscaled and only has ~327px of usable width
+// inside its 24px gutters.
+//
+// slotW is a FIXED width in both, so the row never reflows as names of
+// different lengths swap through — sized to the widest name ("Google
+// Classroom") plus a little slack.
+const SIZES = {
+  hero: { labelFs: 15, labelTrack: '0.05em', gap: 16, slotW: 258, pillH: 54, pillFs: 21, padX: 28 },
+  compact: { labelFs: 11, labelTrack: '0.07em', gap: 9, slotW: 166, pillH: 34, pillFs: 14, padX: 16 },
+} as const
 
-export function CompatibleWith({ platforms }: { platforms: Platform[] }) {
+export type CompatibleWithSize = keyof typeof SIZES
+type SizeSpec = (typeof SIZES)[CompatibleWithSize]
+
+export function CompatibleWith({
+  platforms,
+  size = 'hero',
+}: {
+  platforms: Platform[]
+  size?: CompatibleWithSize
+}) {
+  const s = SIZES[size]
   const [idx, setIdx] = useState(0)
   // The pill being flipped out, kept mounted for the length of the flip.
   const [outgoing, setOutgoing] = useState<number | null>(null)
@@ -70,12 +87,12 @@ export function CompatibleWith({ platforms }: { platforms: Platform[] }) {
   if (!current) return null
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: s.gap }}>
       <span
         style={{
-          fontSize: 15,
+          fontSize: s.labelFs,
           fontWeight: 500,
-          letterSpacing: '0.05em',
+          letterSpacing: s.labelTrack,
           textTransform: 'uppercase',
           color: '#8a887f',
           whiteSpace: 'nowrap',
@@ -90,17 +107,17 @@ export function CompatibleWith({ platforms }: { platforms: Platform[] }) {
         style={
           {
             position: 'relative',
-            width: SLOT_W,
-            height: PILL_H,
+            width: s.slotW,
+            height: s.pillH,
             perspective: 620,
             '--mkt-pill-flip-ms': `${FLIP_MS}ms`,
           } as React.CSSProperties
         }
       >
         {outgoing !== null && outgoing !== idx && (
-          <Pill key={`out-${outgoing}`} platform={platforms[outgoing]} className="mkt-pill-flip-out" />
+          <Pill key={`out-${outgoing}`} platform={platforms[outgoing]} s={s} className="mkt-pill-flip-out" />
         )}
-        <Pill key={`in-${idx}`} platform={current} className={started ? 'mkt-pill-flip-in' : undefined} />
+        <Pill key={`in-${idx}`} platform={current} s={s} className={started ? 'mkt-pill-flip-in' : undefined} />
       </div>
 
       {/* The rotation is decorative motion; a live region would announce a new
@@ -112,7 +129,15 @@ export function CompatibleWith({ platforms }: { platforms: Platform[] }) {
   )
 }
 
-function Pill({ platform, className }: { platform: Platform; className?: string }) {
+function Pill({
+  platform,
+  s,
+  className,
+}: {
+  platform: Platform
+  s: SizeSpec
+  className?: string
+}) {
   return (
     <span
       className={className}
@@ -122,13 +147,13 @@ function Pill({ platform, className }: { platform: Platform; className?: string 
         top: 0,
         display: 'inline-flex',
         alignItems: 'center',
-        height: PILL_H,
-        padding: '0 28px',
+        height: s.pillH,
+        padding: `0 ${s.padX}px`,
         borderRadius: 999,
         background: `color-mix(in srgb, ${platform.color} 11%, #ffffff)`,
         border: `1px solid color-mix(in srgb, ${platform.color} 30%, #ffffff)`,
         boxShadow: '0 6px 18px rgba(28,28,26,0.08)',
-        fontSize: 21,
+        fontSize: s.pillFs,
         fontWeight: 600,
         letterSpacing: '-0.01em',
         color: `color-mix(in srgb, ${platform.color} 62%, #1c1c1a)`,
