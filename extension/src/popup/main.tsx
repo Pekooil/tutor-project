@@ -1,8 +1,8 @@
-import { StrictMode, useEffect, useState, type FormEvent } from 'react';
+import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Button, CalyxaMark, Card, Field, Spinner } from '@calyxa/ui';
+import { Button, CalyxaMark, Card, Spinner } from '@calyxa/ui';
 import './main.css';
-import type { CalyxaMessage, SessionStatePayload, SignInPayload } from '../types/messages';
+import type { CalyxaMessage, SessionStatePayload } from '../types/messages';
 
 // Calyxa popup — Sprint 04 Task 7 launcher (PLAN §2.2 popup scope).
 //
@@ -21,16 +21,15 @@ import type { CalyxaMessage, SessionStatePayload, SignInPayload } from '../types
 // contract, handlers, and the single shared `busy` gate are unchanged from
 // Sprint 09, only markup/styling moved.
 //
-// Sprint 14 Task 6 (ADR-027 Decision 3): Start/End session controls and
-// their tab-domain derivation are REMOVED -- sessions are now tutor-
-// initiated (the opening scan on panel expand) or auto-started on the
-// student's first sent turn, both handled entirely in the background
-// worker. The tab-domain heuristic moved there too (it now derives the
-// SENDER tab's domain for those two triggers instead of the popup's active
-// tab). The popup is now sign-in + quota display only -- START_SESSION/
-// END_SESSION message handlers stay in background/index.ts (still valid,
-// still used internally by those two triggers), but nothing in this file
-// sends either one anymore.
+// Sprint 14 Task 6 (ADR-027 Decision 3): Start/End session controls were
+// removed -- sessions are tutor-initiated or auto-started in the background.
+//
+// Web→extension bridge (Part 2/3): the popup is now a PASSIVE receiver and no
+// longer an auth surface. The signed-out state links out to the website's
+// unified sign-in page instead of hosting an email/password form; the session
+// arrives from the web bridge (background onMessageExternal → storage). This
+// file sends only GET_STATE and SIGN_OUT (a local session clear) -- never
+// SIGN_IN. It remains quota display + sign-out.
 
 // Sprint 23 / Task 7 (ADR-050/006): the degraded (free-limit) state links out
 // to the web billing page to upgrade. Stripe is server/web-only — the extension
@@ -41,12 +40,13 @@ import type { CalyxaMessage, SessionStatePayload, SignInPayload } from '../types
 // lib/api.ts's token-bearing helpers (see the header note above).
 const BILLING_URL = 'https://calyxa.app/billing';
 
-// Public launch (2026-07-17): a freshly installed user may have no account
-// yet — the signed-out popup links them to the website's guided setup
-// (/welcome covers account creation, pinning, and the first session). Same
-// plain-string discipline as BILLING_URL above: the popup imports none of
-// lib/api.ts, so the base URL is deliberately duplicated here.
-const WELCOME_URL = 'https://calyxa.app/welcome?src=extension';
+// Web→extension session bridge (Part 2/3): the popup is a PASSIVE receiver, no
+// longer an auth surface. A signed-out user is sent to the website's unified
+// sign-in/sign-up page; once they authenticate there (email/password OR
+// Google), the web bridge pushes the session and this popup flips to signed-in
+// automatically (GET_STATE on next open, or the storage.onChanged listener
+// below if it's already open). Same plain-string discipline as BILLING_URL.
+const SIGNUP_URL = 'https://calyxa.app/signup?src=extension';
 
 // ADR-053: the free-limit state also offers the referral path — the dashboard
 // referral page holds the shareable link (3 friends join → 10 more free
@@ -93,26 +93,30 @@ function ErrorBanner({ message }: { message: string }) {
 // Batch). The auto-mount below is unchanged; App renders identically.
 export function App() {
   const [state, setState] = useState<SessionStatePayload | null>(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     void sendMessage({ type: 'GET_STATE' }).then(setState);
-  }, []);
 
-  async function handleSignIn(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    try {
-      const payload: SignInPayload = { email, password };
-      setState(await sendMessage({ type: 'SIGN_IN', payload }));
-    } catch {
-      setState(FALLBACK_ERROR);
-    } finally {
-      setBusy(false);
+    // Live pickup of a session pushed from the website while this popup is
+    // OPEN (Part 3). The background stores the bridged tokens under 'calyxa_auth'
+    // in chrome.storage.session; when that key changes we re-read state so the
+    // popup flips from the "sign up on the website" screen to signed-in without
+    // the student closing and reopening it. GET_STATE-on-mount above covers the
+    // reopen case; this covers the already-open case.
+    const storageChanged = chrome.storage?.onChanged;
+    if (!storageChanged) return;
+    function onStorageChanged(
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string,
+    ) {
+      if (area === 'session' && 'calyxa_auth' in changes) {
+        void sendMessage({ type: 'GET_STATE' }).then(setState);
+      }
     }
-  }
+    storageChanged.addListener(onStorageChanged);
+    return () => storageChanged.removeListener(onStorageChanged);
+  }, []);
 
   async function handleSignOut() {
     setBusy(true);
@@ -138,33 +142,26 @@ export function App() {
   }
 
   if (!state.signedIn) {
+    // Passive receiver: NEVER an in-extension auth form. Sign-up/sign-in happens
+    // entirely on the website; once it does, the bridge signs this popup in.
     return (
       <div className="flex flex-col">
         <Header />
-        <form className="flex flex-col gap-3 p-4" onSubmit={handleSignIn}>
-          <Field label="Email">
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          </Field>
-          <Field label="Password">
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          </Field>
-          {state.error && <ErrorBanner message={state.error} />}
-          <Button type="submit" variant="primary" loading={busy}>
-            Sign in
-          </Button>
+        <div className="flex flex-col gap-3 p-4">
+          <p className="m-0 text-sm text-foreground">Sign up on the Calyxa website to get started.</p>
           <p className="m-0 text-xs text-muted-foreground">
-            New to Calyxa?{' '}
-            <a
-              href={WELCOME_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="font-semibold text-accent-emphasis underline underline-offset-2"
-            >
-              Create a free account on calyxa.app
-            </a>{' '}
-            — then sign in here with the same email and password.
+            Create your account or sign in on calyxa.app — you&rsquo;ll be signed in here automatically, no
+            need to re-enter anything.
           </p>
-        </form>
+          <Button
+            type="button"
+            variant="primary"
+            onClick={() => void chrome.tabs.create({ url: SIGNUP_URL })}
+          >
+            Get started on calyxa.app
+          </Button>
+          {state.error && <ErrorBanner message={state.error} />}
+        </div>
       </div>
     );
   }

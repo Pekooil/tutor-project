@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { motion, useReducedMotion } from 'motion/react'
 import { CalyxaMark } from '@calyxa/ui'
 import { CompatibleWith, type Platform } from '@/components/marketing/CompatibleWith'
 import { HeroDemo } from '@/components/marketing/HeroDemo'
@@ -45,9 +46,11 @@ const PLATFORMS: Platform[] = [
 ]
 
 // Rightward nudge (design px) applied to the hero badge row — see the row's
-// comment for why. 93 puts the page centre line exactly at the midpoint of the
-// gap between the Product Hunt badge and the "Compatible with" label.
-const BADGE_ROW_NUDGE = 93
+// comment for why. Puts the page centre line at the midpoint of the gap
+// between the Product Hunt badge and the "Compatible with" label; retuned when
+// the row shrank (2026-07-22) since the pill slot's trailing dead space scales
+// with its width.
+const BADGE_ROW_NUDGE = 28
 
 // Same correction for the mobile hero's compact row, in real CSS px: the
 // compact slot is sized to "Google Classroom", so shorter names leave dead
@@ -61,7 +64,10 @@ const CARD_W = 1440
 // `0 14px 36px` drop shadow to fade out completely inside it — cutting it off
 // leaves a hard-edged band of half-drawn shadow under the button. CARD_TRIM
 // below then pulls the demo back up, so this height costs no visible gap.
-const CARD_H = 555
+// 2026-07-22: shrunk from 555 → 388 alongside a smaller title + tighter copy
+// spacing and nav padding (Darcy's ask) so the whole hero block rides up and
+// the Mac demo below shows as much of its screen above the fold as possible.
+const CARD_H = 388
 // How much of the artboard's shadow-clearance tail the demo section rides back
 // over. Kept in design units so it scales with the artboard.
 const CARD_TRIM = 45
@@ -76,6 +82,21 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
   const [scale, setScale] = useState(1)
   const stageRef = useRef<HTMLDivElement>(null)
   const askRef = useRef<((question: string) => void) | null>(null)
+  const reduceMotion = useReducedMotion()
+
+  // On-landing entrance: the hero copy (headline + CTA) and the Mac demo are
+  // above the fold, so they animate on mount rather than on scroll — the fade
+  // plays the moment the page loads. Matches the Reveal primitive's feel
+  // (opacity + a short rise), with the demo staggered just behind the copy.
+  // Reduced motion renders the composed end state with no movement.
+  const entrance = (delay: number) =>
+    reduceMotion
+      ? {}
+      : {
+          initial: { opacity: 0, y: 16 },
+          animate: { opacity: 1, y: 0 },
+          transition: { duration: 0.5, ease: [0, 0, 0.2, 1] as const, delay },
+        }
 
   // Uniform scale-to-fit: the card is authored at CARD_W×CARD_H, so scale it to
   // the stage's available width and reserve the scaled height in layout so the
@@ -110,8 +131,13 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
         ref={stageRef}
         className="hidden justify-center overflow-hidden sm:flex"
         style={{
+          // Light ambient green wash anchored at the top (2026-07-22): a gentle
+          // linear tint in the same very-light register as the closing "Press
+          // and start talking" gradient (→ #f0fdf4), fading to white by the
+          // mid-hero so the Mac demo below stays on clean white. The soft radial
+          // glow keeps the green organic rather than a flat band.
           background:
-            'radial-gradient(80rem 40rem at 50% -14rem, rgba(187,247,208,0.55), rgba(240,253,244,0.5) 42%, transparent 72%), #ffffff',
+            'linear-gradient(180deg, #e6faed 0%, rgba(240,253,244,0.5) 32%, rgba(255,255,255,0) 60%), radial-gradient(74rem 38rem at 50% -12rem, rgba(134,239,172,0.2), transparent 66%), #ffffff',
         }}
       >
         {/* Height reservation for the scaled card so the demo flows below it. */}
@@ -128,7 +154,7 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
             }}
           >
             {/* Top navigation bar */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 36, padding: '24px 56px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 36, padding: '18px 56px' }}>
               <a href="/" style={{ display: 'flex', alignItems: 'center', gap: 9, color: 'inherit' }}>
                 <CalyxaMark style={{ width: 26, height: 26 }} />
                 <span style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em', color: '#1c1c1a' }}>
@@ -146,7 +172,7 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
                   </a>
                 ))}
                 <a
-                  href="/signup"
+                  href="/start"
                   onMouseEnter={(e) => (e.currentTarget.style.background = ACCENT_HOVER)}
                   onMouseLeave={(e) => (e.currentTarget.style.background = ACCENT)}
                   style={{
@@ -168,12 +194,13 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
             </div>
 
             {/* Centered hero copy block */}
-            <div
+            <motion.div
+              {...entrance(0.05)}
               style={{
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                paddingTop: 84,
+                paddingTop: 28,
                 position: 'relative',
                 zIndex: 2,
               }}
@@ -193,7 +220,7 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 40,
+                  gap: 32,
                   transform: `translateX(${BADGE_ROW_NUDGE}px)`,
                 }}
               >
@@ -205,8 +232,8 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     alt="Calyxa - Adaptive AI math tutoring that lives in your browser | Product Hunt"
-                    width={250}
-                    height={54}
+                    width={200}
+                    height={43}
                     src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1202106&theme=light&t=1784615962865"
                   />
                 </a>
@@ -214,10 +241,10 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
               </div>
               <h1
                 style={{
-                  margin: '30px 0 0',
+                  margin: '20px 0 0',
                   fontFamily: 'var(--font-display)',
                   fontWeight: 700,
-                  fontSize: 72,
+                  fontSize: 52,
                   lineHeight: 1.02,
                   letterSpacing: '-0.032em',
                   textAlign: 'center',
@@ -229,31 +256,31 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
               </h1>
               <p
                 style={{
-                  margin: '20px 0 0',
-                  fontSize: 20,
+                  margin: '13px 0 0',
+                  fontSize: 15,
                   lineHeight: 1.5,
                   color: '#55554f',
                   textAlign: 'center',
-                  maxWidth: 640,
+                  maxWidth: 560,
                   textWrap: 'pretty',
                 }}
               >
                 Your Adaptive AI tutor that teaches directly on any homework, website, or PDF.
               </p>
               <a
-                href="/signup"
+                href="/start"
                 onMouseEnter={(e) => (e.currentTarget.style.background = ACCENT_HOVER)}
                 onMouseLeave={(e) => (e.currentTarget.style.background = ACCENT)}
                 style={{
-                  marginTop: 34,
+                  marginTop: 26,
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 10,
                   background: ACCENT,
                   color: '#14532d',
-                  fontSize: 17,
+                  fontSize: 16,
                   fontWeight: 600,
-                  padding: '17px 34px',
+                  padding: '15px 30px',
                   borderRadius: 999,
                   border: '1px solid rgba(20,83,45,0.18)',
                   textDecoration: 'none',
@@ -262,7 +289,7 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
               >
                 Add to Chrome — free
               </a>
-            </div>
+            </motion.div>
 
           </div>
         </div>
@@ -274,13 +301,14 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
           clipping its drop shadow. (The works-where-your-homework-is eyebrow +
           platform-pill marquee that used to close this band were removed
           2026-07-20; the motion layer, 2026-07-21.) */}
-      <section
+      <motion.section
+        {...entrance(0.2)}
         id="hero-demo-section"
         className="relative z-10 flex flex-col items-center px-[22px] sm:px-14"
         style={{ marginTop: -Math.round(CARD_TRIM * scale) }}
       >
         <HeroDemo askRef={askRef} showPlaceholders={showPlaceholders} />
-      </section>
+      </motion.section>
     </>
   )
 }
@@ -290,14 +318,26 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
 // mobile (`sm:hidden`); the desktop scaled artboard above is hidden there. Copy
 // mirrors the desktop hero exactly so the two never drift.
 function MobileHero() {
+  const reduceMotion = useReducedMotion()
+  // Same on-landing fade as the desktop hero copy block.
+  const entrance = reduceMotion
+    ? {}
+    : {
+        initial: { opacity: 0, y: 16 },
+        animate: { opacity: 1, y: 0 },
+        transition: { duration: 0.5, ease: [0, 0, 0.2, 1] as const, delay: 0.05 },
+      }
   return (
     <div className="sm:hidden">
       <Nav />
-      <div
+      <motion.div
+        {...entrance}
         className="flex flex-col items-center px-6 pb-11 pt-10 text-center"
         style={{
+          // Same light top-anchored green wash as the desktop artboard, scaled
+          // for the phone hero (2026-07-22).
           background:
-            'radial-gradient(48rem 26rem at 50% -6rem, rgba(187,247,208,0.6), rgba(240,253,244,0.5) 44%, transparent 74%), #ffffff',
+            'linear-gradient(180deg, #e6faed 0%, rgba(240,253,244,0.5) 34%, rgba(255,255,255,0) 62%), radial-gradient(46rem 24rem at 50% -6rem, rgba(134,239,172,0.22), transparent 70%), #ffffff',
         }}
       >
         <a
@@ -320,7 +360,7 @@ function MobileHero() {
         </p>
 
         <a
-          href="/signup"
+          href="/start"
           className="mt-7 inline-flex w-full max-w-[21rem] items-center justify-center rounded-full px-6 py-[15px] text-[15.5px] font-semibold"
           style={{
             background: ACCENT,
@@ -342,7 +382,7 @@ function MobileHero() {
         <div className="mt-6" style={{ transform: `translateX(${MOBILE_ROW_NUDGE}px)` }}>
           <CompatibleWith platforms={PLATFORMS} size="compact" />
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }

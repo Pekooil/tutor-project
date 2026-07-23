@@ -151,7 +151,19 @@ export type MessageType =
   | 'GET_REFERRAL_OFFER'
   | 'REFERRAL_OFFER_REPLY'
   | 'CREATE_REFERRAL_LINK'
-  | 'REFERRAL_LINK_REPLY';
+  | 'REFERRAL_LINK_REPLY'
+  // Web → extension session bridge (Part 2), delivered via
+  // chrome.runtime.onMessageExternal (NOT onMessage) from calyxa.app only —
+  // gated by the manifest's externally_connectable. Provider-agnostic: the same
+  // AUTH_SESSION shape whether the web sign-in was email/password or Google.
+  //   AUTH_SESSION     — web -> background (external): AuthSessionPayload. The
+  //                      background stores the tokens (chrome.storage.session,
+  //                      the same StoredAuth shape api.signIn writes) and
+  //                      broadcasts SESSION_STATE so open tabs' pills mount.
+  //   AUTH_SIGNED_OUT  — web -> background (external), no payload: clears the
+  //                      stored session (mirrors handleSignOut).
+  | 'AUTH_SESSION'
+  | 'AUTH_SIGNED_OUT';
 
 export interface CalyxaMessage {
   type: MessageType;
@@ -161,6 +173,20 @@ export interface CalyxaMessage {
 export type SignInPayload = {
   email: string;
   password: string;
+};
+
+// The session pushed from the website (Part 2). Exactly the fields the existing
+// StoredAuth needs, so the background can store it with no supabase-js in the
+// bundle (ADR-006) — token refresh keeps flowing through the backend proxy
+// (/api/auth/refresh), identical to a popup sign-in. `expires_at` is Supabase's
+// seconds-since-epoch (or omitted).
+export type AuthSessionPayload = {
+  session: {
+    access_token: string;
+    refresh_token: string;
+    expires_at?: number;
+    user: { id: string; email: string | null };
+  };
 };
 
 export type StartSessionPayload = {

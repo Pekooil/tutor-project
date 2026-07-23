@@ -52,7 +52,7 @@ export function Pricing() {
             ))}
           </div>
           <a
-            href="/signup"
+            href="/start"
             className="mt-auto inline-flex items-center justify-center rounded-[9px] border border-[#79766e] bg-transparent px-0 py-[11px] text-[13px] font-semibold text-foreground transition-colors hover:bg-[#f7f7f5] sm:justify-start sm:self-start sm:px-5 sm:py-2.5 sm:text-[13.5px]"
           >
             Start free

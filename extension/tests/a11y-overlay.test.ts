@@ -267,7 +267,7 @@ describe('popup a11y (Sprint 04 / Sprint 10)', () => {
     await expectNoAxeViolations(c, 'popup (loading)');
   });
 
-  it('popup (signed out — sign-in form)', async () => {
+  it('popup (signed out — website sign-up prompt)', async () => {
     setSendMessage(async () => ({ type: 'SESSION_STATE', payload: signedOut }));
     const c = await mount(h(PopupApp));
     await flush();

@@ -69,6 +69,21 @@ export default defineConfig({
       // still write a non-null page_url_hash and the toggle/broadcast paths still
       // work. Smaller review footprint.
     ],
+    // Web → extension session bridge (Part 2). ONLY the production origin may
+    // message the extension via chrome.runtime.sendMessage(EXTENSION_ID, …);
+    // this is the allowlist Chrome enforces for onMessageExternal. Scoped to
+    // calyxa.app deliberately — never a wildcard — so no other site can push a
+    // session. The background handler re-checks sender.origin as defense in depth.
+    externally_connectable: {
+      matches: ['https://calyxa.app/*'],
+    },
+    // Pinned extension public key → a DETERMINISTIC extension id across both the
+    // unpacked-dev load and the store build, so the website's
+    // NEXT_PUBLIC_CALYXA_EXTENSION_ID target never drifts. Generated for this
+    // project (the matching private .pem is kept out of the repo, with Darcy);
+    // if a Chrome Web Store item already exists, replace this with that item's
+    // public key so the id matches the store listing. See docs/release-runbook.md.
+    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvTJkkusL+S7haOVqgrsx1tPkBUN2gJPU3Tr3VQUTVpIjSoUnklXjGmJQ20DPz7YuT9tGqa3H0HmigmhQAjzF3e8ogXroGF+KNtMAoi9OgQxqma8ectWduuqssJqnYVZZ4su9oNt+2edyc8+Z+ioCVypixDrIOjP2zfU95ihK/A7pRjI2D2WC4mcVEJqZpXYo3uBfoLWYAPnRI2vhdaiuI0asj5Uc5KpMektCzQyPUzeZXIC7huwtWknHUUOnFoz8llPBLBcvBnOixMImzX59DMemZ2YOqEIc6f24Cxk14CjtzfL/mmzD0vWZqtVNncBrOJEGw/MxWRXsxWMiAXnbPwIDAQAB',
     host_permissions: [
       '<all_urls>', // content script must run on any page the student visits
       // The single backend origin the background worker's fetch calls in

@@ -397,17 +397,49 @@ const PILL_SHAPE_CLASSES: Record<PillShape, string> = {
   speak: 'h-10 w-[170px] rounded-[20px] sm:h-[52px] sm:w-[216px] sm:rounded-[26px]',
 }
 
+// The trig-problem follow-up chips carried on an auto-opened reply, so the
+// scripted flow (replyFor keyword matching) continues from the personalized
+// opening exactly as it would from the "I'm stuck" chip.
+const OPENING_FOLLOWUPS = ['which ratio do I use?', 'just tell me AB']
+
 export function HeroDemo({
   askRef,
   showPlaceholders,
+  autoOpen = false,
+  openingText,
 }: {
   askRef?: MutableRefObject<((question: string) => void) | null>
   showPlaceholders: boolean
+  // Pre-signup onboarding (components/onboarding/PreflightWizard.tsx) only:
+  // when `autoOpen` is set with an `openingText`, the demo starts a session on
+  // mount and streams that personalized first line (referencing the student's
+  // pain point) instead of resting on the idle suggestion chips. Both default
+  // off, so the landing page renders the demo exactly as before.
+  autoOpen?: boolean
+  openingText?: string
 }) {
-  const [state, setState] = useState<DemoState>(IDLE)
   // Deadlines live outside React state so the 80ms tick reads them without
-  // re-subscribing (mirrors the script's instance fields).
+  // re-subscribing (mirrors the script's instance fields). Declared before
+  // `state` so the auto-open initializer below can arm the first deadline.
   const [deadlines] = useState(() => ({ at: 0 }))
+  const [state, setState] = useState<DemoState>(() => {
+    if (autoOpen && openingText) {
+      deadlines.at = Date.now() + 950
+      // A grounded 'stuck' reply carrying the personalized opening line: the
+      // 'stuck' annotation set (the 50° angle + "which side is AB?") matches
+      // the shared trig question every opening line pivots to.
+      return {
+        ...IDLE,
+        asked: '__auto__',
+        full: openingText,
+        mode: 'explore',
+        annot: 'stuck',
+        followups: OPENING_FOLLOWUPS,
+        phase: 'think',
+      }
+    }
+    return IDLE
+  })
 
   // Commit a question: think for ~950ms, then the reply streams.
   const send = (s: DemoState, question: string, voice: boolean): DemoState => {

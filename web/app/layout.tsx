@@ -4,6 +4,7 @@ import { Geist, Schibsted_Grotesk } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import { canonicalizeSiteUrl, CANONICAL_SITE_URL } from '@/lib/site-url'
+import { AuthBridge } from '@/components/auth/AuthBridge'
 import './globals.css'
 
 // Sprint 20 Task 9: SEO/unfurl metadata. The production domain is now decided
@@ -60,6 +61,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" className={`${geistSans.variable} ${schibstedGrotesk.variable}`}>
       <body className="font-[family-name:var(--font-geist-sans)]">
         {children}
+        {/* Mirrors web auth state to the Calyxa extension (Part 2). Renders
+            nothing; must be app-wide so INITIAL_SESSION re-pushes the session
+            to the extension on any calyxa.app load. */}
+        <AuthBridge />
         <Analytics />
         <SpeedInsights />
       </body>

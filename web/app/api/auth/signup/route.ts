@@ -4,9 +4,18 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { CONSENT_VERSION, meetsMinAge } from '@/lib/consent'
 import { clientIp, hashSignupIp } from '@/lib/referral/ip-hash'
 import { SIGNUP_IP_ACCOUNT_LIMIT } from '@/lib/referral/referral'
+import { parsePreflightAnswers } from '@/lib/onboarding/preflight'
 
 export async function POST(request: Request) {
-  const { email, password, birthYear, consent, referralCode } = await request.json()
+  const { email, password, birthYear, consent, referralCode, onboarding } = await request.json()
+
+  // Pre-signup onboarding answers (grade / math class / pain point), carried
+  // from the /start wizard. Validated at the boundary and attached to the auth
+  // user's metadata below — a promotable, migration-free home for them (a
+  // later migration can lift these into typed `users` columns for the mastery
+  // engine). Invalid or absent → simply not attached; signup is never blocked
+  // on this.
+  const preflight = parsePreflightAnswers(onboarding)
 
   // Age gate FIRST (ADR-004), authoritative and server-side: an under-13
   // attempt creates no auth user, no profile row, and retains no email.
@@ -74,6 +83,9 @@ export async function POST(request: Request) {
     email,
     password,
     email_confirm: true,
+    // The onboarding answers ride in user_metadata (only when valid), tied to
+    // the account from creation. No schema change; never a signup blocker.
+    ...(preflight ? { user_metadata: { onboarding: preflight } } : {}),
   })
 
   if (createError || !created.user) {

@@ -12,6 +12,7 @@ import {
 import type {
   AnswerField,
   Annotation,
+  AuthSessionPayload,
   LogErrorPayload,
   PageContext,
   PageTopic,
@@ -83,6 +84,27 @@ export async function signIn(email: string, password: string): Promise<AuthUser>
 export async function signOut(): Promise<void> {
   await clearAuth();
   await clearActiveSession();
+}
+
+/**
+ * Stores a session pushed from the website (Part 2 bridge) in exactly the same
+ * StoredAuth shape signIn writes, so every downstream path (authorizedFetch,
+ * refresh via /api/auth/refresh, SESSION_STATE) is identical whether the user
+ * signed in through the old popup form or the web bridge. No supabase-js and no
+ * Supabase key ever enters the extension (ADR-006): the tokens are opaque
+ * bearers the backend proxy validates. Provider-agnostic — the payload is the
+ * same for an email/password or a Google web sign-in.
+ */
+export async function applyBridgedSession(payload: AuthSessionPayload): Promise<AuthUser> {
+  const { session } = payload;
+  const user: AuthUser = { id: session.user.id, email: session.user.email ?? null };
+  await setAuth({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+    expires_at: session.expires_at,
+    user,
+  });
+  return user;
 }
 
 /**

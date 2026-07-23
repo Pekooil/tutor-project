@@ -35,7 +35,7 @@ const FLIP_MS = 420
 // different lengths swap through — sized to the widest name ("Google
 // Classroom") plus a little slack.
 const SIZES = {
-  hero: { labelFs: 15, labelTrack: '0.05em', gap: 16, slotW: 258, pillH: 54, pillFs: 21, padX: 28 },
+  hero: { labelFs: 13, labelTrack: '0.05em', gap: 13, slotW: 210, pillH: 42, pillFs: 17, padX: 22 },
   compact: { labelFs: 11, labelTrack: '0.07em', gap: 9, slotW: 166, pillH: 34, pillFs: 14, padX: 16 },
 } as const
 

@@ -2818,7 +2818,7 @@ function renderMathTokens(text: string): ReactNode {
 
 function describeError(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : 'unknown error';
-  return message === 'not signed in' ? 'Sign in from the Calyxa popup to start.' : fallback;
+  return message === 'not signed in' ? 'Sign in on the Calyxa website to start.' : fallback;
 }
 
 /**

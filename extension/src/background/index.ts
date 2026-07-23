@@ -1,6 +1,7 @@
 import { defineBackground } from '#imports';
 import type {
   AiTurnPayload,
+  AuthSessionPayload,
   CalyxaMessage,
   GenerateStudyKitPayload,
   LogErrorPayload,
@@ -184,6 +185,33 @@ export default defineBackground(() => {
       case 'CREATE_REFERRAL_LINK':
         void handleCreateReferralLink().then(sendResponse);
         return true;
+      default:
+        return false;
+    }
+  });
+
+  // (4b-ext) Web → extension session bridge (Part 2). Messages from the
+  // WEBSITE arrive on onMessageExternal (NOT onMessage), and only because the
+  // manifest's externally_connectable allowlists https://calyxa.app/*. Chrome
+  // already enforces that allowlist, but we defensively re-check the sender
+  // origin so a future manifest widening can't silently admit another site.
+  //
+  // AUTH_SESSION mirrors handleSignIn (store + broadcast so open tabs' idle
+  // pills mount live); AUTH_SIGNED_OUT mirrors handleSignOut. Neither awaits a
+  // reply the website needs, so this listener returns false (no open channel) —
+  // the web bridge is fire-and-forget.
+  chrome.runtime.onMessageExternal.addListener((message: CalyxaMessage, sender) => {
+    if (sender.origin !== 'https://calyxa.app') {
+      console.warn('Calyxa SW: rejected external message from', sender.origin);
+      return false;
+    }
+    switch (message.type) {
+      case 'AUTH_SESSION':
+        void handleBridgedSignIn(message.payload as AuthSessionPayload);
+        return false;
+      case 'AUTH_SIGNED_OUT':
+        void handleSignOut();
+        return false;
       default:
         return false;
     }
@@ -869,6 +897,24 @@ async function handleSignIn(payload: SignInPayload): Promise<CalyxaMessage> {
     return state;
   } catch (error) {
     return buildSessionState(toErrorMessage(error));
+  }
+}
+
+/**
+ * Applies a session pushed from the website (Part 2). Same discipline as
+ * handleSignIn: store the tokens (api.applyBridgedSession → chrome.storage.
+ * session, ADR PLAN §2.2), then broadcast SESSION_STATE to every open tab so
+ * their idle pills mount immediately — a student who signs in on calyxa.app
+ * sees the overlay appear on the tab they were already on, with zero extension
+ * interaction. A malformed payload is swallowed (logged), never thrown: the
+ * website's fire-and-forget send must not surface an error here.
+ */
+async function handleBridgedSignIn(payload: AuthSessionPayload): Promise<void> {
+  try {
+    await api.applyBridgedSession(payload);
+    void broadcastToAllTabs(await buildSessionState());
+  } catch (error) {
+    console.warn('Calyxa SW: bridged sign-in failed', toErrorMessage(error));
   }
 }
 

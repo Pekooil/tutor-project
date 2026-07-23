@@ -55,7 +55,7 @@ export function FinalCta() {
         your homework is already open. so is the tutor.
       </p>
       <a
-        href="/signup"
+        href="/start"
         className="mt-[22px] inline-flex w-full items-center justify-center rounded-[11px] bg-accent-fill py-3.5 text-[14.5px] font-semibold text-accent-fill-foreground transition-colors hover:bg-[#6ee7a0] sm:mt-8 sm:w-auto sm:rounded-xl sm:px-7 sm:text-base"
         style={{ boxShadow: '0 10px 30px rgba(28,40,30,0.16)' }}
       >

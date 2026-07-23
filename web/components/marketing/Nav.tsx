@@ -6,8 +6,9 @@ import { CalyxaMark } from '@calyxa/ui'
 
 // Landing v5 nav: in-flow bar (not sticky, matching the artboard) — logomark
 // + lowercase wordmark, center links, log in + the accent CTA. The design's
-// "beta notes" link is dropped (no such page yet — Darcy 2026-07-19); all
-// CTAs route to /signup while the Chrome Web Store listing is unpublished.
+// "beta notes" link is dropped (no such page yet — Darcy 2026-07-19); the
+// primary CTAs route to /start (the pre-signup onboarding wizard), which hands
+// off to /signup at its end.
 // Mobile: "Get calyxa" + a hamburger disclosure holding the remaining links.
 
 const LINKS = [
@@ -40,7 +41,7 @@ export function Nav() {
             log in
           </Link>
           <a
-            href="/signup"
+            href="/start"
             className="inline-flex items-center rounded-lg bg-accent-fill px-3.5 py-2 text-[12.5px] font-semibold text-accent-fill-foreground transition-colors hover:bg-[#6ee7a0] sm:rounded-[9px] sm:px-[18px] sm:py-[9px] sm:text-[13.5px]"
           >
             <span className="max-sm:hidden">Add to Chrome — free</span>
