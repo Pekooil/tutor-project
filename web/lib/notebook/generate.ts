@@ -37,10 +37,12 @@ const NOTEBOOK_MODEL = 'claude-haiku-4-5-20251001'
 const NOTEBOOK_MODEL_OPENAI = 'gpt-4o-mini'
 const NOTEBOOK_FN = toOpenAIFunctionTool(NOTEBOOK_TOOL)
 
-// Sized for one concept's revised notebook (a short summary + a handful of
-// reminders + a few titled explanations) — smaller than a full study kit, since
-// it is one concept, not the whole session's notes+problems+flashcards.
-const NOTEBOOK_MAX_TOKENS = 1000
+// Sized for one concept's revised notebook. Raised from 1000 for the v3
+// document shape (an overview + key points + up to four titled sections of
+// prose, each with its own finely-broken-down method) and again for the revision
+// changelog — still one concept, but real paragraphs rather than three flat
+// fields, and a truncated tool call would parse to a partial notebook.
+const NOTEBOOK_MAX_TOKENS = 3000
 
 // The system prompt: the generator's role + the revise-in-place contract.
 // Deliberately insists on carrying the existing notebook forward and grounding
@@ -51,19 +53,45 @@ const NOTEBOOK_SYSTEM =
   'document, like great hand-written notes. You are given their CURRENT notebook for this concept ' +
   '(possibly empty) and what happened in today\'s tutoring session on it: the transcript, the outcome ' +
   'of each turn, the steps the tutor HIGHLIGHTED, and the misconceptions seen.\n\n' +
-  'Produce the UPDATED notebook:\n' +
-  '- summary: a short running summary of the concept and where the student stands, updated for today.\n' +
-  '- mustKnow: the key things the student must know before solving — numbered points, each with its ' +
-  'own sub-bullets and, where it helps, ONE short highlighted expression. These are the facts/results, ' +
-  'not the procedure.\n' +
-  '- method: the ORDERED procedure for solving this type of problem — the steps the student walks ' +
-  'through, each with an optional short highlighted expression. For any step the student GOT WRONG ' +
-  '(from the outcomes / highlighted mistakes / misconceptions), attach a mistake annotation: what they ' +
-  'did wrong and what to watch for next time. Tag it with the EXACT misconception category from the ' +
-  'MISCONCEPTIONS list so the notebook can show how often and when it happened.\n\n' +
-  'Revise in place — carry forward what is still true, refine steps rather than duplicating them. Keep ' +
-  'only what the sessions actually support — never invent coverage this concept did not get. Reply ' +
-  'ONLY by calling the submit_concept_notebook tool.'
+  'Produce the UPDATED notebook as a READABLE DOCUMENT the student will re-read weeks later — full ' +
+  'sentences and real paragraphs, addressed to them as "you", never bullet fragments or markdown:\n' +
+  '- summary: the opening Brief Overview — what this concept is and where the student stands, updated ' +
+  'for today. Three or four sentences.\n' +
+  '- keyPoints: the Key Points bullets under it — the facts they need in hand before solving anything. ' +
+  'Each a single self-contained sentence.\n' +
+  '- sections: the body. Each section is a titled chapter with an icon; inside it, each subsection is ' +
+  'one idea with its own heading, its prose explanation, optionally ONE short featured expression, ' +
+  'optionally ONE pulled-out sentence worth remembering, and — when the idea is a procedure — an ' +
+  'ORDERED list of steps.\n' +
+  "- revision: this session's changelog — what improved, what misconception is new, and what you " +
+  'actually edited in the notebook.\n\n' +
+  'MAKE THE STEPS CARRY THE MATH. The worked steps are the most valuable thing in this notebook, so ' +
+  'break a procedure down finely: four to six small steps that each show their own manipulation beat ' +
+  'two big steps that hide the work. Split any step doing two manipulations into two. Write each ' +
+  "step's expression as a real before -> after transformation on the actual numbers from the session, " +
+  'not a restatement of the sentence.\n\n' +
+  'MAKE THE SECTIONS DIFFERENT FROM EACH OTHER. Each section takes a distinct facet of the concept — ' +
+  'what it means, the patterns to recognize, the procedure to follow, the traps to avoid — with a ' +
+  'distinct icon. Never give a section the same name as its own subsection, never repeat one ' +
+  'subsection in the next, and never cover the same ground in two sections: merge them instead.\n\n' +
+  'Mistakes are the point of this notebook. For any step the student GOT WRONG (from the outcomes, the ' +
+  'highlighted mistakes, or the misconceptions), attach a mistake annotation to that step: their ACTUAL ' +
+  'wrong work copied verbatim from the transcript, what went wrong, and what to watch for next time. ' +
+  'Never invent or tidy up their attempt — leave it "" if the transcript does not show it. Tag both a ' +
+  "step's mistake and the subsection it sits in with the EXACT misconception category from the " +
+  'MISCONCEPTIONS list, so the notebook can show how often and when it happened. Every entry in that ' +
+  'list deserves a home in the document — one marked "still open from an earlier session" is a standing ' +
+  'weakness, so attach it to the step it belongs on (or tag the subsection that covers it) even if ' +
+  "today's transcript did not happen to hit it. Leave `studentAttempt` empty for those; only today's " +
+  'transcript can tell you what they actually wrote.\n\n' +
+  'The revision changelog must be TRUE, not encouraging: put something in `improved` only when the ' +
+  'material shows they actually got right what they used to get wrong, `newMisconceptions` only from ' +
+  'the misconceptions list you were given, and `noteChanges` only for edits you actually made against ' +
+  'the current notebook. Empty lists are the correct answer when nothing changed — a first session has ' +
+  'no improvements to report.\n\n' +
+  'Revise in place — carry forward what is still true, refine sections and steps rather than ' +
+  'duplicating them. Keep only what the sessions actually support — never invent coverage this concept ' +
+  'did not get. Reply ONLY by calling the submit_concept_notebook tool.'
 
 // The user message: the current notebook first (what to revise), then this
 // concept's session material (the new evidence). Kept plain-text like
@@ -75,27 +103,32 @@ function buildNotebookUserMessage(existing: Notebook, slice: ConceptSlice): stri
   lines.push('')
 
   lines.push('CURRENT NOTEBOOK (revise this — keep what is still true):')
-  if (existing.summary === '' && existing.mustKnow.length === 0 && existing.method.length === 0) {
+  if (existing.summary === '' && existing.keyPoints.length === 0 && existing.sections.length === 0) {
     lines.push('(empty — this is the first session on this concept)')
   } else {
-    lines.push(`- Summary: ${existing.summary || '(none yet)'}`)
-    if (existing.mustKnow.length > 0) {
-      lines.push('- Must know:')
-      for (const k of existing.mustKnow) {
-        lines.push(`    • ${k.heading}${k.expression ? ` [${k.expression}]` : ''}`)
-        for (const p of k.points) lines.push(`        - ${p}`)
-      }
+    lines.push(`- Overview: ${existing.summary || '(none yet)'}`)
+    if (existing.keyPoints.length > 0) {
+      lines.push('- Key points:')
+      for (const p of existing.keyPoints) lines.push(`    • ${p}`)
     }
-    if (existing.method.length > 0) {
-      lines.push('- Method:')
-      existing.method.forEach((s, i) => {
-        lines.push(`    ${i + 1}. ${s.step}${s.expression ? ` [${s.expression}]` : ''}`)
-        if (s.mistake) {
-          lines.push(
-            `        (known slip${s.mistake.category ? ` · ${s.mistake.category}` : ''}: ${s.mistake.whatWentWrong})`
-          )
-        }
-      })
+    for (const section of existing.sections) {
+      lines.push(`- Section "${section.title}" (icon: ${section.icon}):`)
+      for (const block of section.subsections) {
+        const tag = block.category ? ` {covers: ${block.category}}` : ''
+        lines.push(`    ## ${block.heading}${block.expression ? ` [${block.expression}]` : ''}${tag}`)
+        for (const p of block.body) lines.push(`        ${p}`)
+        if (block.callout) lines.push(`        > ${block.callout}`)
+        block.steps.forEach((s, i) => {
+          lines.push(`        ${i + 1}. ${s.step}${s.expression ? ` [${s.expression}]` : ''}`)
+          if (s.mistake) {
+            const attempt = s.mistake.studentAttempt ? ` — they wrote: ${s.mistake.studentAttempt}` : ''
+            lines.push(
+              `            (known slip${s.mistake.category ? ` · ${s.mistake.category}` : ''}: ` +
+                `${s.mistake.whatWentWrong}${attempt})`
+            )
+          }
+        })
+      }
     }
   }
 
@@ -128,11 +161,17 @@ function buildNotebookUserMessage(existing: Notebook, slice: ConceptSlice): stri
 
   // The tracked misconceptions on this concept — use these EXACT category strings
   // when tagging a step's mistake so the notebook can join the live count/date.
-  if (slice.misconceptionsAdded.length > 0) {
+  if (slice.misconceptionsAdded.length > 0 || slice.misconceptionsTracked.length > 0) {
     lines.push('')
     lines.push('MISCONCEPTIONS (attach a step mistake for these; tag it with the exact category string):')
     for (const m of slice.misconceptionsAdded) {
-      lines.push(`- category: ${m.category}${m.description ? ` — ${m.description}` : ''}`)
+      lines.push(`- category: ${m.category}${m.description ? ` — ${m.description}` : ''} [NEW this session]`)
+    }
+    // Still-open misconceptions from earlier sessions. Without these the notebook
+    // for a long-running concept came back with no flags at all, because the
+    // recap only reports what the CURRENT session added.
+    for (const m of slice.misconceptionsTracked) {
+      lines.push(`- category: ${m.category}${m.description ? ` — ${m.description}` : ''} [still open from an earlier session]`)
     }
   }
 

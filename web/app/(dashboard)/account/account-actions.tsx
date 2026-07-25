@@ -97,14 +97,65 @@ export function AccountActions() {
         )}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+      {/* Sign out. Previously a borderless wash at 6% ink, which read as a caption
+          rather than a control — it is now an explicit bordered pill with a glyph,
+          on its own labelled row, so it is findable without hunting. */}
+      <div
+        style={{
+          position: 'relative',
+          marginTop: 16,
+          background: 'rgba(255,255,255,.72)',
+          border: `1px solid ${C.hair}`,
+          borderRadius: 17,
+          padding: '15px 19px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          animation: 'cxPop .5s cubic-bezier(.3,1.4,.4,1) .3s both',
+        }}
+      >
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
+          <span style={{ fontSize: 14.5, fontWeight: 600, color: C.ink }}>Sign out</span>
+          <span style={{ fontSize: 13, color: C.muted }}>
+            Ends this session on this device. Your notes and history stay put.
+          </span>
+        </span>
         <button
           className="cx-hover-faint"
-          style={{ border: 'none', background: 'rgba(28,28,26,.06)', color: C.ink, borderRadius: 99, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 7,
+            background: '#fff',
+            border: `1px solid ${C.muted}`,
+            color: C.ink,
+            borderRadius: 99,
+            padding: '9px 18px',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+            opacity: loggingOut ? 0.7 : 1,
+            flexShrink: 0,
+          }}
           onClick={handleLogout}
           disabled={loggingOut}
         >
-          {loggingOut ? 'Logging out…' : 'Log out'}
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M15 17l5-5-5-5" />
+            <path d="M20 12H9" />
+            <path d="M12 19H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6" />
+          </svg>
+          {loggingOut ? 'Signing out…' : 'Log out'}
         </button>
       </div>
     </>

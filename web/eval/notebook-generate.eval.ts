@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 
 import { generateConceptNotebook } from '@/lib/notebook/generate'
-import { EMPTY_NOTEBOOK, type Notebook } from '@/lib/notebook/tool'
+import { EMPTY_NOTEBOOK, parseNotebook, type Notebook } from '@/lib/notebook/tool'
 import type { ConceptSlice } from '@/lib/notebook/source'
 
 // Live generation check for the "live notebook" v2 content model (ADR-054 v2).
@@ -84,12 +84,16 @@ const SLICE: ConceptSlice = {
     },
   ],
   misconceptionsResolved: [],
+  misconceptionsTracked: [],
 }
 
 // A populated session-1 notebook (the shape the first-gen path produces) — the
 // starting point for the revise-in-place case. Its method already has a verify
 // step (index 3) and a sign-error mistake on the number-pair step.
-const EXISTING_NOTEBOOK: Notebook = {
+// Deliberately written in the v2 {summary,mustKnow,method} shape and lifted
+// through parseNotebook — that is exactly what update.ts does when it reads a
+// pre-v3 row back off the DB, so this also exercises the back-compat path.
+const EXISTING_NOTEBOOK: Notebook = parseNotebook({
   summary:
     'The student began learning to factor simple quadratics x^2 + bx + c. They stumbled on the signs at first but corrected it by the end of the session.',
   mustKnow: [
@@ -109,6 +113,7 @@ const EXISTING_NOTEBOOK: Notebook = {
       expression: '-2 * -3 = 6,  -2 + -3 = -5',
       mistake: {
         category: 'sign-error',
+        studentAttempt: 'x^2 - 5x + 6 = (x + 2)(x + 3)',
         whatWentWrong: 'Kept both numbers positive when b was negative.',
         watchFor: 'Check the sign of b to decide the signs of the two numbers.',
       },
@@ -116,7 +121,7 @@ const EXISTING_NOTEBOOK: Notebook = {
     { step: 'Write the factors with the correct signs.', expression: '(x - 2)(x - 3)', mistake: null },
     { step: 'Verify by expanding back to the original quadratic.', expression: null, mistake: null },
   ],
-}
+})
 
 // Session 2 on the SAME concept: the student now handles the signs correctly
 // (resolving the sign-error slip) but forgets to verify by expanding (a NEW
@@ -170,6 +175,7 @@ const SLICE_2: ConceptSlice = {
       description: 'writes the factors without expanding to check',
     },
   ],
+  misconceptionsTracked: [],
   misconceptionsResolved: [
     {
       conceptKey: CONCEPT_KEY,

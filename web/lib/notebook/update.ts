@@ -1,5 +1,7 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getConcept } from '@calyxa/curriculum'
+import type { RecapMisconception } from '@/lib/learning/recap'
 import { costGuard } from '@/lib/tier/cost-guard'
 import { estimateCost } from '@/lib/tier/cost-model'
 import { loadSessionSource, type SessionSource } from '@/lib/study/source'
@@ -29,6 +31,50 @@ export type NotebookUpdateResult =
   | { notebook: Notebook }
   | { refused: 'cost' | 'empty' }
   | { error: string }
+
+// The concept's OPEN misconceptions, whenever they were first spotted.
+//
+// The recap only reports what the CURRENT session added, so without this a
+// concept with a long history of tracked misconceptions handed the generator an
+// empty list and got back a notebook with no step mistakes flagged — the flags
+// being the single most useful thing the document carries. Confirmed against a
+// real account: a concept with 7 tracked misconceptions produced 0 flags.
+//
+// `pending` is included: a slip seen once is still worth writing down as a thing
+// to watch, and the notebook's own flag copy distinguishes it. Resolved ones are
+// excluded — the student has fixed those, and re-flagging them would misrepresent
+// where they stand. Never throws; an empty list simply means no flags.
+async function loadTrackedMisconceptions(
+  supabase: SupabaseClient,
+  userId: string,
+  conceptKey: string
+): Promise<RecapMisconception[]> {
+  const { data, error } = await supabase
+    .from('misconceptions')
+    .select('concept_key, category, description')
+    .eq('user_id', userId)
+    .eq('concept_key', conceptKey)
+    .in('status', ['pending', 'active'])
+    .is('deleted_at', null)
+    .order('occurrence_count', { ascending: false })
+    .limit(MAX_TRACKED_MISCONCEPTIONS)
+
+  if (error || !data) {
+    if (error) console.error('loadTrackedMisconceptions: read failed', error)
+    return []
+  }
+
+  return (data as { concept_key: string; category: string; description: string | null }[]).map((row) => ({
+    conceptKey: row.concept_key,
+    title: getConcept(row.concept_key)?.title ?? row.concept_key,
+    category: row.category,
+    description: row.description ?? '',
+  }))
+}
+
+// Most-frequent first, capped: a notebook has at most MAX_STEPS steps to hang
+// flags on, so listing more categories than that only dilutes the prompt.
+const MAX_TRACKED_MISCONCEPTIONS = 8
 
 // Revises one concept's notebook from its existing content + this session's
 // slice, and upserts it. The `source` is already loaded (the orchestrator loads
@@ -68,7 +114,7 @@ export async function updateConceptNotebook(
     const existing = parseNotebook((row as { content?: unknown } | null)?.content ?? null)
     const priorCount = (row as { session_count?: number } | null)?.session_count ?? 0
 
-    const slice = conceptSlice(source, conceptKey)
+    const slice = conceptSlice(source, conceptKey, await loadTrackedMisconceptions(supabase, userId, conceptKey))
     const notebook = await generateConceptNotebook(existing, slice)
 
     // Deterministic empty fallback (ADR-054): persist NOTHING. On a FIRST

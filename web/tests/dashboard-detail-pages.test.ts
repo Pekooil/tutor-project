@@ -1,17 +1,29 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// Render tests for the drill-down routes added with the interactive dashboard
-// pass: concept detail, misconception detail, and the study-kit viewer. Each is
-// an async Server Component that reads the auth'd user then a detail read; here
+// Render tests for the drill-down routes: misconception detail and the study-kit
+// viewer, plus the retirement redirects the Notebook Studio replaced. Each is an
+// async Server Component that reads the auth'd user then a detail read; here
 // server-only, next/navigation, the cookie client, and the detail reads are
 // mocked, and the resolved element is SSR-rendered (renderToStaticMarkup) — the
 // same pattern as dashboard-pages.test.ts.
 
-const { createClientMock, redirectMock, notFoundMock, conceptMock, misconceptionMock, kitMock } = vi.hoisted(() => ({
+const {
+  createClientMock,
+  redirectMock,
+  permanentRedirectMock,
+  notFoundMock,
+  conceptMock,
+  misconceptionMock,
+  kitMock,
+  kitConceptMock,
+} = vi.hoisted(() => ({
   createClientMock: vi.fn(),
   redirectMock: vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`)
+  }),
+  permanentRedirectMock: vi.fn((url: string) => {
+    throw new Error(`PERMANENT_REDIRECT:${url}`)
   }),
   notFoundMock: vi.fn(() => {
     throw new Error('NOT_FOUND')
@@ -19,18 +31,29 @@ const { createClientMock, redirectMock, notFoundMock, conceptMock, misconception
   conceptMock: vi.fn(),
   misconceptionMock: vi.fn(),
   kitMock: vi.fn(),
+  kitConceptMock: vi.fn(),
 }))
 
 vi.mock('server-only', () => ({}))
-vi.mock('next/navigation', () => ({ redirect: redirectMock, notFound: notFoundMock }))
+vi.mock('next/navigation', () => ({
+  redirect: redirectMock,
+  permanentRedirect: permanentRedirectMock,
+  notFound: notFoundMock,
+}))
 vi.mock('@/lib/supabase/server', () => ({ createClient: createClientMock }))
 vi.mock('@/components/dashboard/premium/detail-read', () => ({
   loadConceptDetail: conceptMock,
   loadMisconceptionDetail: misconceptionMock,
 }))
 vi.mock('@/components/dashboard/premium/kit-read', () => ({ loadStudyKit: kitMock }))
+vi.mock('@/components/studio/kit-target', () => ({ resolveKitConcept: kitConceptMock }))
 
 const conceptPage = await import('../app/(dashboard)/concepts/[conceptKey]/page')
+const reviewPage = await import('../app/(dashboard)/review/[conceptKey]/page')
+const quizPage = await import('../app/(dashboard)/quiz/[conceptKey]/page')
+const flashcardsPage = await import('../app/(dashboard)/flashcards/[conceptKey]/page')
+const notebookPage = await import('../app/(dashboard)/notebook/page')
+const notebookSubjectPage = await import('../app/(dashboard)/notebook/[subject]/page')
 const misconceptionPage = await import('../app/(dashboard)/misconceptions/[id]/page')
 const kitPage = await import('../app/(dashboard)/kits/[key]/page')
 
@@ -53,47 +76,52 @@ const NODE = {
 
 afterEach(() => vi.clearAllMocks())
 
-describe('Concept detail (/concepts/[conceptKey])', () => {
-  it('renders mastery, prerequisites and inline practice from the study kit', async () => {
-    createClientMock.mockResolvedValue(fakeSupabase(USER))
-    conceptMock.mockResolvedValue({
-      conceptKey: NODE.conceptKey,
-      title: NODE.title,
-      strandLabel: 'Algebra 1',
-      strandColor: '#9a3412',
-      node: NODE,
-      prerequisites: [{ conceptKey: 'algebra.basics', title: 'Order of operations', mastery: 0.9, state: 'mastered' }],
-      dependents: [],
-      misconceptions: [],
-      kitHref: 'session-9',
-      review: null,
-      // The kit is rendered inline now (reveal-solution problems + flip cards),
-      // not as an out-link to /kits/[key].
-      kit: {
-        notes: ['Isolate the variable'],
-        problems: [{ statement: 'Solve 2x + 3 = 7', solution: 'x = 2' }],
-        flashcards: [{ front: 'Inverse of addition', back: 'subtraction' }],
-        empty: false,
-      },
-      notebook: null,
-      snapshots: [],
-    })
-    const html = renderToStaticMarkup(await conceptPage.default({ params: Promise.resolve({ conceptKey: NODE.conceptKey }) }))
-    expect(html).toContain('Solving linear equations')
-    expect(html).toContain('Order of operations')
-    expect(html).toContain('Solve 2x + 3 = 7')
-    expect(html).toContain('Show solution')
+// The Notebook Studio replaced four pre-studio routes. Each is kept as a
+// permanent redirect rather than deleted, so a bookmark or an in-the-wild link
+// still lands on the view that superseded it. These tests are the guard that the
+// mapping doesn't silently drift or start 404ing.
+describe('Retired pre-studio routes redirect into the studio', () => {
+  it('/concepts/[conceptKey] → the concept notes', async () => {
+    await expect(
+      conceptPage.default({ params: Promise.resolve({ conceptKey: NODE.conceptKey }) })
+    ).rejects.toThrow(`PERMANENT_REDIRECT:/notes/${NODE.conceptKey}`)
   })
 
-  it('404s an unknown concept', async () => {
-    createClientMock.mockResolvedValue(fakeSupabase(USER))
-    conceptMock.mockResolvedValue(null)
-    await expect(conceptPage.default({ params: Promise.resolve({ conceptKey: 'nope' }) })).rejects.toThrow('NOT_FOUND')
+  it('/review/[conceptKey] → the notes, whose in-panel quiz records the completion', async () => {
+    // Points straight at /notes rather than via /quiz: the quiz is a panel state
+    // inside the notes now, and chaining redirects would be gratuitous.
+    await expect(
+      reviewPage.default({ params: Promise.resolve({ conceptKey: NODE.conceptKey }) })
+    ).rejects.toThrow(`PERMANENT_REDIRECT:/notes/${NODE.conceptKey}`)
   })
 
-  it('redirects when signed out', async () => {
-    createClientMock.mockResolvedValue(fakeSupabase(null))
-    await expect(conceptPage.default({ params: Promise.resolve({ conceptKey: NODE.conceptKey }) })).rejects.toThrow('REDIRECT:/login')
+  it('/quiz/[conceptKey] → the notes that now host the quiz', async () => {
+    await expect(
+      quizPage.default({ params: Promise.resolve({ conceptKey: NODE.conceptKey }) })
+    ).rejects.toThrow(`PERMANENT_REDIRECT:/notes/${NODE.conceptKey}`)
+  })
+
+  it('/flashcards/[conceptKey] → the notes that now host the deck', async () => {
+    await expect(
+      flashcardsPage.default({ params: Promise.resolve({ conceptKey: NODE.conceptKey }) })
+    ).rejects.toThrow(`PERMANENT_REDIRECT:/notes/${NODE.conceptKey}`)
+  })
+
+  it('/notebook → the dashboard browser', async () => {
+    await expect(notebookPage.default()).rejects.toThrow('PERMANENT_REDIRECT:/dashboard')
+  })
+
+  it('/notebook/[subject] → the dashboard browser, whatever the subject', async () => {
+    // The page ignores the segment entirely — every subject lands on the browser.
+    await expect(notebookSubjectPage.default()).rejects.toThrow('PERMANENT_REDIRECT:/dashboard')
+  })
+
+  it('passes the concept key through without double-encoding it', async () => {
+    // Next hands the segment over still URL-encoded; re-encoding would turn a
+    // key like `algebra.quadratics.factoring` into an unresolvable one.
+    await expect(
+      conceptPage.default({ params: Promise.resolve({ conceptKey: 'algebra.quadratics.factoring' }) })
+    ).rejects.toThrow('PERMANENT_REDIRECT:/notes/algebra.quadratics.factoring')
   })
 })
 
@@ -134,9 +162,42 @@ describe('Misconception detail (/misconceptions/[id])', () => {
   })
 })
 
-describe('Study-kit viewer (/kits/[key])', () => {
-  it('renders notes, a solution toggle and flashcard content', async () => {
+// /kits/[key] is the one URL the SHIPPED extension deep-links to, so it must
+// never dead-end. It now forwards into the studio when it can resolve a concept,
+// and falls back to the viewer when it can't.
+describe('Study-kit route (/kits/[key]) forwards into the studio', () => {
+  it('redirects a session id to that session’s concept notes', async () => {
     createClientMock.mockResolvedValue(fakeSupabase(USER))
+    kitConceptMock.mockResolvedValue('algebra.quadratics.factoring')
+    await expect(kitPage.default({ params: Promise.resolve({ key: 'session-13' }) })).rejects.toThrow(
+      'REDIRECT:/notes/algebra.quadratics.factoring'
+    )
+  })
+
+  it('uses a temporary redirect, not a permanent one', async () => {
+    // The session → concept mapping is derived from data; a 308 would be cached by
+    // the browser forever and could never be corrected.
+    createClientMock.mockResolvedValue(fakeSupabase(USER))
+    kitConceptMock.mockResolvedValue('x.y')
+    await expect(kitPage.default({ params: Promise.resolve({ key: 'k' }) })).rejects.toThrow(/^REDIRECT:/)
+    expect(permanentRedirectMock).not.toHaveBeenCalled()
+  })
+
+  it('encodes the concept key on the way out', async () => {
+    createClientMock.mockResolvedValue(fakeSupabase(USER))
+    kitConceptMock.mockResolvedValue('a b/c')
+    await expect(kitPage.default({ params: Promise.resolve({ key: 'k' }) })).rejects.toThrow(
+      'REDIRECT:/notes/a%20b%2Fc'
+    )
+  })
+})
+
+describe('Study-kit viewer (/kits/[key]) fallback', () => {
+  it('renders notes, a solution toggle and flashcard content when no concept resolves', async () => {
+    createClientMock.mockResolvedValue(fakeSupabase(USER))
+    // A kit whose turns never recorded a concept — the viewer is still the answer,
+    // because the link is out in the wild and must not 404.
+    kitConceptMock.mockResolvedValue(null)
     kitMock.mockResolvedValue({
       title: 'Unit circle & radian measure',
       meta: 'From your Jul 13 session · Trig & Precalculus',
@@ -154,6 +215,7 @@ describe('Study-kit viewer (/kits/[key])', () => {
 
   it('404s an unknown kit', async () => {
     createClientMock.mockResolvedValue(fakeSupabase(USER))
+    kitConceptMock.mockResolvedValue(null)
     kitMock.mockResolvedValue(null)
     await expect(kitPage.default({ params: Promise.resolve({ key: 'nope' }) })).rejects.toThrow('NOT_FOUND')
   })

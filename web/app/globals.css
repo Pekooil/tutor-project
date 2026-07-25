@@ -323,3 +323,98 @@ html {
     box-shadow: 0 18px 44px rgba(28, 40, 30, 0.16), 0 2px 8px rgba(28, 40, 30, 0.08);
   }
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Notebook Studio (Design handoff — Dashboard · Notes · Quiz · Flashcards).
+ * The shell adds `.cx-studio` alongside `.cx-app`, so the premium hover helpers
+ * and keyframes above still apply while everything visual here re-points to the
+ * `@calyxa/ui` tokens. `--studio-card` / `--studio-hover` are the only two
+ * values the token set does not already name; both are DERIVED from the shipped
+ * tokens so they follow the theme rather than pinning a hex.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.cx-app.cx-studio {
+  --studio-card: var(--color-background);
+  --studio-hover: color-mix(in srgb, var(--color-foreground) 4%, transparent);
+  background: var(--color-background);
+  color: var(--color-foreground);
+}
+/* Both forms: the shell stamps data-theme on ITSELF (so the server-rendered
+   HTML is already dark and there is no light flash) and on <body> (so anything
+   portalled outside the shell inherits the same token set). */
+.cx-app.cx-studio[data-theme='dark'],
+[data-theme='dark'] .cx-app.cx-studio {
+  /* In dark the card must lift off the page the way it does in the reference;
+     in light the two are the same white and the 1px border does the work. */
+  --studio-card: color-mix(in srgb, #fff 4%, var(--color-background));
+  --studio-hover: color-mix(in srgb, #fff 6%, transparent);
+}
+.cx-app.cx-studio ::selection {
+  background: var(--color-accent-glow);
+}
+.cx-app.cx-studio a {
+  color: var(--color-accent-emphasis);
+}
+.cx-app.cx-studio a:hover {
+  color: var(--color-accent-emphasis);
+}
+.cx-app.cx-studio :focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Rail + top-bar icon buttons: transparent until hovered, then the surface
+   wash. `!important` beats the inline `background` the component sets. */
+.cx-studio .cx-rail-btn:hover {
+  background: var(--color-surface) !important;
+  color: var(--color-foreground) !important;
+  text-decoration: none;
+}
+
+/* Rows and cards that light up on hover. */
+.cx-studio .cx-row:hover {
+  background: var(--color-surface) !important;
+  text-decoration: none;
+}
+.cx-studio .cx-row-edge:hover {
+  background: var(--color-surface) !important;
+  border-color: var(--calyxa-annot-1-tint-border) !important;
+  text-decoration: none;
+}
+
+/* The pre-studio screens (account, billing, sessions, library, …) keep the warm
+   page background and the centered column the old shell gave them.
+   Scoped to the CONTENT AREA, not the shell: applying it to the root made the
+   rail and top bar flip theme as the student moved between tabs. The chrome keeps
+   the chosen theme; the legacy page is a light document inside it. */
+.cx-studio-main.cx-legacy {
+  background: #f2f1ed;
+  color: #1c1c1a;
+  padding: 8px 24px 64px;
+}
+.cx-studio-main.cx-legacy > * {
+  max-width: 1020px;
+  margin: 0 auto;
+}
+
+/* The floating bottom-left nav bar: names the five destinations the glyph-only
+   rail cannot. Inactive items are muted until hovered; the active one carries the
+   accent fill set inline. */
+.cx-studio .cx-navbar-item:hover {
+  background: var(--color-surface) !important;
+  color: var(--color-foreground) !important;
+  text-decoration: none;
+}
+
+@media (max-width: 640px) {
+  /* Under 640px the rail gives way to the existing bottom tab bar. */
+  .cx-studio .cx-rail {
+    display: none !important;
+  }
+  /* …and the nav bar would sit on top of that tab bar. */
+  .cx-studio .cx-navbar {
+    display: none !important;
+  }
+  .cx-studio .cx-studio-main {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+}

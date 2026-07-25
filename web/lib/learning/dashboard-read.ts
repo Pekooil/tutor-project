@@ -118,7 +118,15 @@ export type DashboardMisconception = {
   strandLabel: string
   category: string
   description: string
-  status: 'active' | 'resolved'
+  /** The real lifecycle state (`apply.ts`): `pending` = the slip has been seen
+   *  ONCE and is not yet a confirmed pattern ("watching"), `active` = confirmed
+   *  at 2+ occurrences, `resolved` = 3 consecutive correct since.
+   *
+   *  The dashboard surfaces all three — a student is owed the difference between
+   *  "you keep doing this" and "I noticed this once". Note this is WIDER than
+   *  what `loadProfile` feeds the tutor, which stays `active`-only on purpose: a
+   *  one-off slip should not be taught against as an established misconception. */
+  status: 'pending' | 'active' | 'resolved'
   occurrenceCount: number
   consecutiveCorrect: number
   firstSeenAt: string
@@ -317,15 +325,18 @@ export async function loadDashboard(supabase: SupabaseClient): Promise<Dashboard
       .select('concept_key, mastery, stability, state, confidence_band, observation_count, last_practiced_at')
       .eq('user_id', userId)
       .is('deleted_at', null),
-    // Active + resolved misconceptions (pending = unconfirmed, excluded — the
-    // same "confirmed only" stance loadProfile takes reading status='active').
+    // All three lifecycle states. `pending` used to be excluded here to mirror
+    // loadProfile's confirmed-only stance, but that conflated two different
+    // audiences: the TUTOR must not teach against an unconfirmed slip, while the
+    // STUDENT'S dashboard should still show it — as "watching", visibly weaker
+    // than a confirmed misconception. loadProfile keeps its `active`-only read.
     supabase
       .from('misconceptions')
       .select(
         'id, concept_key, category, description, status, occurrence_count, consecutive_correct, first_seen_at, last_seen_at, resolved_at'
       )
       .eq('user_id', userId)
-      .in('status', ['active', 'resolved'])
+      .in('status', ['pending', 'active', 'resolved'])
       .is('deleted_at', null)
       .order('status', { ascending: true })
       .order('occurrence_count', { ascending: false })
@@ -372,7 +383,12 @@ export async function loadDashboard(supabase: SupabaseClient): Promise<Dashboard
       strandLabel,
       category: row.category,
       description: row.description ?? '',
-      status: row.status === 'resolved' ? 'resolved' : 'active',
+      // Preserve the real state. This used to coerce everything non-resolved to
+      // 'active', which was harmless only because the query excluded 'pending' —
+      // now that pending is read, coercing it would relabel a one-off slip as a
+      // confirmed misconception, which is exactly the distinction being added.
+      // Anything unrecognised still falls back to 'active' (fail toward "show it").
+      status: row.status === 'resolved' ? 'resolved' : row.status === 'pending' ? 'pending' : 'active',
       occurrenceCount: row.occurrence_count,
       consecutiveCorrect: row.consecutive_correct,
       firstSeenAt: row.first_seen_at,

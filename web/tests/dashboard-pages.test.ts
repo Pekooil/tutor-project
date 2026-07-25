@@ -3,32 +3,28 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardData } from '../lib/learning/dashboard-read'
 import { STRAND_ORDER, STRAND_LABELS } from '../lib/onboarding/item-bank'
 
-// Render test for the dashboard home (/dashboard) after the IA redesign
-// collapsed the old five-view analytics dashboard into a single daily-loop
-// surface (ContinueLearningScreen). The page is an async Server Component that
-// (1) reads the auth'd user via the cookie client, redirecting to /login when
-// signed out, then (2) loads its data (loadDashboard + loadNavUser +
-// loadStudyKits + loadRecentSessions) and renders the "Today's Review" home.
-// These tests pin that contract WITHOUT a browser or DB: every read is mocked
-// and the resolved element is SSR-rendered (renderToStaticMarkup, the same way
-// Next first paints it). loadDashboard's own real behavior is covered by
-// dashboard-read.test.ts; the deleted /mastery, /misconceptions, /activity index
-// pages (replaced by the Notebook + Library) are no longer part of this suite.
+// Render test for the dashboard home (/dashboard) — the Notebook Studio's
+// dashboard: today's review, then the subject → concept browser over everything
+// tutored. The page is an async Server Component that (1) reads the auth'd user
+// via the cookie client, redirecting to /login when signed out, then (2) loads
+// its data (loadDashboard + loadNavUser + loadSessionQuota + buildStudioCatalog)
+// and renders. These tests pin that contract WITHOUT a browser or DB: every read
+// is mocked and the resolved element is SSR-rendered (renderToStaticMarkup, the
+// same way Next first paints it). loadDashboard's own real behavior is covered by
+// dashboard-read.test.ts.
 
-const { createClientMock, loadDashboardMock, redirectMock, navUserMock, kitsMock, recentSessionsMock } = vi.hoisted(
-  () => ({
-    createClientMock: vi.fn(),
-    loadDashboardMock: vi.fn(),
-    // Next's real redirect() throws to halt rendering; the mock does the same so
-    // the page stops exactly where the real one would, and the call is asserted.
-    redirectMock: vi.fn((url: string) => {
-      throw new Error(`REDIRECT:${url}`)
-    }),
-    navUserMock: vi.fn(),
-    kitsMock: vi.fn(),
-    recentSessionsMock: vi.fn(),
-  })
-)
+const { createClientMock, loadDashboardMock, redirectMock, navUserMock, quotaMock, catalogMock } = vi.hoisted(() => ({
+  createClientMock: vi.fn(),
+  loadDashboardMock: vi.fn(),
+  // Next's real redirect() throws to halt rendering; the mock does the same so
+  // the page stops exactly where the real one would, and the call is asserted.
+  redirectMock: vi.fn((url: string) => {
+    throw new Error(`REDIRECT:${url}`)
+  }),
+  navUserMock: vi.fn(),
+  quotaMock: vi.fn(),
+  catalogMock: vi.fn(),
+}))
 
 // The page's reads import `server-only`-guarded helpers; neutralize the guard so
 // the modules import under vitest (the convention across the suite).
@@ -36,14 +32,11 @@ vi.mock('server-only', () => ({}))
 vi.mock('next/navigation', () => ({ redirect: redirectMock }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: createClientMock }))
 vi.mock('@/lib/learning/dashboard-read', () => ({ loadDashboard: loadDashboardMock }))
-vi.mock('@/lib/learning/activity-read', () => ({ loadRecentSessions: recentSessionsMock }))
+vi.mock('@/lib/learning/activity-read', () => ({ loadSessionQuota: quotaMock }))
 vi.mock('@/components/dashboard/premium/user-info', () => ({ loadNavUser: navUserMock }))
-// ContinueLearningScreen imports kitHrefForConcept from kits-read; stub it to
-// "no kit" so review links fall back to the concept workspace.
-vi.mock('@/components/dashboard/premium/kits-read', () => ({
-  loadStudyKits: kitsMock,
-  kitHrefForConcept: () => null,
-}))
+// The catalog's supplementary reads (kit counts, notebook keys, session counts)
+// hit the DB directly; stub the builder so this test stays a render contract.
+vi.mock('@/components/studio/catalog-read', () => ({ buildStudioCatalog: catalogMock }))
 
 const dashboardPage = await import('../app/(dashboard)/dashboard/page')
 
@@ -141,12 +134,70 @@ const RICH_DATA: DashboardData = {
   isEmpty: false,
 }
 
+// One tutored subject with one concept — enough to prove the browser renders.
+const CATALOG = [
+  {
+    key: 'algebra',
+    label: STRAND_LABELS.algebra ?? 'Algebra 1',
+    short: 'A1',
+    color: '#9a3412',
+    averageMastery: 0.42,
+    misconceptionCount: 1,
+    watchingCount: 0,
+    lastPracticedAt: '2026-07-12T00:00:00.000Z',
+    concepts: [
+      {
+        conceptKey: 'algebra.linear-equations.one-variable',
+        title: NODE_TITLE,
+        mastery: 0.42,
+        sessions: 2,
+        lastPracticedAt: '2026-07-12T00:00:00.000Z',
+        quizCount: 3,
+        cardCount: 4,
+        misconceptionCount: 1,
+        watchingCount: 0,
+        hasNotes: true,
+        status: 'gap' as const,
+        dueAt: null,
+      },
+    ],
+  },
+  // A subject with NOTHING confirmed but a slip being watched — proves the
+  // watching state surfaces instead of reading as "no gaps".
+  {
+    key: 'geometry',
+    label: STRAND_LABELS.geometry ?? 'Geometry',
+    short: 'GE',
+    color: '#166534',
+    averageMastery: 0.71,
+    misconceptionCount: 0,
+    watchingCount: 2,
+    lastPracticedAt: '2026-07-10T00:00:00.000Z',
+    concepts: [
+      {
+        conceptKey: 'geometry.angles.parallel-lines',
+        title: DUE_TITLE,
+        mastery: 0.71,
+        sessions: 1,
+        lastPracticedAt: '2026-07-10T00:00:00.000Z',
+        quizCount: 0,
+        cardCount: 0,
+        misconceptionCount: 0,
+        watchingCount: 2,
+        hasNotes: false,
+        status: 'solid' as const,
+        dueAt: null,
+      },
+    ],
+  },
+]
+
 async function render(user: { id: string } | null, data: DashboardData): Promise<string> {
   createClientMock.mockResolvedValue(fakeSupabase(user))
   loadDashboardMock.mockResolvedValue(data)
   navUserMock.mockResolvedValue({ name: 'Ada Lovelace', initials: 'AL', planLabel: 'Free' })
-  kitsMock.mockResolvedValue([])
-  recentSessionsMock.mockResolvedValue([])
+  quotaMock.mockResolvedValue({ tier: 'free', isPro: false, limit: 10, used: 3, remaining: 7, resetsAt: null })
+  catalogMock.mockResolvedValue(data.isEmpty ? [] : CATALOG)
   return renderToStaticMarkup(await dashboardPage.default())
 }
 
@@ -154,8 +205,8 @@ beforeEach(() => {
   createClientMock.mockReset()
   loadDashboardMock.mockReset()
   navUserMock.mockReset()
-  kitsMock.mockReset()
-  recentSessionsMock.mockReset()
+  quotaMock.mockReset()
+  catalogMock.mockReset()
   redirectMock.mockClear()
 })
 
@@ -164,15 +215,44 @@ afterEach(() => {
 })
 
 describe('Dashboard home (/dashboard)', () => {
-  it('renders the daily-loop home for an authed user with data', async () => {
+  it('renders the studio dashboard for an authed user with data', async () => {
     const html = await render(USER, RICH_DATA)
     // Greeting uses the first name; Today's Review is the dominant action; the
-    // weakest practiced concept surfaces in the "Get ahead" cards.
+    // browser lists the tutored subject and its concepts underneath.
     expect(html).toContain('Ada')
     expect(html).toContain('Start review')
-    expect(html).toContain('Weakest concepts')
+    expect(html).toContain('Everything tutored')
     expect(html).toContain(NODE_TITLE)
     expect(loadDashboardMock).toHaveBeenCalledOnce()
+  })
+
+  it('shows the free-tier session quota in the header', async () => {
+    const html = await render(USER, RICH_DATA)
+    expect(html).toContain('7 of 10 sessions left this month')
+  })
+
+  it('links a concept row to its notes, not the retired concept workspace', async () => {
+    const html = await render(USER, RICH_DATA)
+    expect(html).toContain('/notes/algebra.linear-equations.one-variable')
+    expect(html).not.toContain('/concepts/algebra.linear-equations.one-variable')
+  })
+
+  it('shows the per-concept study-material counts', async () => {
+    const html = await render(USER, RICH_DATA)
+    expect(html).toContain('3 quiz')
+    expect(html).toContain('4 cards')
+    expect(html).toContain('1 misconception')
+  })
+
+  it('surfaces a watched slip separately from a confirmed gap', async () => {
+    const html = await render(USER, RICH_DATA)
+    // A concept with nothing confirmed but something watched says so, rather
+    // than claiming "No gaps" (which would hide it) or "misconceptions" (which
+    // would overstate a single slip).
+    expect(html).toContain('2 watching')
+    expect(html).toContain('1 to fix')
+    // The confirmed count must NOT absorb the watched ones.
+    expect(html).not.toContain('3 to fix')
   })
 
   it('renders the activation state for a fresh user (no crash)', async () => {
@@ -182,8 +262,8 @@ describe('Dashboard home (/dashboard)', () => {
     expect(html).toContain('Start your first session')
     expect(html).toContain('Set up Calyxa')
     expect(html).toContain('/welcome')
-    // No daily-loop surfaces for an empty account.
-    expect(html).not.toContain('Weakest concepts')
+    // No browser surfaces for an empty account.
+    expect(html).not.toContain('Everything tutored')
     expect(html).not.toContain('Start review')
   })
 

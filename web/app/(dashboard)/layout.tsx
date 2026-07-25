@@ -1,17 +1,17 @@
 import type { ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/server'
-import { AmbientGlow } from '@/components/dashboard/premium/AmbientGlow'
-import { PremiumNav } from '@/components/dashboard/premium/PremiumNav'
-import { MobileTabBar } from '@/components/dashboard/premium/MobileTabBar'
-import { AskPill } from '@/components/dashboard/premium/AskPill'
+import { StudioShell } from '@/components/studio/StudioShell'
 import { loadNavUser } from '@/components/dashboard/premium/user-info'
 
-// The post-login dashboard shell — rebuilt to the "Calyxa Dashboard Premium"
-// design handoff. A fixed ambient-glow atmosphere, a floating pill nav (with the
-// avatar/account menu), a centered 960px content column, and the floating "Ask
-// Calyxa" pill. Everything is scoped under `.cx-app` so the marketing site is
-// untouched. The per-screen views live in the routes this layout wraps; each
-// stays a server-rendered, RLS-scoped, per-request-fresh read (ADR-047).
+// The post-login shell — the Notebook Studio's global chrome (a 64px left icon
+// rail + a 60px top bar), wrapping every signed-in route so the whole app shares
+// one frame. It replaces the floating pill nav; the pre-studio screens
+// (account, billing, sessions, library, …) render inside it unchanged, on the
+// warm page background they were designed against (`.cx-studio-legacy`).
+//
+// Each wrapped route stays a server-rendered, RLS-scoped, per-request-fresh read
+// (ADR-047) — the shell itself is the only client component, because it owns the
+// active rail item, the theme toggle, and the top-bar title.
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
@@ -19,14 +19,8 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   const navUser = await loadNavUser(supabase)
 
   return (
-    <div className="cx-app" style={{ position: 'relative', minHeight: '100vh' }}>
-      <AmbientGlow />
-      <PremiumNav name={navUser.name} initials={navUser.initials} planLabel={navUser.planLabel} />
-      <main className="cx-main" style={{ position: 'relative', maxWidth: 960, margin: '0 auto', padding: '104px 24px 88px' }}>
-        {children}
-      </main>
-      <AskPill />
-      <MobileTabBar />
-    </div>
+    <StudioShell initials={navUser.initials} name={navUser.name}>
+      {children}
+    </StudioShell>
   )
 }

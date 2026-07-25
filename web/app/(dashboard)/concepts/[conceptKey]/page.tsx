@@ -1,29 +1,18 @@
-import { notFound, redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { loadConceptDetail } from '@/components/dashboard/premium/detail-read'
-import { ConceptDetailScreen } from '@/components/dashboard/premium/ConceptDetailScreen'
+import { permanentRedirect } from 'next/navigation'
 
-// The concept workspace: mastery, misconceptions on this concept, prerequisites,
-// dependents, and a link to practice with the concept's study kit. Server-
-// rendered fresh per request (ADR-047), RLS-scoped via loadDashboard. Back-links
-// and related concepts stay inside /concepts.
+// RETIRED — superseded by the Notebook Studio's notes view, which shows the same
+// concept with its notebook, its misconceptions and its study material in one
+// place. Kept as a redirect rather than deleted so existing bookmarks and any
+// link already in the wild still land somewhere correct.
 export const dynamic = 'force-dynamic'
 
-export default async function ConceptWorkspacePage({ params }: { params: Promise<{ conceptKey: string }> }) {
+export default async function ConceptWorkspaceRedirect({
+  params,
+}: {
+  params: Promise<{ conceptKey: string }>
+}) {
   const { conceptKey } = await params
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
-
-  const detail = await loadConceptDetail(supabase, decodeURIComponent(conceptKey))
-  if (!detail) {
-    notFound()
-  }
-
-  return <ConceptDetailScreen detail={detail} />
+  // `conceptKey` arrives still URL-encoded; re-encoding would double-escape the
+  // dots and separators in a concept key.
+  permanentRedirect(`/notes/${conceptKey}`)
 }

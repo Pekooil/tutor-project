@@ -278,16 +278,23 @@ describe('loadDashboard — the FULL per-user graph grouped by strand', () => {
     expect(first.title).toBe(getConcept(GEOMETRY_KEY)!.title)
   })
 
-  it('splits misconceptions into active vs resolved (excluding pending), with their fields', async () => {
+  it('returns all three misconception states, preserving each, with their fields', async () => {
     const data = await loadDashboard(clientA)
 
     const active = data.misconceptions.filter((m) => m.status === 'active')
     const resolved = data.misconceptions.filter((m) => m.status === 'resolved')
+    const pending = data.misconceptions.filter((m) => m.status === 'pending')
     expect(active).toHaveLength(1)
     expect(resolved).toHaveLength(1)
-    // 'pending' is excluded entirely.
-    expect(data.misconceptions).toHaveLength(2)
-    expect(data.misconceptions.some((m) => m.category === 'unconfirmed')).toBe(false)
+    // 'pending' is now READ and surfaced as "watching" — a slip seen once is
+    // shown to the student, distinctly from a confirmed misconception. It stays
+    // excluded from loadProfile (the tutor's view) — see profile-read.
+    expect(pending).toHaveLength(1)
+    expect(pending[0].category).toBe('unconfirmed')
+    expect(data.misconceptions).toHaveLength(3)
+    // The state must be preserved, not coerced to 'active' (the old mapping did
+    // exactly that for everything non-resolved).
+    expect(data.misconceptions.find((m) => m.category === 'unconfirmed')!.status).toBe('pending')
 
     expect(active[0].conceptKey).toBe(GEOMETRY_KEY)
     expect(active[0].occurrenceCount).toBe(3)

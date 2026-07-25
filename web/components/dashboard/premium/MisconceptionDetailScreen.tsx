@@ -5,9 +5,9 @@ import { C, glassCard, sheen, eyebrow, entrance, pillAction, STATE_STYLE, pct } 
 
 function BackLink() {
   return (
-    <Link href="/notebook" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: C.greenDeep, textDecoration: 'none', marginBottom: 14 }}>
+    <Link href="/dashboard" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: C.greenDeep, textDecoration: 'none', marginBottom: 14 }}>
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M10 3 L5 8 L10 13" /></svg>
-      Notebook
+      Dashboard
     </Link>
   )
 }
@@ -16,6 +16,9 @@ export function MisconceptionDetailScreen({ detail }: { detail: MisconceptionDet
   const m = detail.misconception
   const filled = Math.min(detail.resolutionStreak, Math.max(0, m.consecutiveCorrect))
   const resolved = m.status === 'resolved'
+  // `pending` — seen once, not yet a confirmed pattern. Previously fell through
+  // to "Active", which overstated a single slip.
+  const watching = m.status === 'pending'
   const category = m.category ? m.category.charAt(0).toUpperCase() + m.category.slice(1) : 'Pattern'
   const node = detail.conceptNode
   const nodeStyle = node ? STATE_STYLE[node.state] : null
@@ -32,13 +35,13 @@ export function MisconceptionDetailScreen({ detail }: { detail: MisconceptionDet
         <span style={sheen} />
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.09em', textTransform: 'uppercase', color: C.muted, background: 'rgba(28,28,26,.05)', borderRadius: 99, padding: '3px 9px' }}>{category}</span>
-          <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600, letterSpacing: '.09em', textTransform: 'uppercase', borderRadius: 99, padding: '3px 9px', background: resolved ? 'rgba(134,239,172,.3)' : 'rgba(146,64,14,.09)', color: resolved ? C.greenDeep : C.amber }}>{resolved ? 'Resolved' : 'Active'}</span>
+          <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600, letterSpacing: '.09em', textTransform: 'uppercase', borderRadius: 99, padding: '3px 9px', background: resolved ? 'rgba(134,239,172,.3)' : watching ? 'rgba(37,99,235,.1)' : 'rgba(146,64,14,.09)', color: resolved ? C.greenDeep : watching ? C.blue : C.amber }}>{resolved ? 'Resolved' : watching ? 'Watching' : 'Active'}</span>
         </div>
         {m.description && <p style={{ position: 'relative', margin: '0 0 14px', fontSize: 14, lineHeight: '21px', color: '#1c1c1a' }}>{m.description}</p>}
 
         {/* Resolution progress */}
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 10, paddingTop: 12, borderTop: `1px solid ${C.hair}` }}>
-          <span style={{ fontSize: 12.5, color: C.muted }}>{resolved ? 'Resolved' : `${detail.resolutionStreak - filled} more correct in a row to resolve`}</span>
+          <span style={{ fontSize: 12.5, color: C.muted }}>{resolved ? 'Resolved' : watching ? 'Seen once — not a confirmed pattern yet' : `${detail.resolutionStreak - filled} more correct in a row to resolve`}</span>
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 3 }}>
             {Array.from({ length: detail.resolutionStreak }).map((_, i) => (
               <span key={i} style={{ width: 18, height: 6, borderRadius: 99, background: resolved || i < filled ? '#4ade80' : 'rgba(28,28,26,.08)' }} />
@@ -65,7 +68,7 @@ export function MisconceptionDetailScreen({ detail }: { detail: MisconceptionDet
         <div style={{ ...glassCard, padding: '16px 19px', ...entrance(0.18) }}>
           <span style={sheen} />
           <span style={{ ...eyebrow, position: 'relative', display: 'block', marginBottom: 10 }}>Concept</span>
-          <Link href={`/concepts/${m.conceptKey}`} className="cx-hover-soft" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 8px', borderRadius: 12, textDecoration: 'none', color: C.ink }}>
+          <Link href={`/notes/${encodeURIComponent(m.conceptKey)}`} className="cx-hover-soft" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 8px', borderRadius: 12, textDecoration: 'none', color: C.ink }}>
             <span style={{ fontSize: 13.5, fontWeight: 500, flex: 1, minWidth: 0 }}>{node?.title ?? m.title}</span>
             {nodeStyle && node ? (
               <>

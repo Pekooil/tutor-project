@@ -26,7 +26,16 @@ export type RelatedConcept = { conceptKey: string; title: string; mastery: numbe
  *  type) so the client-boundary screen imports only data. */
 export type ConceptNotebookView = {
   summary: string
+  /** v3 (ADR-054): the Key Points bullets under the Brief Overview. */
+  keyPoints: Notebook['keyPoints']
+  /** v3 (ADR-054): the document body the studio notes view renders. */
+  sections: Notebook['sections']
+  /** v3 (ADR-054): what the last session changed, or null when there is nothing
+   *  real to report (a pre-v3 row, a first session, a format-only migration). */
+  revision: Notebook['revision']
+  /** Derived from `sections` — kept for the pre-studio /notebook renderers. */
   mustKnow: Notebook['mustKnow']
+  /** Derived from `sections` — kept for the pre-studio /notebook renderers. */
   method: Notebook['method']
   /** How many sessions have fed this notebook — the "updated after N sessions"
    *  line in the workspace. */
@@ -56,6 +65,9 @@ export async function loadConceptNotebook(
 
   return {
     summary: parsed.summary,
+    keyPoints: parsed.keyPoints,
+    sections: parsed.sections,
+    revision: parsed.revision,
     mustKnow: parsed.mustKnow,
     method: parsed.method,
     sessionCount: (data as { session_count?: number }).session_count ?? 1,

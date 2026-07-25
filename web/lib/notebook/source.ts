@@ -32,6 +32,16 @@ export type ConceptSlice = {
   // of the notebook's "things you keep forgetting" reminders.
   misconceptionsAdded: RecapMisconception[]
   misconceptionsResolved: RecapMisconception[]
+  // Every misconception CURRENTLY OPEN on this concept, regardless of which
+  // session first spotted it.
+  //
+  // Why this is separate from `misconceptionsAdded`: that list is only what THIS
+  // session added, so a concept carrying long-standing misconceptions showed the
+  // generator none of them and the notebook came back with no step mistakes
+  // attached at all — the flags are the most valuable thing in the document, and
+  // they were silently absent for exactly the students who needed them most.
+  // Filled by the caller (which has the RLS-scoped client); empty when unknown.
+  misconceptionsTracked: RecapMisconception[]
 }
 
 // The concept keys worth building a notebook for from this session: the recap's
@@ -46,13 +56,26 @@ export function practicedConceptKeys(source: SessionSource): string[] {
 // Filters a whole-session `SessionSource` to one concept. Pure — no I/O, no
 // throw. `title` resolves through the curriculum with the raw-key fallback the
 // recap/kit paths use, so a stale key never breaks prompt assembly.
-export function conceptSlice(source: SessionSource, conceptKey: string): ConceptSlice {
+export function conceptSlice(
+  source: SessionSource,
+  conceptKey: string,
+  /** The concept's currently-open misconceptions, from the caller's read. */
+  tracked: RecapMisconception[] = []
+): ConceptSlice {
+  const added = source.misconceptionsAdded.filter((m) => m.conceptKey === conceptKey)
+  // Anything this session just added is already listed as "new"; keep the tracked
+  // list to the older ones so the prompt doesn't show the same category twice.
+  const addedCategories = new Set(added.map((m) => m.category))
+
   return {
     conceptKey,
     title: getConcept(conceptKey)?.title ?? conceptKey,
     turns: source.turns.filter((t) => t.conceptKey === conceptKey),
     concept: source.concepts.find((c) => c.conceptKey === conceptKey),
-    misconceptionsAdded: source.misconceptionsAdded.filter((m) => m.conceptKey === conceptKey),
+    misconceptionsAdded: added,
     misconceptionsResolved: source.misconceptionsResolved.filter((m) => m.conceptKey === conceptKey),
+    misconceptionsTracked: tracked.filter(
+      (m) => m.conceptKey === conceptKey && !addedCategories.has(m.category)
+    ),
   }
 }
