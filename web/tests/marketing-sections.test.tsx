@@ -8,6 +8,13 @@ import { WallOfLove } from '../components/marketing/WallOfLove'
 import { Pricing } from '../components/marketing/Pricing'
 import { FinalCta } from '../components/marketing/FinalCta'
 import { Footer } from '../components/marketing/Footer'
+import { Faq } from '../components/marketing/Faq'
+import { HERO_SESSION } from '../components/marketing/HeroDemo'
+import { LandingFooter } from '../components/marketing/LandingFooter'
+import { LandingHero } from '../components/marketing/LandingHero'
+import { LandingNav } from '../components/marketing/LandingNav'
+import { PlatformMarquee } from '../components/marketing/PlatformMarquee'
+import { StudyMaterials } from '../components/marketing/StudyMaterials'
 
 // Landing v5 render tests: SSR smoke renders (react-dom/server), matching
 // how Next first paints them — no DOM emulation, no timers, deterministic
@@ -62,7 +69,8 @@ describe('BeforeAfter (SSR)', () => {
   const html = decode(renderToString(createElement(BeforeAfter)))
 
   it('renders the heading and all 8 before-steps', () => {
-    expect(html).toContain('Skip the copy-paste loop.')
+    // Retitled 2026-07-24; the before/after content itself is unchanged.
+    expect(html).toContain('Calyxa makes learning simple.')
     for (const step of [
       'Screenshot the problem',
       'Open a new chat',
@@ -164,5 +172,170 @@ describe('Footer (SSR)', () => {
     // dead design links stay dropped until the pages exist
     expect(html).not.toContain('beta notes')
     expect(html).not.toContain('changelog')
+  })
+})
+
+// ── Landing v6 (2026-07-24) ───────────────────────────────────────────────
+// The sections page.tsx actually composes now. Same SSR-smoke contract as
+// above: composition and copy, not client motion.
+
+describe('LandingNav (SSR)', () => {
+  const html = decode(renderToString(createElement(LandingNav)))
+
+  it('links How it works, Pricing and Privacy beside the Dashboard pill', () => {
+    expect(html).toContain('How it works')
+    expect(html).toContain('/#how-it-works')
+    // Pricing left the landing page entirely — the nav is one of its two ways in.
+    expect(html).toContain('/pricing')
+    expect(html).toContain('/privacy')
+    expect(html).toContain('Dashboard')
+  })
+})
+
+describe('LandingHero (SSR)', () => {
+  const html = decode(renderToString(createElement(LandingHero, { showPlaceholders: true })))
+
+  it('keeps the existing headline and sub at the v6 hero format', () => {
+    expect(html).toContain('Stop copying.')
+    expect(html).toContain('Start learning.')
+    expect(html).toContain('Your Adaptive AI tutor that teaches directly on any homework, website, or PDF.')
+    expect(html).toContain('Add to Chrome — free')
+    expect(html).toContain('10 free sessions a month · chrome, for now')
+  })
+
+  it('renders the real Khan Academy demo in the right column, not the design mock', () => {
+    expect(html).toContain('khanacademy.org/math/trigonometry/right-triangles-trig')
+    expect(html).toContain('hero-khan.png')
+    expect(html).toContain('sees this page')
+    // the design file's static overlay placeholder is gone
+    expect(html).not.toContain('Static preview of the extension overlay')
+  })
+
+  it('runs the demo voice-only — the wide text composer never renders', () => {
+    // voiceOnly (2026-07-24): the pill rests on Listening and morphs through
+    // think/speak, so there is no composer input and no ↵ hint.
+    expect(html).toContain('Listening')
+    expect(html).not.toContain('Ask about this problem…')
+    expect(html).not.toContain('<input')
+    // /start and the pill harness still get the full pill — Hero (SSR) above
+    // asserts the composer is present there.
+  })
+
+  it('is play-only — no suggestion chips and nothing clickable in the demo', () => {
+    // interactive={false}: the demo is a film, not a toy. The only <button> in
+    // the section would be a chip, and there are none.
+    expect(html).not.toContain('<button')
+    expect(html).not.toContain('I’m stuck on this one')
+    expect(html).toContain('pointer-events-none')
+  })
+})
+
+describe('HERO_SESSION (the scripted hero session)', () => {
+  it('is one whole session: stuck → wrong turn → solved → study kit', () => {
+    expect(HERO_SESSION).toHaveLength(8)
+    expect(HERO_SESSION[0].student).toContain("I'm stuck")
+    // the arc has to include getting something wrong and being walked back,
+    // not just a clean run — that is the product claim.
+    expect(HERO_SESSION.map((turn) => turn.mode)).toContain('recover')
+    // ...and it has to end somewhere: solved, then a kit.
+    expect(HERO_SESSION[6].reply).toContain('3.11')
+    expect(HERO_SESSION[7].reply).toContain('notes')
+  })
+
+  it('never hands over the answer before the student derives it', () => {
+    // 3.11 may only appear in a reply to a student line that has ALREADY
+    // stated AB = 2 ÷ cos 50 — each turn's `student` precedes its `reply`.
+    const firstMention = HERO_SESSION.findIndex((turn) => turn.reply.includes('3.11'))
+    expect(HERO_SESSION[firstMention].student).toContain('divide by cos 50')
+  })
+})
+
+describe('PlatformMarquee (SSR)', () => {
+  const html = decode(renderToString(createElement(PlatformMarquee)))
+
+  it('names every platform and keeps the not-limited-to-a-list caveat', () => {
+    for (const platform of [
+      'Canvas',
+      'Khan Academy',
+      'MyLab Math',
+      'DeltaMath',
+      'WebAssign',
+      'AP Classroom',
+      'Google Classroom',
+    ]) {
+      expect(html).toContain(platform)
+    }
+    expect(html).toContain("isn't limited to a list")
+  })
+})
+
+describe('StudyMaterials (SSR)', () => {
+  const html = decode(renderToString(createElement(StudyMaterials)))
+
+  it('shows the notes document, not the extension working a problem', () => {
+    expect(html).toContain('Every session becomes study material.')
+    // the studio's own literal headings (components/studio/NotesDocument.tsx)
+    expect(html).toContain('Brief Overview')
+    expect(html).toContain('Key Points')
+    expect(html).toContain('Factoring quadratics')
+    // the extension replay this section used to carry is gone
+    expect(html).not.toContain('turn 4 of 8')
+    expect(html).not.toContain('Show the next turn')
+    expect(html).not.toContain('mathportal.school.edu')
+  })
+
+  it('prints the student’s own wrong work in the "Your attempt" callout', () => {
+    // The product's honesty claim: the callout quotes studentAttempt verbatim
+    // and offers the same follow-up the real notes view does.
+    expect(html).toContain('Your attempt · Jul 22 session')
+    expect(html).toContain('x² − 5x + 6 = (x − 2)(x + 3)')
+    expect(html).toContain('Ask Calyxa about this →')
+    expect(html).toContain('Slipped here once')
+  })
+
+  it('shows the quiz and a flashcard beside the notes', () => {
+    expect(html).toContain('Question 1')
+    expect(html).toContain('Reveal the solution')
+    expect(html).toContain('Work it out, then reveal the solution and mark whether you had it.')
+    expect(html).toContain('Prompt')
+    expect(html).toContain('Click to flip')
+  })
+
+  it('drops the two closing cards the design file had', () => {
+    expect(html).not.toContain('Knows your weak spots')
+    expect(html).not.toContain('Private by design')
+  })
+})
+
+describe('Faq (SSR)', () => {
+  const html = decode(renderToString(createElement(Faq)))
+
+  it('renders all five questions with the first one open', () => {
+    expect(html).toContain('Frequently asked questions')
+    expect(html).toContain('Is Calyxa free to use?')
+    expect(html).toContain('Which math does it cover?')
+    expect(html).toContain('Will it just do my homework for me?')
+    expect(html).toContain("Does it work on my school's portal?")
+    expect(html).toContain('What happens to my data?')
+    expect(html).toContain('aria-expanded="true"')
+  })
+
+  it('quotes the launch free cap, not the retired beta copy', () => {
+    expect(html).toContain('10 free sessions a month, no card')
+    expect(html).not.toContain('The beta is free')
+  })
+})
+
+describe('LandingFooter (SSR)', () => {
+  const html = decode(renderToString(createElement(LandingFooter)))
+
+  it('renders the tagline and the four live links', () => {
+    expect(html).toContain('Growth through learning.')
+    expect(html).toContain('/privacy')
+    expect(html).toContain('/terms')
+    expect(html).toContain('/pricing')
+    expect(html).toContain('All rights reserved.')
+    // the design's Support link is dropped — there is no support page
+    expect(html).not.toContain('Support')
   })
 })

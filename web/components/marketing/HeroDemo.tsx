@@ -35,13 +35,21 @@ import { CalyxaMark } from '@calyxa/ui'
 // The parent hero triggers the same machine from its "See how it works" CTA
 // via `askRef` (assigned on mount) — one machine, two entry points.
 
-type HeroMode = 'explore' | 'coach'
+type HeroMode = 'explore' | 'coach' | 'build' | 'practice' | 'verify' | 'recover'
 
 // Tutor-mode display data (tutor-modes.ts) + the --calyxa-mode-* tokens,
-// resolved under the overlay's data-theme="dark" wrapper.
+// resolved under the overlay's data-theme="dark" wrapper. The keys ARE the
+// token stems, so every entry here needs a --calyxa-mode-<key>-* triple in
+// theme.css. Six of the eight real modes are used — the scripted hero session
+// (HERO_SESSION) walks through them; challenge/review never come up in a
+// single first session, so they are left out rather than faked.
 const MODES: Record<HeroMode, { name: string; glyph: string }> = {
   explore: { name: 'Exploring', glyph: '✧' },
   coach: { name: 'Coaching', glyph: '✚' },
+  build: { name: 'Building', glyph: '▲' },
+  practice: { name: 'Practicing', glyph: '●' },
+  verify: { name: 'Verifying', glyph: '✓' },
+  recover: { name: 'Recovering', glyph: '♡' },
 }
 const modeVar = (mode: HeroMode, part: 'text' | 'bg' | 'border') => `var(--calyxa-mode-${mode}-${part})`
 
@@ -51,7 +59,7 @@ const MIC_QUESTION = 'which ratio do I use here?'
 // ── The scripted turns ────────────────────────────────────────────────────
 
 // Which on-page annotation set draws while the tutor speaks.
-type AnnotKind = 'stuck' | 'ratio' | 'answer' | 'generic'
+type AnnotKind = 'stuck' | 'ratio' | 'answer' | 'solved' | 'generic' | 'none'
 
 type Reply = { mode: HeroMode; text: string; annot: AnnotKind; followups: string[] }
 
@@ -135,7 +143,11 @@ const ANNOT_SETS: Record<AnnotKind, HeroMark[]> = {
     { shape: 'circle', rect: T_FIFTY, label: 'you know this angle' },
     { shape: 'box', rect: T_INPUT, label: 'yours to fill', note: 'cos 50° = 2 ÷ AB — rearrange it for AB' },
   ],
+  solved: [{ shape: 'box', rect: T_INPUT, label: 'AB ≈ 3.11', note: '2 ÷ cos 50° — every step of that was yours' }],
   generic: [{ shape: 'circle', rect: T_TRIANGLE, label: 'let’s start here' }],
+  // Turns that are pure conversation. A real session doesn't mark up the page
+  // on every reply, and drawing on all eight would read as noise.
+  none: [],
 }
 
 // AnnotationLayer.tsx's own estimates (estimateLabelWidth / estimateNoteHeight).
@@ -402,11 +414,99 @@ const PILL_SHAPE_CLASSES: Record<PillShape, string> = {
 // opening exactly as it would from the "I'm stuck" chip.
 const OPENING_FOLLOWUPS = ['which ratio do I use?', 'just tell me AB']
 
+// ── The scripted session (landing hero, `script` prop) ────────────────────
+//
+// One whole tutoring session, start to finish, played on a loop: the student
+// arrives stuck, gets a ratio wrong, is walked back through SOH-CAH-TOA rather
+// than corrected, sets the equation up themselves, solves it, and leaves with
+// a study kit. That arc is the product claim — so it is spelled out here as a
+// fixed sequence rather than left to replyFor's keyword matching, which can
+// only answer one question at a time and has no ending.
+//
+// Every tutor line obeys the same rule the real tutor does: it asks the next
+// question, it never hands over the answer. The one place a number appears
+// (turn 7) is arithmetic the student has already fully derived.
+
+export type ScriptedTurn = {
+  /** What the student says — typed out as a live voice transcript. */
+  student: string
+  /** The tutor's reply — streamed word by word into the caption. */
+  reply: string
+  mode: HeroMode
+  /** Which on-page marks draw while this reply streams ('none' for none). */
+  annot: AnnotKind
+}
+
+export const HERO_SESSION: ScriptedTurn[] = [
+  {
+    student: "hey calyxa — I'm stuck on this one",
+    mode: 'explore',
+    annot: 'stuck',
+    reply:
+      'okay — right triangle, you know the 50° angle and the side of length 2. before I say anything: which side is AB, relative to that angle?',
+  },
+  {
+    student: 'the long one? the hypotenuse',
+    mode: 'coach',
+    annot: 'ratio',
+    reply:
+      "that's it. and the 2 sits right against the 50°, so that one's the adjacent side. adjacent and hypotenuse — which of the three ratios pairs those two?",
+  },
+  {
+    student: 'sine?',
+    mode: 'recover',
+    annot: 'none',
+    reply:
+      "not quite — sine is opposite over hypotenuse. say the three out loud with me: soh, cah, toa. which one has adjacent and hypotenuse in it?",
+  },
+  {
+    student: 'oh — cah. so cosine',
+    mode: 'build',
+    annot: 'none',
+    reply: 'there it is. so write the equation out: cos 50° equals what, over what?',
+  },
+  {
+    student: 'cos 50 equals 2 over AB',
+    mode: 'coach',
+    annot: 'answer',
+    reply:
+      "exactly right, and you set that up yourself. now AB is stuck underneath. what would you do to both sides to get it out of the denominator?",
+  },
+  {
+    student: 'multiply both sides by AB',
+    mode: 'verify',
+    annot: 'none',
+    reply: 'good — that gives you AB times cos 50° = 2. one move left before AB is alone. what is it?',
+  },
+  {
+    student: 'divide by cos 50. so AB is 2 over cos 50',
+    mode: 'verify',
+    annot: 'solved',
+    reply: "that's the whole thing. run it on your calculator: 2 ÷ cos 50° ≈ 3.11. type it in and hit check.",
+  },
+  {
+    student: 'it worked — 3.11',
+    mode: 'practice',
+    annot: 'none',
+    reply:
+      "and every step of that was yours. I'm keeping the one you slipped on — sine vs cosine — and I'll put two more like it in your notes for later.",
+  },
+]
+
+// Reading beats between scripted turns, and the longer breath before the
+// session starts over from the top.
+const SCRIPT_START_MS = 1400
+const SCRIPT_TURN_HOLD_MS = 2600
+const SCRIPT_RESTART_HOLD_MS = 4600
+
 export function HeroDemo({
   askRef,
   showPlaceholders,
   autoOpen = false,
   openingText,
+  voiceOnly = false,
+  script,
+  interactive = true,
 }: {
   askRef?: MutableRefObject<((question: string) => void) | null>
   showPlaceholders: boolean
@@ -417,11 +517,29 @@ export function HeroDemo({
   // off, so the landing page renders the demo exactly as before.
   autoOpen?: boolean
   openingText?: string
+  // Landing v6 hero (Darcy, 2026-07-24): drop the wide text composer entirely
+  // and run the demo as a pure voice session — the pill only ever wears its
+  // listen / think / speak shapes, and every question (autoplay, chips,
+  // followups) goes in through the microphone path. The full pill, composer
+  // included, is still what /start and the pill harness render.
+  voiceOnly?: boolean
+  // Landing v6 hero (Darcy, 2026-07-24): a fixed session to play on a loop
+  // (HERO_SESSION). When set, the demo drives ITSELF turn by turn and the
+  // replyFor keyword matcher is bypassed entirely — every reply comes from the
+  // script. `askRef` is still published, but nothing on the landing calls it.
+  script?: ScriptedTurn[]
+  // false = play-only: no suggestion chips, no follow-up chips, and the whole
+  // overlay is pointer-transparent, so the demo is a film rather than a toy.
+  interactive?: boolean
 }) {
   // Deadlines live outside React state so the 80ms tick reads them without
   // re-subscribing (mirrors the script's instance fields). Declared before
   // `state` so the auto-open initializer below can arm the first deadline.
   const [deadlines] = useState(() => ({ at: 0 }))
+  // Scripted-session cursor: which turn is playing, and when its reading beat
+  // is up. Same reasoning as `deadlines` — the tick reads it without
+  // re-subscribing.
+  const [cursor] = useState(() => ({ turn: 0, holdAt: 0 }))
   const [state, setState] = useState<DemoState>(() => {
     if (autoOpen && openingText) {
       deadlines.at = Date.now() + 950
@@ -441,9 +559,10 @@ export function HeroDemo({
     return IDLE
   })
 
-  // Commit a question: think for ~950ms, then the reply streams.
-  const send = (s: DemoState, question: string, voice: boolean): DemoState => {
-    const reply = replyFor(question)
+  // Commit a question: think for ~950ms, then the reply streams. `scripted`
+  // overrides the keyword matcher when a fixed session is playing.
+  const send = (s: DemoState, question: string, voice: boolean, scripted?: Reply): DemoState => {
+    const reply = scripted ?? replyFor(question)
     deadlines.at = Date.now() + 950
     return {
       ...s,
@@ -464,11 +583,25 @@ export function HeroDemo({
 
   // Public ask (chips, CTA, in-card followups): the question first fills the
   // composer like a typed message, then sends.
-  const ask = (question: string) => {
+  const askTyped = (question: string) => {
     if (!question.trim()) return
     deadlines.at = Date.now() + 700
     setState((s) => ({ ...s, q: question, pendingQ: question, phase: 'fillq', listening: false, voice: false }))
   }
+
+  // The voice equivalent: the question arrives as a live transcript that types
+  // itself out, then commits as a spoken turn. `voiceOnly` routes every entry
+  // point through here, so the composer never opens.
+  const askSpoken = (question: string) => {
+    if (!question.trim()) return
+    setState((s) => {
+      if (s.listening) return s
+      deadlines.at = Date.now() + 400
+      return { ...s, listening: true, transcript: '', q: '', pendingQ: question, phase: '', voice: true }
+    })
+  }
+
+  const ask = voiceOnly ? askSpoken : askTyped
 
   const submitTyped = () => {
     setState((s) => (s.q.trim() ? send(s, s.q, false) : s))
@@ -478,24 +611,73 @@ export function HeroDemo({
     setState((s) => {
       if (s.listening) return s
       deadlines.at = Date.now() + 400
-      return { ...s, listening: true, transcript: '', q: '', phase: '' }
+      return { ...s, listening: true, transcript: '', q: '', pendingQ: MIC_QUESTION, phase: '' }
     })
+  }
+
+  // Start the scripted turn at `cursor.turn`: the student speaks, and the tick
+  // takes it from there.
+  const speakTurn = (turns: ScriptedTurn[]) => {
+    deadlines.at = Date.now() + 400
+    setState((s) => ({
+      ...s,
+      listening: true,
+      transcript: '',
+      q: '',
+      pendingQ: turns[cursor.turn].student,
+      phase: '',
+      voice: true,
+    }))
   }
 
   useEffect(() => {
     if (askRef) askRef.current = ask
+    // A session that loops forever is exactly the kind of motion
+    // prefers-reduced-motion asks us to stop, and there are no playback
+    // controls to offer instead (the demo is play-only). So under reduced
+    // motion the script does not run at all: the demo settles on one finished
+    // turn — tutor reply held, marks on the page — as a still frame that says
+    // the same thing. The CSS draw-on/stream animations are already disabled
+    // by marketing.css's reduced-motion block.
+    const playScript =
+      script && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? script : undefined
+    if (script && !playScript) {
+      const still = script[0]
+      setState((s) => ({
+        ...s,
+        asked: still.student,
+        full: still.reply,
+        typed: still.reply,
+        mode: still.mode,
+        annot: still.annot,
+        followups: [],
+        phase: 'speak',
+        listening: false,
+        voice: true,
+      }))
+    }
     const tick = setInterval(() => {
       setState((s) => {
         if (s.listening) {
           // The live transcript types word-by-word, holds a beat, then sends.
-          const words = MIC_QUESTION.split(' ')
+          // `pendingQ` carries whichever question is being spoken (the mic
+          // button's own, or one handed in through askSpoken/the script).
+          const spoken = s.pendingQ || MIC_QUESTION
+          const words = spoken.split(' ')
           const count = s.transcript ? s.transcript.split(' ').length : 0
           if (count < words.length) {
             if (Date.now() < deadlines.at) return s
             deadlines.at = Date.now() + 160
             return { ...s, transcript: words.slice(0, count + 1).join(' ') }
           }
-          return Date.now() >= deadlines.at + 500 ? send(s, MIC_QUESTION, true) : s
+          if (Date.now() < deadlines.at + 500) return s
+          const turn = playScript?.[cursor.turn]
+          return send(
+            s,
+            spoken,
+            true,
+            turn && { mode: turn.mode, annot: turn.annot, followups: [], text: turn.reply }
+          )
         }
         if (s.phase === 'fillq') {
           return Date.now() >= deadlines.at ? send(s, s.pendingQ, false) : s
@@ -508,16 +690,41 @@ export function HeroDemo({
           const count = s.typed ? s.typed.split(' ').length : 0
           return { ...s, typed: words.slice(0, count + 1).join(' ') }
         }
+        // The reply has finished streaming. In scripted mode, hold it long
+        // enough to read, then take the next turn — wrapping to turn 0 after
+        // the last one, so the session plays forever.
+        if (playScript && s.phase === 'speak') {
+          const last = cursor.turn === playScript.length - 1
+          if (cursor.holdAt === 0) {
+            cursor.holdAt = Date.now() + (last ? SCRIPT_RESTART_HOLD_MS : SCRIPT_TURN_HOLD_MS)
+            return s
+          }
+          if (Date.now() < cursor.holdAt) return s
+          cursor.holdAt = 0
+          cursor.turn = last ? 0 : cursor.turn + 1
+          deadlines.at = Date.now() + 400
+          return {
+            ...s,
+            listening: true,
+            transcript: '',
+            q: '',
+            pendingQ: playScript[cursor.turn].student,
+            phase: '',
+            voice: true,
+          }
+        }
         return s
       })
     }, 80)
+    const opening = playScript ? setTimeout(() => speakTurn(playScript), SCRIPT_START_MS) : undefined
     return () => {
       clearInterval(tick)
+      if (opening) clearTimeout(opening)
       if (askRef) askRef.current = null
     }
     // Mount-only on purpose: the tick reads everything through functional
-    // setState + the deadlines object, so re-subscribing per render would
-    // only churn the interval.
+    // setState + the deadlines/cursor objects, so re-subscribing per render
+    // would only churn the interval.
   }, [])
 
   const mode = MODES[state.mode]
@@ -526,18 +733,29 @@ export function HeroDemo({
   const sessionLive = state.asked !== '' || state.phase !== '' || state.listening
 
   // Which pill shape (PillState): voice turns morph listen → think → speak;
-  // text turns keep the composer open with dots in the right slot.
+  // text turns keep the composer open with dots in the right slot. Under
+  // `voiceOnly` there are no text turns, so the shape that would have been the
+  // composer rests at `listen` instead — the pill waiting for you to speak.
   const pillShape: PillShape = state.listening
     ? 'listen'
-    : state.voice && state.phase === 'think'
+    : (state.voice || voiceOnly) && state.phase === 'think'
       ? 'think'
-      : state.voice && streaming
+      : (state.voice || voiceOnly) && streaming
         ? 'speak'
-        : 'text'
+        : voiceOnly
+          ? 'listen'
+          : 'text'
 
   // Glow: opacity steps with attention state; tints to the mode while
-  // speaking (Overlay.tsx's glowOpacity/glowBackground).
-  const glowOpacity = pillShape === 'listen' || pillShape === 'speak' ? 0.8 : busy ? 0.62 : 0.42
+  // speaking (Overlay.tsx's glowOpacity/glowBackground). Under voiceOnly the
+  // resting shape IS 'listen', so key the bright step off actually listening
+  // rather than the shape, or the pill would never dim between turns.
+  const glowOpacity =
+    (pillShape === 'listen' && (state.listening || !voiceOnly)) || pillShape === 'speak'
+      ? 0.8
+      : busy
+        ? 0.62
+        : 0.42
   const glowBackground =
     pillShape === 'speak'
       ? `radial-gradient(closest-side, ${modeVar(state.mode, 'border')} 0%, ${modeVar(state.mode, 'border')} 48%, transparent 74%)`
@@ -647,7 +865,9 @@ export function HeroDemo({
                 stamped exactly like the extension does. ── */}
             <div
               data-theme="dark"
-              className="absolute inset-x-0 bottom-2 flex flex-col items-center gap-2 px-3 sm:bottom-[18px] sm:gap-3.5 sm:px-6"
+              className={`absolute inset-x-0 bottom-2 flex flex-col items-center gap-2 px-3 sm:bottom-[18px] sm:gap-3.5 sm:px-6 ${
+                interactive ? '' : 'pointer-events-none select-none'
+              }`}
             >
               {/* the single transient surface slot */}
               {surface === 'transcript' && (
@@ -702,7 +922,7 @@ export function HeroDemo({
                       {streaming && <StreamCaret />}
                     </p>
                     {/* the held reply's in-card follow-up chips */}
-                    {!streaming && state.followups.length > 0 && (
+                    {interactive && !streaming && state.followups.length > 0 && (
                       <div className="mt-1 flex flex-wrap items-center gap-[7px] border-t border-(--color-border) pt-2.5">
                         {state.followups.map((chip) => (
                           <button
@@ -720,7 +940,7 @@ export function HeroDemo({
                 </div>
               )}
               {/* the floating suggestion chips (marketing entry, idle only) */}
-              {!surface && !state.asked && state.phase === '' && (
+              {interactive && !surface && !state.asked && state.phase === '' && (
                 <div className="flex flex-wrap justify-center gap-1.5 sm:gap-2">
                   {CHIPS.map((chip) => (
                     <button

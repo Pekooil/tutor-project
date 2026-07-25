@@ -1,65 +1,77 @@
-import { Footer } from '@/components/marketing/Footer'
-import { Hero } from '@/components/marketing/Hero'
 import { BeforeAfter } from '@/components/marketing/BeforeAfter'
-import { Features } from '@/components/marketing/Features'
-// PARKED 2026-07-20: the beta-cohort "wall of love" is temporarily removed from
-// the landing pending real beta feedback (see the restore note in the body).
-// Keep this import commented rather than deleted so restoring is a two-line
-// uncomment.
-// import { WallOfLove } from '@/components/marketing/WallOfLove'
-import { Pricing } from '@/components/marketing/Pricing'
+import { Faq } from '@/components/marketing/Faq'
 import { FinalCta } from '@/components/marketing/FinalCta'
+import { LandingFooter } from '@/components/marketing/LandingFooter'
+import { LandingHero } from '@/components/marketing/LandingHero'
+import { LandingNav } from '@/components/marketing/LandingNav'
+import { PlatformMarquee } from '@/components/marketing/PlatformMarquee'
 import { Reveal } from '@/components/marketing/Reveal'
+import { StudyMaterials } from '@/components/marketing/StudyMaterials'
 import '@/components/marketing/marketing.css'
 
-// Landing v5 ("light", design_handoff_landing_v5, 2026-07-19): hero with the
-// live scripted Khan-Academy demo → before/after step loop → tabbed features
-// → pricing → keycap closer. (The wall-of-love/beta-cohort section sits between
-// features and pricing when restored — parked 2026-07-20, see below.) The
-// `.mkt` wrapper scopes the
-// marketing token layer (marketing.css) to this page only — product surfaces
-// never inherit it.
+// Landing v6 (design_handoff_landing_v6, 2026-07-24): nav → oversized
+// left-aligned hero with the live Khan-Academy demo → platform marquee →
+// before/after → the session → FAQ → keycap closer → dark footer. The `.mkt`
+// wrapper scopes the marketing token layer (marketing.css) to this page only —
+// product surfaces never inherit it.
 //
-// showPlaceholders (handoff flag, default ON): one boolean hides the
-// scripted-demo footnote, the sample-quotes caption, and the per-quote
-// placeholder badges — set NEXT_PUBLIC_SHOW_PLACEHOLDERS=0 only for
-// marketing screenshots.
+// Darcy's calls on top of the design file (2026-07-24):
+//  - The hero's static overlay mock is replaced by the existing live demo
+//    (HeroDemo, the scripted Khan Academy session), scaled into the column.
+//  - The design's "Calyxa makes learning simple." tabbed feature section is
+//    replaced by the existing before/after, which shows something the hero
+//    demo doesn't — and which then took that heading (2026-07-24).
+//    Features.tsx is now unused by this page (kept on disk, still covered by
+//    its SSR tests).
+//  - The design's "But wait, there's more" section became "Every session
+//    becomes study material" and, since the hero already shows the extension
+//    at work, it now shows what a session LEAVES BEHIND: the real notes
+//    document, quiz and flashcard surfaces. Its "Knows your weak spots." and
+//    "Private by design." cards were dropped earlier.
+//  - The testimonial marquee is dropped entirely — there are no real users to
+//    quote yet, the same rule that parked WallOfLove.tsx on 2026-07-20.
+//  - The closer is the existing FinalCta, unchanged, at its current size.
+//  - Pricing no longer renders here at all; it lives at /pricing, reachable
+//    from the nav and the footer.
+//
+// showPlaceholders (handoff flag, default ON): hides the scripted-demo
+// footnote — set NEXT_PUBLIC_SHOW_PLACEHOLDERS=0 only for marketing
+// screenshots.
 const SHOW_PLACEHOLDERS = process.env.NEXT_PUBLIC_SHOW_PLACEHOLDERS !== '0'
+
+// The one vertical wash the whole page sits on (design §"Page structure");
+// every section from the before/after down paints its own opaque background
+// over it.
+const PAGE_WASH = 'linear-gradient(180deg, #d6f5e3 0%, #e8f7ee 26%, #f6fbf8 58%, #ffffff 100%)'
 
 export default function Home() {
   return (
     <div className="mkt">
-      <main>
-        <Hero showPlaceholders={SHOW_PLACEHOLDERS} />
+      <div className="w-full overflow-x-hidden" style={{ background: PAGE_WASH }}>
+        <LandingNav />
+        <main>
+          <LandingHero showPlaceholders={SHOW_PLACEHOLDERS} />
 
-        <Reveal>
-          <BeforeAfter />
-        </Reveal>
+          <PlatformMarquee />
 
-        <Reveal>
-          <Features />
-        </Reveal>
+          <Reveal>
+            <BeforeAfter />
+          </Reveal>
 
-        {/* Beta-cohort "wall of love" — PARKED 2026-07-20 pending real beta
-            feedback. The full section is preserved intact at
-            components/marketing/WallOfLove.tsx (still exercised by its SSR tests
-            in tests/marketing-sections.test.tsx), so nothing needs recreating.
-            To restore: uncomment the import above and this block — done. */}
-        {/*
-        <Reveal>
-          <WallOfLove showPlaceholders={SHOW_PLACEHOLDERS} />
-        </Reveal>
-        */}
+          <Reveal>
+            <StudyMaterials />
+          </Reveal>
 
-        <Reveal>
-          <Pricing />
-        </Reveal>
+          <Reveal>
+            <Faq />
+          </Reveal>
 
-        <Reveal>
-          <FinalCta />
-        </Reveal>
-      </main>
-      <Footer />
+          <Reveal>
+            <FinalCta />
+          </Reveal>
+        </main>
+        <LandingFooter />
+      </div>
     </div>
   )
 }

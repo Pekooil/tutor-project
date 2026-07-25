@@ -11,10 +11,6 @@ import { NextResponse, type NextRequest } from 'next/server'
 // but it is ALSO opened signed-out by the extension's first-install tab
 // (chrome.runtime.onInstalled → calyxa.app/welcome) — so like '/', it must be
 // reachable without a session; the page itself adapts to auth state.
-// /notebook-preview (redesign) is a self-contained design harness for the
-// Personal Notebook — seeded mock data only, NO user data — viewable without a
-// session so the notebook redesign can be reviewed/screenshotted (the sibling of
-// the extension's pill-harness). Public like '/'; safe to drop before GA.
 // /start is the pre-signup onboarding wizard (three questions → personalized
 // demo → recap → /signup): a signed-out visitor lands here straight from a
 // landing-page CTA, so like '/' it must be reachable without a session.
@@ -22,7 +18,27 @@ import { NextResponse, type NextRequest } from 'next/server'
 // exchanges the code, so like '/' it must be reachable without one, otherwise
 // the cookie gate below would 307 it to /login before the exchange ever runs
 // and Google sign-in could never complete.
-const PUBLIC_PATHS = ['/', '/login', '/signup', '/start', '/welcome', '/privacy', '/terms', '/notebook-preview', '/auth/callback']
+// /studio-preview (Notebook Studio) is a self-contained design harness for the
+// four-view studio (dashboard · notes · quiz · flashcards): seeded mock data
+// only, NO user data, viewable without a session so the design can be reviewed
+// and screenshotted inside the real shell (the sibling of the extension's
+// pill-harness, and the successor to the retired /notebook-preview). Public like
+// '/'; safe to drop before GA.
+// /pricing (Landing v6, 2026-07-24) is the plans page the landing's nav and
+// footer link to — the landing itself no longer renders a pricing section, so
+// this is where a signed-out visitor comparing plans lands. Public like '/'.
+const PUBLIC_PATHS = [
+  '/',
+  '/login',
+  '/signup',
+  '/start',
+  '/pricing',
+  '/welcome',
+  '/privacy',
+  '/terms',
+  '/studio-preview',
+  '/auth/callback',
+]
 
 function isPublicPath(pathname: string) {
   // /api/session/*, /api/ai/*, /api/voice/*, and /api/profile/* are

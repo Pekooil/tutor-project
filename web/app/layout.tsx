@@ -49,11 +49,12 @@ const geistSans = Geist({
 
 // The Landing v5 display face (design handoff 2026-07-19): Schibsted Grotesk
 // 500–700, consumed only through the .mkt token layer's --font-display —
-// product surfaces keep Geist.
+// product surfaces keep Geist. 800 joined the set on 2026-07-24 for the
+// landing hero's H1 alone (Darcy: "more bold"); nothing else uses it.
 const schibstedGrotesk = Schibsted_Grotesk({
   variable: '--font-schibsted-grotesk',
   subsets: ['latin'],
-  weight: ['500', '600', '700'],
+  weight: ['500', '600', '700', '800'],
 })
 
 export default function RootLayout({ children }: { children: ReactNode }) {
