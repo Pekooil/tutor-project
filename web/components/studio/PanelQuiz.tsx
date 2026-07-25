@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { KitProblem } from '@/components/dashboard/premium/kit-read'
-import { T, ORDINAL, MATH_FONT, MOTION, accentButton, ghostButton } from './tokens'
+import { T, ORDINAL, MOTION, accentButton, ghostButton } from './tokens'
+import { MathText } from './math'
 import { ChevronLeft, ChevronRight, LightbulbIcon, TrophyIcon } from './icons'
 
 // The quiz runner, adapted to live INSIDE the Ask Calyxa panel rather than on its
@@ -16,10 +17,6 @@ import { ChevronLeft, ChevronRight, LightbulbIcon, TrophyIcon } from './icons'
 // than multiple choice. Real MCQ needs the generator to emit options.
 
 type Verdict = 'right' | 'wrong'
-
-function Serif({ text }: { text: string }) {
-  return <span style={{ fontFamily: MATH_FONT }}>{text}</span>
-}
 
 export function PanelQuiz({
   conceptKey,
@@ -184,7 +181,7 @@ export function PanelQuiz({
       </div>
 
       <p style={{ fontSize: 17, lineHeight: 1.5, fontWeight: 500, margin: '18px 0 0' }}>
-        <Serif text={problem.statement} />
+        <MathText expr={problem.statement} />
       </p>
 
       {!revealed ? (
@@ -208,7 +205,7 @@ export function PanelQuiz({
               }}
             >
               <strong style={{ fontWeight: 700 }}>Hint: </strong>
-              <Serif text={problem.solution.split(/[.;]/)[0]} />…
+              <MathText expr={problem.solution.split(/[.;]/)[0]} />…
             </div>
           )}
           <button
@@ -233,7 +230,8 @@ export function PanelQuiz({
             style={{
               marginTop: 14,
               background: T.surface,
-              border: `1px solid ${T.border}`,
+              // Inside the panel card → visible frame.
+              border: `1px solid ${T.frame}`,
               borderRadius: 10,
               padding: '11px 13px',
               fontSize: 13,
@@ -241,7 +239,7 @@ export function PanelQuiz({
             }}
           >
             <strong style={{ color: T.accentInk, fontWeight: 700 }}>Why: </strong>
-            <Serif text={problem.solution} />
+            <MathText expr={problem.solution} />
           </div>
 
           {/* Stacked, not side by side: at panel width two pills would wrap badly. */}
@@ -270,7 +268,7 @@ export function PanelQuiz({
                     fontWeight: 600,
                     cursor: 'pointer',
                     background: on ? set.background : 'transparent',
-                    border: on ? `1.5px solid ${set.color}` : `1.5px solid ${T.border}`,
+                    border: on ? `1.5px solid ${set.color}` : `1.5px solid ${T.frame}`,
                     color: on ? set.color : T.ink,
                     opacity: verdicts[index] && !on ? 0.55 : 1,
                   }}

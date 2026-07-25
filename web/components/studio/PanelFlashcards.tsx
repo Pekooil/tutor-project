@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import type { KitFlashcard } from '@/components/dashboard/premium/kit-read'
-import { T, MATH_FONT, SHADOW, MOTION, accentButton, ghostButton } from './tokens'
+import { T, SHADOW, MOTION, accentButton, ghostButton } from './tokens'
+import { MathText } from './math'
 import { ChevronLeft } from './icons'
 
 // The flashcard viewer, adapted to live INSIDE the Ask Calyxa panel rather than on
@@ -102,7 +103,7 @@ export function PanelFlashcards({
                   borderRadius: 11,
                   cursor: 'pointer',
                   background: on ? T.accent : 'transparent',
-                  border: `1.5px solid ${on ? T.accent : T.border}`,
+                  border: `1.5px solid ${on ? T.accent : T.frame}`,
                   color: on ? T.onAccent : T.ink,
                 }}
               >
@@ -187,10 +188,10 @@ export function PanelFlashcards({
             transition: `transform calc(${MOTION.base} * 2.25) ${MOTION.ease}`,
           }}
         >
-          <span style={{ ...face, background: T.card, border: `1px solid ${T.border}`, boxShadow: SHADOW.flashcard }}>
+          <span style={{ ...face, background: T.card, border: `1px solid ${T.frame}`, boxShadow: SHADOW.flashcard }}>
             <span style={{ ...label, color: T.muted }}>Prompt</span>
-            <span style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.45, fontFamily: MATH_FONT, color: T.ink }}>
-              {card.front}
+            <span style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.45, color: T.ink }}>
+              <MathText expr={card.front} />
             </span>
             <span style={{ fontSize: 11.5, color: T.muted }}>Click to flip</span>
           </span>
@@ -207,7 +208,9 @@ export function PanelFlashcards({
                 back composites dark in dark mode — its ink must be the theme-aware
                 `ink1`, not the fixed `a1Deep`, which measured 2.38:1 here. */}
             <span style={{ ...label, color: T.ink1 }}>Answer</span>
-            <span style={{ fontSize: 14.5, fontWeight: 500, lineHeight: 1.5, color: T.ink }}>{card.back}</span>
+            <span style={{ fontSize: 14.5, fontWeight: 500, lineHeight: 1.5, color: T.ink }}>
+              <MathText expr={card.back} />
+            </span>
           </span>
         </span>
       </button>

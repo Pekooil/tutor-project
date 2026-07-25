@@ -335,6 +335,13 @@ html {
 .cx-app.cx-studio {
   --studio-card: var(--color-background);
   --studio-hover: color-mix(in srgb, var(--color-foreground) 4%, transparent);
+  /* A frame that is actually VISIBLE, for a card sitting on another card.
+     `--color-border` is #2a2b27 in dark — measured 1.19–1.47:1 against the
+     surfaces either side of it, i.e. invisible, well under the 3:1 WCAG asks of a
+     UI boundary. It reads fine where a card sits on the PAGE (the background
+     step does the separating), but a card-on-card has no surface step to lean on
+     and simply disappears. Light mode keeps the normal border. */
+  --studio-frame: var(--color-border);
   background: var(--color-background);
   color: var(--color-foreground);
 }
@@ -347,6 +354,16 @@ html {
      in light the two are the same white and the 1px border does the work. */
   --studio-card: color-mix(in srgb, #fff 4%, var(--color-background));
   --studio-hover: color-mix(in srgb, #fff 6%, transparent);
+  /* 36% is the DARKEST white that still clears 3:1 against both surfaces the
+     frame sits between (3.01 inside / 3.25 outside). 40% read as too heavy an
+     outline; 34% drops the inside edge to 2.85 and fails. So this is the floor —
+     any softer and the boundary stops meeting the contrast bar for a UI element.
+     Dark-mode borders have to be LIGHTER than their surface: a dark border on a
+     dark surface is nothing, and the drop shadows that carry this separation in
+     light mode do nothing here either.
+     Light mode is untouched — `--color-border` resolves to #79766e there (globals'
+     shadcn mapping shadows theme.css's #e5e3de) and already measures ~4.2:1. */
+  --studio-frame: color-mix(in srgb, #fff 36%, transparent);
 }
 .cx-app.cx-studio ::selection {
   background: var(--color-accent-glow);

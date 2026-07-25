@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import Link from 'next/link'
 import { CalyxaMark } from '@calyxa/ui'
@@ -8,7 +8,8 @@ import type { DashboardMisconception } from '@/lib/learning/dashboard-read'
 import type { NotebookSection, NotebookStep, NotebookSubsection } from '@/lib/notebook/tool'
 import type { StudioNotes } from './notes-read'
 import { misconceptionState, MISCONCEPTION_MEANING, type MisconceptionState } from './misconception'
-import { T, ORDINAL, MATH_FONT, SHADOW, MOTION, pill, eyebrow as eyebrowStyle } from './tokens'
+import { T, ORDINAL, SHADOW, MOTION, pill, eyebrow as eyebrowStyle } from './tokens'
+import { MathCapsule, MathCapsuleBlock, MathText } from './math'
 import { SECTION_ICON, ChecklistIcon, PencilIcon } from './icons'
 
 // Screen 2a — the notes column: the concept's Personal Notebook rendered as a
@@ -26,36 +27,6 @@ function shortDate(iso: string | null): string {
   if (!iso) return ''
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
-/** Renders `x^2` as x², the one bit of markup the plain-text expressions carry.
- *  A real math renderer (KaTeX/MathJax) is on the not-yet-built list. */
-function MathText({ expr, size = 16 }: { expr: string; size?: number }) {
-  const parts = expr.split(/\^(-?\w+)/g)
-  return (
-    <span style={{ fontFamily: MATH_FONT, fontStyle: 'italic', fontSize: size }}>
-      {parts.map((part, i) =>
-        i % 2 === 1 ? <sup key={i}>{part}</sup> : <Fragment key={i}>{part}</Fragment>
-      )}
-    </span>
-  )
-}
-
-function MathBubble({ expr }: { expr: string }) {
-  return (
-    <div
-      style={{
-        display: 'inline-flex',
-        background: T.surface,
-        border: `1px solid ${T.border}`,
-        borderRadius: 10,
-        padding: '12px 20px',
-        margin: '16px 0',
-      }}
-    >
-      <MathText expr={expr} size={19} />
-    </div>
-  )
 }
 
 // ── The revision changelog ───────────────────────────────────────────────────
@@ -202,8 +173,9 @@ function MarginFlag({ label, detail }: { label: string; detail: string }) {
             width: 270,
             zIndex: 5,
             display: 'block',
-            background: T.card,
-            border: `1px solid ${T.border}`,
+            // Floats above the notes card, so same reasoning as the why-note.
+            background: T.surface,
+            border: `1px solid ${T.frame}`,
             borderRadius: 10,
             padding: '11px 13px',
             boxShadow: SHADOW.popover,
@@ -223,7 +195,7 @@ function MarginFlag({ label, detail }: { label: string; detail: string }) {
           >
             {label}
           </span>
-          <span style={{ display: 'block', fontSize: 12.5, lineHeight: 1.55, color: T.ink }}>{detail}</span>
+          <span style={{ display: 'block', fontSize: 12.5, lineHeight: 1.55, color: T.inkSoft }}>{detail}</span>
         </span>
       )}
     </span>
@@ -274,8 +246,8 @@ function YourAttempt({
           child sets the deep amber ink rather than inheriting the page colour,
           or the card turns into light-on-light in dark mode. */}
       {mistake.studentAttempt && (
-        <div style={{ marginTop: 10, color: T.a2Deep }}>
-          <MathText expr={mistake.studentAttempt} size={16} />
+        <div style={{ marginTop: 10 }}>
+          <MathCapsule expr={mistake.studentAttempt} tone="mistake" />
         </div>
       )}
 
@@ -351,25 +323,13 @@ function StepList({
             <div style={{ minWidth: 0, flex: 1 }}>
               <p style={{ margin: 0, fontSize: 16.5, lineHeight: 1.7 }}>{step.step}</p>
 
+              {/* The step's math, in the extension's capsule. Green on a clean
+                  step; amber on a flagged one — same shape, so the two read as
+                  one system, but a step the student got wrong never wears the
+                  colour that means "right". */}
               {step.expression && (
-                <p style={{ margin: '6px 0 0' }}>
-                  <span
-                    style={
-                      flagged
-                        ? {
-                            background: T.a2Tint,
-                            // Tint bg ⇒ deep text (see AnnotationMark): the tints
-                            // are light-only, so this must not inherit.
-                            color: T.a2Deep,
-                            borderBottom: `3px solid ${T.a2}`,
-                            borderRadius: '3px 3px 0 0',
-                            padding: '1px 5px',
-                          }
-                        : undefined
-                    }
-                  >
-                    <MathText expr={step.expression} size={16} />
-                  </span>
+                <p style={{ margin: '8px 0 0' }}>
+                  <MathCapsule expr={step.expression} tone={flagged ? 'mistake' : 'correct'} />
                 </p>
               )}
 
@@ -423,12 +383,15 @@ function Subsection({
         </p>
       ))}
 
-      {block.expression && <MathBubble expr={block.expression} />}
+      {block.expression && <MathCapsuleBlock expr={block.expression} />}
 
+      {/* The pulled-out line. No italic — the accent bar and the slightly heavier
+          weight are what lift it off the body copy, which keeps the document in a
+          single upright face throughout. */}
       {block.callout && (
         <blockquote style={{ display: 'flex', gap: 14, margin: '18px 0 0' }}>
           <span aria-hidden="true" style={{ width: 3, borderRadius: 3, background: T.accent, flexShrink: 0 }} />
-          <span style={{ fontStyle: 'italic', fontSize: 16.5, lineHeight: 1.7, color: T.ink }}>
+          <span style={{ fontSize: 16.5, fontWeight: 500, lineHeight: 1.7, color: T.ink }}>
             {block.callout}
           </span>
         </blockquote>
@@ -564,20 +527,27 @@ function AnnotationMark({
                 padding: '1px 5px',
               }}
             >
-              <MathText expr={target} size={15} />
+              <MathText expr={target} />
             </span>
           )}
         </div>
+        {/* The explanation of a mark. It sits INSIDE the notes card, so it gets
+            both a raised surface and the visible frame — on `T.card` with a
+            `T.border` it was card-on-card with no surface step and an invisible
+            outline, which in dark mode meant no frame at all. */}
         {note && (
           <div
             style={{
               marginTop: 8,
-              background: T.card,
-              border: `1px solid ${T.border}`,
+              background: T.surface,
+              border: `1px solid ${T.frame}`,
               borderRadius: 10,
               padding: '10px 12px',
               fontSize: 12.5,
               lineHeight: 1.55,
+              // Softer than `ink`: this is supporting explanation, not the
+              // document's own prose, and full-brightness text made the card shout.
+              color: T.inkSoft,
               boxShadow: SHADOW.note,
             }}
           >
@@ -636,7 +606,7 @@ function AnnotationsSection({
             </span>
             {snapshot.studentTranscript && (
               <span style={{ color: T.ink }}>
-                <MathText expr={snapshot.studentTranscript} size={16} />
+                <MathText expr={snapshot.studentTranscript} />
               </span>
             )}
           </div>

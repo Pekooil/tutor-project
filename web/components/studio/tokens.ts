@@ -17,7 +17,23 @@ export const T = {
   hover: 'var(--studio-hover)',
   border: 'var(--color-border)',
   borderStrong: 'var(--color-border-strong)',
+  /** A VISIBLE frame, for a card sitting on another card.
+   *
+   *  `border` is invisible in dark mode (measured 1.19–1.47:1 against the surfaces
+   *  either side). That is fine where a card sits on the page — the background
+   *  step separates it — but a card-on-card has no step to lean on, and the drop
+   *  shadow that carries it in light mode does nothing on a dark surface. Use
+   *  `frame` whenever a bordered box sits inside another bordered box. */
+  frame: 'var(--studio-frame)',
   ink: 'var(--color-foreground)',
+  /** Secondary body text — dimmer than `ink`, but still real body copy, unlike
+   *  `muted` which is for labels and metadata.
+   *
+   *  Measured on the raised why-note surface in dark: `ink` is 10.86:1 (bright
+   *  enough to shout), `muted` only 4.23:1 (under the 4.5:1 AA floor for text at
+   *  this size). This lands at 7.6:1 — visibly softer without dropping below the
+   *  bar. It is theme.css's own chip-text token, not a bespoke grey. */
+  inkSoft: 'var(--calyxa-chip-text)',
   muted: 'var(--color-muted-foreground)',
   danger: 'var(--color-danger)',
 
@@ -77,9 +93,6 @@ export const MOTION = {
   ease: 'var(--motion-ease-out)',
 } as const
 
-/** Display math is set in a serif italic until the codebase adopts a real math
- *  renderer (KaTeX/MathJax) — see the not-yet-built list. */
-export const MATH_FONT = 'Georgia, "Times New Roman", Times, serif'
 
 export const eyebrow: CSSProperties = {
   fontSize: 10.5,

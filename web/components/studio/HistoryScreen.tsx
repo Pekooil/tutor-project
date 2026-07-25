@@ -70,7 +70,8 @@ function SessionRow({ session }: { session: RecentSession }) {
     alignItems: 'center' as const,
     gap: 14,
     padding: '13px 16px',
-    border: `1px solid ${T.border}`,
+    // Row inside the day-group card → visible frame.
+    border: `1px solid ${T.frame}`,
     borderRadius: 11,
     background: 'transparent',
     color: T.ink,

@@ -197,7 +197,8 @@ function ConceptRow({ concept }: { concept: StudioConcept }) {
         gap: 14,
         width: '100%',
         padding: '13px 16px',
-        border: `1px solid ${T.border}`,
+        // Row inside the subject card → visible frame, not the invisible `border`.
+        border: `1px solid ${T.frame}`,
         borderRadius: 11,
         background: 'transparent',
         color: T.ink,

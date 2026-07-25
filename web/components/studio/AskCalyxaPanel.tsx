@@ -60,7 +60,9 @@ function shortDate(iso: string): string {
 const cardBase: CSSProperties = {
   position: 'relative',
   background: T.card,
-  border: `1px solid ${T.border}`,
+  // Card-on-card: this sits inside the panel card, so it needs the visible frame
+  // rather than `border`, which is invisible in dark mode.
+  border: `1px solid ${T.frame}`,
   borderRadius: 13,
   color: T.ink,
   textDecoration: 'none',
@@ -488,7 +490,7 @@ export function AskCalyxaPanel({
                     alignItems: 'center',
                     gap: 10,
                     padding: '12px 14px',
-                    border: `1px solid ${T.border}`,
+                    border: `1px solid ${T.frame}`,
                     borderRadius: 10,
                     background: 'transparent',
                     color: T.ink,
@@ -565,9 +567,9 @@ export function AskCalyxaPanel({
                 {m.text}
               </div>
             ))}
-            {thinking && (
-              <div style={{ fontStyle: 'italic', color: T.muted, fontSize: 13 }}>Calyxa is thinking…</div>
-            )}
+            {/* Upright, like everything else — the muted colour is what marks it as
+                a transient status line rather than a reply. */}
+            {thinking && <div style={{ color: T.muted, fontSize: 13 }}>Calyxa is thinking…</div>}
             <div ref={listEnd} />
           </div>
 
