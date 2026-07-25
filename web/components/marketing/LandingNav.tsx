@@ -33,7 +33,9 @@ export function LandingNav() {
   const [open, setOpen] = useState(false)
 
   return (
-    <header className="relative mx-auto flex w-full max-w-[1400px] items-center gap-6 px-5 py-4 sm:gap-10 sm:px-11 sm:py-[26px]">
+    // 1300/56 matches the hero band below it (2026-07-24) so the logomark
+    // lines up with the headline and the pill with the demo's right edge.
+    <header className="relative mx-auto flex w-full max-w-[1300px] items-center gap-6 px-5 py-4 sm:gap-10 sm:px-14 sm:py-[26px]">
       <Link href="/" className="flex items-center gap-2 text-foreground sm:gap-3">
         <CalyxaMark className="h-7 w-7 sm:h-9 sm:w-9" />
         <span className="mkt-display text-[22px] font-bold tracking-[-0.02em] sm:text-[30px]">calyxa</span>

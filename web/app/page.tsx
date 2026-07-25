@@ -39,15 +39,30 @@ import '@/components/marketing/marketing.css'
 // screenshots.
 const SHOW_PLACEHOLDERS = process.env.NEXT_PUBLIC_SHOW_PLACEHOLDERS !== '0'
 
-// The one vertical wash the whole page sits on (design §"Page structure");
-// every section from the before/after down paints its own opaque background
-// over it.
-const PAGE_WASH = 'linear-gradient(180deg, #d6f5e3 0%, #e8f7ee 26%, #f6fbf8 58%, #ffffff 100%)'
+// The page is WHITE (Darcy, 2026-07-24 — the design file's full-height green
+// wash was too much of it). All that's left is a very light ambient green over
+// roughly the top half of the first screen: a soft vertical tint that is fully
+// gone by 58%, plus a wide radial glow anchored above the fold so the green
+// reads as light rather than as a band.
+//
+// `backgroundSize: 100% 100vh` is what confines it — both gradient layers are
+// scaled to one viewport height and not repeated, so the tint tracks the fold
+// at any screen size instead of being a magic pixel value, and every section
+// below simply sits on white.
+const AMBIENT = {
+  backgroundColor: '#ffffff',
+  backgroundImage: [
+    'linear-gradient(180deg, rgba(134,239,172,0.20) 0%, rgba(134,239,172,0.11) 20%, rgba(134,239,172,0.04) 40%, rgba(134,239,172,0) 58%)',
+    'radial-gradient(70rem 30rem at 50% -10rem, rgba(134,239,172,0.14), transparent 68%)',
+  ].join(', '),
+  backgroundRepeat: 'no-repeat',
+  backgroundSize: '100% 100vh',
+}
 
 export default function Home() {
   return (
     <div className="mkt">
-      <div className="w-full overflow-x-hidden" style={{ background: PAGE_WASH }}>
+      <div className="w-full overflow-x-hidden" style={AMBIENT}>
         <LandingNav />
         <main>
           <LandingHero showPlaceholders={SHOW_PLACEHOLDERS} />

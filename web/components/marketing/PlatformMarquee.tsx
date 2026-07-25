@@ -49,7 +49,7 @@ function Name({ platform }: { platform: Platform }) {
 
 export function PlatformMarquee() {
   return (
-    <section className="px-[22px] py-14 sm:px-11 sm:pb-[84px] sm:pt-[76px]">
+    <section className="px-[22px] py-14 sm:px-14 sm:pb-[84px] sm:pt-[76px]">
       <p className="m-0 mb-7 text-center text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:mb-10 sm:text-[15px]">
         Compatible with what platforms?
       </p>
@@ -60,7 +60,7 @@ export function PlatformMarquee() {
         Calyxa works on {PLATFORMS.map((platform) => platform.name).join(', ')}, and any other page in Chrome.
       </p>
 
-      <div className="mkt-marquee mx-auto max-w-[1400px]" aria-hidden="true">
+      <div className="mkt-marquee mx-auto max-w-[1300px]" aria-hidden="true">
         <div className="mkt-marquee-track" style={{ gap: 0, animationDuration: '40s' }}>
           {PLATFORMS.map((platform) => (
             <Name key={platform.name} platform={platform} />

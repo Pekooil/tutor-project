@@ -34,6 +34,13 @@ const ACCENT_HOVER = '#6ee7a0'
 // column gives it, so its proportions never change with the breakpoint.
 const DEMO_W = 1020
 
+// Room left around the scaled demo for the mac card's drop shadow
+// (`0 60px 120px -36px`) to fall off instead of being cut against the column
+// edge: ~24px each side and ~84px below in the demo's own units, which at the
+// scales this column produces comes out under these constant CSS px.
+const SHADOW_X = 20
+const SHADOW_BOTTOM = 40
+
 export function LandingHero({ showPlaceholders }: { showPlaceholders: boolean }) {
   const reduceMotion = useReducedMotion()
 
@@ -48,27 +55,34 @@ export function LandingHero({ showPlaceholders }: { showPlaceholders: boolean })
           transition: { duration: 0.5, ease: [0, 0, 0.2, 1] as const, delay },
         }
 
+  // 2026-07-24 (Darcy): the hero band was pulled in from both edges — the
+  // design's 1400/44px is now 1300/56, so the headline starts further in and
+  // the demo ends further from the right edge. The nav and the platform strip
+  // carry the same numbers so all three stay flush with each other.
   return (
     <section
       id="top"
-      className="mx-auto flex w-full max-w-[1400px] flex-wrap items-center gap-10 px-[22px] pt-8 sm:gap-[60px] sm:px-11 sm:pt-14"
+      className="mx-auto flex w-full max-w-[1300px] flex-wrap items-center gap-10 px-[22px] pt-8 sm:gap-[60px] sm:px-14 sm:pt-14"
     >
       <motion.div
         {...entrance(0.05)}
         className="flex flex-col pb-2 sm:pb-8"
         style={{ flex: '1 1 440px', minWidth: 'min(100%, 380px)' }}
       >
-        {/* 2026-07-24 (Darcy): heavier and less crammed — weight 800 (the one
-            place the landing uses it, see app/layout.tsx), the design's very
-            tight -0.04em tracking opened up, and the lines given room to
-            breathe instead of sitting at line-height 1. */}
+        {/* The heavier/looser pass (weight 800, -0.015em, line-height 1.12)
+            was reverted at Darcy's ask, 2026-07-24 — back to the tight display
+            tracking the two lines sat on before.
+            The weight is set HERE rather than with Tailwind's `font-bold`:
+            `.mkt-display` declares `font-weight: 600` and the two selectors
+            have equal specificity, so marketing.css wins on source order and
+            the utility silently did nothing. Inline beats both. */}
         <h1
           className="mkt-display m-0 text-foreground"
           style={{
             fontSize: 'clamp(34px, 4.4vw, 68px)',
-            fontWeight: 800,
-            lineHeight: 1.12,
-            letterSpacing: '-0.015em',
+            fontWeight: 700,
+            lineHeight: 1.0,
+            letterSpacing: '-0.04em',
           }}
         >
           Stop copying. <span className="text-(--color-focus-ring)">Start learning.</span>
@@ -118,6 +132,12 @@ export function LandingHero({ showPlaceholders }: { showPlaceholders: boolean })
 // Reduced motion still gets the session — it is the product demonstration, and
 // there is no static frame that carries the same meaning — but the entrance
 // fade around it is dropped like everywhere else on the page.
+//
+// 2026-07-24 (Darcy: "no cutoffs"): the demo used to be scaled to the FULL
+// column width and clipped with overflow-hidden, which sliced the mac card's
+// soft drop shadow flat against the left, right and bottom edges. The column
+// keeps its boundary; the demo is scaled to fit INSIDE it with room for that
+// shadow to fall off naturally, and nothing clips.
 function ScaledHeroDemo({ showPlaceholders }: { showPlaceholders: boolean }) {
   const slotRef = useRef<HTMLDivElement>(null)
   const demoRef = useRef<HTMLDivElement>(null)
@@ -131,7 +151,12 @@ function ScaledHeroDemo({ showPlaceholders }: { showPlaceholders: boolean }) {
     const measure = () => {
       const wide = window.innerWidth >= 640
       const avail = slotRef.current?.clientWidth ?? DEMO_W
-      const scale = wide ? Math.min(1, avail / DEMO_W) : 1
+      // Reserve the shadow's own footprint on both sides before scaling, so
+      // the card lands inside the column rather than flush against it.
+      const scale = wide ? Math.min(1, Math.max(0, avail - SHADOW_X * 2) / DEMO_W) : 1
+      // `display: flow-root` below keeps HeroDemo's own top margin inside this
+      // wrapper, so offsetHeight is the true painted height and the reserved
+      // box can't come up short.
       const height = demoRef.current?.offsetHeight ?? 0
       setBox({ wide, scale, height: height * scale })
     }
@@ -148,14 +173,23 @@ function ScaledHeroDemo({ showPlaceholders }: { showPlaceholders: boolean }) {
   }, [])
 
   return (
-    <div ref={slotRef} className="w-full overflow-hidden">
-      <div style={box.wide ? { height: box.height || undefined } : undefined}>
+    <div ref={slotRef} className="w-full">
+      <div
+        style={
+          // Before the first measurement box.height is 0 — leave the height
+          // auto rather than reserving a 40px sliver.
+          box.wide
+            ? { height: box.height ? box.height + SHADOW_BOTTOM : undefined, padding: `0 ${SHADOW_X}px` }
+            : undefined
+        }
+      >
         <div
           ref={demoRef}
           style={
             box.wide
               ? {
                   width: DEMO_W,
+                  display: 'flow-root',
                   transform: `scale(${box.scale})`,
                   transformOrigin: 'top left',
                 }
