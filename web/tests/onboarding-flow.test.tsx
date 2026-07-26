@@ -131,26 +131,77 @@ describe('every screen in workflow 1 shares one interface (locked)', () => {
   })
 })
 
-describe('the in-extension lesson is offered, never imposed', () => {
-  // Step 7 of the spec: once the bridge signs the extension in, the pill just
-  // works — nothing seizes focus. Step 8: the lesson is still one click away.
-  it('nothing opens the lesson automatically on sign-in', () => {
+describe('workflow 2 starts itself when workflow 1 finishes', () => {
+  // REVERSED 2026-07-26 (Darcy). This block used to assert the opposite — that
+  // the lesson was "offered, never imposed" — on the reasoning that a tab
+  // seizing focus reads as another setup step. That put the lesson behind a
+  // button for precisely the student least likely to press it: the one who
+  // arrived cold from the Chrome Web Store and has never seen the pill.
+  // Onboarding now runs to completion on its own, in BOTH flows, which is the
+  // requirement these tests pin.
+  it('/install opens the lesson the moment the bridge connects', () => {
+    const step = src('../components/install/InstallStep.tsx')
+    // The call sits on the signed-in branch of the probe, not behind a click
+    // handler: everything from `status.signedIn` to the early return is the
+    // auto-start path.
+    const connectedBranch = step.slice(step.indexOf('if (status.signedIn)'))
+    expect(connectedBranch.slice(0, 900)).toContain('openExtensionOnboarding()')
+  })
+
+  it('fires exactly once — never a second tab on a later poll or refocus', () => {
+    // probe() runs on an interval AND on focus AND on visibilitychange. The
+    // doneRef latch is the only thing standing between that and a pile of
+    // lesson tabs, so it must be set on the same branch that opens one.
+    const step = src('../components/install/InstallStep.tsx')
+    const connectedBranch = step.slice(step.indexOf('if (status.signedIn)'))
+    const window = connectedBranch.slice(0, 900)
+    expect(window).toContain('doneRef.current = true')
+    expect(window.indexOf('doneRef.current = true')).toBeLessThan(
+      window.indexOf('openExtensionOnboarding()')
+    )
+    expect(step).toContain('if (doneRef.current) return')
+  })
+
+  it('keeps a manual re-open, so a missed or closed tab is not a dead end', () => {
+    const step = src('../components/install/InstallStep.tsx')
+    expect(step).toContain('Show me how it works again')
+    expect(step).toContain('Continue to my dashboard')
+  })
+
+  it('is triggered from the website, never from the worker itself', () => {
+    // The relay stays the only entry point in the extension: the background
+    // must not ALSO open it on bridged sign-in, or a student would get two
+    // tabs — one from here, one from /install.
     const bg = src('../../extension/src/background/index.ts')
     const bridged = bg.slice(bg.indexOf('async function handleBridgedSignIn'))
     expect(bridged.slice(0, 400)).not.toMatch(/openOnboarding\(/)
-    // The only way in is the explicit request relayed from the website.
     expect(bg).toContain("case 'OPEN_ONBOARDING'")
-  })
-
-  it('/install offers it beside Continue once connected', () => {
-    const step = src('../components/install/InstallStep.tsx')
-    expect(step).toContain('openExtensionOnboarding')
-    expect(step).toContain('Show me how it works')
-    expect(step).toContain('Continue to my dashboard')
   })
 
   it('the popup keeps it reachable later', () => {
     expect(src('../../extension/src/popup/main.tsx')).toContain('Show me how it works')
+  })
+})
+
+describe('the signed-out popup speaks to BOTH arrivals', () => {
+  // One popup, two students: someone who has never heard of Calyxa, and
+  // someone who signed up on the website 30 seconds ago and is waiting to be
+  // connected. The old copy ("Sign up on calyxa.app") was wrong for the
+  // second — it asked them to do the thing they had just done.
+  const popup = src('../../extension/src/popup/main.tsx')
+
+  it('does not tell an existing account holder to sign up again', () => {
+    expect(popup).not.toContain('Sign up on calyxa.app')
+    expect(popup).not.toContain('Sign up on the Calyxa website')
+  })
+
+  it('offers one neutral continue that serves both', () => {
+    expect(popup).toContain('Continue on calyxa.app')
+    expect(popup).toContain('/install?src=extension')
+  })
+
+  it('promises no password, since the bridge does the signing in', () => {
+    expect(popup).toMatch(/no password to enter here/i)
   })
 })
 

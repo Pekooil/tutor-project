@@ -59,6 +59,18 @@ export function InstallStep({ storeUrl }: { storeUrl: string }) {
     if (status.signedIn) {
       doneRef.current = true
       setPhase('connected')
+      // Workflow 2 starts itself the moment workflow 1 finishes (Darcy's call,
+      // 2026-07-26). This reverses the earlier "offer, never impose" decision:
+      // the lesson used to sit behind a "Show me how it works" button, which
+      // meant the student most likely to need it — someone who arrived cold
+      // from the Chrome Web Store and has never seen the pill — was the one
+      // most likely to skip it. Both flows converge here, so both now get it.
+      //
+      // `doneRef` already guarantees exactly one fire: the poll stops at the
+      // first successful probe, so this cannot open a second tab on a later
+      // tick, on window focus, or on a visibilitychange re-probe. The button
+      // below survives as the re-open path if the tab is missed or closed.
+      openExtensionOnboarding()
       return
     }
     // Installed but signed out — this is the case AuthBridge structurally
@@ -105,7 +117,7 @@ export function InstallStep({ storeUrl }: { storeUrl: string }) {
           </h1>
           <p className="mt-1.5 text-[14.5px] leading-relaxed text-(--mkt-strip-text)">
             {connected
-              ? 'Your account is linked. Open any homework page and Calyxa is there.'
+              ? 'Your account is linked, and a quick tour just opened in a new tab. Open any homework page and Calyxa is there.'
               : 'Calyxa tutors you on the page you’re already studying on, so it lives in Chrome — not here.'}
           </p>
 
@@ -135,27 +147,25 @@ export function InstallStep({ storeUrl }: { storeUrl: string }) {
             </span>
           </div>
 
-          {/* Teaching is OFFERED here, never imposed. The lesson used to open
-              itself the instant the bridge connected, which read as one more
-              setup step at exactly the moment we were promising there were none.
-              Both audiences reach this same screen — the CWS-direct student via
-              /start, the website-first student straight from signup — so both
-              get the identical offer. */}
+          {/* The lesson has already opened itself in its own tab by the time
+              this renders (see probe()). What is left here is the way ONWARD,
+              plus a re-open for the case the tab was missed, closed, or the
+              relay failed — so this screen never becomes a dead end that
+              silently swallowed workflow 2. Both audiences reach this same
+              screen — the CWS-direct student via /start, the website-first
+              student straight from signup — so both get the identical run. */}
           {connected && (
             <div className="mt-5 flex flex-col gap-2.5">
+              <Link href="/dashboard" className="ob-cta w-full px-5 py-3 text-center text-[15px]">
+                Continue to my dashboard
+              </Link>
               <button
                 type="button"
                 onClick={openExtensionOnboarding}
-                className="ob-cta w-full px-5 py-3 text-[15px]"
-              >
-                Show me how it works
-              </button>
-              <Link
-                href="/dashboard"
                 className="auth-google w-full !text-[14.5px]"
               >
-                Continue to my dashboard
-              </Link>
+                Show me how it works again
+              </button>
             </div>
           )}
         </div>

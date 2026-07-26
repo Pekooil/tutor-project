@@ -59,10 +59,10 @@ export default defineBackground(() => {
   //      up, while nothing pushed the session across. /install asks for no
   //      credentials — it just re-pushes the session this browser already holds
   //      until the extension confirms it took (EXT_PING).
-  //   2. Learn to USE it IN the extension — the scripted onboarding page. It is
-  //      OFFERED, never imposed: /install shows "Show me how it works" beside
-  //      "Continue" once the bridge lands, and that click relays OPEN_ONBOARDING
-  //      here. Nothing opens it automatically (see openOnboarding below).
+  //   2. Learn to USE it IN the extension — the scripted onboarding page.
+  //      /install starts it automatically the moment the bridge lands, by
+  //      relaying OPEN_ONBOARDING here, and keeps a "Show me how it works
+  //      again" button for a missed or closed tab (see openOnboarding below).
   //
   // /install serves BOTH audiences from one URL, which is why this opens it
   // rather than /start or /signup: a student who installed straight from the
@@ -950,22 +950,22 @@ async function handleBridgedSignIn(payload: AuthSessionPayload): Promise<void> {
   }
 }
 
-// The in-extension lesson (workflow 2), opened ONLY when the student asks for
-// it — the "Show me how it works" button on calyxa.app/install, relayed here as
-// OPEN_ONBOARDING because a web page cannot navigate to a chrome-extension://
-// URL itself.
+// The in-extension lesson (workflow 2). Relayed here as OPEN_ONBOARDING from
+// calyxa.app/install, because a web page cannot navigate to a
+// chrome-extension:// URL itself.
 //
-// It used to open itself the moment the bridge signed this extension in. That
-// was wrong in the way that matters: installing an extension and immediately
-// having a tab seize focus reads as "another setup step", when the whole point
-// of the bridge is that there are no more steps — the pill is already live on
-// every page. Teaching is now offered next to "Continue" on the page the
-// student is already looking at, which also means the CWS-direct student and
-// the website-first student get the identical offer, since both end up on
-// /install.
+// /install fires this AUTOMATICALLY the moment the bridge signs this extension
+// in, and also offers a manual re-open (Darcy's call, 2026-07-26). It was
+// briefly offer-only, on the reasoning that a tab seizing focus reads as
+// "another setup step" — but that put the lesson behind a button for exactly
+// the student least likely to press it, the one who arrived cold from the
+// Chrome Web Store and has never seen the pill. Onboarding now runs to
+// completion on its own; the pill being already live is what makes the tour a
+// payoff rather than a chore.
 //
-// No once-only guard: this is a deliberate click, and a student who wants to
-// re-watch the lesson should get it.
+// No once-only guard HERE: the caller owns that (InstallStep's doneRef fires
+// this exactly once per connect), and a student who clicks "Show me how it
+// works again" should get it.
 async function openOnboarding(): Promise<void> {
   try {
     await chrome.tabs.create({ url: chrome.runtime.getURL('/onboarding.html') });

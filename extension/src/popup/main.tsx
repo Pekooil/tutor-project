@@ -55,8 +55,8 @@ const BILLING_URL = 'https://calyxa.app/billing';
 // discipline as BILLING_URL.
 const CONNECT_URL = 'https://calyxa.app/install?src=extension';
 
-// The in-extension lesson, reachable at any time from the signed-in popup — the
-// counterpart to /install's "Show me how it works". Nothing opens it on its own.
+// The in-extension lesson, reachable at any time from the signed-in popup —
+// the way back to it after /install has already run it once on connect.
 const LESSON_URL = '/onboarding.html';
 
 // ADR-053: the free-limit state also offers the referral path — the dashboard
@@ -159,17 +159,17 @@ export function App() {
       <div className="flex flex-col">
         <Header />
         <div className="flex flex-col gap-3 p-4">
-          <p className="m-0 text-sm text-foreground">Sign up on the Calyxa website to get started.</p>
+          <p className="m-0 text-sm text-foreground">Finish setting up on calyxa.app.</p>
           <p className="m-0 text-xs text-muted-foreground">
-            Calyxa takes about a minute to set up: three quick questions, then your account. You
-            won&rsquo;t need to sign in here &mdash; the website connects this extension for you.
+            There is no password to enter here &mdash; the website signs this extension in for you.
+            New to Calyxa? You&rsquo;ll answer three quick questions first.
           </p>
           <Button
             type="button"
             variant="primary"
             onClick={() => void chrome.tabs.create({ url: CONNECT_URL })}
           >
-            Sign up on calyxa.app
+            Continue on calyxa.app
           </Button>
           {state.error && <ErrorBanner message={state.error} />}
         </div>
