@@ -71,6 +71,19 @@ export function pushSignOutToExtension(): void {
   send({ type: 'AUTH_SIGNED_OUT' })
 }
 
+/**
+ * Ask the extension to open its in-extension lesson (OPEN_ONBOARDING).
+ *
+ * A web page cannot navigate to a chrome-extension:// URL, so the "Show me how
+ * it works" button relays through the same externally_connectable channel the
+ * session bridge uses. Fire-and-forget: if the extension is not installed the
+ * message simply goes nowhere, and the button is only rendered once EXT_PING
+ * has confirmed it is.
+ */
+export function openExtensionOnboarding(): void {
+  send({ type: 'OPEN_ONBOARDING' })
+}
+
 export type ExtensionStatus = { installed: boolean; signedIn: boolean }
 
 /**

@@ -169,9 +169,16 @@ export type MessageType =
   //                      only if the extension is installed, so no reply at all
   //                      is itself the "not installed" answer. Carries nothing
   //                      and changes nothing — a pure read.
+  //   OPEN_ONBOARDING  — web -> background (external), no payload. Opens the
+  //                      in-extension lesson in a new tab. The website cannot
+  //                      navigate to a chrome-extension:// URL itself, so the
+  //                      "Show me how it works" button on /install relays
+  //                      through here. User-initiated ONLY — nothing opens this
+  //                      tab on its own (see openOnboarding in background).
   | 'AUTH_SESSION'
   | 'AUTH_SIGNED_OUT'
-  | 'EXT_PING';
+  | 'EXT_PING'
+  | 'OPEN_ONBOARDING';
 
 /** EXT_PING's reply. Deliberately minimal — no tokens, no email, no session. */
 export type ExtPingReplyPayload = {

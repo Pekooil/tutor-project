@@ -15,12 +15,13 @@ import { STORE_URL } from '@/lib/store-url'
 //     that session to the now-installed extension. This page is where that
 //     happens on purpose rather than by luck.
 //
-// A signed-out visitor is sent to /signup, which routes back through
-// /complete-profile to here — a cycle only in the sense that it terminates:
-// /signup is the one screen that creates the session everything else needs. The
-// page it replaced (the old extension install tab → /signup) was the real loop,
-// because it showed a login form to someone already logged in and never pushed
-// a session either way.
+// A signed-out visitor is sent to /START, not /signup (2026-07-26). Anyone who
+// reaches this page without a session installed straight from the Chrome Web
+// Store — they have never seen the site, so dropping them on a bare login form
+// skips the three questions every website-first student answers. /start runs
+// those, then /signup, then /complete-profile, then back here with a session.
+// A cycle only in the sense that it terminates: /signup is the one screen that
+// creates the session everything else gates on.
 //
 // Public in proxy.ts for the same reason '/' is: the extension's install tab can
 // land here signed out, and a cookie-gated 307 to /login would be the wrong door.
@@ -42,7 +43,7 @@ export default async function InstallPage({
   // look at is a screen that rots. NODE_ENV-gated, so it cannot exist in prod.
   const devPreview = process.env.NODE_ENV === 'development' && (await searchParams).preview === '1'
 
-  if (!user && !devPreview) redirect('/signup')
+  if (!user && !devPreview) redirect('/start')
 
   return <InstallStep storeUrl={STORE_URL} />
 }

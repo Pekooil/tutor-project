@@ -26,12 +26,15 @@ describe('onboarding workflow 1 — the web signup chain', () => {
     expect(COMPLETE_PROFILE_PATH).toBe('/complete-profile')
   })
 
-  it('terminates: /install sends a signed-out visitor to /signup, which creates the session', () => {
-    // The only cycle here is /install → /signup → /complete-profile → /install,
-    // and it terminates because /signup is the one screen that ESTABLISHES the
-    // session the others gate on. If /install ever stopped gating on a real
-    // user, or /signup stopped being the redirect target, that would be a loop.
-    expect(src('../app/install/page.tsx')).toContain("redirect('/signup')")
+  it('terminates: a signed-out visitor to /install gets the three questions first', () => {
+    // /install → /start → /signup → /complete-profile → /install. A cycle only
+    // in the sense that it terminates, because /signup is the one screen that
+    // ESTABLISHES the session the others gate on.
+    //
+    // /start, not /signup: anyone reaching /install without a session installed
+    // straight from the Chrome Web Store and has never seen the site, so a bare
+    // login form would skip the onboarding every website-first student gets.
+    expect(src('../app/install/page.tsx')).toContain("redirect('/start')")
     expect(src('../app/install/page.tsx')).toMatch(/if\s*\(!user\b/)
   })
 
@@ -125,6 +128,29 @@ describe('every screen in workflow 1 shares one interface (locked)', () => {
     for (const label of ['First name', 'Last name', 'Your email', 'Password']) {
       expect(panel).toContain(label)
     }
+  })
+})
+
+describe('the in-extension lesson is offered, never imposed', () => {
+  // Step 7 of the spec: once the bridge signs the extension in, the pill just
+  // works — nothing seizes focus. Step 8: the lesson is still one click away.
+  it('nothing opens the lesson automatically on sign-in', () => {
+    const bg = src('../../extension/src/background/index.ts')
+    const bridged = bg.slice(bg.indexOf('async function handleBridgedSignIn'))
+    expect(bridged.slice(0, 400)).not.toMatch(/openOnboarding\(/)
+    // The only way in is the explicit request relayed from the website.
+    expect(bg).toContain("case 'OPEN_ONBOARDING'")
+  })
+
+  it('/install offers it beside Continue once connected', () => {
+    const step = src('../components/install/InstallStep.tsx')
+    expect(step).toContain('openExtensionOnboarding')
+    expect(step).toContain('Show me how it works')
+    expect(step).toContain('Continue to my dashboard')
+  })
+
+  it('the popup keeps it reachable later', () => {
+    expect(src('../../extension/src/popup/main.tsx')).toContain('Show me how it works')
   })
 })
 

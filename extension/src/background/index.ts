@@ -59,10 +59,16 @@ export default defineBackground(() => {
   //      up, while nothing pushed the session across. /install asks for no
   //      credentials — it just re-pushes the session this browser already holds
   //      until the extension confirms it took (EXT_PING).
-  //   2. Learn to USE it IN the extension — the scripted onboarding page, now
-  //      opened by handleBridgedSignIn once the bridge lands (see below), NOT
-  //      on install. A brand-new install has no account, so teaching the pill
-  //      before there is a session to run would be teaching in a vacuum.
+  //   2. Learn to USE it IN the extension — the scripted onboarding page. It is
+  //      OFFERED, never imposed: /install shows "Show me how it works" beside
+  //      "Continue" once the bridge lands, and that click relays OPEN_ONBOARDING
+  //      here. Nothing opens it automatically (see openOnboarding below).
+  //
+  // /install serves BOTH audiences from one URL, which is why this opens it
+  // rather than /start or /signup: a student who installed straight from the
+  // Chrome Web Store is signed out, so the page sends them to /start for the
+  // three questions; a student who came from the website is already signed in,
+  // so the page connects their extension on the spot.
   //
   // This replaces the retired /welcome wizard (its install/toolbar/demo steps
   // duplicated workflow 2 on the web, which is exactly the duplication the
@@ -232,6 +238,9 @@ export default defineBackground(() => {
       case 'EXT_PING':
         void getAuth().then((auth) => sendResponse({ signedIn: Boolean(auth) }));
         return true;
+      case 'OPEN_ONBOARDING':
+        void openOnboarding();
+        return false;
       case 'AUTH_SIGNED_OUT':
         void handleSignOut();
         return false;
@@ -936,36 +945,29 @@ async function handleBridgedSignIn(payload: AuthSessionPayload): Promise<void> {
   try {
     await api.applyBridgedSession(payload);
     void broadcastToAllTabs(await buildSessionState());
-    void openOnboardingOnce();
   } catch (error) {
     console.warn('Calyxa SW: bridged sign-in failed', toErrorMessage(error));
   }
 }
 
-// Two-workflow onboarding, workflow 2 (2026-07-25): the in-extension lesson.
+// The in-extension lesson (workflow 2), opened ONLY when the student asks for
+// it — the "Show me how it works" button on calyxa.app/install, relayed here as
+// OPEN_ONBOARDING because a web page cannot navigate to a chrome-extension://
+// URL itself.
 //
-// The trigger is the BRIDGE, not the install — a student who has just signed up
-// on the website is exactly the person who should be taught the pill, and the
-// bridge firing is the only signal the extension gets that it happened. This is
-// the inverse of the old order (install → demo → "now go make an account"),
-// which had the student practising on a pill they could not yet actually use.
+// It used to open itself the moment the bridge signed this extension in. That
+// was wrong in the way that matters: installing an extension and immediately
+// having a tab seize focus reads as "another setup step", when the whole point
+// of the bridge is that there are no more steps — the pill is already live on
+// every page. Teaching is now offered next to "Continue" on the page the
+// student is already looking at, which also means the CWS-direct student and
+// the website-first student get the identical offer, since both end up on
+// /install.
 //
-// Fired at most once per profile. The flag lives in chrome.storage.LOCAL (not
-// session) deliberately: "has this person been taught" must survive a browser
-// restart, unlike the tokens, which must not (ADR-006). Any storage failure
-// degrades to "already onboarded" so a broken storage layer can never reopen
-// this tab on every sign-in — the same never-nag posture the retired first-run
-// tour used.
-const ONBOARDED_KEY = 'onboarded';
-
-async function openOnboardingOnce(): Promise<void> {
+// No once-only guard: this is a deliberate click, and a student who wants to
+// re-watch the lesson should get it.
+async function openOnboarding(): Promise<void> {
   try {
-    const stored = await chrome.storage.local.get(ONBOARDED_KEY);
-    if (stored[ONBOARDED_KEY] === true) return;
-    // Written BEFORE the tab opens: if the create call throws, the student has
-    // simply missed the lesson, which is far better than a tab that reopens on
-    // every single sign-in with no way to stop it.
-    await chrome.storage.local.set({ [ONBOARDED_KEY]: true });
     await chrome.tabs.create({ url: chrome.runtime.getURL('/onboarding.html') });
   } catch (error) {
     console.warn('Calyxa SW: could not open onboarding', toErrorMessage(error));

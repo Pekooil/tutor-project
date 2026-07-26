@@ -4,7 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { CalyxaMark } from '@calyxa/ui'
 import { createClient } from '@/lib/supabase/client'
-import { pingExtension, pushSessionToExtension } from '@/lib/auth/extension-bridge'
+import {
+  openExtensionOnboarding,
+  pingExtension,
+  pushSessionToExtension,
+} from '@/lib/auth/extension-bridge'
 import '@/components/onboarding/onboarding.css'
 import '@/components/auth/auth.css'
 
@@ -131,10 +135,28 @@ export function InstallStep({ storeUrl }: { storeUrl: string }) {
             </span>
           </div>
 
+          {/* Teaching is OFFERED here, never imposed. The lesson used to open
+              itself the instant the bridge connected, which read as one more
+              setup step at exactly the moment we were promising there were none.
+              Both audiences reach this same screen — the CWS-direct student via
+              /start, the website-first student straight from signup — so both
+              get the identical offer. */}
           {connected && (
-            <Link href="/dashboard" className="ob-cta mt-5 w-full px-5 py-3 text-[15px]">
-              Continue
-            </Link>
+            <div className="mt-5 flex flex-col gap-2.5">
+              <button
+                type="button"
+                onClick={openExtensionOnboarding}
+                className="ob-cta w-full px-5 py-3 text-[15px]"
+              >
+                Show me how it works
+              </button>
+              <Link
+                href="/dashboard"
+                className="auth-google w-full !text-[14.5px]"
+              >
+                Continue to my dashboard
+              </Link>
+            </div>
           )}
         </div>
 

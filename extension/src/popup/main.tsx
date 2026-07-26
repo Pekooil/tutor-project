@@ -55,6 +55,10 @@ const BILLING_URL = 'https://calyxa.app/billing';
 // discipline as BILLING_URL.
 const CONNECT_URL = 'https://calyxa.app/install?src=extension';
 
+// The in-extension lesson, reachable at any time from the signed-in popup — the
+// counterpart to /install's "Show me how it works". Nothing opens it on its own.
+const LESSON_URL = '/onboarding.html';
+
 // ADR-053: the free-limit state also offers the referral path — the dashboard
 // referral page holds the shareable link (3 friends join → 10 more free
 // sessions). Same plain-string discipline as BILLING_URL above.
@@ -155,18 +159,17 @@ export function App() {
       <div className="flex flex-col">
         <Header />
         <div className="flex flex-col gap-3 p-4">
-          <p className="m-0 text-sm text-foreground">Not connected to your account yet.</p>
+          <p className="m-0 text-sm text-foreground">Sign up on the Calyxa website to get started.</p>
           <p className="m-0 text-xs text-muted-foreground">
-            Open calyxa.app and Calyxa signs itself in here — you won&rsquo;t be asked for a password
-            again. (Your session is kept in memory only, so this can happen again after a browser
-            restart.)
+            Calyxa takes about a minute to set up: three quick questions, then your account. You
+            won&rsquo;t need to sign in here &mdash; the website connects this extension for you.
           </p>
           <Button
             type="button"
             variant="primary"
             onClick={() => void chrome.tabs.create({ url: CONNECT_URL })}
           >
-            Connect to my account
+            Sign up on calyxa.app
           </Button>
           {state.error && <ErrorBanner message={state.error} />}
         </div>
@@ -216,6 +219,12 @@ export function App() {
           </Card>
         )}
         {state.error && <ErrorBanner message={state.error} />}
+        <Button
+          variant="secondary"
+          onClick={() => void chrome.tabs.create({ url: chrome.runtime.getURL(LESSON_URL) })}
+        >
+          Show me how it works
+        </Button>
         <Button variant="secondary" onClick={handleSignOut} loading={busy}>
           Sign out
         </Button>
