@@ -52,6 +52,23 @@
     background-color 0.16s ease;
 }
 
+/* Birth year on /complete-profile is the flow's only <input type="number">.
+ * Chrome and Firefox draw stepper arrows on it, which no other field in the
+ * run has — the sort of small mismatch that makes one screen feel like it came
+ * from somewhere else. Suppress them: nobody increments their birth year one
+ * click at a time, and inputMode="numeric" already gives phones a number pad. */
+.auth-input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.auth-input[type='number']::-webkit-outer-spin-button,
+.auth-input[type='number']::-webkit-inner-spin-button {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .auth-input::placeholder {
   /* --mkt-faint fails AA on white, so placeholders use the strip text at a
    * reduced opacity instead of that token. */
