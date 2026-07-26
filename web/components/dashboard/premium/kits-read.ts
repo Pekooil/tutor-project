@@ -1,7 +1,7 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getConcept } from '@calyxa/curriculum'
-import { STRAND_LABELS, strandOf } from '@/lib/onboarding/item-bank'
+import { courseLabel, homeCourseOf } from '@/lib/curriculum/courses'
 
 // Study kits (Sprint 21, study_artifact) grouped for the premium "Study kits"
 // list view. RLS-scoped, never throws. A "kit" is the set of artifacts sharing
@@ -71,8 +71,8 @@ export async function loadStudyKits(supabase: SupabaseClient): Promise<StudyKit[
     for (const [groupKey, rows] of groups) {
       const conceptKey = rows.map((r) => r.concept_keys?.[0]).find(Boolean)
       const concept = conceptKey ? getConcept(conceptKey) : null
-      const strand = conceptKey ? strandOf(conceptKey) : ''
-      const strandLabel = STRAND_LABELS[strand] ?? concept?.strandLabel ?? 'Study session'
+      const courseKey = conceptKey ? homeCourseOf(conceptKey) : null
+      const strandLabel = courseKey ? courseLabel(courseKey) : (concept?.strandLabel ?? 'Study session')
       const newest = rows.reduce((a, b) => (a.created_at > b.created_at ? a : b))
       const conceptKeys = [...new Set(rows.flatMap((r) => r.concept_keys ?? []))]
       kits.push({

@@ -25,8 +25,61 @@
 export const GRADES = ['freshman', 'sophomore', 'junior', 'senior'] as const
 export type Grade = (typeof GRADES)[number]
 
-export const MATH_CLASSES = ['algebra1', 'algebra2', 'geometry', 'precalculus', 'other'] as const
+// The math-class options are the eleven `@calyxa/curriculum` COURSES, in the
+// catalog's own order, plus an "other" escape hatch. The value stored IS the
+// course key, so the answer feeds the dashboard grouping and the tutor's
+// course prior directly — no translation table between onboarding and
+// curriculum, which is what the old five-option list needed.
+//
+// The five legacy values this replaces (`algebra1 | algebra2 | geometry |
+// precalculus | other`) still parse: `parsePreflightAnswers` normalizes them
+// forward, so a half-finished signup in a stale tab and every existing
+// account keep working without a migration.
+export const MATH_CLASSES = [
+  'algebra-1',
+  'geometry',
+  'algebra-2',
+  'precalculus',
+  'ap-precalculus',
+  'ap-calculus-ab',
+  'ap-calculus-bc',
+  'ap-statistics',
+  'integrated-math-1',
+  'integrated-math-2',
+  'integrated-math-3',
+  'other',
+] as const
 export type MathClass = (typeof MATH_CLASSES)[number]
+
+/** The picker's three labelled groups, matching the curriculum's categories.
+ *  Twelve options in one flat list is a wall; three groups of four/four/three
+ *  (plus "other") is scannable. */
+export const MATH_CLASS_GROUPS: readonly { label: string; classes: readonly MathClass[] }[] = [
+  { label: 'Core courses', classes: ['algebra-1', 'geometry', 'algebra-2', 'precalculus'] },
+  { label: 'AP courses', classes: ['ap-precalculus', 'ap-calculus-ab', 'ap-calculus-bc', 'ap-statistics'] },
+  {
+    label: 'Integrated math',
+    classes: ['integrated-math-1', 'integrated-math-2', 'integrated-math-3', 'other'],
+  },
+]
+
+// Values the picker stored before the 11-course restructure → their course
+// key. Applied on read only; nothing rewrites stored answers.
+const LEGACY_MATH_CLASSES: Record<string, MathClass> = {
+  algebra1: 'algebra-1',
+  algebra2: 'algebra-2',
+  geometry: 'geometry',
+  precalculus: 'precalculus',
+  other: 'other',
+}
+
+/** Normalize a stored or submitted math-class value to a current `MathClass`,
+ *  accepting the five legacy values, or null if it is neither. */
+export function normalizeMathClass(value: unknown): MathClass | null {
+  if (typeof value !== 'string') return null
+  if ((MATH_CLASSES as readonly string[]).includes(value)) return value as MathClass
+  return LEGACY_MATH_CLASSES[value] ?? null
+}
 
 export const PAIN_POINTS = ['stuck', 'forget', 'why-wrong', 'too-long'] as const
 export type PainPoint = (typeof PAIN_POINTS)[number]
@@ -56,11 +109,18 @@ export const GRADE_YEARS: Record<Grade, string> = {
 }
 
 export const MATH_CLASS_LABELS: Record<MathClass, string> = {
-  algebra1: 'Algebra 1',
-  algebra2: 'Algebra 2',
+  'algebra-1': 'Algebra 1',
   geometry: 'Geometry',
+  'algebra-2': 'Algebra 2',
   precalculus: 'Precalculus',
-  other: 'Other',
+  'ap-precalculus': 'AP Precalculus',
+  'ap-calculus-ab': 'AP Calculus AB',
+  'ap-calculus-bc': 'AP Calculus BC',
+  'ap-statistics': 'AP Statistics',
+  'integrated-math-1': 'Integrated Math 1',
+  'integrated-math-2': 'Integrated Math 2',
+  'integrated-math-3': 'Integrated Math 3',
+  other: 'Something else',
 }
 
 // The pain-point options render their full first-person sentence verbatim.
@@ -143,17 +203,20 @@ export function parsePreflightAnswers(value: unknown): PreflightAnswers | null {
   if (typeof value !== 'object' || value === null) return null
   const record = value as Record<string, unknown>
   const { grade, mathClass, pain } = record
+  // The math class is normalized rather than merely checked, so a legacy
+  // five-option value (from a stale tab, or a replayed request body) is
+  // accepted and upgraded instead of dropping the whole answer set.
+  const normalizedMathClass = normalizeMathClass(mathClass)
   if (
     typeof grade !== 'string' ||
-    typeof mathClass !== 'string' ||
     typeof pain !== 'string' ||
+    normalizedMathClass === null ||
     !(GRADES as readonly string[]).includes(grade) ||
-    !(MATH_CLASSES as readonly string[]).includes(mathClass) ||
     !(PAIN_POINTS as readonly string[]).includes(pain)
   ) {
     return null
   }
-  return { grade: grade as Grade, mathClass: mathClass as MathClass, pain: pain as PainPoint }
+  return { grade: grade as Grade, mathClass: normalizedMathClass, pain: pain as PainPoint }
 }
 
 export function savePreflightAnswers(answers: PreflightAnswers): void {

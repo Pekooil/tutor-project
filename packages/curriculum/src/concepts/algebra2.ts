@@ -1,6 +1,17 @@
-// Algebra 2 strand (ADR-032 appendix): polynomial division & factor theorem,
-// rational expressions & equations, exponential functions, logarithms &
-// properties, sequences & series, complex numbers, nonlinear systems.
+// Algebra 2 content (ADR-032 appendix, extended by the 11-course
+// restructure): polynomial division & factor theorem, rational expressions &
+// equations, exponential functions, logarithms & properties, sequences &
+// series, complex numbers, nonlinear systems — plus the function-analysis,
+// conics and matrix material added below.
+//
+// Those additions are authored HERE, not in `precalculus.ts`, under the rule
+// the restructure uses throughout: a concept lives in the file of the EARLIEST
+// course that teaches it, and later courses list its key. Algebra 2 is where a
+// student first meets function transformations, inverses, piecewise functions,
+// polynomial graphing, rational asymptotes, conics and matrices; Precalculus,
+// AP Precalculus and Integrated Math 3 all reference these same keys, so a
+// student who masters transformations in Algebra 2 does not start from zero
+// when they reach Precalculus.
 import type { Concept } from './types'
 
 export const ALGEBRA2_CONCEPTS: readonly Concept[] = [
@@ -93,5 +104,92 @@ export const ALGEBRA2_CONCEPTS: readonly Concept[] = [
     prerequisites: ['algebra.systems.elimination-substitution', 'algebra.quadratics.factoring'],
     difficultyPrior: 0.6,
     aliases: ['nonlinear systems', 'system with a parabola', 'quadratic-linear system'],
+  },
+
+  // ── Function analysis (referenced by both precalculus courses) ───────────
+  {
+    key: 'algebra2.functions.transformations',
+    strand: 'function-analysis',
+    title: 'Transformations of functions',
+    strandLabel: 'Function analysis',
+    prerequisites: ['algebra.functions.graphs'],
+    difficultyPrior: 0.4,
+    aliases: ['function transformations', 'shifts and stretches', 'parent functions', 'horizontal shift', 'vertical stretch'],
+  },
+  {
+    key: 'algebra2.functions.inverses',
+    strand: 'function-analysis',
+    title: 'Composition & inverse functions',
+    strandLabel: 'Function analysis',
+    prerequisites: ['algebra.functions.notation'],
+    difficultyPrior: 0.45,
+    aliases: ['composite functions', 'f of g of x', 'inverse function', 'one-to-one', 'finding an inverse'],
+  },
+  {
+    key: 'algebra2.functions.piecewise',
+    strand: 'function-analysis',
+    title: 'Piecewise & step functions',
+    strandLabel: 'Function analysis',
+    prerequisites: ['algebra.functions.graphs'],
+    difficultyPrior: 0.4,
+    aliases: ['piecewise function', 'step function', 'graphing piecewise', 'evaluating piecewise'],
+  },
+
+  // ── Graphing polynomials & rationals ─────────────────────────────────────
+  {
+    key: 'algebra2.polynomials.graphing',
+    strand: 'polynomial-division',
+    title: 'Polynomial graphs, zeros & end behavior',
+    strandLabel: 'Polynomial division',
+    prerequisites: ['algebra2.polynomials.division-factor-theorem', 'algebra2.functions.transformations'],
+    difficultyPrior: 0.5,
+    aliases: ['end behavior', 'multiplicity of a zero', 'polynomial graph', 'degree and leading coefficient'],
+  },
+  {
+    key: 'algebra2.rational.asymptotes',
+    strand: 'rational-expressions',
+    title: 'Graphing rational functions: asymptotes & holes',
+    strandLabel: 'Rational expressions',
+    prerequisites: ['algebra2.rational.simplifying', 'algebra2.polynomials.graphing'],
+    difficultyPrior: 0.55,
+    aliases: ['rational function graph', 'vertical asymptote', 'horizontal asymptote', 'hole in a graph', 'slant asymptote'],
+  },
+  {
+    key: 'algebra2.radical.equations',
+    strand: 'radical-functions',
+    title: 'Radical functions & equations',
+    strandLabel: 'Radical functions',
+    prerequisites: ['algebra.radicals.rational-exponents', 'algebra2.functions.transformations'],
+    difficultyPrior: 0.5,
+    aliases: ['radical equations', 'solving with square roots', 'extraneous solution', 'square root function'],
+  },
+
+  // ── Sequences, conics & matrices ─────────────────────────────────────────
+  {
+    key: 'algebra2.sequences.summation',
+    strand: 'sequences-series',
+    title: 'Sigma notation & series sums',
+    strandLabel: 'Sequences & series',
+    prerequisites: ['algebra2.sequences.geometric'],
+    difficultyPrior: 0.5,
+    aliases: ['sigma notation', 'summation notation', 'partial sum', 'infinite geometric series'],
+  },
+  {
+    key: 'algebra2.conics.sections',
+    strand: 'conic-sections',
+    title: 'Conic sections',
+    strandLabel: 'Conic sections',
+    prerequisites: ['algebra2.systems.nonlinear', 'geometry.circles.equations'],
+    difficultyPrior: 0.6,
+    aliases: ['conic sections', 'ellipse', 'hyperbola', 'parabola as a conic', 'completing the square for conics'],
+  },
+  {
+    key: 'algebra2.matrices.operations',
+    strand: 'matrices',
+    title: 'Matrix operations & inverses',
+    strandLabel: 'Matrices',
+    prerequisites: ['algebra.systems.elimination-substitution'],
+    difficultyPrior: 0.55,
+    aliases: ['matrix multiplication', 'matrix inverse', 'determinant', 'identity matrix'],
   },
 ]

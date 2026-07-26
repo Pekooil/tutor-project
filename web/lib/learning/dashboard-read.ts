@@ -2,13 +2,23 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { retrievability } from '@calyxa/learning-model'
 import { getConcept } from '@calyxa/curriculum'
-import { STRAND_ORDER, STRAND_LABELS, strandOf } from '@/lib/onboarding/item-bank'
+import {
+  COURSE_ORDER,
+  courseLabel,
+  courseOfConcept,
+  courseDisplayOrder,
+  courseFromUserMetadata,
+} from '@/lib/curriculum/courses'
 import type { ConfidenceBand, MasteryState } from '@/lib/ai/profile'
 
 // Sprint 22 Task 4 (ADR-047): the dashboard-sized read. Where `loadProfile`
 // (`profile-read.ts`) returns the overlay/tutor-sized top-K weakest slice,
-// `loadDashboard` returns the FULL per-user learning graph, grouped by the six
-// curriculum strands, for the post-login web dashboard. It REUSES
+// `loadDashboard` returns the FULL per-user learning graph, grouped by the
+// eleven curriculum COURSES (the six content strands it grouped by originally
+// are gone), for the post-login web dashboard. The student's own course — the
+// one they picked at signup — is read from `user_metadata` and leads the
+// grouping, so their class reads first and concepts they share with other
+// courses are attributed to theirs. It REUSES
 // `profile-read`'s exact read-time decay (`mastery * retrievability(stability,
 // daysSince(last_practiced_at))`, §2.3/ADR-016) so a shared node reads back the
 // same decay-adjusted mastery the tutor sees — the parity the sprint's test
@@ -164,7 +174,10 @@ export type DashboardActivityDay = {
 }
 
 export type DashboardData = {
-  /** The six strands in curriculum order; a strand with no practiced nodes is present but empty. */
+  /** The eleven courses, the student's own first; a course with no practiced
+   *  nodes is present but empty. The field is still named `strands` because
+   *  every dashboard component reads it by that name — the VALUES are course
+   *  keys and labels now. */
   strands: DashboardStrandGroup[]
   /** Overall state distribution across every practiced node. */
   stateCounts: StateCounts
@@ -184,14 +197,14 @@ function emptyStateCounts(): StateCounts {
 }
 
 // The full-empty dashboard: a signed-out user, an auth failure, or a cold-start
-// account with no data reads back as six empty strands and empty sections —
-// the same "calibrating"/cold-start contract `loadProfile` returns, so the
-// views render one consistent empty state, never a crash.
+// account with no data reads back as eleven empty course groups and empty
+// sections — the same "calibrating"/cold-start contract `loadProfile` returns,
+// so the views render one consistent empty state, never a crash.
 function emptyDashboard(): DashboardData {
   return {
-    strands: STRAND_ORDER.map((strand) => ({
-      strand,
-      strandLabel: STRAND_LABELS[strand] ?? strand,
+    strands: COURSE_ORDER.map((courseKey) => ({
+      strand: courseKey,
+      strandLabel: courseLabel(courseKey),
       nodes: [],
       averageMastery: 0,
       stateCounts: emptyStateCounts(),
@@ -205,16 +218,29 @@ function emptyDashboard(): DashboardData {
   }
 }
 
-// Resolve a concept_key to its curriculum title + strand label. A key not in
-// the static graph (a legacy/renamed concept) falls back to the raw key as
-// title and its dotted prefix as the strand — visible, never dropped.
-function resolveConcept(conceptKey: string): { title: string; strand: string; strandLabel: string } {
+// Resolve a concept_key to its curriculum title + the course it should be
+// displayed under. `studentCourse` is the course the student told us they are
+// taking at signup: when it teaches this concept, it wins, so an AP Statistics
+// student sees "AP Statistics" for a concept Algebra 1 happens to author.
+// Otherwise the concept falls back to its home course.
+//
+// A key not in the static graph (a legacy or renamed concept) has no course at
+// all; it groups under `unassigned` and stays visible rather than being
+// dropped. The `strand`/`strandLabel` field NAMES are unchanged — the values
+// are course keys and course labels now, and renaming the fields would churn
+// every dashboard component for no behavioural gain.
+const UNASSIGNED_COURSE = 'unassigned'
+
+function resolveConcept(
+  conceptKey: string,
+  studentCourse: string | null
+): { title: string; strand: string; strandLabel: string } {
   const concept = getConcept(conceptKey)
-  const strand = strandOf(conceptKey)
+  const courseKey = courseOfConcept(conceptKey, studentCourse)
   return {
     title: concept?.title ?? conceptKey,
-    strand,
-    strandLabel: STRAND_LABELS[strand] ?? concept?.strandLabel ?? strand,
+    strand: courseKey ?? UNASSIGNED_COURSE,
+    strandLabel: courseKey ? courseLabel(courseKey) : (concept?.strandLabel ?? 'Other concepts'),
   }
 }
 
@@ -222,10 +248,14 @@ function utcDay(timestamp: string): string {
   return new Date(timestamp).toISOString().slice(0, 10)
 }
 
-// Build the six strand groups (plus any unrecognized-prefix strand as a
-// trailing group so nothing is silently hidden). Nodes are decay-adjusted here,
-// reusing the exact `loadProfile` formula.
-function groupByStrand(rows: KnowledgeNodeRow[]): {
+// Build the eleven course groups, the student's own course first (plus an
+// `unassigned` trailing group for any key outside the graph, so nothing is
+// silently hidden). Nodes are decay-adjusted here, reusing the exact
+// `loadProfile` formula.
+function groupByStrand(
+  rows: KnowledgeNodeRow[],
+  studentCourse: string | null
+): {
   strands: DashboardStrandGroup[]
   stateCounts: StateCounts
 } {
@@ -233,7 +263,7 @@ function groupByStrand(rows: KnowledgeNodeRow[]): {
   const byStrand = new Map<string, DashboardMasteryNode[]>()
 
   for (const row of rows) {
-    const { title, strand, strandLabel } = resolveConcept(row.concept_key)
+    const { title, strand, strandLabel } = resolveConcept(row.concept_key, studentCourse)
     const node: DashboardMasteryNode = {
       conceptKey: row.concept_key,
       title,
@@ -252,12 +282,11 @@ function groupByStrand(rows: KnowledgeNodeRow[]): {
     else byStrand.set(strand, [node])
   }
 
-  // The six known strands first, in curriculum order; then any extra prefix a
-  // legacy node carried, appended so it stays visible.
-  const orderedStrandKeys = [
-    ...STRAND_ORDER,
-    ...[...byStrand.keys()].filter((s) => !STRAND_ORDER.includes(s as (typeof STRAND_ORDER)[number])),
-  ]
+  // The eleven known courses first — the student's own hoisted to the front —
+  // then any group a key outside the catalog produced, appended so it stays
+  // visible.
+  const known = courseDisplayOrder(studentCourse)
+  const orderedStrandKeys = [...known, ...[...byStrand.keys()].filter((s) => !known.includes(s))]
 
   const strands: DashboardStrandGroup[] = orderedStrandKeys.map((strand) => {
     const nodes = (byStrand.get(strand) ?? []).sort((a, b) => a.mastery - b.mastery)
@@ -269,7 +298,7 @@ function groupByStrand(rows: KnowledgeNodeRow[]): {
     }
     return {
       strand,
-      strandLabel: STRAND_LABELS[strand] ?? nodes[0]?.strandLabel ?? strand,
+      strandLabel: nodes[0]?.strandLabel ?? courseLabel(strand),
       nodes,
       averageMastery: nodes.length > 0 ? masterySum / nodes.length : 0,
       stateCounts,
@@ -322,6 +351,11 @@ export async function loadDashboard(supabase: SupabaseClient): Promise<Dashboard
     return emptyDashboard()
   }
 
+  // The course the student told us they are taking. Legacy `mathClass` values
+  // from the pre-restructure picker map forward here, so no account needs a
+  // migration; `null` (no answer, or "other") just means no course leads.
+  const studentCourse = courseFromUserMetadata(userData?.user?.user_metadata)
+
   const nowIso = new Date().toISOString()
 
   const [nodesResult, misconceptionsResult, scheduleResult, activityResult] = await Promise.all([
@@ -372,15 +406,16 @@ export async function loadDashboard(supabase: SupabaseClient): Promise<Dashboard
   const scheduleRows = (scheduleResult.error ? [] : (scheduleResult.data ?? [])) as ScheduleRow[]
   const activityRows = (activityResult.error ? [] : (activityResult.data ?? [])) as InteractionRow[]
 
-  // No nodes at all → the cold-start dashboard (six empty strands), but still
-  // surface any misconception/queue/activity that somehow exists independently.
+  // No nodes at all → the cold-start dashboard (eleven empty course groups),
+  // but still surface any misconception/queue/activity that somehow exists
+  // independently.
   const { strands, stateCounts } =
     nodeRows.length > 0
-      ? groupByStrand(nodeRows)
+      ? groupByStrand(nodeRows, studentCourse)
       : { strands: emptyDashboard().strands, stateCounts: emptyStateCounts() }
 
   const misconceptions: DashboardMisconception[] = misconceptionRows.map((row) => {
-    const { title, strand, strandLabel } = resolveConcept(row.concept_key)
+    const { title, strand, strandLabel } = resolveConcept(row.concept_key, studentCourse)
     return {
       id: row.id,
       conceptKey: row.concept_key,
@@ -404,7 +439,7 @@ export async function loadDashboard(supabase: SupabaseClient): Promise<Dashboard
   })
 
   const dueQueue: DashboardDueItem[] = scheduleRows.map((row) => {
-    const { title, strand, strandLabel } = resolveConcept(row.concept_key)
+    const { title, strand, strandLabel } = resolveConcept(row.concept_key, studentCourse)
     return {
       conceptKey: row.concept_key,
       title,

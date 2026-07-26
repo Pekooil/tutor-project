@@ -8,7 +8,7 @@ import {
   GRADES,
   GRADE_LABELS,
   GRADE_YEARS,
-  MATH_CLASSES,
+  MATH_CLASS_GROUPS,
   MATH_CLASS_LABELS,
   PAIN_POINTS,
   PAIN_LABELS,
@@ -157,10 +157,16 @@ export function PreflightWizard() {
               key="class"
               kicker="Step 2"
               title="What math class are you taking?"
-              options={MATH_CLASSES.map((c) => ({
-                value: c,
-                label: MATH_CLASS_LABELS[c],
-                badge: <span className="mkt-math text-[17px]">{MATH_CLASS_GLYPH[c]}</span>,
+              // Twelve options — grouped, because a flat list this long stops
+              // being scannable and the three categories are how students
+              // already think about their timetable.
+              groups={MATH_CLASS_GROUPS.map((group) => ({
+                label: group.label,
+                options: group.classes.map((c) => ({
+                  value: c,
+                  label: MATH_CLASS_LABELS[c],
+                  badge: <span className="mkt-math text-[17px]">{MATH_CLASS_GLYPH[c]}</span>,
+                })),
               }))}
               selected={draft.mathClass}
               onSelect={(v) => choose('mathClass', v)}
@@ -262,10 +268,17 @@ function AnswerTrail({ draft }: { draft: Draft }) {
 
 type Option<V extends string> = { value: V; label: string; badge: ReactNode }
 
+/** One step of the wizard. Options arrive either flat (`options`) or in
+ *  labelled groups (`groups`) — the math-class step is the only grouped one,
+ *  and it is grouped because twelve courses in one list is a wall. Grouping is
+ *  a rendering concern only: the answer shape is unchanged, and the whole step
+ *  stays ONE radiogroup so arrow keys still traverse every option and a screen
+ *  reader still hears "3 of 12", not "3 of 4" three times over. */
 function QuestionStep<V extends string>({
   kicker,
   title,
   options,
+  groups,
   selected,
   onSelect,
   onBack,
@@ -273,12 +286,44 @@ function QuestionStep<V extends string>({
 }: {
   kicker: string
   title: string
-  options: Option<V>[]
+  options?: Option<V>[]
+  groups?: { label: string; options: Option<V>[] }[]
   selected: V | null
   onSelect: (value: V) => void
   onBack?: () => void
   columns: 1 | 2
 }) {
+  const gridClass =
+    columns === 1 ? 'grid grid-cols-1 gap-2.5' : 'grid grid-cols-1 gap-2.5 sm:grid-cols-2'
+
+  // Stagger delays run across the WHOLE step, not per group, so the options
+  // cascade in as one sequence rather than three restarting ones.
+  let optionIndex = 0
+  const renderOption = (opt: Option<V>) => {
+    const isSelected = selected === opt.value
+    const delay = 0.05 + optionIndex * 0.045
+    optionIndex += 1
+    return (
+      <button
+        key={opt.value}
+        type="button"
+        role="radio"
+        aria-checked={isSelected}
+        onClick={() => onSelect(opt.value)}
+        className="ob-opt ob-stagger"
+        data-selected={isSelected}
+        style={{ '--ob-delay': `${delay}s` } as CSSProperties}
+      >
+        <span aria-hidden="true" className="ob-badge">
+          {opt.badge}
+        </span>
+        <span className="text-[15px] font-medium leading-[1.35] text-foreground sm:text-[15.5px]">
+          {opt.label}
+        </span>
+      </button>
+    )
+  }
+
   return (
     <section className="ob-step-in flex flex-col">
       <p className="mkt-eyebrow mb-3">{kicker}</p>
@@ -286,37 +331,22 @@ function QuestionStep<V extends string>({
         {title}
       </h1>
 
-      <div
-        role="radiogroup"
-        aria-label={title}
-        className={
-          columns === 1
-            ? 'mt-7 grid grid-cols-1 gap-2.5 sm:mt-9'
-            : 'mt-7 grid grid-cols-1 gap-2.5 sm:mt-9 sm:grid-cols-2'
-        }
-      >
-        {options.map((opt, i) => {
-          const isSelected = selected === opt.value
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              role="radio"
-              aria-checked={isSelected}
-              onClick={() => onSelect(opt.value)}
-              className="ob-opt ob-stagger"
-              data-selected={isSelected}
-              style={{ '--ob-delay': `${0.05 + i * 0.045}s` } as CSSProperties}
-            >
-              <span aria-hidden="true" className="ob-badge">
-                {opt.badge}
-              </span>
-              <span className="text-[15px] font-medium leading-[1.35] text-foreground sm:text-[15.5px]">
-                {opt.label}
-              </span>
-            </button>
-          )
-        })}
+      <div role="radiogroup" aria-label={title} className="mt-7 sm:mt-9">
+        {groups ? (
+          <div className="flex flex-col gap-5">
+            {groups.map((group) => (
+              // `role="group"` + aria-label keeps the heading associated with
+              // its options without opening a nested radiogroup, which would
+              // fragment arrow-key traversal.
+              <div key={group.label} role="group" aria-label={group.label}>
+                <p className="mkt-eyebrow mb-2.5 text-[11.5px] text-(--mkt-strip-text)">{group.label}</p>
+                <div className={gridClass}>{group.options.map(renderOption)}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className={gridClass}>{(options ?? []).map(renderOption)}</div>
+        )}
       </div>
 
       {onBack && (
@@ -484,11 +514,18 @@ function CompletionRing() {
 // ── Option glyphs + tile icons ──────────────────────────────────────────────
 
 const MATH_CLASS_GLYPH: Record<MathClass, string> = {
-  algebra1: 'x',
-  algebra2: 'x²',
+  'algebra-1': 'x',
   geometry: '△',
+  'algebra-2': 'x²',
   precalculus: 'ƒ',
-  other: '∑',
+  'ap-precalculus': 'θ',
+  'ap-calculus-ab': '∫',
+  'ap-calculus-bc': '∑',
+  'ap-statistics': 'σ',
+  'integrated-math-1': 'Ⅰ',
+  'integrated-math-2': 'Ⅱ',
+  'integrated-math-3': 'Ⅲ',
+  other: '∗',
 }
 
 function Stroke({ children }: { children: ReactNode }) {

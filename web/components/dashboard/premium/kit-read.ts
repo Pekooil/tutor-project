@@ -1,7 +1,7 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getConcept } from '@calyxa/curriculum'
-import { STRAND_LABELS, strandOf } from '@/lib/onboarding/item-bank'
+import { courseLabel, homeCourseOf } from '@/lib/curriculum/courses'
 
 // Single-kit read for the viewer route (`/kits/[key]`). RLS-scoped, never
 // throws. A "kit" is the ≤3 `study_artifact` rows (one per kind) sharing a
@@ -79,8 +79,8 @@ export async function loadStudyKit(supabase: SupabaseClient, key: string): Promi
 
     const conceptKey = rows.map((r) => r.concept_keys?.[0]).find(Boolean)
     const concept = conceptKey ? getConcept(conceptKey) : null
-    const strand = conceptKey ? strandOf(conceptKey) : ''
-    const strandLabel = STRAND_LABELS[strand] ?? concept?.strandLabel ?? 'Study session'
+    const courseKey = conceptKey ? homeCourseOf(conceptKey) : null
+    const strandLabel = courseKey ? courseLabel(courseKey) : (concept?.strandLabel ?? 'Study session')
     const newest = rows.reduce((a, b) => (a.created_at > b.created_at ? a : b))
 
     return {

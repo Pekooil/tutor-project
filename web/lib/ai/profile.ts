@@ -63,4 +63,14 @@ export type LearningProfile = {
   // currently-relevant concepts (Sprint 13, ADR-026) — cold start and
   // first-session profiles read exactly as before.
   priorWork?: PriorWorkItem[]
+  // The `@calyxa/curriculum` course the student picked at signup (11-course
+  // restructure). It rides the profile because the profile is the one object
+  // that already reaches every prompt builder and provider path — a separate
+  // parameter would have to be threaded through all of them.
+  //
+  // Absent for accounts that never answered onboarding and for "something
+  // else"; every consumer must treat it as optional. It sets the tutor's
+  // PITCH and breaks ties in topic detection — it never scopes what the tutor
+  // will help with.
+  courseKey?: string | null
 }

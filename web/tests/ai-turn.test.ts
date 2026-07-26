@@ -1350,7 +1350,7 @@ describe('/api/ai/turn', () => {
     expect(json.annotations).toEqual([{ id: 'good', type: 'circle', target: { kind: 'textMatch', text: 'x = 4' } }])
   })
 
-  it('a turn with annotations writes the SAME session_interactions row shape as Sprint 11 -- annotations are never persisted (ADR-023)', async () => {
+  it('a turn with annotations persists them alongside the Sprint 11 row shape (ADR-055, reversing ADR-023)', async () => {
     nextResponse = {
       status: 200,
       body: fakeTextMessage(
@@ -1395,13 +1395,23 @@ describe('/api/ai/turn', () => {
     expect(count).toBe(1)
     const row = data![0]
 
-    // The exact column set is unchanged from Sprint 11 -- no annotation data
-    // anywhere in the row, in any column.
+    // The column set is Sprint 11's plus ADR-055's `annotations`.
     expect(Object.keys(row).sort()).toEqual(EXPECTED_SESSION_INTERACTIONS_COLUMNS)
-    expect(JSON.stringify(row)).not.toContain('annotation')
+
+    // ADR-055 REVERSED ADR-023 here: annotations are now persisted, as the
+    // text-based worked-problem snapshot the concept workspace and
+    // /sessions/[id] render. This assertion used to be
+    // `expect(JSON.stringify(row)).not.toContain('annotation')` and was left
+    // behind when ADR-055 landed -- the column list above had already been
+    // updated for it, so the test was half-migrated. Inverted rather than
+    // deleted: what the row carries is exactly what the tutor emitted, and
+    // nothing about the rest of the row shape changed.
+    expect(row.annotations).toEqual([
+      { id: 'a1', type: 'highlight', target: { kind: 'textMatch', text: 'x^2 - 4' } },
+    ])
 
     // Same shape as the Sprint 11 ADR-019 positive-path test above --
-    // annotations changed nothing about what gets written.
+    // annotations changed nothing about the OTHER columns.
     expect(row.turn_index).toBe(1)
     expect(row.concept_key).toBe(SEEDED_CONCEPT_KEY)
     expect(row.outcome).toBe('correct')

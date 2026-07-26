@@ -185,7 +185,10 @@ export async function loadProfile(
   // supabase.auth.getUser() here was a second, serialized auth round trip
   // on every turn's critical path. Pass the known id to skip it; callers
   // without one (none today) still fall back to the lookup.
-  opts?: { topicKeys?: readonly string[]; userId?: string }
+  // `courseKey` (11-course restructure): the caller has already resolved the
+  // user, so it reads the course off `user_metadata` and passes it here
+  // rather than making this function re-fetch the user just for one field.
+  opts?: { topicKeys?: readonly string[]; userId?: string; courseKey?: string | null }
 ): Promise<LearningProfile> {
   let userId = opts?.userId
 
@@ -267,7 +270,11 @@ export async function loadProfile(
   const nodeRows = (nodesResult.data ?? []) as KnowledgeNodeRow[]
 
   if (nodesResult.error || nodeRows.length === 0) {
-    return CALIBRATING_PROFILE
+    // Cold start still carries the course: a student on their very first turn
+    // has no mastery data but HAS told us what class they are in, and that is
+    // exactly when pitching at the right level matters most. (The auth-failure
+    // return above deliberately does not — there is no student to pitch to.)
+    return opts?.courseKey ? { ...CALIBRATING_PROFILE, courseKey: opts.courseKey } : CALIBRATING_PROFILE
   }
 
   const misconceptionRows = (misconceptionsResult.data ?? []) as MisconceptionRow[]
@@ -329,5 +336,8 @@ export async function loadProfile(
     // concept (Sprint 13, ADR-026) — first sessions and cold starts keep
     // the prior shape.
     ...(priorWork.length > 0 ? { priorWork } : {}),
+    // Present only when the student told us their course — an account that
+    // skipped onboarding keeps the exact pre-restructure profile shape.
+    ...(opts?.courseKey ? { courseKey: opts.courseKey } : {}),
   }
 }

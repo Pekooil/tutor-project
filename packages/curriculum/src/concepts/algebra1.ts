@@ -162,4 +162,54 @@ export const ALGEBRA1_CONCEPTS: readonly Concept[] = [
     difficultyPrior: 0.3,
     aliases: ['percent change', 'markup and discount', 'percent problems'],
   },
+
+  // ── Additions (11-course restructure) ────────────────────────────────────
+  // Mostly driven by Integrated Math 1, which spends far more time on
+  // modelling with linear and exponential functions, on sequences, and on
+  // fitting a line to data than a conventional Algebra 1 does.
+  {
+    key: 'algebra.linear.slope-forms',
+    strand: 'linear-equations',
+    title: 'Forms of a linear equation',
+    strandLabel: 'Linear equations',
+    prerequisites: ['algebra.linear-equations.two-variable'],
+    difficultyPrior: 0.35,
+    aliases: ['point-slope form', 'standard form', 'slope-intercept form', 'writing the equation of a line', 'parallel and perpendicular slopes'],
+  },
+  {
+    key: 'algebra.inequalities.systems',
+    strand: 'inequalities',
+    title: 'Systems of linear inequalities',
+    strandLabel: 'Inequalities',
+    prerequisites: ['algebra.inequalities.linear', 'algebra.systems.elimination-substitution'],
+    difficultyPrior: 0.4,
+    aliases: ['systems of inequalities', 'graphing inequalities', 'shading a region', 'feasible region'],
+  },
+  {
+    key: 'algebra.exponential.growth',
+    strand: 'exponential-intro',
+    title: 'Exponential growth & decay (introduction)',
+    strandLabel: 'Exponential functions',
+    prerequisites: ['algebra.exponents.power-rule', 'algebra.functions.graphs'],
+    difficultyPrior: 0.4,
+    aliases: ['exponential growth', 'exponential decay', 'growth factor', 'doubling', 'linear vs exponential'],
+  },
+  {
+    key: 'algebra.sequences.patterns',
+    strand: 'sequences-intro',
+    title: 'Sequences as functions',
+    strandLabel: 'Sequences',
+    prerequisites: ['algebra.functions.notation'],
+    difficultyPrior: 0.35,
+    aliases: ['arithmetic sequence', 'recursive formula', 'explicit formula', 'pattern rule', 'nth term'],
+  },
+  {
+    key: 'algebra.data.scatter-plots',
+    strand: 'data-analysis',
+    title: 'Scatter plots & lines of fit',
+    strandLabel: 'Data analysis',
+    prerequisites: ['algebra.linear.slope-forms'],
+    difficultyPrior: 0.35,
+    aliases: ['scatter plot', 'line of best fit', 'trend line', 'correlation', 'making a prediction from data'],
+  },
 ]

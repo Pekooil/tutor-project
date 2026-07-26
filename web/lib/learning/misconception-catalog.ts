@@ -351,6 +351,290 @@ const CATALOG: Record<string, readonly string[]> = {
     'weighting by the wrong probability',
     'expecting the expected value to be a possible outcome',
   ],
+
+  // ── Added with the 11-course restructure ─────────────────────────────────
+  // The graph roughly doubled (66 → 148 concepts) to cover AP Statistics'
+  // inference half, Calculus BC, and the function-analysis/conics/matrices
+  // material the core courses were missing. Same discipline as the entries
+  // above: curated teacher knowledge, one entry set per concept, chip-length
+  // and lowercase-leaning. The catalog test requires EVERY curriculum concept
+  // to resolve, so a new concept cannot ship without a real first-place-to-
+  // check — which is the point: an empty chip would be worse than the generic
+  // trio this catalog replaced.
+
+  // Algebra 1
+  'algebra.linear.slope-forms': [
+    'mixing up the slope and the intercept',
+    'losing the sign when rearranging into point-slope form',
+    'using the reciprocal, not the negative reciprocal',
+  ],
+  'algebra.exponential.growth': [
+    'adding the growth rate each step instead of multiplying',
+    'treating a growth factor as a fixed amount',
+    'reading an exponential table as if it were linear',
+  ],
+  'algebra.sequences.patterns': [
+    'confusing the recursive and explicit formulas',
+    'starting the index at the wrong term',
+    'assuming every pattern is arithmetic',
+  ],
+  'algebra.data.scatter-plots': [
+    'reading correlation as causation',
+    'fitting the line to the end points only',
+    'extrapolating far past the data',
+  ],
+
+  // Geometry
+  'geometry.proofs.logic': [
+    'assuming what the proof is meant to show',
+    'confusing a statement with its converse',
+    'skipping the reason for a step',
+  ],
+  'geometry.quadrilaterals.properties': [
+    'assuming a parallelogram without proving it',
+    'mixing up rhombus and rectangle properties',
+    'using the interior angle sum for the wrong number of sides',
+  ],
+  'geometry.constructions.compass': [
+    'changing the compass width partway through',
+    'measuring with a ruler instead of constructing',
+    'drawing the arc too short to cross',
+  ],
+  'geometry.solids.cross-sections': [
+    'picturing the cross section as the whole solid',
+    'slicing along the wrong axis',
+    'assuming every cross section is the same size',
+  ],
+  'geometry.probability.geometric': [
+    'comparing lengths when the problem is about area',
+    'forgetting to divide by the total region',
+    'assuming a favourable region must be a simple shape',
+  ],
+
+  // Algebra 2
+  'algebra2.functions.transformations': [
+    'shifting the wrong way for an inside change',
+    'mixing up horizontal and vertical stretches',
+    'applying the transformations in the wrong order',
+  ],
+  'algebra2.functions.inverses': [
+    'treating the inverse as the reciprocal',
+    'composing in the wrong order',
+    'forgetting to restrict the domain',
+  ],
+  'algebra2.functions.piecewise': [
+    'using the wrong piece for the input',
+    'ignoring whether an endpoint is included',
+    'evaluating every piece instead of choosing one',
+  ],
+  'algebra2.radical.equations': [
+    'not checking for extraneous solutions',
+    'squaring term by term instead of squaring both sides',
+    'losing the domain restriction on an even root',
+  ],
+  'algebra2.conics.sections': [
+    'mixing up which denominator belongs to a and which to b',
+    'confusing an ellipse with a hyperbola from the sign',
+    'forgetting to complete the square before reading the center',
+  ],
+  'algebra2.matrices.operations': [
+    'assuming matrix multiplication commutes',
+    'multiplying entry by entry instead of row by column',
+    'multiplying matrices whose dimensions do not match',
+  ],
+
+  // Precalculus / AP Precalculus
+  'precalc.functions.rates-of-change': [
+    'reading an average rate of change as an instantaneous one',
+    'confusing increasing with concave up',
+    'dividing the change in x by the change in y',
+  ],
+  'precalc.exponential.log-modeling': [
+    'fitting a linear model to clearly exponential data',
+    'mixing up the initial value and the growth factor',
+    'reporting a model without checking it against the data',
+  ],
+  'precalc.modeling.semi-log': [
+    'log-scaling the wrong axis',
+    'reading the semi-log slope as the growth factor',
+    'assuming a straight semi-log plot means linear growth',
+  ],
+  'precalc.polar.coordinates': [
+    'mixing up which of r and theta comes first',
+    'losing the quadrant when converting with arctan',
+    'assuming a point has only one polar representation',
+  ],
+  'precalc.polar.graphs': [
+    'plotting polar equations as if they were rectangular',
+    'missing petals by using too small a theta interval',
+    'ignoring where r is negative',
+  ],
+  'precalc.parametric.functions': [
+    'eliminating the parameter and losing the domain',
+    'ignoring the direction the curve is traced',
+    'treating t as if it were x',
+  ],
+  'precalc.matrices.transformations': [
+    'applying the transformations in the wrong order',
+    'multiplying the matrices in the wrong order',
+    'using the inverse when the determinant is zero',
+  ],
+
+  // Calculus BC
+  'calculus.parametric.calculus': [
+    'dividing dy/dt by dx/dt in the wrong order',
+    'forgetting to divide by dx/dt a second time',
+    'using the rectangular arc-length formula',
+  ],
+  'calculus.vector-valued.motion': [
+    'confusing speed with velocity',
+    'adding the components instead of taking the magnitude',
+    'differentiating the magnitude instead of the components',
+  ],
+  'calculus.polar.calculus': [
+    'forgetting the one-half in the polar area formula',
+    'integrating over the wrong theta interval',
+    'using the rectangular area formula on a polar curve',
+  ],
+  'calculus.sequences.convergence': [
+    'concluding a series converges because its terms go to zero',
+    'confusing the terms with the partial sums',
+    'assuming a bounded sequence must converge',
+  ],
+  'calculus.series.convergence-tests': [
+    'using a test whose conditions are not met',
+    'mixing up the p-series and geometric-series thresholds',
+    'concluding convergence when the ratio test gives 1',
+  ],
+  'calculus.series.alternating-error': [
+    'using the alternating bound on any series',
+    'using the wrong term for the bound',
+    'confusing absolute with conditional convergence',
+  ],
+  'calculus.series.power': [
+    'forgetting to test the endpoints of the interval',
+    'confusing the radius with the interval of convergence',
+    'centering the series at the wrong value',
+  ],
+  'calculus.series.taylor-maclaurin': [
+    'forgetting the factorial in the denominator',
+    'expanding about the wrong center',
+    'dropping the power of (x - a)',
+  ],
+  'calculus.series.lagrange-error': [
+    'using the nth derivative instead of the (n+1)st',
+    'not maximizing the derivative over the whole interval',
+    'forgetting the factorial in the remainder',
+  ],
+
+  // AP Statistics — units 1-3 (data & collection)
+  'stats.data.displays': [
+    'describing center and spread but never the shape',
+    'reading a histogram as if the bars were categories',
+    'calling a distribution skewed toward the tall side',
+  ],
+  'stats.data.position': [
+    'treating a z-score as a percentage',
+    'assuming a percentile is a percent correct',
+    'using the outlier rule without computing the IQR',
+  ],
+  'stats.data.two-way-tables': [
+    'confusing a marginal with a conditional distribution',
+    'conditioning on the wrong variable',
+    'comparing counts when the group sizes differ',
+  ],
+  'stats.regression.scatterplots-correlation': [
+    'reading correlation as causation',
+    'assuming a strong r means the model is linear',
+    'letting an outlier drive the correlation',
+  ],
+  'stats.regression.least-squares': [
+    'interpreting the slope without units or context',
+    'reading the intercept as meaningful outside the data',
+    'confusing r with r-squared',
+  ],
+  'stats.regression.residuals': [
+    'reading a clear pattern in the residual plot as a good fit',
+    'confusing an outlier with an influential point',
+    'computing the residual as predicted minus actual',
+  ],
+  'stats.sampling.methods': [
+    'assuming a large sample is representative',
+    'confusing stratified with cluster sampling',
+    'assuming a voluntary response sample is random',
+  ],
+  'stats.experiments.design': [
+    'confusing random assignment with random selection',
+    'calling an observational study an experiment',
+    'leaving a confounding variable unaddressed',
+  ],
+  'stats.scope.inference': [
+    'generalizing to a population the sample was not drawn from',
+    'claiming causation without random assignment',
+    'ignoring how subjects were selected',
+  ],
+
+  // AP Statistics — units 5-9 (sampling distributions & inference)
+  'stats.sampling-distributions.proportion': [
+    'confusing p-hat with p',
+    'skipping the large-counts condition',
+    'using sigma as the standard error',
+  ],
+  'stats.sampling-distributions.mean': [
+    'applying the CLT to the population itself',
+    'forgetting to divide the standard deviation by the root of n',
+    'assuming the sample size fixes a skewed population',
+  ],
+  'stats.inference.ci-proportion': [
+    'saying there is a 95% chance p is in this interval',
+    'interpreting the interval as covering 95% of individuals',
+    'using z when the conditions are not met',
+  ],
+  'stats.inference.test-proportion': [
+    'writing the hypotheses about the sample',
+    'reading the p-value as the probability the null is true',
+    'accepting the null rather than failing to reject it',
+  ],
+  'stats.inference.errors-power': [
+    'swapping Type I and Type II errors',
+    'thinking lowering alpha has no cost',
+    'treating power as the probability of being right',
+  ],
+  'stats.inference.two-proportions': [
+    'forgetting to pool for the test but not the interval',
+    'checking conditions for only one of the two groups',
+    'subtracting the proportions in a different order than stated',
+  ],
+  'stats.inference.ci-mean': [
+    'using z instead of t when sigma is unknown',
+    'using n instead of n-1 for the degrees of freedom',
+    'interpreting the interval as about individual values',
+  ],
+  'stats.inference.test-mean': [
+    'treating paired data as two independent samples',
+    'stating the hypotheses about the sample mean',
+    'skipping the normality or large-sample condition',
+  ],
+  'stats.inference.two-means': [
+    'pooling the variances without justification',
+    'pairing samples that are actually independent',
+    'reversing the order of subtraction midway',
+  ],
+  'stats.inference.chi-square-gof': [
+    'using proportions instead of counts',
+    'ignoring the expected-count condition',
+    'using the wrong degrees of freedom',
+  ],
+  'stats.inference.chi-square-independence': [
+    'confusing a test for homogeneity with one for independence',
+    'computing the expected counts from the wrong marginal',
+    'using rows times columns for the degrees of freedom',
+  ],
+  'stats.inference.slope': [
+    'reading the wrong row of the regression output',
+    'using the standard deviation, not the standard error',
+    'concluding causation from a significant slope',
+  ],
 }
 
 // The concept family ("strand.topic") — the same first-two-segments read

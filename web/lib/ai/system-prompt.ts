@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk'
-import { CONCEPT_KEYS, getConcept } from '@calyxa/curriculum'
+import { CONCEPT_KEYS, getConcept, getCourse } from '@calyxa/curriculum'
 import type { LearningProfile } from './profile'
 import { renderPageContext, type PageContext } from './page-context'
 import { detectTopicKeys } from '@/lib/learning/topic'
@@ -39,7 +39,15 @@ export type SessionStartPrompt = {
   snippet?: string
 }
 
-export type PromptOpts = { format?: PromptFormat; opening?: boolean; sessionStart?: SessionStartPrompt }
+export type PromptOpts = {
+  format?: PromptFormat
+  opening?: boolean
+  sessionStart?: SessionStartPrompt
+  /** The course the student picked at signup (a `@calyxa/curriculum` course
+   *  key). Pitches the tutor at that level and breaks ties in topic detection.
+   *  Absent for accounts that never answered, and for "something else". */
+  courseKey?: string | null
+}
 
 // PLAN.md §2.5 truncation intent: top-K weakest/relevant nodes (K≈12) and
 // active misconceptions only (cap ≈8). The hardcoded profile is already
@@ -83,12 +91,16 @@ function addKey(into: string[], seen: Set<string>, key: string): void {
 // route.ts) already saw the transcript-aware topicKeys for its own bias, so
 // this is a narrower, page-only re-derivation for the subset alone, not a
 // second attempt at the same signal.
-export function assembleKeySubset(profile: LearningProfile, pageContext: PageContext | undefined): string[] {
+export function assembleKeySubset(
+  profile: LearningProfile,
+  pageContext: PageContext | undefined,
+  courseKey?: string | null
+): string[] {
   const subset: string[] = []
   const seen = new Set<string>()
 
   for (const node of profile.masteryNodes) addKey(subset, seen, node.conceptKey)
-  for (const key of detectTopicKeys(pageContext, [])) addKey(subset, seen, key)
+  for (const key of detectTopicKeys(pageContext, [], courseKey ?? profile.courseKey)) addKey(subset, seen, key)
   for (const due of profile.dueForReview ?? []) addKey(subset, seen, due.conceptKey)
 
   // Strand neighbors: for each key already in the subset, pull in other
@@ -544,6 +556,38 @@ only when the student explicitly asked for the full explanation. One question at
 you are working goes in its own $$ ... $$ block (see the "say" field above), not spelled out
 inside the sentence -- EVERY turn that works an equation carries at least one $$ block.`
 
+// The student's enrolled course, as one short tail block. Added with the
+// 11-course restructure, and deliberately narrow in what it asks for:
+//
+//   * It sets PITCH and NOTATION — an AP Calculus BC student should hear
+//     "converges by the ratio test", an Algebra 1 student should not hear
+//     "asymptotic behavior" for the same graph.
+//   * It does NOT scope what the tutor will help with. The student is on
+//     whatever page they are on; refusing off-syllabus help would be a
+//     regression, and is called out here so the model does not infer it.
+//
+// Returns null when the student never answered, chose "something else", or
+// the stored value is not a course we know — in which case the prompt is
+// byte-identical to what it was before, rather than carrying an empty header.
+function buildCourseBlock(courseKey: string | null | undefined): string | null {
+  if (!courseKey) return null
+  const course = getCourse(courseKey)
+  if (!course) return null
+
+  const apNote =
+    course.category === 'ap'
+      ? ` This is an AP course: use the exam's vocabulary and expect its level of rigor, including
+justification and notation the reader would need on a free-response question.`
+      : ''
+
+  return `═══════════════════ STUDENT'S COURSE (injected) ═══════════════════
+The student is taking ${course.label}.${apNote}
+Pitch explanations, vocabulary and notation at that level, and prefer methods that course
+teaches when several would work. This sets LEVEL, not SCOPE: if the page in front of them is
+from another course, help with what is actually on the page — never redirect a student back to
+their syllabus or decline because a topic is "not in your course".`
+}
+
 // ADR-037: the volatile KNOWN KEYS tail block. The concept-key subset varies
 // with the student's profile and the page, so it lives here -- after the cache
 // breakpoint, in the uncached tail -- rather than interpolated mid-OUTPUT
@@ -846,10 +890,17 @@ ${renderPageContextBlock(pageContext)}`
 
   const tailBlocks: string[] = [studentProfile, pageContextBlock]
 
+  // The student's course, when they told us. One line, in the volatile tail
+  // (it is per-user, so it must sit after the cache breakpoint). It changes
+  // PITCH, never scope: the tutor still helps with whatever is on screen, so
+  // a student who wanders off-syllabus is taught, not redirected.
+  const courseBlock = buildCourseBlock(opts?.courseKey ?? profile.courseKey)
+  if (courseBlock) tailBlocks.push(courseBlock)
+
   // The KNOWN KEYS list (envelope only) is volatile -- it varies with the
   // profile + page (assembleKeySubset), so it must sit after the breakpoint.
   if (format === 'envelope') {
-    tailBlocks.push(buildKnownKeysBlock(assembleKeySubset(profile, pageContext)))
+    tailBlocks.push(buildKnownKeysBlock(assembleKeySubset(profile, pageContext, opts?.courseKey ?? profile.courseKey)))
   }
 
   // The checklist stays LAST for a regular envelope turn. opening / sessionStart

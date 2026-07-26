@@ -16,7 +16,7 @@ vi.mock('server-only', () => ({}))
 
 import { loadDashboard, type DashboardMasteryNode } from '../lib/learning/dashboard-read'
 import { loadProfile } from '../lib/learning/profile-read'
-import { STRAND_ORDER, STRAND_LABELS } from '../lib/onboarding/item-bank'
+import { COURSE_ORDER, COURSE_LABELS } from '../lib/curriculum/courses'
 
 // vitest doesn't auto-load .env.local the way `next dev`/`next build` do
 // (rls.test.ts / onboarding.test.ts convention).
@@ -214,9 +214,9 @@ describe('loadDashboard — the FULL per-user graph grouped by strand', () => {
     // Every one of the six strands is present, in order — even ones with no
     // practiced node (geometry/algebra/calculus have nodes; the rest are empty
     // but still shown).
-    expect(data.strands.slice(0, STRAND_ORDER.length).map((s) => s.strand)).toEqual([...STRAND_ORDER])
+    expect(data.strands.slice(0, COURSE_ORDER.length).map((s) => s.strand)).toEqual([...COURSE_ORDER])
     for (const group of data.strands) {
-      expect(group.strandLabel).toBe(STRAND_LABELS[group.strand] ?? group.strand)
+      expect(group.strandLabel).toBe(COURSE_LABELS[group.strand] ?? group.strand)
     }
 
     // Titles are resolved from the curriculum, not left as raw keys.
@@ -224,7 +224,7 @@ describe('loadDashboard — the FULL per-user graph grouped by strand', () => {
     expect(algebraNode).toBeTruthy()
     expect(algebraNode.title).toBe(getConcept(ALGEBRA_KEY)!.title)
     expect(algebraNode.title).not.toBe(ALGEBRA_KEY)
-    expect(algebraNode.strand).toBe('algebra')
+    expect(algebraNode.strand).toBe('algebra-1')
   })
 
   it('reads back the SAME decay-adjusted mastery loadProfile computes (parity)', async () => {
@@ -250,10 +250,14 @@ describe('loadDashboard — the FULL per-user graph grouped by strand', () => {
   it('groups nodes into their strand, weakest-first, with a correct overall state distribution', async () => {
     const data = await loadDashboard(clientA)
 
-    const algebra = data.strands.find((s) => s.strand === 'algebra')!
+    // Course keys, not the retired content-strand names: these users have no
+    // course on their metadata, so each concept groups under the course that
+    // AUTHORS it (homeCourseOf) — Calculus AB for `calculus.limits.formal`,
+    // AP Statistics for `stats.*`.
+    const algebra = data.strands.find((s) => s.strand === 'algebra-1')!
     const geometry = data.strands.find((s) => s.strand === 'geometry')!
-    const calculus = data.strands.find((s) => s.strand === 'calculus')!
-    const stats = data.strands.find((s) => s.strand === 'stats')!
+    const calculus = data.strands.find((s) => s.strand === 'ap-calculus-ab')!
+    const stats = data.strands.find((s) => s.strand === 'ap-statistics')!
 
     expect(algebra.nodes.map((n) => n.conceptKey)).toEqual([ALGEBRA_KEY])
     expect(geometry.nodes.map((n) => n.conceptKey)).toEqual([GEOMETRY_KEY])
@@ -324,7 +328,7 @@ describe('loadDashboard — RLS scoping', () => {
     const a = await loadDashboard(clientA)
     // userB's stats node must not leak into userA's dashboard.
     expect(allNodes(a.strands).some((n) => n.conceptKey === STATS_KEY)).toBe(false)
-    const stats = a.strands.find((s) => s.strand === 'stats')!
+    const stats = a.strands.find((s) => s.strand === 'ap-statistics')!
     expect(stats.nodes).toHaveLength(0)
 
     // And userB sees ONLY their own stats node, never userA's three.
@@ -341,7 +345,7 @@ describe('loadDashboard — cold start', () => {
     expect(data.isEmpty).toBe(true)
     expect(data.totalConcepts).toBe(0)
     // Still the full six-strand scaffold, all empty.
-    expect(data.strands).toHaveLength(STRAND_ORDER.length)
+    expect(data.strands).toHaveLength(COURSE_ORDER.length)
     expect(allNodes(data.strands)).toHaveLength(0)
     expect(data.misconceptions).toHaveLength(0)
     expect(data.dueQueue).toHaveLength(0)
@@ -353,6 +357,6 @@ describe('loadDashboard — cold start', () => {
     const anon = createClient(url, anonKey)
     const data = await loadDashboard(anon)
     expect(data.isEmpty).toBe(true)
-    expect(data.strands).toHaveLength(STRAND_ORDER.length)
+    expect(data.strands).toHaveLength(COURSE_ORDER.length)
   })
 })

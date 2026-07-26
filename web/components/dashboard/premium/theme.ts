@@ -37,30 +37,44 @@ export const STATE_STYLE: Record<
   unseen: { label: 'Unseen', chipBg: 'rgba(28,28,26,.05)', ink: '#6b6b65', bar: '#c9c7c0' },
 }
 
-// Strand key → design label/short-label/color/tile-tint. Keys match
-// STRAND_ORDER in lib/onboarding/item-bank.ts.
-export const STRAND_STYLE: Record<
+// Course key → design label/short-label/color/tile-tint. Keys match
+// COURSE_ORDER in @calyxa/curriculum (via lib/curriculum/courses.ts); this
+// file predates the token palette and keeps its literal hexes because the
+// premium dashboard is light-only and is not covered by the studio's
+// no-hex-literals gate. The hexes ARE the light values of --chart-1..8, and
+// the Integrated Math courses share the hex of the core course they mirror —
+// the same pairing, and the same reasoning, as `packages/ui/src/theme.css`.
+export const COURSE_STYLE: Record<
   string,
   { label: string; short: string; color: string; tileBg: string }
 > = {
-  algebra: { label: 'Algebra 1', short: 'Algebra 1', color: '#9a3412', tileBg: 'rgba(154,52,18,.08)' },
+  'algebra-1': { label: 'Algebra 1', short: 'Algebra 1', color: '#9a3412', tileBg: 'rgba(154,52,18,.08)' },
   geometry: { label: 'Geometry', short: 'Geometry', color: '#166534', tileBg: 'rgba(22,101,52,.08)' },
-  algebra2: { label: 'Algebra 2', short: 'Algebra 2', color: '#0f766e', tileBg: 'rgba(15,118,110,.08)' },
-  precalc: { label: 'Trig & Precalculus', short: 'Trig & Precalc', color: '#6d28d9', tileBg: 'rgba(109,40,217,.07)' },
-  calculus: { label: 'Calculus', short: 'Calculus', color: '#a21caf', tileBg: 'rgba(162,28,175,.07)' },
-  stats: { label: 'Probability & Statistics', short: 'Prob & Stats', color: '#9f1239', tileBg: 'rgba(159,18,57,.07)' },
+  'algebra-2': { label: 'Algebra 2', short: 'Algebra 2', color: '#0f766e', tileBg: 'rgba(15,118,110,.08)' },
+  precalculus: { label: 'Precalculus', short: 'Precalculus', color: '#6d28d9', tileBg: 'rgba(109,40,217,.07)' },
+  'ap-precalculus': { label: 'AP Precalculus', short: 'AP Precalc', color: '#075985', tileBg: 'rgba(7,89,133,.07)' },
+  'ap-calculus-ab': { label: 'AP Calculus AB', short: 'AP Calc AB', color: '#a21caf', tileBg: 'rgba(162,28,175,.07)' },
+  'ap-calculus-bc': { label: 'AP Calculus BC', short: 'AP Calc BC', color: '#3730a3', tileBg: 'rgba(55,48,163,.07)' },
+  'ap-statistics': { label: 'AP Statistics', short: 'AP Stats', color: '#9f1239', tileBg: 'rgba(159,18,57,.07)' },
+  'integrated-math-1': { label: 'Integrated Math 1', short: 'Int Math 1', color: '#9a3412', tileBg: 'rgba(154,52,18,.08)' },
+  'integrated-math-2': { label: 'Integrated Math 2', short: 'Int Math 2', color: '#166534', tileBg: 'rgba(22,101,52,.08)' },
+  'integrated-math-3': { label: 'Integrated Math 3', short: 'Int Math 3', color: '#0f766e', tileBg: 'rgba(15,118,110,.08)' },
 }
 
-export function strandStyle(strand: string) {
+export function courseStyle(courseKey: string) {
   return (
-    STRAND_STYLE[strand] ?? {
-      label: strand,
-      short: strand,
+    COURSE_STYLE[courseKey] ?? {
+      label: courseKey,
+      short: courseKey,
       color: '#6b6b65',
       tileBg: 'rgba(28,28,26,.05)',
     }
   )
 }
+
+/** Retained names for the call sites that still speak of "strands". */
+export const STRAND_STYLE = COURSE_STYLE
+export const strandStyle = courseStyle
 
 // ── Reusable style objects ─────────────────────────────────────────────────
 

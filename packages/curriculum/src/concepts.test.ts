@@ -8,6 +8,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { CONCEPTS, CONCEPT_KEYS, getConcept, prerequisitesOf } from './concepts'
+import { CONCEPT_MODULES } from './concepts/index'
 
 // Mirrors packages/learning-model/src/constants.ts's DIFF_MIN/DIFF_MAX. Not
 // imported directly — @calyxa/curriculum stays a pure, dependency-free
@@ -104,20 +105,31 @@ describe('the frozen eight (Sprint 13)', () => {
 describe('CONCEPT_KEYS at launch scale', () => {
   it('is a large, duplicate-free key list including every frozen key', () => {
     expect(new Set(CONCEPT_KEYS).size).toBe(CONCEPT_KEYS.length)
-    // ~70-concept target (ADR-032); a hard floor guards against an
-    // accidental strand import getting dropped from concepts/index.ts.
-    expect(CONCEPT_KEYS.length).toBeGreaterThanOrEqual(60)
+    // The 11-course restructure roughly doubled the graph (66 → ~148) by
+    // filling the AP Statistics inference half, the Calculus AB transcendental
+    // gaps and all of BC. The floor guards against a module import getting
+    // dropped from concepts/index.ts.
+    expect(CONCEPT_KEYS.length).toBeGreaterThanOrEqual(140)
 
     for (const frozen of FROZEN_SPRINT_13_CONCEPTS) {
       expect(CONCEPT_KEYS).toContain(frozen.key)
     }
   })
 
-  it('covers all six strand-file prefixes', () => {
+  it('covers every content-module prefix', () => {
+    // Note `calculus.*` spans BOTH Calculus AB and BC — which is why course
+    // membership is answered by the catalog, never by the key prefix.
     const prefixes = new Set(CONCEPT_KEYS.map((key) => key.split('.')[0]))
     for (const expected of ['algebra', 'geometry', 'algebra2', 'precalc', 'calculus', 'stats']) {
       expect(prefixes).toContain(expected)
     }
+  })
+
+  it('keeps every module non-empty', () => {
+    for (const module of CONCEPT_MODULES) {
+      expect(module.concepts.length).toBeGreaterThan(0)
+    }
+    expect(CONCEPT_MODULES).toHaveLength(7)
   })
 })
 

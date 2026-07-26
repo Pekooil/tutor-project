@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import http, { type Server } from 'node:http'
-import { beforeAll, afterAll, describe, it, expect } from 'vitest'
+import { beforeAll, beforeEach, afterAll, describe, it, expect } from 'vitest'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { FREE_SESSION_LIMIT } from '../lib/tier/session-gate'
 
@@ -236,6 +236,28 @@ async function waitFor(check: () => Promise<void>, timeoutMs = 5000, intervalMs 
     }
   }
   throw lastError
+}
+
+// Zero a fixture user's monthly free-session counter.
+//
+// The blocks that use this are NOT testing the quota — the tier-enforcement
+// block above owns that, on its own user, and is deliberately left alone. But
+// they start far more sessions than FREE_SESSION_LIMIT (10) allows: the
+// learning-state block alone starts 14 on A. That was harmless while going
+// over the cap only set a `degraded` DISPLAY hint. Now that the cap is
+// server-ENFORCED on every turn (sessionOverFreeCap), an exhausted fixture
+// user makes each subsequent turn return the upgrade message instead of
+// reaching the model, so nothing is persisted and every downstream assertion
+// reads back 0 rows.
+//
+// Reset per TEST rather than per block, so the fixture stays under the cap
+// however many sessions an individual test needs, and so a test added later
+// cannot silently starve the ones after it. The user stays on the free tier —
+// this buys headroom, it does not exempt the free-tier code path from being
+// exercised.
+async function resetFreeQuota(userId: string) {
+  const { error } = await admin.from('users').update({ free_session_count: 0 }).eq('id', userId)
+  if (error) throw new Error(`could not reset free quota for ${userId}: ${error.message}`)
 }
 
 async function start(token: string | null, body: Record<string, unknown> = {}) {
@@ -524,6 +546,8 @@ describe('session start/end + tier enforcement', () => {
 // fixture-setup/teardown only, per this file's existing discipline.
 describe('per-turn learning-state write -> live profile', () => {
   let writtenSessionId: string
+
+  beforeEach(() => resetFreeQuota(userA.id))
 
   it('a turn with sessionId writes knowledge_nodes, and a subsequent turn reflects the live profile', async () => {
     const started = await start(tokenA, { pageDomain: 'example.com', mode: 'text' })
@@ -1386,6 +1410,9 @@ describe('session-end recap + trend rollup', () => {
 // (applied_to_profile: true, concept_key: null keeps them inert to the
 // reconcile sweep) instead of paying 25 round trips through the fake model.
 describe('session message cap (SESSION_STUDENT_MESSAGE_LIMIT)', () => {
+  // C arrives here with its allowance spent by the recap block above.
+  beforeEach(() => resetFreeQuota(userC.id))
+
   async function seedInteractions(sessionId: string, count: number) {
     const rows = Array.from({ length: count }, (_, i) => ({
       session_id: sessionId,

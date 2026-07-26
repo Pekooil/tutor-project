@@ -1,5 +1,5 @@
 import 'server-only'
-import { CONCEPTS, CONCEPT_KEYS } from '@calyxa/curriculum'
+import { CONCEPTS, CONCEPT_KEYS, conceptKeysOfCourse } from '@calyxa/curriculum'
 import type { PageContext } from '@/lib/ai/page-context'
 
 // Turn-time topic detection (ADR-021): map the already-extracted page
@@ -82,11 +82,44 @@ function buildHaystack(pageContext: PageContext | undefined, recentMessages: Rec
   return parts.join('\n').toLowerCase().slice(0, MAX_HAYSTACK_CHARS)
 }
 
+// Concept keys of the student's course, memoized per course key. The course
+// prior below is consulted on every turn, and rebuilding a ~30-key Set each
+// time would be pure waste on a hot path.
+const COURSE_KEY_SETS = new Map<string, ReadonlySet<string>>()
+
+function courseKeySet(courseKey: string | null | undefined): ReadonlySet<string> | null {
+  if (!courseKey) return null
+  const cached = COURSE_KEY_SETS.get(courseKey)
+  if (cached) return cached
+  const keys = conceptKeysOfCourse(courseKey)
+  if (keys.length === 0) return null // unknown course — no prior, not an error
+  const set = new Set(keys)
+  COURSE_KEY_SETS.set(courseKey, set)
+  return set
+}
+
 // The page-relevant concept-key set for the profile bias (ADR-021).
 // Deterministic (same inputs, same output, curriculum-order tie-break),
 // bounded (haystack + result caps above), and never throws — any failure
 // degrades to [], which reads as "no topic detected" downstream.
-export function detectTopicKeys(pageContext: PageContext | undefined, recentMessages: RecentMessage[]): string[] {
+//
+// `courseKey` (the course the student picked at signup) is a TIE-BREAK ONLY:
+// among concepts the text matches EQUALLY well, one the student's course
+// actually teaches wins. It can never promote a weaker match over a stronger
+// one, and it can never drop a match — so a student working outside their
+// syllabus is still detected correctly.
+//
+// This became load-bearing with the 11-course restructure, because the graph
+// now holds genuinely ambiguous aliases that it did not before: "limits" hits
+// both `precalc.limits.intuitive` and `calculus.limits.formal`, and several
+// sequence/series and probability aliases span two courses. Without the prior,
+// the curriculum-order tie-break would hand an AP Calculus student the
+// precalculus concept every time.
+export function detectTopicKeys(
+  pageContext: PageContext | undefined,
+  recentMessages: RecentMessage[],
+  courseKey?: string | null
+): string[] {
   try {
     const haystack = buildHaystack(pageContext, recentMessages)
 
@@ -94,7 +127,8 @@ export function detectTopicKeys(pageContext: PageContext | undefined, recentMess
       return []
     }
 
-    const scored: { key: string; hits: number; order: number }[] = []
+    const inCourse = courseKeySet(courseKey)
+    const scored: { key: string; hits: number; courseRank: number; order: number }[] = []
 
     for (const { key, aliases } of TOPIC_ALIASES) {
       const order = CONCEPT_ORDER.get(key)
@@ -106,12 +140,13 @@ export function detectTopicKeys(pageContext: PageContext | undefined, recentMess
       const hits = aliases.reduce((total, alias) => total + (alias.test(haystack) ? 1 : 0), 0)
 
       if (hits > 0) {
-        scored.push({ key, hits, order })
+        // 0 sorts before 1: in the student's course first, on equal hits.
+        scored.push({ key, hits, courseRank: inCourse?.has(key) ? 0 : 1, order })
       }
     }
 
     return scored
-      .sort((a, b) => b.hits - a.hits || a.order - b.order)
+      .sort((a, b) => b.hits - a.hits || a.courseRank - b.courseRank || a.order - b.order)
       .slice(0, MAX_TOPIC_KEYS)
       .map((entry) => entry.key)
   } catch {

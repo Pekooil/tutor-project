@@ -98,3 +98,47 @@ describe('every-concept-reachable (the Sprint 11 audit drift guard, ADR-032)', (
     expect(result).toContain('geometry.trig.right-triangle')
   })
 })
+
+// The course prior (11-course restructure). It exists because the graph now
+// holds genuinely ambiguous aliases across courses — "limits" is taught in
+// both Precalculus and Calculus — and curriculum order alone would always
+// hand the student the earlier one.
+describe('detectTopicKeys — the student’s course as a tie-break', () => {
+  const LIMITS = 'the whole worksheet is limits'
+
+  it('prefers the concept the student’s course actually teaches', () => {
+    const precalcStudent = detectTopicKeys(undefined, [{ role: 'user', content: LIMITS }], 'precalculus')
+    const calcStudent = detectTopicKeys(undefined, [{ role: 'user', content: LIMITS }], 'ap-calculus-ab')
+
+    // Both concepts match the word equally; the course decides which leads.
+    expect(precalcStudent[0]).toBe('precalc.limits.intuitive')
+    expect(calcStudent[0]).toBe('calculus.limits.formal')
+  })
+
+  it('never drops a match that sits outside the course', () => {
+    // The Calculus student still sees the precalculus limits concept — the
+    // prior REORDERS, it does not filter. A student working below (or above)
+    // their syllabus must still be detected.
+    const calcStudent = detectTopicKeys(undefined, [{ role: 'user', content: LIMITS }], 'ap-calculus-ab')
+    expect(calcStudent).toContain('precalc.limits.intuitive')
+  })
+
+  it('never promotes a weaker match over a stronger one', () => {
+    // "chain rule" is a Calculus concept with a direct alias hit; an Algebra 1
+    // student mentioning it must still get the chain rule, not an algebra
+    // concept that merely matched fewer aliases.
+    const result = detectTopicKeys(
+      undefined,
+      [{ role: 'user', content: 'I think it needs the chain rule for this composite function derivative' }],
+      'algebra-1'
+    )
+    expect(result[0]).toBe('calculus.differentiation.chain-rule')
+  })
+
+  it('is a no-op for no course, an unknown course, or "other"', () => {
+    const base = detectTopicKeys(undefined, [{ role: 'user', content: LIMITS }])
+    expect(detectTopicKeys(undefined, [{ role: 'user', content: LIMITS }], null)).toEqual(base)
+    expect(detectTopicKeys(undefined, [{ role: 'user', content: LIMITS }], 'other')).toEqual(base)
+    expect(detectTopicKeys(undefined, [{ role: 'user', content: LIMITS }], 'no-such-course')).toEqual(base)
+  })
+})

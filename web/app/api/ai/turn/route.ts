@@ -10,6 +10,7 @@ import { loadProfile } from '@/lib/learning/profile-read'
 import { predictLikelyStruggle, pickStickingCandidates } from '@/lib/learning/predict'
 import { commonMisconceptionsFor } from '@/lib/learning/misconception-catalog'
 import { detectTopicKeys } from '@/lib/learning/topic'
+import { courseFromUserMetadata } from '@/lib/curriculum/courses'
 import {
   parseMessages,
   parsePageContext,
@@ -106,7 +107,10 @@ function titleFor(conceptKey: string): string {
 // no model involvement), additively: absent, not null, when the profile
 // carries nothing to predict from.
 async function handleOpeningScan(
-  auth: { supabase: SupabaseClient; user: { id: string } },
+  // `user_metadata` carries the student's course (11-course restructure); it
+  // is optional here so this narrow shape still accepts a caller that only has
+  // an id, and a missing course simply means no course prior.
+  auth: { supabase: SupabaseClient; user: { id: string; user_metadata?: unknown } },
   body: unknown
 ): Promise<NextResponse> {
   const pageContext = parsePageContext(body)
@@ -133,10 +137,11 @@ async function handleOpeningScan(
   // cheap side of the trade. `userId` skips loadProfile's redundant
   // auth.getUser() round trip (clientFromBearer already resolved the user).
   const profileTimer = { ms: 0 }
-  const topicKeys = detectTopicKeys(pageContext, [])
+  const courseKey = courseFromUserMetadata(auth.user.user_metadata)
+  const topicKeys = detectTopicKeys(pageContext, [], courseKey)
   const [{ hardExceeded }, profile, overFreeCap] = await Promise.all([
     costGuard(auth.supabase, estimateCost('claude_turn')),
-    timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys, userId: auth.user.id })),
+    timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys, userId: auth.user.id, courseKey })),
     sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : Promise.resolve(false),
   ])
 
@@ -284,7 +289,8 @@ export async function POST(request: Request) {
   // Turn-time topic detection (ADR-021): deterministic keyword match, no model
   // call, [] on any miss -- so the profile read below degrades to its
   // pre-Sprint-11 behaviour.
-  const topicKeys = detectTopicKeys(pageContext, messages)
+  const courseKey = courseFromUserMetadata(auth.user.user_metadata)
+  const topicKeys = detectTopicKeys(pageContext, messages, courseKey)
 
   // Sprint 16 / Task 3 (ADR-041): the global cost guard. Hard cap returns the
   // friendly resting message — never a 500, never a provider call. Soft cap
@@ -310,7 +316,7 @@ export async function POST(request: Request) {
   // lookup error) fails open: uncapped.
   const [{ softExceeded, hardExceeded }, profile, interactionCount, overFreeCap] = await Promise.all([
     timed(costGuardTimer, () => costGuard(auth.supabase, estimateCost('claude_turn'))),
-    timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys, userId: auth.user.id })),
+    timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys, userId: auth.user.id, courseKey })),
     sessionId ? sessionInteractionCount(auth.supabase, sessionId) : Promise.resolve(null),
     sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : Promise.resolve(false),
   ])

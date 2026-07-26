@@ -3,6 +3,7 @@ import { clientFromBearer } from '@/lib/auth/bearer'
 import { getTutorProvider } from '@/lib/ai/provider'
 import { loadProfile } from '@/lib/learning/profile-read'
 import { detectTopicKeys } from '@/lib/learning/topic'
+import { courseFromUserMetadata } from '@/lib/curriculum/courses'
 import { parseMessages, parsePageContext, parseSessionId, parseResponseLatencyMs } from '@/lib/ai/turn-request'
 import { completeTurn } from '@/lib/ai/turn-complete'
 import { costGuard } from '@/lib/tier/cost-guard'
@@ -72,14 +73,15 @@ export async function POST(request: Request) {
   // redundant auth.getUser() round trip — this route is the extension's
   // main turn path (text AND voice), so these serialized DB hops sat on
   // every turn's time-to-first-token.
-  const topicKeys = detectTopicKeys(pageContext, messages)
+  const courseKey = courseFromUserMetadata(auth.user.user_metadata)
+  const topicKeys = detectTopicKeys(pageContext, messages, courseKey)
   // The per-session student-message cap's count rides the same parallel round
   // trip as /api/ai/turn's (public launch, 2026-07-18); null fails open.
   // The free monthly cap's verdict rides the same parallel round trip as
   // /api/ai/turn's (public launch, 2026-07-18); false fails open (uncapped).
   const [{ softExceeded, hardExceeded }, profile, interactionCount, overFreeCap] = await Promise.all([
     costGuard(auth.supabase, estimateCost('claude_turn')),
-    loadProfile(auth.supabase, { topicKeys, userId: auth.user.id }),
+    loadProfile(auth.supabase, { topicKeys, userId: auth.user.id, courseKey }),
     sessionId ? sessionInteractionCount(auth.supabase, sessionId) : Promise.resolve(null),
     sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : Promise.resolve(false),
   ])

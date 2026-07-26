@@ -403,23 +403,37 @@
  * verbatim from a hex already shipped elsewhere in this file (ADR-018
  * discipline) — no new color is introduced for the dashboard.
  *
- * SIX STRAND COLORS (--chart-1..6) map the six `@calyxa/curriculum` strand
- * files (algebra1/geometry/algebra2/trig-precalc/calculus/prob-stats, in
- * that file order) onto six of the eight tutor-mode "text" hues already
- * proven AA-safe on their own tint (Sprint 14 Task 7's block above) —
- * explore (sky) and review (indigo) are the two EXCLUDED, because their hue
- * angles (~201°/~244°) sit only ~19-26° from a neighbor once six are picked
- * from eight, the closest pairing this file's eight mode hues allow; the
- * kept six (~15°/143°/175°/263°/295°/343°, coach/practice/verify/build/
- * challenge/recover) clear a ≥32° minimum pairwise hue gap, the best
- * available spread — a deliberate, disclosed distinctness pass (not a
- * hidden assumption), same as the border-strong near-miss documented
- * elsewhere in this file. Re-verified AA (relative-luminance) against
- * --color-background #FFFFFF specifically for chart use (the tutor-mode
- * block only verified each against its OWN paired tint): #9a3412 7.31:1 ·
- * #166534 7.13:1 (AAA, brand.md §4.1) · #0f766e 5.47:1 · #6d28d9 7.10:1 ·
- * #a21caf 6.32:1 · #9f1239 8.02:1 — all clear the 4.5:1 AA text minimum
- * (and trivially the 3:1 non-text minimum for a plain bar/segment fill).
+ * EIGHT COURSE COLORS (--chart-1..8) map the ELEVEN `@calyxa/curriculum`
+ * courses onto all eight tutor-mode "text" hues already proven AA-safe on
+ * their own tint (Sprint 14 Task 7's block above). Two things changed with
+ * the 11-course restructure and both are disclosed rather than assumed:
+ *
+ * (a) Eight tokens, not eleven. The three Integrated Math courses SHARE the
+ *     tokens of the core courses they mirror (IM1→1, IM2→2, IM3→3). This is
+ *     safe because the sequences are mutually exclusive by construction — a
+ *     school runs Algebra 1 / Geometry / Algebra 2 OR Integrated Math 1/2/3,
+ *     so the shared pairs cannot appear in one student's chart. Inventing
+ *     three more hues would have meant three NEW colors, which ADR-018
+ *     forbids, and eleven distinct AA-safe hues are not available in this
+ *     file regardless.
+ *
+ * (b) Using all eight tutor-mode hues re-admits explore (~201°) and review
+ *     (~244°), the two the six-color pass deliberately excluded. That drops
+ *     the minimum pairwise hue gap from ≥32° to ~19° (review 244° vs build
+ *     263°) and ~26° (explore 201° vs verify 175°). Accepted, with the
+ *     mitigation stated: every chart that uses this palette is labelled —
+ *     the "By subject" rows carry the course name beside the dot and the bar,
+ *     so hue is a secondary cue, never the only one. If a future chart
+ *     encodes course by color ALONE, it must not use more than the six-hue
+ *     subset (--chart-1..6), which retains the ≥32° spread.
+ *
+ * Re-verified AA (relative-luminance) against --color-background #FFFFFF
+ * specifically for chart use (the tutor-mode block only verified each
+ * against its OWN paired tint): #9a3412 7.31:1 · #166534 7.13:1 (AAA,
+ * brand.md §4.1) · #0f766e 5.47:1 · #6d28d9 7.10:1 · #a21caf 6.32:1 ·
+ * #9f1239 8.02:1 · #075985 7.57:1 (AAA) · #3730a3 9.93:1 (AAA) — all clear
+ * the 4.5:1 AA text minimum (and trivially the 3:1 non-text minimum for a
+ * plain bar/segment fill).
  *
  * FIVE STATE COLORS (--chart-state-*) and the THREE ACCURACY COLORS
  * (--chart-correct/partial/incorrect) are a separate, smaller palette —
@@ -439,13 +453,16 @@
  */
 :root,
 :host {
-  /* Strand 1-6, in @calyxa/curriculum file order */
-  --chart-1: #9a3412; /* algebra1 — reuses calyxa-mode-coach-text */
-  --chart-2: var(--color-accent-emphasis); /* geometry — reuses the brand accent green; ALSO reused below as chart-state-mastered/chart-correct (different chart, disclosed above) */
-  --chart-3: #0f766e; /* algebra2 — reuses calyxa-mode-verify-text */
-  --chart-4: #6d28d9; /* trig-precalc — reuses calyxa-mode-build-text */
-  --chart-5: #a21caf; /* calculus — reuses calyxa-mode-challenge-text */
-  --chart-6: #9f1239; /* prob-stats — reuses calyxa-mode-recover-text */
+  /* Course 1-8, in @calyxa/curriculum catalog order.
+     Integrated Math 1/2/3 reuse 1/2/3 — see (a) above. */
+  --chart-1: #9a3412; /* Algebra 1 · Integrated Math 1 — reuses calyxa-mode-coach-text */
+  --chart-2: var(--color-accent-emphasis); /* Geometry · Integrated Math 2 — reuses the brand accent green; ALSO reused below as chart-state-mastered/chart-correct (different chart, disclosed above) */
+  --chart-3: #0f766e; /* Algebra 2 · Integrated Math 3 — reuses calyxa-mode-verify-text */
+  --chart-4: #6d28d9; /* Precalculus — reuses calyxa-mode-build-text */
+  --chart-5: #a21caf; /* AP Calculus AB — reuses calyxa-mode-challenge-text */
+  --chart-6: #9f1239; /* AP Statistics — reuses calyxa-mode-recover-text */
+  --chart-7: #075985; /* AP Precalculus — reuses calyxa-mode-explore-text */
+  --chart-8: #3730a3; /* AP Calculus BC — reuses calyxa-mode-review-text */
 
   /* Mastery state distribution (unseen → learning → weak → mastered, plus forgotten) */
   --chart-state-unseen: var(--color-muted-foreground);
@@ -494,12 +511,14 @@
  */
 .dark,
 [data-theme='dark'] {
-  --chart-1: var(--calyxa-mode-coach-text); /* algebra1 — #fdba74 */
-  --chart-2: var(--color-accent-emphasis); /* geometry — #86efac */
-  --chart-3: var(--calyxa-mode-verify-text); /* algebra2 — #5eead4 */
-  --chart-4: var(--calyxa-mode-build-text); /* trig-precalc — #c4b5fd */
-  --chart-5: var(--calyxa-mode-challenge-text); /* calculus — #f0abfc */
-  --chart-6: var(--calyxa-mode-recover-text); /* prob-stats — #fda4af */
+  --chart-1: var(--calyxa-mode-coach-text); /* Algebra 1 · Integrated Math 1 — #fdba74 */
+  --chart-2: var(--color-accent-emphasis); /* Geometry · Integrated Math 2 — #86efac */
+  --chart-3: var(--calyxa-mode-verify-text); /* Algebra 2 · Integrated Math 3 — #5eead4 */
+  --chart-4: var(--calyxa-mode-build-text); /* Precalculus — #c4b5fd */
+  --chart-5: var(--calyxa-mode-challenge-text); /* AP Calculus AB — #f0abfc */
+  --chart-6: var(--calyxa-mode-recover-text); /* AP Statistics — #fda4af */
+  --chart-7: var(--calyxa-mode-explore-text); /* AP Precalculus — #7dd3fc; ALSO chart-state-learning below (different chart) */
+  --chart-8: var(--calyxa-mode-review-text); /* AP Calculus BC — #a5b4fc, 8.49:1 AAA on #1c1d1a */
 
   --chart-state-unseen: var(--color-muted-foreground); /* #98988f */
   --chart-state-learning: var(--calyxa-mode-explore-text); /* #7dd3fc */

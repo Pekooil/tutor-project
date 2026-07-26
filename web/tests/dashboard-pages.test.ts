@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardData } from '../lib/learning/dashboard-read'
-import { STRAND_ORDER, STRAND_LABELS } from '../lib/onboarding/item-bank'
+import { COURSE_ORDER, COURSE_LABELS } from '../lib/curriculum/courses'
 
 // Render test for the dashboard home (/dashboard) — the Notebook Studio's
 // dashboard: today's review, then the subject → concept browser over everything
@@ -51,11 +51,11 @@ function emptyStateCounts() {
   return { unseen: 0, learning: 0, weak: 0, mastered: 0, forgotten: 0 }
 }
 
-// A fresh account: six empty strands, empty sections, isEmpty true.
+// A fresh account: eleven empty course groups, empty sections, isEmpty true.
 const EMPTY_DATA: DashboardData = {
-  strands: STRAND_ORDER.map((strand) => ({
+  strands: COURSE_ORDER.map((strand) => ({
     strand,
-    strandLabel: STRAND_LABELS[strand] ?? strand,
+    strandLabel: COURSE_LABELS[strand] ?? strand,
     nodes: [],
     averageMastery: 0,
     stateCounts: emptyStateCounts(),
@@ -71,15 +71,15 @@ const EMPTY_DATA: DashboardData = {
 const NODE_TITLE = 'Solving linear equations'
 const DUE_TITLE = 'Parallel-line angles'
 const RICH_DATA: DashboardData = {
-  strands: STRAND_ORDER.map((strand) => {
+  strands: COURSE_ORDER.map((strand) => {
     const nodes =
-      strand === 'algebra'
+      strand === 'algebra-1'
         ? [
             {
               conceptKey: 'algebra.linear-equations.one-variable',
               title: NODE_TITLE,
-              strand: 'algebra',
-              strandLabel: STRAND_LABELS.algebra,
+              strand: 'algebra-1',
+              strandLabel: COURSE_LABELS['algebra-1'],
               mastery: 0.42,
               state: 'weak' as const,
               confidenceBand: 'medium' as const,
@@ -90,7 +90,7 @@ const RICH_DATA: DashboardData = {
         : []
     return {
       strand,
-      strandLabel: STRAND_LABELS[strand] ?? strand,
+      strandLabel: COURSE_LABELS[strand] ?? strand,
       nodes,
       averageMastery: nodes.length ? 0.42 : 0,
       stateCounts: { ...emptyStateCounts(), ...(nodes.length ? { weak: 1 } : {}) },
@@ -104,7 +104,7 @@ const RICH_DATA: DashboardData = {
       conceptKey: 'geometry.angles.parallel-lines',
       title: DUE_TITLE,
       strand: 'geometry',
-      strandLabel: STRAND_LABELS.geometry,
+      strandLabel: COURSE_LABELS.geometry,
       category: 'sign-error',
       description: 'drops the negative on the alternate angle',
       status: 'active',
@@ -120,7 +120,7 @@ const RICH_DATA: DashboardData = {
       conceptKey: 'geometry.angles.parallel-lines',
       title: DUE_TITLE,
       strand: 'geometry',
-      strandLabel: STRAND_LABELS.geometry,
+      strandLabel: COURSE_LABELS.geometry,
       dueAt: '2026-07-10T00:00:00.000Z',
       lastReviewAt: '2026-07-07T00:00:00.000Z',
       intervalDays: 3,
@@ -140,7 +140,7 @@ const RICH_DATA: DashboardData = {
 const CATALOG = [
   {
     key: 'algebra',
-    label: STRAND_LABELS.algebra ?? 'Algebra 1',
+    label: COURSE_LABELS['algebra-1'] ?? 'Algebra 1',
     short: 'A1',
     color: '#9a3412',
     averageMastery: 0.42,
@@ -168,7 +168,7 @@ const CATALOG = [
   // watching state surfaces instead of reading as "no gaps".
   {
     key: 'geometry',
-    label: STRAND_LABELS.geometry ?? 'Geometry',
+    label: COURSE_LABELS.geometry ?? 'Geometry',
     short: 'GE',
     color: '#166534',
     averageMastery: 0.71,

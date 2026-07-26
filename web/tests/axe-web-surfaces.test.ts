@@ -183,8 +183,13 @@ describe('web surfaces — WCAG 2.1 A/AA structural smoke (axe-core)', () => {
     // itself is labelled "Export as JSON".
     expect(exportLink?.textContent?.trim()).toBe('Export as JSON')
 
+    // The button reads "Delete my account" since the studio rebuild
+    // (2026-07-25); the card HEADING above it still reads "Delete account".
+    // This matched only the old copy, so it failed on wording while the
+    // control itself was present and correctly server-rendered — the optional
+    // "my" is what the assertion was always trying to express.
     const deleteButton = Array.from(document.querySelectorAll('button')).find((b) =>
-      /delete account/i.test(b.textContent ?? ''),
+      /delete (my )?account/i.test(b.textContent ?? ''),
     )
     expect(deleteButton, 'the "Delete account" control must be present and named').toBeTruthy()
   })
