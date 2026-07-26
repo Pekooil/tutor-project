@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { CalyxaMark } from '@calyxa/ui'
 import { createClient } from '@/lib/supabase/client'
 import { postAuthDestination } from '@/lib/auth/post-auth'
 import { CONSENT_VERSION } from '@/lib/consent'
@@ -11,27 +12,35 @@ import {
   loadPreflightAnswers,
   type PreflightAnswers,
 } from '@/lib/onboarding/preflight'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import '@/components/onboarding/onboarding.css'
+import './auth.css'
 
-// Unified sign-in / sign-up entry (Part 1). One "Continue with Google" button
-// and one email/password form — each creates an account if the email is new and
-// signs in if it already exists, so there is no separate signup vs. login step.
-// Birth year is NOT collected here (a returning user must not be re-asked); it
-// is gathered post-auth at /complete-profile via postAuthDestination.
+// The auth screen for /signup and /login.
 //
-// The email/password path drives sign-in through the BROWSER Supabase client so
-// onAuthStateChange fires SIGNED_IN reliably (that is what AuthBridge relays to
-// the extension). Account creation for a brand-new email is delegated to
-// /api/auth/continue (service-role, pre-confirmed, per-IP capped) since that
-// needs privileges the browser client doesn't have.
+// 2026-07-25 redesign. Two things changed, one visual and one behavioural.
+//
+// Visual: it now sits on the SAME ground as the /start wizard (.ob-ground plus
+// the drifting blobs, reused from onboarding.css). Auth is the middle beat of
+// one run — three questions → create the account → get the extension — and it
+// was the only screen in that run that looked like a different product.
+//
+// Behavioural: sign-up and sign-in are now EXPLICIT modes instead of one
+// "continue" button that guessed. Sign-up is the emphasised default; sign-in is
+// a link beneath it. Signing up also collects a first and last name, which ride
+// into Supabase `user_metadata` (no migration — the same channel the /start
+// answers already use).
+//
+// What did NOT change: the extension bridge still keys off the BROWSER client's
+// SIGNED_IN event, so both paths finish by calling signInWithPassword on the
+// browser client rather than trusting the server route to establish the session.
+// Account creation still goes through /api/auth/continue, which holds the
+// privileged half (service-role create, per-network cap, referral, consent).
+
+type Mode = 'signup' | 'signin'
+
 function GoogleGlyph() {
   return (
-    <svg viewBox="0 0 18 18" aria-hidden="true" className="h-4 w-4">
+    <svg viewBox="0 0 18 18" aria-hidden="true" className="h-[18px] w-[18px]">
       <path
         fill="#4285F4"
         d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"
@@ -52,30 +61,40 @@ function GoogleGlyph() {
   )
 }
 
-export function AuthPanel() {
+export function AuthPanel({ initialMode = 'signup' }: { initialMode?: Mode }) {
   const router = useRouter()
+  const [mode, setMode] = useState<Mode>(initialMode)
+
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [consent, setConsent] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  // Carried context (unchanged from the old signup page): a referral code lands
-  // as ?ref=CODE, and the /start wizard leaves grade/class/pain in
-  // sessionStorage. Both are forwarded to /api/auth/continue and used ONLY when
-  // creating a new account; a returning sign-in ignores them.
+  // Carried context (unchanged): a referral code lands as ?ref=CODE, and the
+  // /start wizard leaves grade/class/pain in sessionStorage. Both are forwarded
+  // to /api/auth/continue and used ONLY when creating a new account.
   const [referralCode, setReferralCode] = useState<string | null>(null)
   const [preflight, setPreflight] = useState<PreflightAnswers | null>(null)
 
   useEffect(() => {
-    const ref = new URLSearchParams(window.location.search).get('ref')
+    const params = new URLSearchParams(window.location.search)
+    const ref = params.get('ref')
     if (ref) setReferralCode(ref)
     setPreflight(loadPreflightAnswers())
-    // Surface an OAuth round-trip failure bounced back as ?error=oauth.
-    if (new URLSearchParams(window.location.search).get('error') === 'oauth') {
+    if (params.get('error') === 'oauth') {
       setError('Google sign-in did not complete. Please try again.')
     }
   }, [])
+
+  const isSignup = mode === 'signup'
+
+  function switchMode(next: Mode) {
+    setMode(next)
+    setError(null)
+  }
 
   async function handleGoogle() {
     setError(null)
@@ -86,152 +105,255 @@ export function AuthPanel() {
       options: { redirectTo: `${window.location.origin}/auth/callback` },
     })
     // On success the browser has already been redirected to Google; this line
-    // is only reached on a failure to even start the flow.
+    // is only reached if the flow failed to even start.
     if (oauthError) {
       setError(oauthError.message)
       setSubmitting(false)
     }
   }
 
-  async function handleEmailPassword(event: FormEvent) {
+  /** Shared tail: both modes end signed in on the BROWSER client, which is what
+   *  fires SIGNED_IN for AuthBridge → the extension. */
+  async function finish(supabase: ReturnType<typeof createClient>) {
+    clearPreflightAnswers()
+    router.push(await postAuthDestination(supabase))
+  }
+
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     setError(null)
     setSubmitting(true)
-
     const supabase = createClient()
 
-    // 1) Try to sign in an existing account.
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-
-    if (signInError) {
-      // 2) Sign-in failed — either the email is new (create it) or the password
-      // is wrong (continue returns 409). Creating requires consent (click-wrap).
-      const res = await fetch('/api/auth/continue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          password,
-          consent,
-          referralCode: referralCode ?? undefined,
-          onboarding: preflight ?? undefined,
-        }),
-      })
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        setError(body.error ?? 'Could not sign you in.')
+    if (!isSignup) {
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+      if (signInError) {
+        setError('Incorrect email or password.')
         setSubmitting(false)
         return
       }
-
-      // Account created — now sign in on the browser client so SIGNED_IN fires
-      // and the extension bridge picks it up.
-      const { error: retryError } = await supabase.auth.signInWithPassword({ email, password })
-      if (retryError) {
-        setError(retryError.message)
-        setSubmitting(false)
-        return
-      }
+      await finish(supabase)
+      return
     }
 
-    // Signed in either way. Clear the carried onboarding answers and route to
-    // the birth-year step (new accounts) or the guided setup (returning users).
-    clearPreflightAnswers()
-    const dest = await postAuthDestination(supabase)
-    router.push(dest)
+    // ---- Sign-up ----
+    const res = await fetch('/api/auth/continue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        password,
+        consent,
+        firstName,
+        lastName,
+        referralCode: referralCode ?? undefined,
+        onboarding: preflight ?? undefined,
+      }),
+    })
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      // 409 = the email already exists. Rather than confirm that outright (which
+      // would make this form an account-enumeration oracle), try the credentials
+      // they just typed: a returning user who used the wrong form simply gets
+      // signed in, and anyone else sees the same ambiguous message.
+      if (res.status === 409) {
+        const { error: retry } = await supabase.auth.signInWithPassword({ email, password })
+        if (!retry) {
+          await finish(supabase)
+          return
+        }
+        setError('Incorrect email or password. If you already have an account, sign in instead.')
+        setSubmitting(false)
+        return
+      }
+      setError(body.error ?? 'Could not create your account.')
+      setSubmitting(false)
+      return
+    }
+
+    // Created — now sign in on the browser client so SIGNED_IN fires and the
+    // extension bridge picks it up.
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+    if (signInError) {
+      setError(signInError.message)
+      setSubmitting(false)
+      return
+    }
+    await finish(supabase)
   }
 
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-8 bg-background px-4 py-12">
-      <img src="/logo.svg" alt="Calyxa" className="h-8 w-auto" />
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <h1 className="text-xl leading-none font-semibold">Sign in or create your account</h1>
-          {referralCode && (
-            <p className="mt-1 text-sm text-muted-foreground">A friend invited you to Calyxa — welcome!</p>
-          )}
-        </CardHeader>
-        <CardContent className="flex flex-col gap-5">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleGoogle}
-            disabled={submitting}
-            className="w-full gap-2"
-          >
-            <GoogleGlyph />
-            Continue with Google
-          </Button>
+    <main className="mkt ob-ground flex min-h-svh flex-col overflow-hidden">
+      <span aria-hidden="true" className="ob-blob ob-blob-a left-[-14rem] top-[-12rem] h-[34rem] w-[34rem]" />
+      <span aria-hidden="true" className="ob-blob ob-blob-b right-[-16rem] bottom-[-14rem] h-[38rem] w-[38rem]" />
 
-          <div className="flex items-center gap-3">
-            <span className="h-px flex-1 bg-border" />
-            <span className="text-xs text-muted-foreground">or</span>
-            <span className="h-px flex-1 bg-border" />
-          </div>
-
-          <form onSubmit={handleEmailPassword} noValidate className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="auth-email">Email</Label>
-              <Input
-                id="auth-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="auth-password">Password</Label>
-              <Input
-                id="auth-password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                autoComplete="current-password"
-              />
-            </div>
-
-            <div className="flex items-start gap-3 rounded-md border border-border-strong bg-surface p-3">
-              <Checkbox
-                id="auth-consent"
-                checked={consent}
-                onCheckedChange={(checked) => setConsent(checked === true)}
-                className="mt-0.5"
-              />
-              <Label htmlFor="auth-consent" className="text-sm leading-snug font-normal text-foreground">
-                New here? I agree to Calyxa storing my profile, processing the page context I share during
-                a session, and processing real-time audio-to-text during voice sessions (the audio itself
-                is never retained). Consent version {CONSENT_VERSION}. (Returning users can ignore this.)
-              </Label>
-            </div>
-
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <Button type="submit" disabled={submitting}>
-              {submitting ? 'Continuing…' : 'Continue with email'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-      <p className="max-w-sm text-center text-xs text-muted-foreground">
-        By continuing you agree to our{' '}
-        <Link href="/terms" className="underline underline-offset-4">
-          Terms
-        </Link>{' '}
-        and{' '}
-        <Link href="/privacy" className="underline underline-offset-4">
-          Privacy Policy
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-10 sm:py-14">
+        <Link href="/" className="mb-7 inline-flex items-center gap-2">
+          <CalyxaMark className="h-6 w-6" />
+          <span className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">calyxa</span>
         </Link>
-        .
-      </p>
+
+        <div className="auth-card w-full max-w-[27rem] px-6 py-7 sm:px-8 sm:py-8">
+          <div key={mode} className="auth-swap">
+            <h1 className="mkt-display text-[27px] leading-[1.1] tracking-[-0.02em] text-foreground sm:text-[31px]">
+              {isSignup ? 'Create your account' : 'Welcome back'}
+            </h1>
+            <p className="mt-1.5 text-[14.5px] leading-relaxed text-(--mkt-strip-text)">
+              {isSignup ? (
+                <>
+                  Free to start — no card needed.{' '}
+                  {referralCode && <span className="text-(--color-accent-emphasis)">A friend invited you.</span>}
+                </>
+              ) : (
+                'Sign in to pick up where you left off.'
+              )}
+            </p>
+
+            <button
+              type="button"
+              onClick={handleGoogle}
+              disabled={submitting}
+              className="auth-google mt-6 disabled:opacity-60"
+            >
+              <GoogleGlyph />
+              Continue with Google
+            </button>
+
+            <div className="auth-rule my-5">or</div>
+
+            <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+              {isSignup && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="auth-first" className="auth-label">
+                      First name
+                    </label>
+                    <input
+                      id="auth-first"
+                      className="auth-input"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      required
+                      autoComplete="given-name"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="auth-last" className="auth-label">
+                      Last name
+                    </label>
+                    <input
+                      id="auth-last"
+                      className="auth-input"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      required
+                      autoComplete="family-name"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="auth-email" className="auth-label">
+                  Your email
+                </label>
+                <input
+                  id="auth-email"
+                  type="email"
+                  className="auth-input"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="auth-password" className="auth-label">
+                  Password
+                </label>
+                <input
+                  id="auth-password"
+                  type="password"
+                  className="auth-input"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  autoComplete={isSignup ? 'new-password' : 'current-password'}
+                />
+                {isSignup && (
+                  <p className="mt-1.5 text-[12.5px] text-(--mkt-strip-text)">At least 8 characters.</p>
+                )}
+              </div>
+
+              {isSignup && (
+                <label htmlFor="auth-consent" className="auth-consent cursor-pointer">
+                  <input
+                    id="auth-consent"
+                    type="checkbox"
+                    className="auth-check"
+                    checked={consent}
+                    onChange={(e) => setConsent(e.target.checked)}
+                  />
+                  <span className="text-[13px] leading-snug text-foreground">
+                    I agree to Calyxa storing my profile and processing what I share during a session.
+                    Voice is transcribed live and the audio is never kept.{' '}
+                    <Link href="/privacy" className="underline underline-offset-2 hover:text-(--color-accent-emphasis)">
+                      Details
+                    </Link>
+                    .
+                  </span>
+                </label>
+              )}
+
+              {error && (
+                <p role="alert" className="auth-error">
+                  {error}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={submitting || (isSignup && !consent)}
+                className="ob-cta mt-1 w-full px-5 py-3 text-[15px] disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                {submitting
+                  ? isSignup
+                    ? 'Creating your account…'
+                    : 'Signing you in…'
+                  : isSignup
+                    ? 'Create account'
+                    : 'Sign in'}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <p className="mt-5 text-[14px] text-(--mkt-strip-text)">
+          {isSignup ? 'Already have an account? ' : 'New to Calyxa? '}
+          <button
+            type="button"
+            onClick={() => switchMode(isSignup ? 'signin' : 'signup')}
+            className="font-semibold text-(--color-accent-emphasis) underline underline-offset-4 hover:text-foreground"
+          >
+            {isSignup ? 'Sign in here' : 'Create a free account'}
+          </button>
+        </p>
+
+        <p className="mt-6 max-w-[27rem] text-center text-[12px] leading-relaxed text-(--mkt-strip-text)">
+          By continuing you agree to our{' '}
+          <Link href="/terms" className="underline underline-offset-2">
+            Terms
+          </Link>{' '}
+          and{' '}
+          <Link href="/privacy" className="underline underline-offset-2">
+            Privacy Policy
+          </Link>
+          . Consent version {CONSENT_VERSION}.
+        </p>
+      </div>
     </main>
   )
 }

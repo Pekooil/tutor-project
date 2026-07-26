@@ -21,7 +21,8 @@ import { parsePreflightAnswers } from '@/lib/onboarding/preflight'
 // rate-limited at launch). Kept as a separate route so the old signup form's
 // contract is untouched.
 export async function POST(request: Request) {
-  const { email, password, consent, referralCode, onboarding } = await request.json()
+  const { email, password, consent, referralCode, onboarding, firstName, lastName } =
+    await request.json()
 
   if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
     return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })
@@ -39,6 +40,29 @@ export async function POST(request: Request) {
   }
 
   const preflight = parsePreflightAnswers(onboarding)
+
+  // Name (2026-07-25 signup redesign). Stored in Supabase `user_metadata`, the
+  // same channel the /start answers already ride — deliberately NOT a `users`
+  // column, which would need a migration AND a new entry in migration 0025's
+  // client-updatable column grant. Trimmed and length-capped here because this
+  // is the trust boundary; blank or absent is fine (Google sign-up supplies no
+  // name through this route at all, so the field must stay optional in storage
+  // even though the form marks it required).
+  const cleanName = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined
+    const trimmed = value.trim().slice(0, 80)
+    return trimmed || undefined
+  }
+  const first = cleanName(firstName)
+  const last = cleanName(lastName)
+
+  const metadata = {
+    ...(preflight ? { onboarding: preflight } : {}),
+    ...(first ? { first_name: first } : {}),
+    ...(last ? { last_name: last } : {}),
+    ...(first || last ? { full_name: [first, last].filter(Boolean).join(' ') } : {}),
+  }
+
   const admin = createAdminClient()
 
   // Per-network account cap (ADR-053), same as /api/auth/signup: at most
@@ -70,7 +94,7 @@ export async function POST(request: Request) {
     email,
     password,
     email_confirm: true,
-    ...(preflight ? { user_metadata: { onboarding: preflight } } : {}),
+    ...(Object.keys(metadata).length > 0 ? { user_metadata: metadata } : {}),
   })
 
   if (createError || !created.user) {

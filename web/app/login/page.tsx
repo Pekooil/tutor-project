@@ -1,9 +1,10 @@
 import { AuthPanel } from '@/components/auth/AuthPanel'
+import '@/components/marketing/marketing.css'
 
-// Unified auth entry (Part 1): /login and /signup both render the same panel —
-// one Google button + one email/password form that signs in an existing account
-// or creates a new one. Keeping both routes preserves every existing link and
-// the /start wizard → /signup handoff.
+// /login — the same panel as /signup, opened in SIGN-IN mode. Both routes are
+// kept so every existing link kicks to the right default: the extension, the
+// proxy's signed-out redirect and the nav all point here for returning users,
+// while /start → /signup carries new ones.
 export default function LoginPage() {
-  return <AuthPanel />
+  return <AuthPanel initialMode="signin" />
 }

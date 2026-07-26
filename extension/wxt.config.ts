@@ -54,7 +54,7 @@ export default defineConfig({
     // (package.json) reads this value back out of the BUILT manifest.json to
     // name the artifact `release/calyxa-<version>.zip`, so every future beta
     // build bumps ONLY this line, per docs/release-runbook.md.
-    version: '0.1.2',
+    version: '0.1.3',
     // Manifest V3 permissions. Each is justified below; nothing here that the
     // content script + background worker don't use, and deliberately NO
     // tabCapture / desktopCapture (the beta OCR path stays deferred).
