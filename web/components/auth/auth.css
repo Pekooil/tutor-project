@@ -192,6 +192,32 @@
   color: #9f1239;
 }
 
+/* ---- Waiting dot ---- */
+
+/* The install step's status dot while it polls for the extension. A slow pulse
+ * says "still working" without a spinner, which would over-dramatise a wait
+ * that is usually one tick long. */
+.auth-pulse {
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .auth-pulse {
+    animation: auth-pulse 1.8s ease-in-out infinite;
+  }
+}
+
+@keyframes auth-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+
+  50% {
+    opacity: 0.85;
+  }
+}
+
 /* ---- Mode swap ---- */
 
 /* Switching sign-up ↔ sign-in re-renders the form in place; a short fade keeps

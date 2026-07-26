@@ -2,12 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { CalyxaMark } from '@calyxa/ui'
 import { createClient } from '@/lib/supabase/client'
 import { pingExtension, pushSessionToExtension } from '@/lib/auth/extension-bridge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import '@/components/onboarding/onboarding.css'
+import '@/components/auth/auth.css'
 
 // The post-signup install step — the LAST web screen of onboarding workflow 1.
+//
+// Styled to match /start and /signup (2026-07-26): the same .ob-ground gradient,
+// the same .auth-card and .ob-cta. Before this it was a bare shadcn Card on flat
+// white, which made the three-screen run read as three different products —
+// questions, then a stock form, then another stock form.
 //
 // There is deliberately NO sign-in control here. The visitor reached this page
 // by signing up moments ago, so they are already authenticated on calyxa.app;
@@ -79,59 +85,73 @@ export function InstallStep({ storeUrl }: { storeUrl: string }) {
   const connected = phase === 'connected'
 
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-8 bg-background px-4 py-12">
-      <img src="/logo.svg" alt="Calyxa" className="h-8 w-auto" />
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <h1 className="text-xl leading-none font-semibold">
+    <main className="mkt ob-ground flex min-h-svh flex-col overflow-hidden">
+      <span aria-hidden="true" className="ob-blob ob-blob-a left-[-14rem] top-[-12rem] h-[34rem] w-[34rem]" />
+      <span aria-hidden="true" className="ob-blob ob-blob-b right-[-16rem] bottom-[-14rem] h-[38rem] w-[38rem]" />
+
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-10 sm:py-14">
+        <Link href="/" className="mb-7 inline-flex items-center gap-2">
+          <CalyxaMark className="h-6 w-6" />
+          <span className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">calyxa</span>
+        </Link>
+
+        <div className="auth-card w-full max-w-[27rem] px-6 py-7 sm:px-8 sm:py-8">
+          <h1 className="mkt-display text-[27px] leading-[1.1] tracking-[-0.02em] text-foreground sm:text-[31px]">
             {connected ? 'Calyxa is ready' : 'Get the extension'}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1.5 text-[14.5px] leading-relaxed text-(--mkt-strip-text)">
             {connected
-              ? 'Your account is linked to the extension. Open any homework page and Calyxa is there.'
-              : 'Calyxa tutors you on the page you’re already studying on, so it lives in Chrome rather than here.'}
+              ? 'Your account is linked. Open any homework page and Calyxa is there.'
+              : 'Calyxa tutors you on the page you’re already studying on, so it lives in Chrome — not here.'}
           </p>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-5">
+
           {!connected && (
-            <Button asChild>
-              <a href={storeUrl} target="_blank" rel="noreferrer">
-                Add Calyxa to Chrome
-              </a>
-            </Button>
+            <a href={storeUrl} target="_blank" rel="noreferrer" className="ob-cta mt-6 w-full px-5 py-3 text-[15px]">
+              Add Calyxa to Chrome
+            </a>
           )}
 
-          {/* Honest status. Never claims a connection it has not observed. */}
-          <div
-            aria-live="polite"
-            className="flex items-start gap-3 rounded-md border border-border-strong bg-surface p-3"
-          >
+          {/* Honest status — never claims a connection it has not observed. */}
+          <div aria-live="polite" className="auth-consent mt-4 items-center">
             <span
               aria-hidden="true"
-              className={`mt-1.5 h-2 w-2 flex-none rounded-full ${
-                connected ? 'bg-accent-emphasis' : 'bg-muted-foreground/40'
+              className={`h-2 w-2 flex-none rounded-full ${
+                connected ? 'bg-(--color-accent-emphasis)' : 'auth-pulse bg-(--mkt-strip-text)'
               }`}
             />
-            <p className="text-sm leading-snug text-foreground">
+            <span className="text-[13px] leading-snug text-foreground">
               {phase === 'waiting' && (
                 <>
-                  Waiting for the extension… this page signs it in for you the moment it installs.{' '}
-                  <span className="text-muted-foreground">You won’t need to log in again.</span>
+                  Waiting for the extension — this page signs it in for you the moment it installs.{' '}
+                  <span className="text-(--mkt-strip-text)">No second login.</span>
                 </>
               )}
               {phase === 'installed' && 'Extension found — signing it in…'}
               {connected && 'Signed in to the extension. No password needed there.'}
-            </p>
+            </span>
           </div>
 
-          {/* Always available: a student who installs later should not be
-              trapped here, and the extension signs itself in whenever they next
-              load calyxa.app. */}
-          <Button asChild variant={connected ? 'default' : 'outline'}>
-            <Link href="/dashboard">{connected ? 'Continue' : 'Skip for now'}</Link>
-          </Button>
-        </CardContent>
-      </Card>
+          {connected && (
+            <Link href="/dashboard" className="ob-cta mt-5 w-full px-5 py-3 text-[15px]">
+              Continue
+            </Link>
+          )}
+        </div>
+
+        {/* A student who installs later must not be trapped here — the extension
+            signs itself in whenever they next load calyxa.app. */}
+        {!connected && (
+          <p className="mt-5 text-[14px] text-(--mkt-strip-text)">
+            <Link
+              href="/dashboard"
+              className="font-semibold text-(--color-accent-emphasis) underline underline-offset-4 hover:text-foreground"
+            >
+              Skip for now
+            </Link>{' '}
+            — you can install it any time.
+          </p>
+        )}
+      </div>
     </main>
   )
 }

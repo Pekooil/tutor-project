@@ -26,13 +26,23 @@ import { STORE_URL } from '@/lib/store-url'
 // land here signed out, and a cookie-gated 307 to /login would be the wrong door.
 export const dynamic = 'force-dynamic'
 
-export default async function InstallPage() {
+export default async function InstallPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
   const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) redirect('/signup')
+  // Dev-only preview (?preview=1), the convention the retired /welcome page
+  // used. Every screen in workflow 1 is auth-gated, which is precisely how they
+  // drifted out of one design without anyone noticing — a screen nobody can
+  // look at is a screen that rots. NODE_ENV-gated, so it cannot exist in prod.
+  const devPreview = process.env.NODE_ENV === 'development' && (await searchParams).preview === '1'
+
+  if (!user && !devPreview) redirect('/signup')
 
   return <InstallStep storeUrl={STORE_URL} />
 }
