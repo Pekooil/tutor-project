@@ -1,10 +1,14 @@
 import type { ReactNode } from 'react';
 import { CalyxaMark } from '@calyxa/ui';
 
-// Presentational chrome around the demo pill (Option 1 interactive onboarding).
-// The pill itself (the real Overlay) is mounted separately by main.tsx and floats
-// fixed at the bottom; this renders the narration, the mock worksheet the pill
-// reads, and the sign-up hand-off. Pure — all state lives in main.tsx.
+// Presentational chrome around the demo pill (the post-signup in-extension
+// lesson). The pill itself (the real Overlay) is mounted separately by main.tsx
+// and floats fixed at the bottom; this renders the narration, the mock worksheet
+// the pill reads, and the sign-off. Pure — all state lives in main.tsx.
+//
+// The sign-up hand-off this used to end on is gone (two-workflow rule,
+// 2026-07-25): the student signed up on the website before this page ever
+// opened, so the closing beat is "go use it", not "now make an account".
 
 const COACH: { kicker: string; title: string; hint: ReactNode }[] = [
   {
@@ -32,8 +36,8 @@ const COACH: { kicker: string; title: string; hint: ReactNode }[] = [
     title: 'It coaches — never spoils',
     hint: (
       <>
-        See how it points you at the next step instead of dumping the answer? That&rsquo;s every session.
-        Ready to make it yours?
+        See how it points you at the next step instead of dumping the answer? That&rsquo;s every session
+        &mdash; on Khan, on Desmos, on whatever your teacher assigns.
       </>
     ),
   },
@@ -41,12 +45,12 @@ const COACH: { kicker: string; title: string; hint: ReactNode }[] = [
 
 export function OnboardingChrome({
   step,
-  signedIn,
-  onSignUp,
+  done,
+  onFinish,
 }: {
   step: number;
-  signedIn: boolean;
-  onSignUp: () => void;
+  done: boolean;
+  onFinish: () => void;
 }) {
   const coach = COACH[Math.min(step, COACH.length - 1)];
 
@@ -58,12 +62,13 @@ export function OnboardingChrome({
           <span className="cx-ob__brand-name">Calyxa</span>
         </div>
 
-        {signedIn ? (
+        {done ? (
           <div className="cx-ob__success" role="status">
             <p className="cx-ob__success-h">You&rsquo;re all set 🎉</p>
             <p className="cx-ob__success-b">
-              Your account is linked to this extension — no sign-in needed here. Open any homework page and
-              press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> (⌥⇧C on Mac) to summon Calyxa.
+              That&rsquo;s the whole loop. Your account is already linked to this extension — no sign-in
+              needed here. Open any homework page and press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd>{' '}
+              (⌥⇧C on Mac) to summon Calyxa.
             </p>
           </div>
         ) : (
@@ -100,12 +105,12 @@ export function OnboardingChrome({
           </div>
         </div>
 
-        {!signedIn && (
+        {done && (
           <div className="cx-ob__cta-row">
-            <button type="button" className="cx-ob__cta" onClick={onSignUp}>
-              Create your free account →
+            <button type="button" className="cx-ob__cta" onClick={onFinish}>
+              Start studying →
             </button>
-            <span className="cx-ob__cta-note">Free — takes about 20 seconds.</span>
+            <span className="cx-ob__cta-note">Closes this tab — Calyxa is already running everywhere.</span>
           </div>
         )}
       </div>

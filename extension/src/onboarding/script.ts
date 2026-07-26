@@ -91,10 +91,6 @@ export function buildScriptedTransports(hooks: ScriptHooks): MountOverlayOptions
     onEndSession: async () => {},
     onSendTelemetry: async () => {},
     onReportFeedback: async () => {},
-    // Report the STATIC first-run tour as already seen so it never pre-empts the
-    // interactive demo's surface slot.
-    onFetchTutorialSeen: async () => true,
-    onMarkTutorialSeen: async () => {},
     onGetActiveSessionId: async () => undefined,
   };
 }

@@ -9,7 +9,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // COMPLETE_PROFILE_PATH for anyone who has none on file yet — new email/password
 // accounts AND every Google account (OAuth won't reliably hand us a birth date).
 export const COMPLETE_PROFILE_PATH = '/complete-profile'
-export const POST_AUTH_DEFAULT = '/welcome'
+// Two-workflow onboarding (2026-07-25): the last WEB step is /install — get the
+// extension, and let this browser hand it the session it already has. The old
+// /welcome wizard (install → find-it-in-the-toolbar → an interactive demo of the
+// pill) is gone: it taught, on the website, the very thing the in-extension
+// lesson teaches better with the real pill. What survives from it is only the
+// install hand-off, minus any second sign-in — /install never asks for
+// credentials, because whoever reaches it just entered them.
+export const POST_AUTH_DEFAULT = '/install'
 
 /**
  * Resolves the post-auth destination for the currently-signed-in user: the

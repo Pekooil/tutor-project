@@ -435,39 +435,6 @@ function sendLogError(event: LogErrorPayload): void {
   });
 }
 
-// The overlay's first-run tutorial transports (public launch, 2026-07-17),
-// replacing the Sprint 17 diagnostic-onboarding relays (ADR-042 surface
-// retired): same "sole chrome.* surface for the overlay" role as the
-// transports above, but purely LOCAL -- whether the usage tour was seen is
-// a UI fact, so it lives in chrome.storage.local (no background hop, no
-// server call, nothing personal).
-
-const TUTORIAL_SEEN_KEY = 'tutorialSeen';
-
-/**
- * Reads whether the first-run tour was already completed/skipped. Never
- * throws -- a storage failure degrades to `true` (already seen), so a broken
- * storage layer can never nag the student on every page load.
- */
-async function fetchTutorialSeen(): Promise<boolean> {
-  try {
-    const stored = await chrome.storage.local.get(TUTORIAL_SEEN_KEY);
-    return stored[TUTORIAL_SEEN_KEY] === true;
-  } catch {
-    return true;
-  }
-}
-
-/** Persists the seen flag (fired on both finish and skip). Best-effort. */
-async function markTutorialSeen(): Promise<void> {
-  try {
-    await chrome.storage.local.set({ [TUTORIAL_SEEN_KEY]: true });
-  } catch {
-    // A failed write means the tour may show once more on the next page
-    // load -- acceptable, and preferable to surfacing an error for it.
-  }
-}
-
 /**
  * The feedback affordance's sessionId lookup (Sprint 17 Task 7, ADR-039):
  * "wired to the current sessionId when one is active". Reuses the EXISTING
@@ -864,8 +831,6 @@ export default defineContentScript({
           onReportFeedback: sendFeedback,
           // Public launch (2026-07-17): the first-run tutorial's seen-flag
           // transports (chrome.storage.local, no server call).
-          onFetchTutorialSeen: fetchTutorialSeen,
-          onMarkTutorialSeen: markTutorialSeen,
           // Sprint 17 Task 7 (ADR-039): the feedback affordance's sessionId lookup.
           onGetActiveSessionId: getActiveSessionId,
           // Sprint 21 Task 5 (ADR-049): the recap card's study-kit generation

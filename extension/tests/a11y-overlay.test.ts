@@ -27,7 +27,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { Tutorial } from '../src/overlay/Tutorial';
 import { Composer } from '../src/overlay/Composer';
 import { ConceptCard, ConceptFallbackCard, type ConceptVariant } from '../src/overlay/CheckinCard';
 import { FeedbackCard } from '../src/overlay/FeedbackCard';
@@ -217,27 +216,6 @@ describe('overlay a11y — FeedbackCard (Sprint 17 affordance, ambient home)', (
       rate!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     await expectNoAxeViolations(c, 'FeedbackCard (rating)');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Tutorial (public launch, 2026-07-17 — replaces the Sprint 17 Onboarding
-// diagnostic in the first-run slot)
-// ---------------------------------------------------------------------------
-
-describe('overlay a11y — Tutorial (first-run tour)', () => {
-  it('Tutorial (first step, with Next/Skip controls)', async () => {
-    const c = await mount(h(Tutorial, { onDone: noop }));
-    await expectNoAxeViolations(c, 'Tutorial (first step)');
-  });
-
-  it('Tutorial (mid-tour, with the Back control present)', async () => {
-    const c = await mount(h(Tutorial, { onDone: noop }));
-    await act(async () => {
-      const next = [...c.querySelectorAll('button')].find((b) => b.textContent === 'Next');
-      next!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
-    await expectNoAxeViolations(c, 'Tutorial (mid-tour)');
   });
 });
 

@@ -79,11 +79,28 @@ export default defineConfig({
     },
     // Pinned extension public key → a DETERMINISTIC extension id across both the
     // unpacked-dev load and the store build, so the website's
-    // NEXT_PUBLIC_CALYXA_EXTENSION_ID target never drifts. Generated for this
-    // project (the matching private .pem is kept out of the repo, with Darcy);
-    // if a Chrome Web Store item already exists, replace this with that item's
-    // public key so the id matches the store listing. See docs/release-runbook.md.
-    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvTJkkusL+S7haOVqgrsx1tPkBUN2gJPU3Tr3VQUTVpIjSoUnklXjGmJQ20DPz7YuT9tGqa3H0HmigmhQAjzF3e8ogXroGF+KNtMAoi9OgQxqma8ectWduuqssJqnYVZZ4su9oNt+2edyc8+Z+ioCVypixDrIOjP2zfU95ihK/A7pRjI2D2WC4mcVEJqZpXYo3uBfoLWYAPnRI2vhdaiuI0asj5Uc5KpMektCzQyPUzeZXIC7huwtWknHUUOnFoz8llPBLBcvBnOixMImzX59DMemZ2YOqEIc6f24Cxk14CjtzfL/mmzD0vWZqtVNncBrOJEGw/MxWRXsxWMiAXnbPwIDAQAB',
+    // NEXT_PUBLIC_CALYXA_EXTENSION_ID target never drifts.
+    //
+    // This is the PUBLISHED Chrome Web Store item's own public key, so a local
+    // unpacked build and the store build now share one id:
+    //   gedmlagmmllpohdkdpeocpbnmofegnbm
+    // Verify at any time: the id is the first 128 bits of SHA-256 over this
+    // key's DER bytes (base64-decoded), with each of those 32 hex nibbles
+    // mapped 0-f → a-p. Chrome shows the same id at chrome://extensions.
+    //
+    // History (2026-07-25): this slot previously held a locally-generated key
+    // deriving to `bmmfbljiipnkbidfnmclaoelgmiaaadi`, which did NOT match the
+    // store item — the CWS had already assigned its own id. Because the
+    // web→extension auth bridge is addressed BY id, the website was targeting an
+    // extension that did not exist and sign-in never propagated (silently: see
+    // web/lib/auth/extension-bridge.ts's `if (!EXTENSION_ID) return`). Recovered
+    // from the published CRX's CRX3 header and swapped in here, which is what
+    // makes NEXT_PUBLIC_CALYXA_EXTENSION_ID a single value for all environments.
+    //
+    // ⚠️ The matching PRIVATE key still lives only with Darcy / the CWS. This
+    // public half does not let anyone sign a build; do NOT commit a .pem here.
+    // See docs/release-runbook.md.
+    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxVc2JAsElaPDKoasUJp3ay0IqkRhZlJA4jxH8p5Fv6UCiMU34DwqRsnng0D6LePqoO9Sg8gpaYLKaLO2drTZl6tJRdmXPNXOTae18GCILlsaChxGYeAzYvlVE3PEVTYZ78IIr92dW4FQ9xpvYjBDlk++rqFbZ4V6CcZfcAMglCpbcgHdqu93lYchpXla/zVN1RDhKgFHhQxqBV1UUXzX6IPsJ5bIRTglDNcQUlulTpMgNQb6jPSeufXWxyMeZtP38yiyUrliK27MyP1JzyUJuyQEaM4qPuBn3ParK9edF08itgQLyM1Jq+bNC+oZgyyUaSOwVpDFZaCaACoWxkmxiwIDAQAB',
     host_permissions: [
       '<all_urls>', // content script must run on any page the student visits
       // The single backend origin the background worker's fetch calls in

@@ -82,17 +82,6 @@ export type OverlayTransports = {
   onSendTelemetry?: (events: TelemetryEvent[]) => Promise<void>;
   onReportFeedback?: (payload: SendFeedbackPayload) => Promise<void>;
   /**
-   * First-run tutorial transports (public launch, 2026-07-17), replacing the
-   * Sprint 17 diagnostic onboarding transports (ADR-042 surface retired).
-   * The "seen" flag lives in chrome.storage.local — the content script owns
-   * the read/write (the overlay never imports chrome.*); there is no server
-   * call. Optional for the same reason as the telemetry/feedback transports
-   * above. onFetchTutorialSeen degrades to `true` on failure (a storage
-   * error must never nag); onMarkTutorialSeen is fire-and-forget.
-   */
-  onFetchTutorialSeen?: () => Promise<boolean>;
-  onMarkTutorialSeen?: () => Promise<void>;
-  /**
    * The feedback affordance's sessionId lookup (Sprint 17 Task 7, ADR-039):
    * reuses the existing GET_STATE message (content/index.ts), read fresh at
    * submit time. undefined on failure or when no session is active --

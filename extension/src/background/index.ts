@@ -47,16 +47,32 @@ export default defineBackground(() => {
   // they are in place before any event fires after a wake.
 
   // (1) First install: announce, initialise the persisted wake counter, and
-  // (public launch, 2026-07-17) open the website's guided setup in a new tab —
-  // a fresh install has no account and no visible surface (the overlay only
-  // mounts signed-in), so /welcome is where they learn to create an account,
-  // pin the icon, and sign in. `reason === 'install'` only: updates and
+  // open the website's /install page in a new tab.
+  //
+  // Two-workflow onboarding (2026-07-25). There are now exactly two onboarding
+  // flows, and this is the entry to the first:
+  //   1. Sign up on the WEBSITE (/start → /signup → /complete-profile →
+  //      /install). The extension is never an auth surface (locked ADR); the
+  //      web→extension bridge signs this extension in the moment that succeeds.
+  //      Opening /install rather than /signup is what breaks the loop a student
+  //      hit here: /signup showed a login form to someone who had ALREADY signed
+  //      up, while nothing pushed the session across. /install asks for no
+  //      credentials — it just re-pushes the session this browser already holds
+  //      until the extension confirms it took (EXT_PING).
+  //   2. Learn to USE it IN the extension — the scripted onboarding page, now
+  //      opened by handleBridgedSignIn once the bridge lands (see below), NOT
+  //      on install. A brand-new install has no account, so teaching the pill
+  //      before there is a session to run would be teaching in a vacuum.
+  //
+  // This replaces the retired /welcome wizard (its install/toolbar/demo steps
+  // duplicated workflow 2 on the web, which is exactly the duplication the
+  // two-workflow rule removes). `reason === 'install'` only: updates and
   // browser restarts must never pop a tab.
   chrome.runtime.onInstalled.addListener((details) => {
     console.log('Calyxa SW: installed', details.reason);
     void chrome.storage.local.set({ wakeCount: 0 });
     if (details.reason === 'install') {
-      void chrome.tabs.create({ url: `${api.API_BASE}/welcome?src=extension` });
+      void chrome.tabs.create({ url: `${api.API_BASE}/install?src=extension` });
     }
   });
 
@@ -197,10 +213,14 @@ export default defineBackground(() => {
   // origin so a future manifest widening can't silently admit another site.
   //
   // AUTH_SESSION mirrors handleSignIn (store + broadcast so open tabs' idle
-  // pills mount live); AUTH_SIGNED_OUT mirrors handleSignOut. Neither awaits a
-  // reply the website needs, so this listener returns false (no open channel) —
-  // the web bridge is fire-and-forget.
-  chrome.runtime.onMessageExternal.addListener((message: CalyxaMessage, sender) => {
+  // pills mount live); AUTH_SIGNED_OUT mirrors handleSignOut. Both are
+  // fire-and-forget and return false (no open channel).
+  //
+  // EXT_PING is the ONE exception: it returns true to keep the channel open and
+  // answers { signedIn }, so the website's install step can state whether the
+  // extension actually received the session rather than assuming it did. It
+  // reads state and writes none.
+  chrome.runtime.onMessageExternal.addListener((message: CalyxaMessage, sender, sendResponse) => {
     if (sender.origin !== 'https://calyxa.app') {
       console.warn('Calyxa SW: rejected external message from', sender.origin);
       return false;
@@ -209,6 +229,9 @@ export default defineBackground(() => {
       case 'AUTH_SESSION':
         void handleBridgedSignIn(message.payload as AuthSessionPayload);
         return false;
+      case 'EXT_PING':
+        void getAuth().then((auth) => sendResponse({ signedIn: Boolean(auth) }));
+        return true;
       case 'AUTH_SIGNED_OUT':
         void handleSignOut();
         return false;
@@ -913,8 +936,39 @@ async function handleBridgedSignIn(payload: AuthSessionPayload): Promise<void> {
   try {
     await api.applyBridgedSession(payload);
     void broadcastToAllTabs(await buildSessionState());
+    void openOnboardingOnce();
   } catch (error) {
     console.warn('Calyxa SW: bridged sign-in failed', toErrorMessage(error));
+  }
+}
+
+// Two-workflow onboarding, workflow 2 (2026-07-25): the in-extension lesson.
+//
+// The trigger is the BRIDGE, not the install — a student who has just signed up
+// on the website is exactly the person who should be taught the pill, and the
+// bridge firing is the only signal the extension gets that it happened. This is
+// the inverse of the old order (install → demo → "now go make an account"),
+// which had the student practising on a pill they could not yet actually use.
+//
+// Fired at most once per profile. The flag lives in chrome.storage.LOCAL (not
+// session) deliberately: "has this person been taught" must survive a browser
+// restart, unlike the tokens, which must not (ADR-006). Any storage failure
+// degrades to "already onboarded" so a broken storage layer can never reopen
+// this tab on every sign-in — the same never-nag posture the retired first-run
+// tour used.
+const ONBOARDED_KEY = 'onboarded';
+
+async function openOnboardingOnce(): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get(ONBOARDED_KEY);
+    if (stored[ONBOARDED_KEY] === true) return;
+    // Written BEFORE the tab opens: if the create call throws, the student has
+    // simply missed the lesson, which is far better than a tab that reopens on
+    // every single sign-in with no way to stop it.
+    await chrome.storage.local.set({ [ONBOARDED_KEY]: true });
+    await chrome.tabs.create({ url: chrome.runtime.getURL('/onboarding.html') });
+  } catch (error) {
+    console.warn('Calyxa SW: could not open onboarding', toErrorMessage(error));
   }
 }
 

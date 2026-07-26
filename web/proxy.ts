@@ -7,13 +7,24 @@ import { NextResponse, type NextRequest } from 'next/server'
 // Store reviewer and any signed-out visitor must reach the privacy policy
 // without an account (the policy URL is a hard store requirement), so they are
 // simply public, the same way the landing page is.
-// /welcome (public launch, 2026-07-17) is the guided post-signup setup page,
-// but it is ALSO opened signed-out by the extension's first-install tab
-// (chrome.runtime.onInstalled → calyxa.app/welcome) — so like '/', it must be
-// reachable without a session; the page itself adapts to auth state.
-// /start is the pre-signup onboarding wizard (three questions → personalized
-// demo → recap → /signup): a signed-out visitor lands here straight from a
-// landing-page CTA, so like '/' it must be reachable without a session.
+// /welcome is GONE as a page (two-workflow cleanup, 2026-07-25) but is kept
+// public because next.config.ts redirects it to /install for the already-
+// published extension 0.1.2, which still opens it on install. Next applies
+// config redirects before middleware, so this is belt-and-braces — it makes the
+// shim work regardless of that ordering, instead of silently 307ing a
+// compatibility URL to /login.
+// /install is the last step of that same workflow (get the extension; the page
+// re-pushes this browser's session until the extension confirms it). It must be
+// public because the extension's own first-install tab opens it, and that tab
+// can be signed out — a cookie-gated 307 to /login would be the wrong door. The
+// page itself redirects a signed-out visitor to /signup.
+// /start is the pre-signup onboarding wizard (three questions → a personalized
+// profile summary → /signup): a signed-out visitor lands here straight from a
+// landing-page CTA, so like '/' it must be reachable without a session. It and
+// /signup are the whole of onboarding workflow 1 (two-workflow rule,
+// 2026-07-25) — /signup must additionally stay public because the extension's
+// first-install tab opens it signed-out (chrome.runtime.onInstalled →
+// calyxa.app/signup?src=extension), the door the retired /welcome used to hold.
 // /auth/callback is the Google OAuth (PKCE) return: no session exists until it
 // exchanges the code, so like '/' it must be reachable without one, otherwise
 // the cookie gate below would 307 it to /login before the exchange ever runs
@@ -32,8 +43,9 @@ const PUBLIC_PATHS = [
   '/login',
   '/signup',
   '/start',
-  '/pricing',
+  '/install',
   '/welcome',
+  '/pricing',
   '/privacy',
   '/terms',
   '/studio-preview',
@@ -98,10 +110,11 @@ function isPublicPath(pathname: string) {
     // import handlers directly and never traverse this middleware — the exact
     // blind spot that hid the Sprint 16 /api/cron gap). /api/errors is bearer-
     // best-effort (it also serves signed-out crash reports and never 401s), so
-    // it belongs here too.
+    // it belongs here too. (/api/onboarding was a third member of this set; the
+    // route was deleted with the Sprint 17 diagnostic in the 2026-07-25
+    // onboarding cleanup, so its exemption went with it.)
     pathname.startsWith('/api/telemetry') ||
     pathname.startsWith('/api/feedback') ||
-    pathname.startsWith('/api/onboarding') ||
     pathname.startsWith('/api/errors') ||
     // Sprint 21 (ADR-049), the SAME class again: /api/study/generate is
     // bearer-OR-cookie (clientFromBearerOrCookie) and the extension recap

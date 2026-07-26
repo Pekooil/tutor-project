@@ -33,7 +33,6 @@ import { AnnotationLayer } from './AnnotationLayer';
 import { CONCEPT_CARD_VARIANT, ConceptCard, ConceptFallbackCard } from './CheckinCard';
 import { Composer } from './Composer';
 import { FeedbackCard } from './FeedbackCard';
-import { Tutorial } from './Tutorial';
 import { PingToast } from './PingToast';
 import { RecapCard } from './RecapCard';
 import { ReframeTool } from './ReframeTool';
@@ -468,7 +467,6 @@ export type SurfaceKind =
   | 'bloom'
   | 'recap'
   | 'feedback'
-  | 'tutorial'
   | 'transcript'
   | 'caption'
   | 'notice'
@@ -494,7 +492,7 @@ export type SurfaceKind =
 //   surfaces      live transcript · caption / reference (streamed reply) ·
 //                 concept card (the check-in, auto-start drain kept) ·
 //                 history (last exchange) · answer (chips / multi-part
-//                 fields) · ping toasts · tutorial · recap · bloom ·
+//                 fields) · ping toasts · recap · bloom ·
 //                 end-confirm · feedback · error notice
 //
 // Text turns: `onSend` streams tokens into the caption card; on resolve the
@@ -516,8 +514,6 @@ export function Overlay({
   onOpeningScan,
   onSendTelemetry,
   onReportFeedback,
-  onFetchTutorialSeen,
-  onMarkTutorialSeen,
   onGetActiveSessionId,
   onGenerateStudyKit,
   onReferralOffer,
@@ -584,14 +580,6 @@ export function Overlay({
   // hover row's feedback button -> FeedbackCard). Rejects on a save failure
   // so the card can surface a retry.
   onReportFeedback?: (payload: SendFeedbackPayload) => Promise<void>;
-  // Public launch (2026-07-17): the first-run tutorial transports, replacing
-  // the Sprint 17 diagnostic onboarding (ADR-042 surface retired). Whether
-  // the tour was seen lives in chrome.storage.local (content/index.ts) —
-  // no server round-trip. onFetchTutorialSeen resolves true when the tour
-  // was already completed/skipped (and degrades to true on failure, so a
-  // storage error never nags); onMarkTutorialSeen persists it.
-  onFetchTutorialSeen?: () => Promise<boolean>;
-  onMarkTutorialSeen?: () => Promise<void>;
   // The feedback affordance's sessionId lookup (ADR-039) -- read fresh at
   // submit time, never cached.
   onGetActiveSessionId?: () => Promise<string | undefined>;
@@ -758,11 +746,6 @@ export function Overlay({
   const bloomTimerRef = useRef<number | null>(null);
   const pendingRecapRef = useRef<{ recap: SessionRecap | null; sessionId: string | null } | null>(null);
 
-  // ---- First-run tutorial state (public launch, 2026-07-17) ----
-  const [tutorialOpen, setTutorialOpen] = useState(false);
-  const [tutorialResolved, setTutorialResolved] = useState(false);
-  const tutorialCheckedRef = useRef(false);
-
   // ---- Voice plumbing refs (unchanged) ----
   const recordingRef = useRef<RecordingHandle | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -776,12 +759,6 @@ export function Overlay({
   // voice start) OR the kickoff fired (the concept-card confirm path, which
   // produces no student turn at all).
   const sessionLive = kickoffStarted || messages.some((message) => message.role === 'user');
-
-  // The first-run tutorial: takes priority over the concept card and the
-  // scan -- a brand-new user sees the tour ONCE before anything else.
-  // Yields once a session starts, a recap arrives, or the close
-  // choreography begins.
-  const showTutorial = tutorialOpen && !sessionLive && !recap && closeState === 'idle';
 
   // ---- The pill's derived state ----
   const pill: PillState =
@@ -814,9 +791,7 @@ export function Overlay({
         ? 'recap'
         : feedbackOpen
           ? 'feedback'
-          : showTutorial
-            ? 'tutorial'
-            : liveTranscript
+          : liveTranscript
               ? 'transcript'
               // notice + history sit ABOVE the caption now that a committed
               // reply holds indefinitely: an error notice must never be
@@ -1036,38 +1011,6 @@ export function Overlay({
     };
   }, [warmWanted]);
 
-  // The first-run tutorial check (public launch): fires on the FIRST real
-  // expansion only (tutorialCheckedRef never resets). Reads the persisted
-  // seen flag from chrome.storage.local via the transport; degrades to
-  // "seen" on any failure or an unwired transport -- never blocking the
-  // pill. `tutorialResolved` gates the scan button until the check has
-  // settled either way, so the tour isn't raced by a scan.
-  useEffect(() => {
-    if (!expanded || tutorialCheckedRef.current) return;
-    tutorialCheckedRef.current = true;
-    if (!onFetchTutorialSeen) {
-      setTutorialResolved(true);
-      return;
-    }
-    let cancelled = false;
-    onFetchTutorialSeen()
-      .then((seen) => {
-        if (cancelled) return;
-        if (!seen) setTutorialOpen(true);
-      })
-      .catch(() => {
-        // Degrade silently -- treated as already seen.
-      })
-      .finally(() => {
-        if (!cancelled) setTutorialResolved(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // Deliberately fires at most once per page load.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded]);
-
   // The keyboard shortcut ('calyxa:toggle-panel', dispatched from
   // content/index.ts): toggles hover-expanded <-> idle (the handoff's
   // remapping of the old panel toggle). Collapsing this way is an explicit
@@ -1286,20 +1229,6 @@ export function Overlay({
     dismissSurface(() => setReferralOffer(null));
   }
 
-  // ---- Tutorial handler (public launch, 2026-07-17) ----
-  // "Seen" persists on BOTH finish and skip (unlike the retired diagnostic's
-  // skip, which never persisted): a usage tour must never nag on every page
-  // load. The onboarding_completed telemetry kind is reused for a full
-  // step-through — it still means "the first-run flow was completed", with
-  // itemCount now the tour's step count (never emitted on skip, as before).
-  function handleTutorialDone(info: { completed: boolean; stepCount: number; ms: number }) {
-    setTutorialOpen(false);
-    void onMarkTutorialSeen?.().catch(() => {});
-    if (info.completed) {
-      void onSendTelemetry?.([{ kind: 'onboarding_completed', itemCount: info.stepCount, ms: info.ms }]);
-    }
-  }
-
   // The report/rate affordance's submit (ADR-039): looks up the CURRENT
   // active sessionId fresh and attaches it when one is active. Rethrows on
   // failure so FeedbackCard can show its retry state.
@@ -1321,7 +1250,6 @@ export function Overlay({
   // can't double-fire an effect).
   function startScan() {
     if (scanPending || busy || sessionLive || closeState !== 'idle') return;
-    if (!tutorialResolved || tutorialOpen) return;
     setShell('idle');
     setScan(null);
     setScanSettled(false);
@@ -1902,7 +1830,6 @@ export function Overlay({
     (surfaceKind === 'caption' && (busy || playing)) ||
     surfaceKind === 'bloom' ||
     surfaceKind === 'recap' ||
-    surfaceKind === 'tutorial' ||
     surfaceKind === 'endConfirm' ||
     surfaceKind === 'feedback';
 
@@ -2093,12 +2020,6 @@ export function Overlay({
     );
   } else if (surfaceKind === 'feedback') {
     surfaceNode = <FeedbackCard onSubmit={handleFeedbackSubmit} onClose={() => setFeedbackOpen(false)} />;
-  } else if (surfaceKind === 'tutorial') {
-    surfaceNode = (
-      <div className="cx-card w-[400px] max-w-[calc(100vw-48px)] text-foreground">
-        <Tutorial onDone={handleTutorialDone} />
-      </div>
-    );
   } else if (surfaceKind === 'transcript') {
     surfaceNode = (
       <div className="cx-card flex max-w-[440px] items-start gap-2.5 px-[17px] py-[13px] text-foreground">
@@ -2426,7 +2347,7 @@ export function Overlay({
         <HoverButton
           label="Analyze screen"
           title={sessionLive ? 'Scanning is a session-start step' : 'Read my screen'}
-          disabled={sessionLive || scanPending || !tutorialResolved}
+          disabled={sessionLive || scanPending}
           onClick={startScan}
         >
           <ViewfinderIcon />

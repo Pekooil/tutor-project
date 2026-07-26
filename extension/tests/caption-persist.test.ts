@@ -31,8 +31,6 @@ function baseProps(overrides: Partial<OverlayProps> = {}): OverlayProps {
     onVoicePlaybackStart: () => {},
     onEndSession: async () => {},
     onOpeningScan: async () => null,
-    // No tutorial transports: an unwired onFetchTutorialSeen means the
-    // first-run tour never opens (and the scan gate resolves immediately).
     ...overrides,
   };
 }

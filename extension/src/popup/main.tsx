@@ -41,12 +41,19 @@ import type { CalyxaMessage, SessionStatePayload } from '../types/messages';
 const BILLING_URL = 'https://calyxa.app/billing';
 
 // Web→extension session bridge (Part 2/3): the popup is a PASSIVE receiver, no
-// longer an auth surface. A signed-out user is sent to the website's unified
-// sign-in/sign-up page; once they authenticate there (email/password OR
-// Google), the web bridge pushes the session and this popup flips to signed-in
-// automatically (GET_STATE on next open, or the storage.onChanged listener
-// below if it's already open). Same plain-string discipline as BILLING_URL.
-const SIGNUP_URL = 'https://calyxa.app/signup?src=extension';
+// longer an auth surface. Once the website has a session, the bridge pushes it
+// and this popup flips to signed-in automatically (GET_STATE on next open, or
+// the storage.onChanged listener below if it's already open).
+//
+// This points at /install, NOT /signup (2026-07-25). Sending a signed-out popup
+// to /signup produced a loop for anyone who already had an account: the site
+// showed "Sign in or create your account" to someone who had just done that,
+// and nothing pushed the session back here, so the popup kept saying "sign up
+// on the website" forever. /install is the page that RE-PUSHES the browser's
+// existing session until the extension confirms it (EXT_PING), and only falls
+// back to /signup when there genuinely is no session. Same plain-string
+// discipline as BILLING_URL.
+const CONNECT_URL = 'https://calyxa.app/install?src=extension';
 
 // ADR-053: the free-limit state also offers the referral path — the dashboard
 // referral page holds the shareable link (3 friends join → 10 more free
@@ -148,17 +155,18 @@ export function App() {
       <div className="flex flex-col">
         <Header />
         <div className="flex flex-col gap-3 p-4">
-          <p className="m-0 text-sm text-foreground">Sign up on the Calyxa website to get started.</p>
+          <p className="m-0 text-sm text-foreground">Not connected to your account yet.</p>
           <p className="m-0 text-xs text-muted-foreground">
-            Create your account or sign in on calyxa.app — you&rsquo;ll be signed in here automatically, no
-            need to re-enter anything.
+            Open calyxa.app and Calyxa signs itself in here — you won&rsquo;t be asked for a password
+            again. (Your session is kept in memory only, so this can happen again after a browser
+            restart.)
           </p>
           <Button
             type="button"
             variant="primary"
-            onClick={() => void chrome.tabs.create({ url: SIGNUP_URL })}
+            onClick={() => void chrome.tabs.create({ url: CONNECT_URL })}
           >
-            Get started on calyxa.app
+            Connect to my account
           </Button>
           {state.error && <ErrorBanner message={state.error} />}
         </div>

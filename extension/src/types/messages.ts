@@ -162,8 +162,21 @@ export type MessageType =
   //                      broadcasts SESSION_STATE so open tabs' pills mount.
   //   AUTH_SIGNED_OUT  — web -> background (external), no payload: clears the
   //                      stored session (mirrors handleSignOut).
+  //   EXT_PING         — web -> background (external), no payload. The ONLY
+  //                      external message that replies: resolves
+  //                      { signedIn } so the website's install step can show
+  //                      "connected" instead of guessing. Chrome delivers it
+  //                      only if the extension is installed, so no reply at all
+  //                      is itself the "not installed" answer. Carries nothing
+  //                      and changes nothing — a pure read.
   | 'AUTH_SESSION'
-  | 'AUTH_SIGNED_OUT';
+  | 'AUTH_SIGNED_OUT'
+  | 'EXT_PING';
+
+/** EXT_PING's reply. Deliberately minimal — no tokens, no email, no session. */
+export type ExtPingReplyPayload = {
+  signedIn: boolean;
+};
 
 export interface CalyxaMessage {
   type: MessageType;
@@ -788,6 +801,9 @@ export type LogErrorPayload = ScrubbedErrorEvent;
 
 // (Public launch, 2026-07-17) The Sprint 17 ADR-042 assessment/onboarding
 // wire types (Assessment*, OnboardingStatusReplyPayload, OnboardingSubmit*)
-// are retired with the diagnostic onboarding surface — the first-run
-// tutorial that replaced it (overlay/Tutorial.tsx) is client-local and
-// carries nothing over the wire.
+// are retired with the diagnostic onboarding surface.
+//
+// (Two-workflow onboarding, 2026-07-25) The in-pill first-run tour that
+// replaced it (overlay/Tutorial.tsx) is now retired too — teaching happens in
+// ONE place, the post-signup onboarding page (src/onboarding/). Neither
+// surface ever carried anything over the wire, so nothing here changes.

@@ -99,7 +99,7 @@ export async function POST(request: Request) {
 
   // Establish the cookie session for the just-created user — this is what
   // signUp used to provide, and what the RLS profile update below (and the
-  // /welcome redirect after it) rely on.
+  // post-auth redirect after it) rely on.
   const supabase = await createClient()
   const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 

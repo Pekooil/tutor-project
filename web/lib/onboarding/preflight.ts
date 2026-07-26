@@ -4,10 +4,14 @@
 //
 // The flow collects exactly THREE single-select answers before the existing
 // signup form: grade level, current math class, and the student's main pain
-// point. Those answers (a) personalize the live demo the wizard shows and the
-// recap copy that follows, and (b) are carried into /signup via sessionStorage
+// point. Those answers (a) build the visual profile summary the wizard shows
+// as its payoff screen, and (b) are carried into /signup via sessionStorage
 // and attached to the new user's Supabase auth user_metadata at signup
 // (web/app/api/auth/signup/route.ts) — never dropped.
+//
+// The wizard used to show a fourth "live demo" step between the questions and
+// the recap; it was dropped (2026-07-25) in favour of the profile summary, so
+// the demo-personalization copy that used to live here is gone with it.
 //
 // Deliberately NO "which subject?" question: the product is math-only right
 // now (reading/physics are feature-flagged off), so the demo and copy are
@@ -42,6 +46,15 @@ export const GRADE_LABELS: Record<Grade, string> = {
   senior: 'Senior',
 }
 
+// The year number that rides each grade option (rendered as the option's
+// badge, and as the profile summary's sub-label).
+export const GRADE_YEARS: Record<Grade, string> = {
+  freshman: '9th',
+  sophomore: '10th',
+  junior: '11th',
+  senior: '12th',
+}
+
 export const MATH_CLASS_LABELS: Record<MathClass, string> = {
   algebra1: 'Algebra 1',
   algebra2: 'Algebra 2',
@@ -58,59 +71,58 @@ export const PAIN_LABELS: Record<PainPoint, string> = {
   'too-long': 'Homework takes too long',
 }
 
-// ── Demo personalization (step 4) ──────────────────────────────────────────
-
-// The tutor's opening line, auto-played in the demo. It leads with the
-// student's stated pain point (step 3) and then pivots to the SAME grounded
-// question about the shown right-triangle problem — so the 'stuck' annotation
-// set (the 50° angle + "which side is AB?") always matches what's said, no
-// matter which pain point was picked.
-const DEMO_QUESTION_TAIL =
-  "right triangle, you know the 50° angle and the side of length 2. before I say anything — which side is AB, relative to that angle?"
-
-export const PAIN_DEMO_OPENING: Record<PainPoint, string> = {
-  stuck: `you said the worst part is getting stuck with no one to ask — that's me, and I'm already here. ${DEMO_QUESTION_TAIL}`,
-  forget: `you said concepts slip by test time — so I won't just hand you steps, I'll make this one stick. ${DEMO_QUESTION_TAIL}`,
-  'why-wrong': `you said you never find out *why* an answer's wrong — so I'll always show the why. ${DEMO_QUESTION_TAIL}`,
-  'too-long': `you said homework drags on — let's make this quick, no busywork. ${DEMO_QUESTION_TAIL}`,
+// A two/three-word version of each pain point, for the summary's chips and
+// tiles where the full first-person sentence is too long to read at a glance.
+export const PAIN_SHORT: Record<PainPoint, string> = {
+  stuck: 'Getting stuck',
+  forget: 'Forgetting by test day',
+  'why-wrong': 'Not knowing why',
+  'too-long': 'Homework drag',
 }
 
-// A short, honest note above the demo that reflects the chosen math class
-// (step 2). The shown problem is right-triangle trig; the copy names the class
-// without pretending the trig problem "belongs" to Algebra 1 / Other.
-export const MATH_CLASS_DEMO_NOTE: Record<MathClass, string> = {
-  algebra1: "Here's Calyxa on a live problem — it works your Algebra 1 homework exactly like this.",
-  algebra2: 'A right-triangle trig problem — Algebra 2 territory. Watch Calyxa work it live.',
-  geometry: 'Right-triangle trig, straight from Geometry. Watch Calyxa work it live.',
-  precalculus: "Right-triangle trig — you'll see plenty of it in Precalculus. Watch Calyxa work it live.",
-  other: "Here's Calyxa on a live problem — it works the same on whatever you're studying.",
-}
-
-// ── Recap copy (step 5) ─────────────────────────────────────────────────────
+// ── Profile summary (the payoff screen) ─────────────────────────────────────
 //
-// Four DISTINCT variants, one per pain point — each speaks to that specific
-// answer and to the real Calyxa capability that addresses it (someone to ask /
-// spaced reinforcement / misconception tracking / next-step nudges), never a
-// generic feature list.
+// Four DISTINCT variants, one per pain point — each names that specific answer
+// and the real Calyxa capability that addresses it (someone to ask / spaced
+// reinforcement / misconception tracking / next-step nudges), never a generic
+// feature list. Deliberately SHORT: the summary screen is a visual card, not a
+// wall of copy, so every field here is a phrase, not a paragraph.
 
-export type Recap = { headline: string; body: string }
+export type Plan = {
+  /** The card's one-line promise (≤ 6 words). */
+  headline: string
+  /** One short supporting sentence under the headline. */
+  sub: string
+  /** The named Calyxa capability that answers this pain point. */
+  method: string
+  /** A single short clause explaining that capability. */
+  methodNote: string
+}
 
-export const PAIN_RECAP: Record<PainPoint, Recap> = {
+export const PAIN_PLAN: Record<PainPoint, Plan> = {
   stuck: {
-    headline: 'Someone to ask — always there.',
-    body: "You said the worst part is getting stuck with no one to ask. Calyxa lives on the page you're already working on, so the second you're stuck it's right there — and it answers with the next step, never the whole solution. No waiting until class tomorrow.",
+    headline: 'Never stuck alone again.',
+    sub: "Calyxa sits on the page you're already working on.",
+    method: 'Next-step hints',
+    methodNote: 'One step at a time — never the whole answer.',
   },
   forget: {
-    headline: "The stuff you learn won't fade by the test.",
-    body: 'You said concepts slip away by test time. Calyxa tracks what you have actually mastered and quietly resurfaces the shaky ideas before they fade — so what you learned in September is still there in December.',
+    headline: "It won't fade by test day.",
+    sub: 'Calyxa tracks what actually stuck, and what did not.',
+    method: 'Spaced review',
+    methodNote: 'Shaky ideas come back before they slip.',
   },
   'why-wrong': {
-    headline: '"Wrong" turns into "oh — that\'s why."',
-    body: "You said the frustrating part is never knowing why something was wrong. That's exactly what Calyxa watches for: it spots the specific misconception behind a wrong answer and walks you back to it, so every mistake actually teaches you something.",
+    headline: 'Every mistake explains itself.',
+    sub: 'Calyxa finds the idea behind the wrong answer.',
+    method: 'Misconception tracking',
+    methodNote: 'It names the exact thing you missed.',
   },
   'too-long': {
-    headline: 'Less time stuck. More time moving.',
-    body: "You said homework takes too long. Calyxa won't do it for you — it cuts the stuck-and-staring time by pointing at the one next step whenever you stall, so you keep moving instead of grinding.",
+    headline: 'Less staring. More solving.',
+    sub: 'Calyxa cuts the stuck-and-staring part of homework.',
+    method: 'Unstick nudges',
+    methodNote: 'A pointer at the one next step when you stall.',
   },
 }
 

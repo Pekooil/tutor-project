@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { POST_AUTH_DEFAULT } from '@/lib/auth/post-auth'
 import { CONSENT_VERSION } from '@/lib/consent'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -40,9 +41,9 @@ export default function CompleteProfilePage() {
         .select('birth_year, gdpr_consent_at')
         .eq('id', user.id)
         .maybeSingle()
-      // Already complete (e.g. navigated here directly) — skip to setup.
+      // Already complete (e.g. navigated here directly) — skip to the app.
       if (data && data.birth_year != null) {
-        router.replace('/welcome')
+        router.replace(POST_AUTH_DEFAULT)
         return
       }
       setNeedsConsent(!data?.gdpr_consent_at)
@@ -76,7 +77,7 @@ export default function CompleteProfilePage() {
       return
     }
 
-    router.push('/welcome')
+    router.push(POST_AUTH_DEFAULT)
   }
 
   if (!ready) {
