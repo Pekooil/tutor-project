@@ -14,6 +14,10 @@ import { CalyxaMark } from '@calyxa/ui'
 // sections read as one family — same display clamp and sub size, the mono
 // eyebrow dropped, and the two cards moved inside the same outer card frame
 // the session demo uses. The before/after CONTENT is untouched.
+//
+// 2026-07-25 (Darcy): the section heading + subtitle dropped a whole type tier
+// (62px → 34px cap, 22px → 16.5px sub). StudyMaterials carries the same pair of
+// clamps — the two mid-page sections stay one family.
 
 const STEPS = [
   'Screenshot the problem',
@@ -41,15 +45,15 @@ export function BeforeAfter() {
     >
       <h2
         className="mkt-display m-0 text-center font-bold text-foreground"
-        style={{ fontSize: 'clamp(30px, 4.4vw, 62px)', lineHeight: 1.04, letterSpacing: '-0.035em' }}
+        style={{ fontSize: 'clamp(23px, 2.2vw, 34px)', lineHeight: 1.1, letterSpacing: '-0.025em' }}
       >
         Calyxa makes learning simple.
       </h2>
-      <p className="mb-0 mt-3 max-w-[52ch] text-pretty text-center text-[17px] text-muted-foreground sm:mt-4 sm:text-[22px]">
+      <p className="mb-0 mt-2.5 max-w-[52ch] text-pretty text-center text-[14.5px] text-muted-foreground sm:text-[16.5px]">
         one sentence does what used to take eight steps — and this time you actually learn it
       </p>
 
-      <div className="mt-9 grid w-full max-w-[1240px] items-stretch gap-3.5 rounded-[20px] border border-(--mkt-hairline) bg-background p-3.5 sm:mt-[58px] sm:grid-cols-2 sm:gap-[22px] sm:rounded-[26px] sm:p-[22px]">
+      <div className="mt-8 grid w-full max-w-[1240px] items-stretch gap-3.5 rounded-[20px] border border-(--mkt-hairline) bg-background p-3.5 sm:mt-11 sm:grid-cols-2 sm:gap-[22px] sm:rounded-[26px] sm:p-[22px]">
         {/* Before */}
         <div className="flex flex-col gap-3 rounded-2xl border border-(--mkt-hairline) bg-background px-[22px] py-[22px] sm:gap-[18px] sm:rounded-[18px] sm:px-9 sm:py-[34px]">
           <div className="flex items-baseline justify-between">

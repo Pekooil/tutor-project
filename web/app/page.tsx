@@ -25,9 +25,14 @@ import '@/components/marketing/marketing.css'
 //    its SSR tests).
 //  - The design's "But wait, there's more" section became "Every session
 //    becomes study material" and, since the hero already shows the extension
-//    at work, it now shows what a session LEAVES BEHIND: the real notes
-//    document, quiz and flashcard surfaces. Its "Knows your weak spots." and
-//    "Private by design." cards were dropped earlier.
+//    at work, it now shows what a session LEAVES BEHIND. As of 2026-07-25 it
+//    SUMMARISES that rather than rendering it: one card, three small tiles
+//    (notes · quiz · flashcards) with their counts, and the two column
+//    headings above it removed. Its "Knows your weak spots." and "Private by
+//    design." cards were dropped earlier.
+//  - The two mid-page section headings (before/after + study material) dropped
+//    a type tier on 2026-07-25 (Darcy) — clamp(23px, 2.2vw, 34px) with a
+//    16.5px sub, down from a 62px cap and a 22px sub.
 //  - The testimonial marquee is dropped entirely — there are no real users to
 //    quote yet, the same rule that parked WallOfLove.tsx on 2026-07-20.
 //  - The closer is the existing FinalCta, unchanged, at its current size.

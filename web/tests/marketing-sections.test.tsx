@@ -217,8 +217,8 @@ describe('LandingHero (SSR)', () => {
     expect(html).toContain('Listening')
     expect(html).not.toContain('Ask about this problem…')
     expect(html).not.toContain('<input')
-    // /start and the pill harness still get the full pill — Hero (SSR) above
-    // asserts the composer is present there.
+    // the pill harness still gets the full pill — Hero (SSR) above asserts
+    // the composer is present there.
   })
 
   it('is play-only — no suggestion chips and nothing clickable in the demo', () => {
@@ -272,16 +272,30 @@ describe('PlatformMarquee (SSR)', () => {
 describe('StudyMaterials (SSR)', () => {
   const html = decode(renderToString(createElement(StudyMaterials)))
 
-  it('shows the notes document, not the extension working a problem', () => {
+  it('summarises the pack, naming the session it came from', () => {
     expect(html).toContain('Every session becomes study material.')
-    // the studio's own literal headings (components/studio/NotesDocument.tsx)
-    expect(html).toContain('Brief Overview')
-    expect(html).toContain('Key Points')
     expect(html).toContain('Factoring quadratics')
+    expect(html).toContain('Jul 22 tutoring session')
+    // the three artifacts, each with its count (Darcy, 2026-07-25: a summary,
+    // not the full surfaces)
+    expect(html).toContain('Notes')
+    expect(html).toContain('4 key points')
+    expect(html).toContain('Quiz')
+    expect(html).toContain('Flashcards')
+    expect(html).toContain('3 / 12')
     // the extension replay this section used to carry is gone
     expect(html).not.toContain('turn 4 of 8')
     expect(html).not.toContain('Show the next turn')
     expect(html).not.toContain('mathportal.school.edu')
+  })
+
+  it('no longer renders the full notes document or the two column headings', () => {
+    // the document chrome the full-size mock carried
+    expect(html).not.toContain('Brief Overview')
+    expect(html).not.toContain('Where you slipped')
+    // the two headings that sat above the demo (Darcy, 2026-07-25)
+    expect(html).not.toContain("Notes you didn't write")
+    expect(html).not.toContain('Then practice the miss')
   })
 
   it('prints the student’s own wrong work in the "Your attempt" callout', () => {
@@ -290,11 +304,10 @@ describe('StudyMaterials (SSR)', () => {
     expect(html).toContain('Your attempt · Jul 22 session')
     expect(html).toContain('x² − 5x + 6 = (x − 2)(x + 3)')
     expect(html).toContain('Ask Calyxa about this →')
-    expect(html).toContain('Slipped here once')
   })
 
-  it('shows the quiz and a flashcard beside the notes', () => {
-    expect(html).toContain('Question 1')
+  it('shows the quiz and flashcard tiles beside the notes tile', () => {
+    expect(html).toContain('1 / 6')
     expect(html).toContain('Reveal the solution')
     expect(html).toContain('Work it out, then reveal the solution and mark whether you had it.')
     expect(html).toContain('Prompt')

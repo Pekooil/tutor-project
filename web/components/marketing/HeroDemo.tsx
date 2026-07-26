@@ -510,18 +510,19 @@ export function HeroDemo({
 }: {
   askRef?: MutableRefObject<((question: string) => void) | null>
   showPlaceholders: boolean
-  // Pre-signup onboarding (components/onboarding/PreflightWizard.tsx) only:
-  // when `autoOpen` is set with an `openingText`, the demo starts a session on
-  // mount and streams that personalized first line (referencing the student's
-  // pain point) instead of resting on the idle suggestion chips. Both default
-  // off, so the landing page renders the demo exactly as before.
+  // When `autoOpen` is set with an `openingText`, the demo starts a session on
+  // mount and streams that personalized first line instead of resting on the
+  // idle suggestion chips. Both default off, so the landing page renders the
+  // demo exactly as before. NOTE: no caller passes these today — /start's
+  // onboarding wizard used to (its demo step was dropped 2026-07-25); kept as
+  // the supported hook for any future embed that wants a scripted opening.
   autoOpen?: boolean
   openingText?: string
   // Landing v6 hero (Darcy, 2026-07-24): drop the wide text composer entirely
   // and run the demo as a pure voice session — the pill only ever wears its
   // listen / think / speak shapes, and every question (autoplay, chips,
   // followups) goes in through the microphone path. The full pill, composer
-  // included, is still what /start and the pill harness render.
+  // included, is still what the pill harness renders.
   voiceOnly?: boolean
   // Landing v6 hero (Darcy, 2026-07-24): a fixed session to play on a loop
   // (HERO_SESSION). When set, the demo drives ITSELF turn by turn and the
