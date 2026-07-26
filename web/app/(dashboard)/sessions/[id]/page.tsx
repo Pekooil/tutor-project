@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { loadSessionDetail } from '@/components/dashboard/premium/snapshots-read'
-import { SessionDetailScreen } from '@/components/dashboard/premium/SessionDetailScreen'
+import { SessionDetailScreen } from '@/components/studio/DetailScreens'
 
 // One tutoring session's detail (ADR-055, brief §3): its ordered timeline of
 // worked-problem snapshots. Server-rendered fresh per request, RLS-scoped via

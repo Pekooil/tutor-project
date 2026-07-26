@@ -2,7 +2,7 @@ import type { DashboardData } from '@/lib/learning/dashboard-read'
 import { strandStyle } from './theme'
 
 // Pure view-model derivations that shape the real `loadDashboard` data into the
-// dashboard home's one daily-loop surface (greeting, the "Today's Review" queue,
+// dashboard home's one daily-loop surface (the "Today's Review" queue,
 // weakest concepts). Dates are handled in UTC to match loadDashboard's UTC day
 // buckets (activity.day / mastery_snapshot.day). No 'server-only' so client
 // screens can share these helpers.
@@ -16,14 +16,11 @@ function parseUtcDay(s: string): number {
   return new Date(s + 'T00:00:00Z').getTime()
 }
 
-// ── Greeting / date ────────────────────────────────────────────────────────
-
-export function greeting(now: Date): string {
-  const h = now.getHours()
-  if (h < 12) return 'Good morning'
-  if (h < 18) return 'Good afternoon'
-  return 'Good evening'
-}
+// ── Date ───────────────────────────────────────────────────────────────────
+//
+// `greeting()` ("Good morning" / "Good afternoon" / "Good evening") lived here
+// and is deliberately gone: the studio's page headings are plain tab names now
+// ("Dashboard", "Progress"), not time-of-day copy addressed to the student.
 
 export function longDate(now: Date): string {
   return now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })

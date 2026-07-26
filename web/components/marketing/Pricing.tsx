@@ -1,3 +1,5 @@
+import { PRO_MONTHLY_USD } from '@/lib/billing/plan'
+
 // Pricing numbers come from PLAN.md §2.8 verbatim — no invented tiers, no
 // "contact us." FREE_SESSION_LIMIT lives server-side at
 // web/lib/tier/session-gate.ts (2026-07-17 public-launch retune: 20 -> 10,
@@ -8,9 +10,12 @@
 // Exported so Hero/FinalCta copy that echoes the number shares this ONE
 // marketing-side literal.
 export const FREE_SESSIONS_PER_MONTH = 10
-// Monthly-only for now (2026-07-19): annual is disabled at launch. This literal
-// must match the live Stripe Price behind STRIPE_PRICE_ID ($10/mo).
-const PRO_MONTHLY = 10
+// Monthly-only for now (2026-07-19): annual is disabled at launch. The figure
+// now comes from lib/billing/plan.ts rather than a literal here: the post-login
+// account page kept its own copy and had drifted to "$8 / month", so a paying
+// customer read a different price from a visitor. That module has no server
+// dependencies, so unlike FREE_SESSION_LIMIT it can simply be imported.
+const PRO_MONTHLY = PRO_MONTHLY_USD
 
 const FREE_FEATURES = ['annotations on any page', 'voice tutoring', 'session notes']
 const PRO_FEATURES = [

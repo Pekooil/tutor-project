@@ -56,6 +56,20 @@ export function HistoryIcon(p: IconProps) {
   )
 }
 
+/** The Data tab. Three rising bars on a baseline — the one glyph in the rail
+ *  that has to read as "analytics" at 18px, so it stays literal rather than
+ *  clever (a trend arrow would collide with the review chevrons). */
+export function ChartIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 20h16" />
+      <path d="M7 20v-6" />
+      <path d="M12 20V8" />
+      <path d="M17 20v-9" />
+    </Icon>
+  )
+}
+
 export function ChecklistIcon(p: IconProps) {
   return (
     <Icon {...p}>

@@ -37,8 +37,17 @@ export const T = {
   muted: 'var(--color-muted-foreground)',
   danger: 'var(--color-danger)',
 
-  accent: 'var(--color-accent)',
-  onAccent: 'var(--color-accent-foreground)',
+  /** The brand's filled CTA — light green fill, dark green text.
+   *
+   *  Deliberately NOT `--color-accent`. `globals.css` re-targets that name to
+   *  shadcn's "accent", which means a hover/highlight SURFACE, not our button
+   *  fill — and it says so in its own header comment, pointing at
+   *  `--color-accent-fill` as "the collision-proof alias" for the original
+   *  green. Reading `--color-accent` here resolved to the pale hover tint
+   *  (#f0fdf4 measured in the browser) instead of the specified #86efac, so
+   *  every filled button in the studio was rendering as a near-white pill. */
+  accent: 'var(--color-accent-fill)',
+  onAccent: 'var(--color-accent-fill-foreground)',
   accentInk: 'var(--color-accent-emphasis)',
   accentSubtle: 'var(--color-accent-subtle)',
   focus: 'var(--color-focus-ring)',
@@ -106,6 +115,15 @@ export const cardBox: CSSProperties = {
   border: `1px solid ${T.border}`,
   borderRadius: 14,
 }
+
+/** A separator INSIDE a card — a row rule, not a card edge.
+ *
+ *  Not `--color-border`: that token is #2a2b27 in dark and measures ~1.2:1
+ *  against the card it would sit on, so every in-card rule disappeared. Derived
+ *  from the foreground instead, it lands at the design's weight in light (10% of
+ *  #1c1c1a on white ≈ #e6e6e5) and stays visible in dark. `--studio-frame` is
+ *  the other candidate and is far too heavy — it is sized for a card edge. */
+export const RULE = `1px solid color-mix(in srgb, ${T.ink} 10%, transparent)`
 
 /** The accent-filled action button (brand rule: light fill, dark text — never
  *  light text on an accent fill). */

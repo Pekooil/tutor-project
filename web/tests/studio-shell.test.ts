@@ -25,6 +25,7 @@ vi.mock('next/link', () => ({
 vi.mock('@calyxa/ui', () => ({ CalyxaMark: () => createElement('svg') }))
 
 const { StudioShell } = await import('@/components/studio/StudioShell')
+const { NAV_ITEMS } = await import('@/components/studio/nav')
 
 function render(pathname: string): string {
   pathnameMock.mockReturnValue(pathname)
@@ -44,7 +45,9 @@ afterEach(() => vi.clearAllMocks())
 
 describe('shell chrome does not flip theme between routes', () => {
   const STUDIO = '/dashboard'
-  const LEGACY = '/account'
+  // /account was rebuilt on tokens in the 2026-07-25 sweep, so it is no longer a
+  // legacy screen. /referral still is — nothing in the studio links to it.
+  const LEGACY = '/referral'
 
   it('renders the same chrome theme on a studio route and a legacy route', () => {
     const studio = rootThemeOf(render(STUDIO))
@@ -129,16 +132,23 @@ describe('history rows link into the studio, not the old transcript page', () =>
 })
 
 describe('bottom-left nav bar', () => {
-  it('renders on real routes, naming all three destinations', () => {
+  it('renders on real routes, naming every destination', () => {
     const html = render('/dashboard')
     expect(html).toContain('cx-navbar')
-    for (const label of ['Dashboard', 'Notes', 'History']) {
+    for (const label of ['Dashboard', 'Notes', 'Progress', 'History']) {
       expect(html, `${label} missing from the nav bar`).toContain(`>${label}<`)
     }
   })
 
   it('renders on the legacy routes too', () => {
-    expect(render('/account')).toContain('cx-navbar')
+    expect(render('/referral')).toContain('cx-navbar')
+  })
+
+  // The tab was renamed Data → Progress at the design handoff while the route
+  // stayed /data, so the top-bar heading and the rail label now come apart from
+  // the URL. Pinned here because /data is auth-gated and cannot be eyeballed.
+  it('titles the /data route "Progress", not its path', () => {
+    expect(render('/data')).toContain('>Progress<')
   })
 
   it('is suppressed on the design harness, which has its own switcher there', () => {
@@ -147,7 +157,7 @@ describe('bottom-left nav bar', () => {
 
   it('marks the current route active and leaves the others hoverable', () => {
     const html = render('/dashboard')
-    // Active items drop the hover class; exactly two of three keep it.
-    expect([...html.matchAll(/cx-navbar-item/g)]).toHaveLength(2)
+    // Active items drop the hover class; every item but the active one keeps it.
+    expect([...html.matchAll(/cx-navbar-item/g)]).toHaveLength(NAV_ITEMS.length - 1)
   })
 })

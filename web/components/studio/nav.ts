@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
-import { HistoryIcon, HomeIcon, NotesIcon } from './icons'
+import { ChartIcon, HistoryIcon, HomeIcon, NotesIcon } from './icons'
 
-// The studio's five destinations, defined once. Three surfaces render them — the
+// The studio's destinations, defined once. Three surfaces render them — the
 // icon rail (glyphs only, per the design handoff), the floating bottom-left
 // bubble bar (labelled), and the mobile bottom tab bar — so keeping the list here
 // stops them drifting apart.
@@ -20,13 +20,19 @@ export function isStudioView(pathname: string): boolean {
   return (
     pathname === '/dashboard' ||
     pathname === '/' ||
+    pathname.startsWith('/data') ||
+    // Settings pair, rebuilt on tokens (studio/SettingsScreen) 2026-07-25 — they
+    // were the two legacy screens the studio linked to most, via the rail avatar
+    // and the dashboard's quota pill.
+    pathname.startsWith('/account') ||
+    pathname.startsWith('/billing') ||
+    pathname.startsWith('/misconceptions') ||
     pathname.startsWith('/notes') ||
     pathname.startsWith('/quiz') ||
     pathname.startsWith('/flashcards') ||
-    // /sessions is the History tab, rebuilt on tokens (studio/HistoryScreen).
-    // Its detail page /sessions/[id] is still the pre-studio screen, so only the
-    // index qualifies — hence the exact match rather than a prefix.
-    pathname === '/sessions' ||
+    // Both the History tab and its detail page are on tokens now
+    // (studio/HistoryScreen, studio/DetailScreens), so the whole prefix counts.
+    pathname.startsWith('/sessions') ||
     pathname.startsWith('/studio-preview')
   )
 }
@@ -50,7 +56,10 @@ export const NAV_ITEMS: NavItem[] = [
     match: (p) => p === '/dashboard' || p === '/',
   },
   {
-    href: (k) => (k ? `/notes/${encodeURIComponent(k)}` : '/notes'),
+    // Always the index, never the open concept. Deep-linking here meant that
+    // while reading a concept you could not reach the library from the rail at
+    // all — the one place you would go to find a different concept.
+    href: () => '/notes',
     label: 'Notes',
     short: 'Notes',
     icon: NotesIcon,
@@ -61,6 +70,16 @@ export const NAV_ITEMS: NavItem[] = [
       p.startsWith('/misconceptions') ||
       p.startsWith('/quiz') ||
       p.startsWith('/flashcards'),
+  },
+  {
+    // Not per-concept: Progress is the whole-account view by definition, so it
+    // ignores the open concept rather than deep-linking into it. The route stays
+    // `/data` — the tab was renamed at the design handoff, the URL was not.
+    href: () => '/data',
+    label: 'Progress',
+    short: 'Progress',
+    icon: ChartIcon,
+    match: (p) => p.startsWith('/data'),
   },
   {
     href: () => '/sessions',

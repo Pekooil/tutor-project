@@ -3,14 +3,14 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { T } from './tokens'
-import { HistoryIcon, HomeIcon, NotesIcon } from './icons'
+import { ChartIcon, HistoryIcon, HomeIcon, NotesIcon } from './icons'
 
 // The mobile-only bottom tab bar. Below 640px the 64px icon rail is hidden
 // (globals.css) and this fixed bar takes over; `.cx-tabbar` is display:none by
 // default and shown only inside the mobile media query, so desktop rendering is
 // untouched.
 //
-// It mirrors the rail's three destinations, and points at the BARE /notes index
+// It mirrors the rail's destinations, and points at the BARE /notes index
 // rather than a concept-specific URL — that route resolves the student's current
 // concept server-side and redirects, which is what a nav button with no concept
 // in hand wants. Quiz and flashcards are not tabs: they open inside the notes.
@@ -23,12 +23,14 @@ const TABS = [
     icon: HomeIcon,
     match: (p: string) => p === '/dashboard' || p === '/',
   },
+  { href: '/data', label: 'Progress', icon: ChartIcon, match: (p: string) => p.startsWith('/data') },
   { href: '/sessions', label: 'Sessions', icon: HistoryIcon, match: (p: string) => p.startsWith('/sessions') },
 ] as const
 
-// Home sits in the middle of the bar (thumb-reachable) but is the first thing a
-// screen reader should meet, so the DOM order is corrected here.
-const ORDER = [1, 0, 2] as const
+// Rendered order: Home first, then the rail's order. `TABS` is authored
+// Notes-first because that is the tab a returning student reaches for most, so
+// the index list re-orders rather than re-authoring the array.
+const ORDER = [1, 0, 2, 3] as const
 
 export function MobileTabBar() {
   const pathname = usePathname() ?? '/dashboard'

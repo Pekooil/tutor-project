@@ -1,60 +1,30 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import type { CSSProperties } from 'react'
 import Link from 'next/link'
 import type { SessionQuota } from '@/lib/learning/activity-read'
 import type { ReviewConcept } from '@/components/dashboard/premium/derive'
-import { greeting, longDate, reviewMinutes } from '@/components/dashboard/premium/derive'
-import type { StudioConcept, StudioSubject } from './catalog-read'
+import { longDate, reviewMinutes } from '@/components/dashboard/premium/derive'
 import { T, ORDINAL, eyebrow, accentButton, pill } from './tokens'
-import { MOTION } from './tokens'
-import { CalendarIcon, ChevronDown, ChevronRight } from './icons'
+import { CalendarIcon, LightbulbIcon } from './icons'
+import type { ReviewSchedule } from './schedule'
+import { ScheduleSection } from './ScheduleSection'
+import { STORE_URL } from '@/lib/store-url'
 
-// Screen 1 — the studio dashboard. Two jobs, in order: answer "what do I do
-// right now?" (the status header + the single dominant Today's Review card),
-// then let the student find any tutored concept fast (the sortable subject →
-// concept browser). Clicking a concept row opens its Notes.
+// Screen 1 — the studio dashboard. ONE job: answer "what do I do right now?" —
+// the status header, the dominant Today's Review card, and the schedule those
+// reviews come from.
 //
-// Client-side because the browser is interactive (sort mode + a single-open
-// accordion); every number it renders is server-loaded and passed in.
-//
-// The handoff's Student filter (All · Darcy · Maya · Jonah) is deliberately not
-// here: Calyxa has no multi-student model — one account is one learner — and a
-// filter with one option is a lie about the product. It is on the not-yet-built
-// list instead.
+// The subject → concept browser used to live below all of this, which made the
+// only route to a concept "scroll past everything and open the right accordion".
+// It moved to /notes (studio/LibraryScreen), which was previously a bare
+// redirect and is now the index it always should have been. This page stays
+// short on purpose.
 
-type SortMode = 'recent' | 'subject' | 'gaps'
+/** Named concepts in Today's Review before it collapses to "+N more". */
+const CHIP_LIMIT = 3
 
-const SORTS: { key: SortMode; label: string }[] = [
-  { key: 'recent', label: 'Recent' },
-  { key: 'subject', label: 'Subject A–Z' },
-  { key: 'gaps', label: 'Most to fix' },
-]
 
-const MS_PER_DAY = 86_400_000
 
-function daysSince(iso: string | null, now: Date): number | null {
-  if (!iso) return null
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return null
-  return Math.floor((now.getTime() - then) / MS_PER_DAY)
-}
-
-function recencyLabel(iso: string | null, now: Date): string {
-  const days = daysSince(iso, now)
-  if (days === null) return 'not tutored yet'
-  if (days <= 0) return 'tutored today'
-  if (days === 1) return 'tutored yesterday'
-  return `${days} days ago`
-}
-
-function shortDate(iso: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`
@@ -62,300 +32,98 @@ function plural(n: number, word: string): string {
 
 // ── Bits ─────────────────────────────────────────────────────────────────────
 
+/** "August 12" — the day the free allowance rolls over. UTC because `resetsAt`
+ *  is derived from a stored timestamp, not a local calendar day. */
+function resetDay(iso: string | null): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', timeZone: 'UTC' })
+}
+
+/** The session allowance, and — since Sprint 23 — a way to act on it.
+ *
+ *  This used to be an inert <span>. A capped free user was shown "No sessions
+ *  left this month" and given nowhere to go: the only working upgrade button
+ *  lives on /account, two clicks away behind an unlabelled avatar in the rail,
+ *  and nothing in the product linked to /billing at all. It is a link in every
+ *  state now — a free user to upgrade, a Pro user to manage or cancel. */
 function SessionsLeftPill({ quota }: { quota: SessionQuota }) {
-  const set = quota.isPro ? ORDINAL.green : quota.remaining <= 0 ? ORDINAL.amber : ORDINAL.green
+  const capped = !quota.isPro && quota.remaining <= 0
+  const set = capped ? ORDINAL.amber : ORDINAL.green
   const copy = quota.isPro
     ? 'Unlimited sessions'
-    : quota.remaining <= 0
+    : capped
       ? 'No sessions left this month'
       : `${quota.remaining} of ${quota.limit} ${quota.remaining === 1 ? 'session' : 'sessions'} left this month`
 
   return (
-    <span style={{ ...pill, ...set, padding: '5px 12px', fontSize: 12.5, fontWeight: 600 }}>
+    <Link
+      href="/billing"
+      className="cx-quota-pill"
+      title={quota.isPro ? 'Manage your subscription' : 'See plans and upgrade'}
+      style={{ ...pill, ...set, padding: '5px 12px', fontSize: 12.5, fontWeight: 600 }}
+    >
       <CalendarIcon size={13} />
       {copy}
-    </span>
-  )
-}
-
-const STATUS_DOT: Record<StudioConcept['status'], string> = {
-  gap: T.a2,
-  due: T.a3,
-  solid: T.a1,
-}
-
-function ArtifactPill({
-  children,
-  tone = 'neutral',
-  title,
-}: {
-  children: React.ReactNode
-  tone?: 'neutral' | 'green' | 'amber' | 'blue'
-  title?: string
-}) {
-  const set =
-    tone === 'green'
-      ? ORDINAL.green
-      : tone === 'amber'
-        ? ORDINAL.amber
-        : tone === 'blue'
-          ? ORDINAL.blue
-          : ORDINAL.neutral
-  return (
-    <span
-      title={title}
-      style={{
-        ...pill,
-        ...set,
-        padding: '3px 9px',
-        fontSize: 11,
-        fontWeight: tone === 'neutral' ? 600 : 700,
-      }}
-    >
-      {children}
-    </span>
-  )
-}
-
-/** A subject's mean mastery as a bar plus its number. The bar is the quick read
- *  ("how far along is this subject"), the number is the precise one; the track
- *  colour comes from the same three ordinals the concept dots use, so a subject
- *  that is mostly gaps looks amber at a glance rather than needing arithmetic. */
-function MasteryMeter({ value }: { value: number }) {
-  const percent = Math.round(Math.min(Math.max(value, 0), 1) * 100)
-  const fill = percent >= 80 ? T.a1 : percent >= 50 ? T.a3 : T.a2
-
-  return (
-    <span
-      style={{ display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0 }}
-      role="img"
-      aria-label={`${percent}% average mastery`}
-    >
-      <span
-        aria-hidden="true"
-        style={{
-          width: 84,
-          height: 6,
-          borderRadius: 3,
-          background: T.surface,
-          overflow: 'hidden',
-          display: 'block',
-        }}
-      >
-        <span
-          style={{
-            display: 'block',
-            width: `${percent}%`,
-            height: '100%',
-            background: fill,
-            borderRadius: 3,
-            transition: `width ${MOTION.base} ${MOTION.ease}`,
-          }}
-        />
-      </span>
-      <span style={{ fontSize: 12.5, color: T.muted, fontWeight: 600, minWidth: 30, textAlign: 'right' }}>
-        {percent}%
-      </span>
-    </span>
-  )
-}
-
-/** The concept's misconception pill. Three outcomes, in priority order: a
- *  confirmed gap (amber), nothing confirmed but something being watched (blue),
- *  or genuinely clear (green). A watched slip never reads as a gap — it has only
- *  happened once — but it is no longer silently hidden either. */
-function MisconceptionPill({ concept }: { concept: StudioConcept }) {
-  if (concept.misconceptionCount > 0) {
-    return (
-      <ArtifactPill tone="amber" title="Seen more than once and still going wrong">
-        {plural(concept.misconceptionCount, 'misconception')}
-      </ArtifactPill>
-    )
-  }
-  if (concept.watchingCount > 0) {
-    return (
-      <ArtifactPill tone="blue" title="Seen once — Calyxa is watching whether it repeats">
-        {concept.watchingCount} watching
-      </ArtifactPill>
-    )
-  }
-  return (
-    <ArtifactPill tone="green" title="No misconceptions tracked on this concept">
-      No gaps
-    </ArtifactPill>
-  )
-}
-
-function ConceptRow({ concept }: { concept: StudioConcept }) {
-  return (
-    <Link
-      href={`/notes/${encodeURIComponent(concept.conceptKey)}`}
-      className="cx-row-edge"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 14,
-        width: '100%',
-        padding: '13px 16px',
-        // Row inside the subject card → visible frame, not the invisible `border`.
-        border: `1px solid ${T.frame}`,
-        borderRadius: 11,
-        background: 'transparent',
-        color: T.ink,
-        textDecoration: 'none',
-        transition: `background ${MOTION.fast} ${MOTION.ease}, border-color ${MOTION.fast} ${MOTION.ease}`,
-      }}
-    >
-      <span
-        aria-hidden="true"
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          background: STATUS_DOT[concept.status],
-          flexShrink: 0,
-        }}
-      />
-      <span style={{ minWidth: 0, flex: 1 }}>
-        <span style={{ display: 'block', fontSize: 14.5, fontWeight: 600 }}>{concept.title}</span>
-        <span style={{ display: 'block', fontSize: 11.5, color: T.muted, marginTop: 2 }}>
-          {concept.sessions > 0 ? plural(concept.sessions, 'session') : 'no sessions yet'}
-          {concept.lastPracticedAt ? ` · last ${shortDate(concept.lastPracticedAt)}` : ''}
-        </span>
-      </span>
-
-      <span style={{ display: 'flex', gap: 7, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-        {concept.hasNotes && <ArtifactPill>Notes</ArtifactPill>}
-        {concept.quizCount > 0 && <ArtifactPill>{concept.quizCount} quiz</ArtifactPill>}
-        {concept.cardCount > 0 && <ArtifactPill>{concept.cardCount} cards</ArtifactPill>}
-        <MisconceptionPill concept={concept} />
-      </span>
-
-      <ChevronRight size={14} style={{ color: T.muted, flexShrink: 0 }} />
     </Link>
   )
 }
 
-function SubjectCard({
-  subject,
-  open,
-  onToggle,
-  now,
-}: {
-  subject: StudioSubject
-  open: boolean
-  onToggle: () => void
-  now: Date
-}) {
+/** Shown only when a free account has spent its allowance.
+ *
+ *  A cap is a blocking state, so it gets a band of its own rather than being left
+ *  to a pill: it names what stopped, when it comes back on its own, and — the
+ *  part the pill could never carry — what still works meanwhile, so the student
+ *  reads it as "do your reviews" rather than "the app is broken". */
+function CappedNotice({ quota }: { quota: SessionQuota }) {
+  const resets = resetDay(quota.resetsAt)
   return (
-    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, overflow: 'hidden' }}>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="cx-row"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 16,
-          width: '100%',
-          padding: '18px 22px',
-          background: 'transparent',
-          border: 'none',
-          cursor: 'pointer',
-          textAlign: 'left',
-          color: T.ink,
-        }}
-      >
-        <span
-          aria-hidden="true"
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 11,
-            background: T.accentSubtle,
-            color: T.accentInk,
-            fontSize: 15,
-            fontWeight: 700,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          {subject.short}
-        </span>
-
-        <span style={{ minWidth: 0, flex: 1 }}>
-          <span style={{ display: 'block', fontSize: 17, fontWeight: 600 }}>{subject.label}</span>
-          <span style={{ display: 'block', fontSize: 12.5, color: T.muted, marginTop: 2 }}>
-            {plural(subject.concepts.length, 'concept')} · {recencyLabel(subject.lastPracticedAt, now)}
-          </span>
-        </span>
-
-        {/* "To fix" is confirmed gaps only. When there are none, a watched slip
-            still surfaces — in blue, so the two are never mistaken for each other. */}
-        {subject.misconceptionCount > 0 ? (
-          <span
-            title="Confirmed misconceptions still going wrong"
-            style={{ ...pill, ...ORDINAL.amber, padding: '3px 9px', fontSize: 11.5, fontWeight: 700 }}
-          >
-            {subject.misconceptionCount} to fix
-          </span>
-        ) : subject.watchingCount > 0 ? (
-          <span
-            title="Slips seen once — Calyxa is watching whether they repeat"
-            style={{ ...pill, ...ORDINAL.blue, padding: '3px 9px', fontSize: 11.5, fontWeight: 700 }}
-          >
-            {subject.watchingCount} watching
-          </span>
-        ) : null}
-
-        <MasteryMeter value={subject.averageMastery} />
-
-        <ChevronDown
-          size={14}
-          style={{
-            color: T.muted,
-            flexShrink: 0,
-            transform: open ? 'rotate(180deg)' : 'none',
-            transition: `transform ${MOTION.base} ${MOTION.ease}`,
-          }}
-        />
-      </button>
-
-      {open && (
-        <div
-          style={{
-            borderTop: `1px solid ${T.border}`,
-            padding: '8px 12px 14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-          }}
-        >
-          {subject.concepts.map((c) => (
-            <ConceptRow key={c.conceptKey} concept={c} />
-          ))}
-        </div>
-      )}
-    </div>
+    <section
+      style={{
+        marginTop: 22,
+        background: T.card,
+        border: `1px solid ${T.border}`,
+        // The one signal of state. A full amber tint band is an ORDINAL fill —
+        // light with dark ink — which on the dark studio reads as a warning slab;
+        // a rule carries the same meaning at the right volume.
+        borderLeft: `3px solid ${T.a2}`,
+        borderRadius: 16,
+        padding: '18px 22px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 20,
+        flexWrap: 'wrap',
+      }}
+    >
+      <div style={{ flex: '1 1 340px', minWidth: 260 }}>
+        <div style={{ ...eyebrow, color: T.ink2 }}>Session limit reached</div>
+        <h3 style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.01em', margin: '7px 0 0' }}>
+          You&rsquo;ve used all {plural(quota.limit, 'session')} this month
+        </h3>
+        <p style={{ margin: '6px 0 0', fontSize: 13.5, lineHeight: 1.55, color: T.muted }}>
+          {resets ? `Your allowance resets on ${resets}. ` : ''}Reviews and notes stay open — only new sessions are
+          paused.
+        </p>
+      </div>
+      <Link href="/billing" style={{ ...accentButton, padding: '11px 20px', fontSize: 14, flexShrink: 0 }}>
+        See plans →
+      </Link>
+    </section>
   )
 }
-
-// ── Screen ───────────────────────────────────────────────────────────────────
 
 /** Cold start — a brand-new account has nothing to browse, so the dashboard's job
  *  is activation, not navigation: one instruction set and one CTA into the
  *  install/setup flow. (Carried over from the pre-studio dashboard, which had
  *  this state; a muted "nothing here yet" card would waste the most important
  *  screen a new signup sees.) */
-function ActivationView({ firstName, now }: { firstName: string; now: Date }) {
+function ActivationView({ now }: { now: Date }) {
   return (
     <div style={{ padding: '8px 40px 48px', maxWidth: 1020, margin: '0 auto' }}>
       <div style={{ ...eyebrow, fontWeight: 600, letterSpacing: '0.14em', color: T.muted }}>{longDate(now)}</div>
       <h2 style={{ fontSize: 32, lineHeight: 1.18, fontWeight: 600, letterSpacing: '-0.015em', margin: '6px 0 0' }}>
-        Welcome to Calyxa, {firstName}
+        Welcome to Calyxa
       </h2>
       <p style={{ marginTop: 8, marginBottom: 0, fontSize: 14.5, color: T.muted }}>
         Your notes, quizzes and flashcards are built from your tutoring sessions — so the first one is the
@@ -413,62 +181,42 @@ function ActivationView({ firstName, now }: { firstName: string; now: Date }) {
             </li>
           ))}
         </ol>
-        <Link href="/welcome" style={{ ...accentButton, padding: '12px 22px', fontSize: 14.5 }}>
-          Set up Calyxa →
-        </Link>
+        {/* Sessions only ever start in the extension, so the empty state sends
+            them to install it. The retired /welcome wizard used to sit in
+            between; it taught nothing the extension's own onboarding does not. */}
+        <a href={STORE_URL} style={{ ...accentButton, padding: '12px 22px', fontSize: 14.5 }}>
+          Add Calyxa to Chrome →
+        </a>
       </section>
     </div>
   )
 }
 
 export function DashboardScreen({
-  firstName,
   now,
   quota,
   due,
-  subjects,
+  schedule,
   isEmpty,
 }: {
-  firstName: string
   now: Date
   quota: SessionQuota
   due: ReviewConcept[]
-  subjects: StudioSubject[]
+  /** The spacing schedule as past / today / upcoming (studio/schedule.ts). */
+  schedule: ReviewSchedule
   /** True when the account has no practiced concepts at all (loadDashboard). */
   isEmpty: boolean
 }) {
-  const [sort, setSort] = useState<SortMode>('recent')
-  const [openSubject, setOpenSubject] = useState<string | null>(subjects[0]?.key ?? null)
-
-  // Hooks must run before this branch, so the cold-start check sits here rather
-  // than at the top of the component.
-  const coldStart = isEmpty && subjects.length === 0
-
-  const sorted = useMemo(() => {
-    const list = [...subjects]
-    if (sort === 'subject') return list.sort((a, b) => a.label.localeCompare(b.label))
-    if (sort === 'gaps') return list.sort((a, b) => b.misconceptionCount - a.misconceptionCount)
-    // Recent: ascending by days since the last session; never-tutored last.
-    return list.sort((a, b) => {
-      const da = daysSince(a.lastPracticedAt, now)
-      const db = daysSince(b.lastPracticedAt, now)
-      if (da === null) return db === null ? 0 : 1
-      if (db === null) return -1
-      return da - db
-    })
-  }, [subjects, sort, now])
-
-  if (coldStart) return <ActivationView firstName={firstName} now={now} />
+  if (isEmpty) return <ActivationView now={now} />
 
   const minutes = reviewMinutes(due.length)
   const startHref = due[0] ? `/notes/${encodeURIComponent(due[0].conceptKey)}` : null
+  const capped = !quota.isPro && quota.remaining <= 0
 
   const subline =
     due.length > 0
       ? `${plural(due.length, 'concept')} ready to review — about ${minutes} minutes.`
-      : subjects.length > 0
-        ? 'Nothing due right now. Pick any concept below to review it.'
-        : 'Start a session in the extension and your concepts will appear here.'
+      : 'Nothing due right now — open Notes to pick any concept and review it.'
 
   return (
     <div style={{ padding: '8px 40px 48px', maxWidth: 1020, margin: '0 auto' }}>
@@ -484,11 +232,16 @@ export function DashboardScreen({
             margin: 0,
           }}
         >
-          {greeting(now)}, {firstName}
+          Dashboard
         </h2>
         <SessionsLeftPill quota={quota} />
       </div>
       <p style={{ marginTop: 8, marginBottom: 0, fontSize: 14.5, color: T.muted }}>{subline}</p>
+
+      {/* 1a-bis — the cap, when it is in force. Above Today's Review because it
+          explains why the product is degraded, and it hands off directly to the
+          card underneath ("reviews still work"). Renders nothing otherwise. */}
+      {capped && <CappedNotice quota={quota} />}
 
       {/* 1b — Today's Review, the one dominant action */}
       <section
@@ -512,9 +265,13 @@ export function DashboardScreen({
           )}
         </div>
 
+        {/* At most CHIP_LIMIT named, then a count. A queue can run to twenty-odd
+            concepts, and listing every one turned the page's most important card
+            into a wall of pills that buried its own button. The three shown are
+            the front of the queue, which is the order "Start review" works in. */}
         {due.length > 0 && (
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
-            {due.map((c, i) => (
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 16 }}>
+            {due.slice(0, CHIP_LIMIT).map((c, i) => (
               <span
                 key={c.conceptKey}
                 style={{
@@ -528,81 +285,40 @@ export function DashboardScreen({
                 {c.title} · {c.overdue ? 'overdue' : 'due today'}
               </span>
             ))}
+            {due.length > CHIP_LIMIT && (
+              <span style={{ fontSize: 13, fontWeight: 600, color: T.muted }}>
+                +{due.length - CHIP_LIMIT} more
+              </span>
+            )}
           </div>
         )}
+
       </section>
 
-      {/* 1c — browser header + sort */}
-      <div
-        style={{
-          marginTop: 34,
-          display: 'flex',
-          alignItems: 'flex-end',
-          justifyContent: 'space-between',
-          gap: 16,
-          flexWrap: 'wrap',
-        }}
-      >
-        <div>
-          <div style={{ ...eyebrow, color: T.muted }}>Everything tutored</div>
-          <h3 style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.015em', margin: '6px 0 0' }}>
-            Subjects &amp; concepts
-          </h3>
-        </div>
+      {/* 1b-ter — the schedule the queue above comes from. A one-line
+          explanation was tried here first and was worth nothing: a sentence
+          cannot answer "what is coming on Thursday". */}
+      {schedule.ready && <ScheduleSection schedule={schedule} />}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12.5, color: T.muted, fontWeight: 600 }}>Sort</span>
-          <div role="group" aria-label="Sort subjects" style={{ display: 'flex', gap: 6 }}>
-            {SORTS.map((s) => {
-              const on = s.key === sort
-              const style: CSSProperties = {
-                borderRadius: 9,
-                padding: '7px 13px',
-                fontSize: 12.5,
-                fontWeight: 600,
-                cursor: 'pointer',
-                background: on ? T.accent : T.card,
-                color: on ? T.onAccent : T.muted,
-                border: on ? '1px solid transparent' : `1px solid ${T.border}`,
-              }
-              return (
-                <button key={s.key} type="button" aria-pressed={on} onClick={() => setSort(s.key)} style={style}>
-                  {s.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      </div>
+      {/* 1b-bis — the cue back to the extension.
+          Everything else on this page is about material the student ALREADY has;
+          the action that creates more happens on their homework page, and until
+          now only the cold-start screen ever said so. Deliberately a muted line
+          and not a button: the web app cannot start a session, so a CTA here
+          would be a control that controls nothing, and it would compete with
+          "Start review" for the card above.
 
-      {/* 1d — subject cards → concept rows */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
-        {sorted.length === 0 ? (
-          <div
-            style={{
-              background: T.card,
-              border: `1px solid ${T.border}`,
-              borderRadius: 14,
-              padding: '28px 26px',
-              color: T.muted,
-              fontSize: 14.5,
-            }}
-          >
-            Nothing tutored yet. Once you finish a session in the extension, every concept it covered shows up
-            here with its notes, quiz and flashcards.
-          </div>
-        ) : (
-          sorted.map((subject) => (
-            <SubjectCard
-              key={subject.key}
-              subject={subject}
-              now={now}
-              open={openSubject === subject.key}
-              onToggle={() => setOpenSubject((k) => (k === subject.key ? null : subject.key))}
-            />
-          ))
-        )}
-      </div>
+          Hidden while the allowance is spent — the band above has just said new
+          sessions are paused, and inviting one underneath would contradict it. */}
+      {!capped && (
+        <p
+          style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 2px 0', fontSize: 12.5, color: T.muted }}
+        >
+          <LightbulbIcon size={14} style={{ flexShrink: 0 }} />
+          Working on new homework? Open Calyxa on the page and every concept it covers shows up here.
+        </p>
+      )}
+
     </div>
   )
 }

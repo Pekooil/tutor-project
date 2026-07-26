@@ -135,7 +135,13 @@ describe('dashboard chart-token discipline', () => {
     const tokens = sources.find((s) => s.path.endsWith(join('studio', 'tokens.ts')))!
     // Every colour the studio uses is a var() into @calyxa/ui — the property this
     // gate exists to protect, now on the tree that actually renders.
-    expect(tokens.code).toContain('var(--color-accent)')
+    //
+    // `--color-accent-fill`, NOT `--color-accent`: globals.css re-targets the
+    // latter to shadcn's hover-tint "accent", so the studio's filled CTA reads
+    // the collision-proof alias that globals.css's own header points at. Pinned
+    // so a well-meaning "simplification" back to --color-accent fails here
+    // rather than quietly turning every button into a near-white pill.
+    expect(tokens.code).toContain('var(--color-accent-fill)')
     expect(tokens.code).toContain('var(--calyxa-annot-1)')
     expect(tokens.code).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
   })

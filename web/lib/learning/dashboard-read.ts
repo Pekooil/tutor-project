@@ -72,6 +72,7 @@ type ScheduleRow = {
   interval_days: number
   priority: number
   lapses: number
+  last_review_at: string | null
 }
 
 type InteractionRow = {
@@ -143,6 +144,11 @@ export type DashboardDueItem = {
   intervalDays: number
   priority: number
   lapses: number
+  /** When this concept was last actually reviewed (`scheduler.ts` stamps it on
+   *  every schedule update). The only record of a COMPLETED review — the
+   *  schedule holds what is coming, not a history — so it is what the dashboard's
+   *  "recently done" column reads. Null until the first review. */
+  lastReviewAt: string | null
   /** True when `due_at <= now` — the review view labels overdue vs upcoming. */
   overdue: boolean
 }
@@ -345,7 +351,7 @@ export async function loadDashboard(supabase: SupabaseClient): Promise<Dashboard
     // shows "what's coming back and when"), ordered PLAN §2.3 query 2.
     supabase
       .from('reinforcement_schedule')
-      .select('concept_key, due_at, interval_days, priority, lapses')
+      .select('concept_key, due_at, interval_days, priority, lapses, last_review_at')
       .eq('user_id', userId)
       .is('deleted_at', null)
       .order('priority', { ascending: false })
@@ -408,6 +414,7 @@ export async function loadDashboard(supabase: SupabaseClient): Promise<Dashboard
       intervalDays: row.interval_days,
       priority: row.priority,
       lapses: row.lapses,
+      lastReviewAt: row.last_review_at,
       overdue: row.due_at <= nowIso,
     }
   })

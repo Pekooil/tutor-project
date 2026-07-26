@@ -1,7 +1,13 @@
 import Link from 'next/link'
 import { parseNotebook } from '@/lib/notebook/tool'
-import type { DashboardMisconception } from '@/lib/learning/dashboard-read'
+import type { DashboardActivityDay, DashboardData, DashboardMisconception } from '@/lib/learning/dashboard-read'
+import type { MasteryTrendDay } from '@/lib/learning/analytics-read'
 import type { RecentSession } from '@/lib/learning/activity-read'
+import { DataScreen } from '@/components/studio/DataScreen'
+import { LibraryScreen } from '@/components/studio/LibraryScreen'
+import { reviewSchedule } from '@/components/studio/schedule'
+import { AccountScreen, BillingScreen } from '@/components/studio/SettingsScreen'
+import { MisconceptionDetailScreen, SessionDetailScreen } from '@/components/studio/DetailScreens'
 import { HistoryScreen } from '@/components/studio/HistoryScreen'
 import type { StudioSubject } from '@/components/studio/catalog-read'
 import type { StudioNotes } from '@/components/studio/notes-read'
@@ -157,6 +163,40 @@ const SUBJECTS: StudioSubject[] = [
     ],
   },
 ]
+
+// Review queue + activity for the DASH view, relative to its own NOW so the
+// strip, the done column and the upcoming column all agree on which day is
+// today.
+const DASH_DUE: DashboardData['dueQueue'] = [
+  ['algebra.quadratics.factoring', 'Quadratics & Factoring', 'algebra', -2, -1],
+  ['geometry.similarity.triangles', 'Similar Triangles', 'geometry', -1, -3],
+  ['algebra.systems.linear', 'Systems of Equations', 'algebra', 0, -4],
+  ['precalc.trig.identities', 'Trig Identities', 'precalc', 0, -6],
+  ['algebra2.logs.properties', 'Logarithm Properties', 'algebra2', 1, -5],
+  ['geometry.circles.theorems', 'Circle Theorems', 'geometry', 2, -8],
+  ['algebra.linear.slope', 'Linear Functions & Slope', 'algebra', 2, -9],
+  ['stats.probability.conditional', 'Conditional Probability', 'stats', 4, -11],
+  ['precalc.exp.log', 'Exponential & Log Functions', 'precalc', 6, -13],
+].map(([conceptKey, title, strand, inDays, reviewedDaysAgo]) => ({
+  conceptKey: conceptKey as string,
+  title: title as string,
+  strand: strand as string,
+  strandLabel: strand as string,
+  dueAt: new Date(NOW.getTime() + (inDays as number) * 86_400_000).toISOString(),
+  intervalDays: 4,
+  priority: 1,
+  lapses: 0,
+  lastReviewAt: new Date(NOW.getTime() + (reviewedDaysAgo as number) * 86_400_000).toISOString(),
+  overdue: (inDays as number) < 0,
+}))
+
+const DASH_ACTIVITY: DashboardActivityDay[] = [1, 2, 4, 5, 6].map((offset) => ({
+  day: new Date(NOW.getTime() - offset * 86_400_000).toISOString().slice(0, 10),
+  sessions: 1,
+  correct: 4,
+  partial: 1,
+  incorrect: 1,
+}))
 
 const MISCONCEPTIONS: DashboardMisconception[] = [
   {
@@ -446,8 +486,225 @@ const NOTES: StudioNotes = {
 const VIEWS = [
   { key: 'dash', label: 'Dashboard' },
   { key: 'notes', label: 'Notes' },
+  { key: 'library', label: 'Notes' },
+  { key: 'data', label: 'Progress' },
+  { key: 'billing', label: 'Billing' },
+  { key: 'account', label: 'Account' },
+  { key: 'gap', label: 'Gap' },
+  { key: 'session', label: 'Session' },
   { key: 'history', label: 'History' },
 ]
+
+// ── Data view ────────────────────────────────────────────────────────────────
+//
+// The Data console derives everything from a `loadDashboard` + `loadMasteryTrend`
+// payload, so the harness supplies exactly that shape. `?view=data&state=cold`
+// renders the same screen against an empty payload, which is how the
+// progressive-unlock path gets an eyeball without waiting for a real new account.
+//
+// Deterministic by construction: the "randomness" below is an integer hash of
+// the day offset, never Math.random, so the harness renders identically on every
+// load and a screenshot diff means something.
+
+const MS_PER_DAY = 86_400_000
+// The Progress view gets its own clock: the handoff is dated Saturday, July 25,
+// and the screen prints the weekday, so the harness has to land on that day for
+// a side-by-side against the prototype. The other views keep the shared NOW.
+const DATA_NOW = new Date('2026-07-25T15:00:00Z')
+const DAY = (offset: number) => new Date(DATA_NOW.getTime() - offset * MS_PER_DAY).toISOString().slice(0, 10)
+
+/** A stable pseudo-random integer in [0, n) from a seed. */
+function jitter(seed: number, n: number): number {
+  const x = Math.sin(seed * 12.9898) * 43758.5453
+  return Math.floor((x - Math.floor(x)) * n)
+}
+
+const MOCK_ACTIVITY: DashboardActivityDay[] = Array.from({ length: 76 }, (_, i) => 75 - i)
+  // A believable pattern rather than every day filled: weekends and a holiday
+  // gap are what make the heatmap and the streak numbers worth looking at.
+  .filter((offset) => {
+    const dow = new Date(DATA_NOW.getTime() - offset * MS_PER_DAY).getUTCDay()
+    if (offset > 44 && offset < 56) return false // a two-week break
+    if (dow === 0) return jitter(offset, 4) === 0
+    return jitter(offset, 5) !== 0
+  })
+  .map((offset) => {
+    const turns = 2 + jitter(offset + 7, 9)
+    // Accuracy improves as the offset shrinks — the trend the score should pick
+    // up, so the sparkline has something real to show in the harness.
+    const skill = 0.5 + (76 - offset) / 190
+    const correct = Math.round(turns * skill)
+    const partial = Math.min(turns - correct, jitter(offset + 31, 3))
+    return {
+      day: DAY(offset),
+      sessions: 1 + (turns > 8 ? 1 : 0),
+      correct,
+      partial,
+      incorrect: turns - correct - partial,
+    }
+  })
+
+const MOCK_TREND: MasteryTrendDay[] = Array.from({ length: 46 }, (_, i) => 45 - i).map((offset) => ({
+  day: DAY(offset),
+  mastery: Math.min(0.92, 0.42 + (46 - offset) * 0.006 + jitter(offset + 3, 5) / 200),
+  concepts: 11,
+  mastered: 2 + Math.floor((46 - offset) / 12),
+}))
+
+function mockNode(conceptKey: string, title: string, strand: string, strandLabel: string, mastery: number, state: string) {
+  return {
+    conceptKey,
+    title,
+    strand,
+    strandLabel,
+    mastery,
+    state: state as DashboardData['strands'][number]['nodes'][number]['state'],
+    confidenceBand: 'medium' as const,
+    observationCount: 4,
+    lastPracticedAt: iso('2026-07-20'),
+  }
+}
+
+const MOCK_STRANDS: DashboardData['strands'] = [
+  {
+    strand: 'algebra',
+    strandLabel: 'Algebra 1',
+    nodes: [
+      mockNode('algebra.quadratics.factoring', 'Quadratics & Factoring', 'algebra', 'Algebra 1', 0.58, 'weak'),
+      mockNode('algebra.systems.linear', 'Systems of Equations', 'algebra', 'Algebra 1', 0.71, 'learning'),
+      mockNode('algebra.linear.slope', 'Linear Functions & Slope', 'algebra', 'Algebra 1', 0.89, 'mastered'),
+      mockNode('algebra.exponents.rules', 'Exponent Rules', 'algebra', 'Algebra 1', 0.83, 'mastered'),
+    ],
+    averageMastery: 0.75,
+    stateCounts: { unseen: 0, learning: 1, weak: 1, mastered: 2, forgotten: 0 },
+  },
+  {
+    strand: 'geometry',
+    strandLabel: 'Geometry',
+    nodes: [
+      mockNode('geometry.similarity.triangles', 'Similar Triangles', 'geometry', 'Geometry', 0.44, 'weak'),
+      mockNode('geometry.circles.arcs', 'Arcs & Sectors', 'geometry', 'Geometry', 0.52, 'learning'),
+      mockNode('geometry.proofs.congruence', 'Congruence Proofs', 'geometry', 'Geometry', 0.63, 'learning'),
+    ],
+    averageMastery: 0.53,
+    stateCounts: { unseen: 0, learning: 2, weak: 1, mastered: 0, forgotten: 0 },
+  },
+  {
+    strand: 'algebra2',
+    strandLabel: 'Algebra 2',
+    nodes: [
+      mockNode('algebra2.logs.properties', 'Logarithm Properties', 'algebra2', 'Algebra 2', 0.36, 'forgotten'),
+      mockNode('algebra2.rational.equations', 'Rational Equations', 'algebra2', 'Algebra 2', 0.67, 'learning'),
+    ],
+    averageMastery: 0.52,
+    stateCounts: { unseen: 0, learning: 1, weak: 0, mastered: 0, forgotten: 1 },
+  },
+  {
+    strand: 'stats',
+    strandLabel: 'Probability & Statistics',
+    nodes: [mockNode('stats.probability.conditional', 'Conditional Probability', 'stats', 'Probability & Statistics', 0.79, 'mastered')],
+    averageMastery: 0.79,
+    stateCounts: { unseen: 0, learning: 0, weak: 0, mastered: 1, forgotten: 0 },
+  },
+]
+
+const MOCK_DUE: DashboardData['dueQueue'] = [
+  ['algebra.quadratics.factoring', 'Quadratics & Factoring', 'algebra', -2, 3],
+  ['geometry.similarity.triangles', 'Similar Triangles', 'geometry', -1, 2],
+  ['algebra2.logs.properties', 'Logarithm Properties', 'algebra2', 0, 4],
+  ['algebra.systems.linear', 'Systems of Equations', 'algebra', 1, 1],
+  ['geometry.circles.arcs', 'Arcs & Sectors', 'geometry', 2, 0],
+  ['algebra2.rational.equations', 'Rational Equations', 'algebra2', 2, 1],
+  ['algebra.exponents.rules', 'Exponent Rules', 'algebra', 5, 0],
+  ['geometry.proofs.congruence', 'Congruence Proofs', 'geometry', 6, 0],
+  ['stats.probability.conditional', 'Conditional Probability', 'stats', 9, 0],
+  ['algebra.linear.slope', 'Linear Functions & Slope', 'algebra', 12, 0],
+].map(([conceptKey, title, strand, inDays, lapses]) => ({
+  conceptKey: conceptKey as string,
+  title: title as string,
+  strand: strand as string,
+  strandLabel: strand as string,
+  dueAt: new Date(DATA_NOW.getTime() + (inDays as number) * MS_PER_DAY).toISOString(),
+  intervalDays: 4,
+  priority: 1,
+  lapses: lapses as number,
+  // A plausible "already reviewed" stamp so the schedule's done column has
+  // something in the harness; overdue rows are deliberately left unreviewed.
+  lastReviewAt: (inDays as number) >= 0 ? iso('2026-07-23') : null,
+  overdue: (inDays as number) < 0,
+}))
+
+// The NOTES view's MISCONCEPTIONS mock puts the wrong-idea text in `title`,
+// which is not what the real read returns — `loadDashboard` resolves `title`
+// from the curriculum, so it is the CONCEPT name, and `description` carries the
+// wrong idea. The Progress screen prints both, so it needs the true shapes.
+const DATA_MISCONCEPTIONS: DashboardMisconception[] = [
+  {
+    id: 'd1',
+    conceptKey: 'algebra.quadratics.factoring',
+    title: 'Quadratics & Factoring',
+    strand: 'algebra',
+    strandLabel: 'Algebra 1',
+    category: 'sign-error',
+    description: 'Drops the sign when c is negative',
+    status: 'active',
+    occurrenceCount: 4,
+    consecutiveCorrect: 1,
+    firstSeenAt: iso('2026-07-11'),
+    lastSeenAt: iso('2026-07-24'),
+    resolvedAt: null,
+  },
+  {
+    id: 'd2',
+    conceptKey: 'geometry.similarity.triangles',
+    title: 'Similar Triangles',
+    strand: 'geometry',
+    strandLabel: 'Geometry',
+    category: 'wrong-pair',
+    description: 'Reads similar triangles off the wrong pair',
+    status: 'active',
+    occurrenceCount: 2,
+    consecutiveCorrect: 2,
+    firstSeenAt: iso('2026-07-16'),
+    lastSeenAt: iso('2026-07-23'),
+    resolvedAt: null,
+  },
+  {
+    id: 'd3',
+    conceptKey: 'algebra2.logs.properties',
+    title: 'Logarithm Properties',
+    strand: 'algebra2',
+    strandLabel: 'Algebra 2',
+    category: 'product-rule',
+    description: 'Turns log(a + b) into log a + log b',
+    status: 'resolved',
+    occurrenceCount: 3,
+    consecutiveCorrect: 3,
+    firstSeenAt: iso('2026-06-28'),
+    lastSeenAt: iso('2026-07-12'),
+    resolvedAt: iso('2026-07-18'),
+  },
+]
+
+const MOCK_DASHBOARD: DashboardData = {
+  strands: MOCK_STRANDS,
+  stateCounts: { unseen: 0, learning: 4, weak: 2, mastered: 3, forgotten: 1 },
+  totalConcepts: 10,
+  misconceptions: DATA_MISCONCEPTIONS,
+  dueQueue: MOCK_DUE,
+  activity: MOCK_ACTIVITY,
+  isEmpty: false,
+}
+
+const COLD_DASHBOARD: DashboardData = {
+  strands: [],
+  stateCounts: { unseen: 0, learning: 0, weak: 0, mastered: 0, forgotten: 0 },
+  totalConcepts: 0,
+  misconceptions: [],
+  dueQueue: [],
+  activity: [],
+  isEmpty: true,
+}
 
 // Mock tutoring history for the History view. `SessionsScreen` groups these into
 // Today / Yesterday / date buckets itself, so the spread of dates is what makes
@@ -469,9 +726,9 @@ const SESSIONS: RecentSession[] = [
 export default async function StudioPreviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>
+  searchParams: Promise<{ view?: string; state?: string }>
 }) {
-  const { view = 'dash' } = await searchParams
+  const { view = 'dash', state } = await searchParams
 
   const switcher = (
     <div
@@ -518,6 +775,152 @@ export default async function StudioPreviewPage({
     )
   }
 
+  if (view === 'data') {
+    const cold = state === 'cold'
+    return (
+      <>
+        <DataScreen
+          input={{
+            dashboard: cold ? COLD_DASHBOARD : MOCK_DASHBOARD,
+            trend: cold ? [] : MOCK_TREND,
+            nowIso: DATA_NOW.toISOString(),
+          }}
+        />
+        {switcher}
+      </>
+    )
+  }
+
+  // ── The screens rebuilt out of the pre-studio tree (2026-07-25 sweep) ──────
+  // All four are auth-gated, so this harness is the only way to eyeball them.
+
+  const MOCK_QUOTA = { tier: 'free', isPro: false, limit: 10, used: 7, remaining: 3, resetsAt: iso('2026-08-12') }
+
+  if (view === 'library') {
+    return (
+      <>
+        <LibraryScreen subjects={SUBJECTS} now={NOW} />
+        {switcher}
+      </>
+    )
+  }
+
+  if (view === 'billing') {
+    return (
+      <>
+        <BillingScreen
+          data={{
+            isPro: false,
+            pastDue: false,
+            status: null,
+            renews: null,
+            quota: MOCK_QUOTA,
+            quotaResets: 'August 12, 2026',
+            referral: {
+              link: 'https://calyxa.app/?ref=DARCY42',
+              referralCount: 1,
+              referralsPerReward: 3,
+              rewardSessions: 10,
+              toNextReward: 2,
+            },
+            checkout: null,
+          }}
+        />
+        {switcher}
+      </>
+    )
+  }
+
+  if (view === 'account') {
+    return (
+      <>
+        <AccountScreen
+          data={{
+            name: 'Darcy Wang',
+            email: 'darcy@example.com',
+            birthYear: 2008,
+            memberSince: 'July 2026',
+            isPro: false,
+            quota: MOCK_QUOTA,
+          }}
+        />
+        {switcher}
+      </>
+    )
+  }
+
+  if (view === 'gap') {
+    return (
+      <>
+        <MisconceptionDetailScreen
+          detail={{
+            misconception: DATA_MISCONCEPTIONS[0],
+            strandColor: '#9a3412',
+            conceptNode: {
+              conceptKey: 'algebra.quadratics.factoring',
+              title: 'Quadratics & Factoring',
+              strand: 'algebra',
+              strandLabel: 'Algebra 1',
+              mastery: 0.58,
+              state: 'weak',
+              confidenceBand: 'medium',
+              observationCount: 6,
+              lastPracticedAt: iso('2026-07-24'),
+            },
+            kitHref: null,
+            resolutionStreak: 3,
+          }}
+        />
+        {switcher}
+      </>
+    )
+  }
+
+  if (view === 'session') {
+    return (
+      <>
+        <SessionDetailScreen
+          detail={{
+            id: 's1',
+            startedAt: iso('2026-07-24T16:05:00Z'),
+            endedAt: iso('2026-07-24T16:29:00Z'),
+            mode: 'text',
+            pageDomain: null,
+            snapshots: [
+              {
+                id: 't1',
+                turnIndex: 1,
+                conceptKey: 'algebra.quadratics.factoring',
+                conceptTitle: 'Quadratics & Factoring',
+                studentTranscript: 'I got (x + 2)(x + 3) for x² + 5x + 6',
+                tutorResponse: 'That is right — and notice how you found it: two numbers that multiply to 6 and add to 5.',
+                misconception: null,
+                annotations: [
+                  { id: 'a1', type: 'box', targetText: 'x² + 5x + 6', color: null, label: 'a = 1 here', note: 'When a is 1 you can go straight to the factor pair.' },
+                ],
+                createdAt: iso('2026-07-24T16:07:00Z'),
+              },
+              {
+                id: 't2',
+                turnIndex: 2,
+                conceptKey: 'algebra.quadratics.factoring',
+                conceptTitle: 'Quadratics & Factoring',
+                studentTranscript: 'So 2x² + 7x + 3 is (2x + 3)(x + 3)?',
+                tutorResponse: 'Close. Expand that back out and see what the middle term becomes.',
+                misconception: 'Drops the sign when c is negative',
+                annotations: [
+                  { id: 'a2', type: 'underline', targetText: '(2x + 3)(x + 3)', color: null, label: 'expands to 2x² + 9x + 9', note: 'The a·c method is what to reach for when a is not 1.' },
+                ],
+                createdAt: iso('2026-07-24T16:14:00Z'),
+              },
+            ],
+          }}
+        />
+        {switcher}
+      </>
+    )
+  }
+
   if (view === 'history') {
     // The real /sessions screen, rendered against mock sessions. No light wrapper
     // any more: HistoryScreen is token-based, so it themes with the shell like
@@ -535,32 +938,29 @@ export default async function StudioPreviewPage({
   return (
     <>
       <DashboardScreen
-        firstName="Darcy"
         now={NOW}
-        quota={{ tier: 'free', isPro: false, limit: 5, used: 2, remaining: 3, resetsAt: null }}
-        due={[
-          {
-            conceptKey: 'algebra.quadratics.factoring',
-            title: 'Quadratics & Factoring',
-            strand: 'algebra1',
-            strandShort: 'Alg 1',
-            strandColor: '#9a3412',
-            mastery: 0.61,
-            dueAt: iso('2026-07-22'),
-            overdue: false,
-          },
-          {
-            conceptKey: 'algebra.systems.linear',
-            title: 'Systems of Equations',
-            strand: 'algebra1',
-            strandShort: 'Alg 1',
-            strandColor: '#9a3412',
-            mastery: 0.68,
-            dueAt: iso('2026-07-22'),
-            overdue: false,
-          },
-        ]}
-        subjects={SUBJECTS}
+        // ?view=dash&state=capped renders the spent-allowance band, which is
+        // otherwise only reachable by actually exhausting a real account.
+        quota={
+          state === 'capped'
+            ? { tier: 'free', isPro: false, limit: 5, used: 5, remaining: 0, resetsAt: iso('2026-08-12') }
+            : { tier: 'free', isPro: false, limit: 5, used: 2, remaining: 3, resetsAt: iso('2026-08-12') }
+        }
+        // Derived from the SAME queue the schedule reads, exactly as the real
+        // page does (`todaysReview(data, now)` and `reviewSchedule(data.dueQueue…)`
+        // both filter one `dueQueue`). Two unrelated mock arrays here made the
+        // card and the strip disagree in the harness only.
+        due={DASH_DUE.filter((d) => Date.parse(d.dueAt) < NOW.getTime() + 86_400_000).map((d) => ({
+          conceptKey: d.conceptKey,
+          title: d.title,
+          strand: d.strand,
+          strandShort: d.strandLabel,
+          strandColor: '#166534',
+          mastery: 0.6,
+          dueAt: d.dueAt,
+          overdue: d.overdue,
+        }))}
+        schedule={reviewSchedule(DASH_DUE, DASH_ACTIVITY, NOW)}
         isEmpty={false}
       />
       {switcher}

@@ -422,6 +422,42 @@ html {
   text-decoration: none;
 }
 
+/* ── Progress tab ────────────────────────────────────────────────────────────
+   The handoff's "Worth doing next" pair: two equal columns that become one
+   below the point where the review pills and gap rows start wrapping badly.
+   A real grid rather than inline flex so the two cards stay the same height —
+   the design relies on that (each card pushes its footer down with a spacer). */
+.cx-progress-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+@media (max-width: 900px) {
+  .cx-progress-pair {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The by-subject "Weakest: …" link is muted until hovered, when it takes the
+   accent — the prototype's `style-hover` on that row. */
+.cx-studio .cx-weakest:hover {
+  color: var(--color-accent-emphasis) !important;
+  text-decoration: none;
+}
+
+/* The dashboard's session-allowance pill is a LINK to /billing. It carries an
+   ORDINAL tint (green, or amber when capped) and its own ink, so the usual
+   studio link hover — which repaints the colour — would fight it. A slight
+   fade reads as interactive against any tint, in both themes. */
+.cx-studio .cx-quota-pill,
+.cx-studio .cx-quota-pill:hover {
+  text-decoration: none;
+}
+.cx-studio .cx-quota-pill:hover {
+  opacity: 0.82;
+}
+
 @media (max-width: 640px) {
   /* Under 640px the rail gives way to the existing bottom tab bar. */
   .cx-studio .cx-rail {

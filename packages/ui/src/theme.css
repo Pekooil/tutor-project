@@ -459,3 +459,55 @@
   --chart-partial: var(--calyxa-ping-watch-text);
   --chart-incorrect: var(--color-danger);
 }
+
+/* ---- Chart palette, DARK (Notebook Studio "Data" tab) ----
+ * The block above was written for the pre-studio dashboard, which only ever
+ * rendered light. The Notebook Studio is dark BY DEFAULT and its Data tab is
+ * the first surface to chart in dark, so the whole palette needs a dark half.
+ *
+ * EVERY token is re-declared here, including the ones whose light value is
+ * already a var(). That is deliberate and NOT redundant — a custom property is
+ * substituted at computed-value time on the element the DECLARATION matches, so
+ * `--chart-correct: var(--color-accent-emphasis)` declared on `:root` computes
+ * to the LIGHT #166534 there and inherits that literal downward. The dark block
+ * re-pointing --color-accent-emphasis on a DESCENDANT does not retroactively
+ * change it. Measured in the browser before this block existed: --chart-correct
+ * resolved to #166534 (1.51:1 on the dark background) inside a fully dark
+ * studio. Re-declaring here re-runs the substitution on the dark element, where
+ * the referents have already flipped.
+ *
+ * ADR-018-disciplined: no new colour is introduced. The six strand values point
+ * at the dark counterpart of the SAME tutor-mode hue the light palette was
+ * assigned from (the "reuses calyxa-mode-coach-text" comments above), and the
+ * state/accuracy values point at the same semantic tokens as the light block,
+ * which do have dark variants. --chart-state-learning is the one exception: its
+ * light referent --calyxa-tag-due (#2563eb) has no dark variant and measures
+ * 2.11:1 on #1c1d1a, so it re-points to the shipped dark sky blue — the same
+ * "blue" reading, legible. No light value is touched.
+ *
+ * AA verified against the dark --color-background #1c1d1a (relative luminance,
+ * same method as the light block): #fdba74 10.04:1 · #86efac 12.06:1 · #5eead4
+ * 11.45:1 · #c4b5fd 9.17:1 · #f0abfc 9.63:1 · #fda4af 8.96:1 · #7dd3fc 10.16:1
+ * · #fde68a 13.60:1 · #fca5a5 8.92:1 · #98988f 5.82:1 — all clear the 4.5:1 AA
+ * text minimum, and trivially the 3:1 non-text minimum a bar or segment fill
+ * needs.
+ */
+.dark,
+[data-theme='dark'] {
+  --chart-1: var(--calyxa-mode-coach-text); /* algebra1 — #fdba74 */
+  --chart-2: var(--color-accent-emphasis); /* geometry — #86efac */
+  --chart-3: var(--calyxa-mode-verify-text); /* algebra2 — #5eead4 */
+  --chart-4: var(--calyxa-mode-build-text); /* trig-precalc — #c4b5fd */
+  --chart-5: var(--calyxa-mode-challenge-text); /* calculus — #f0abfc */
+  --chart-6: var(--calyxa-mode-recover-text); /* prob-stats — #fda4af */
+
+  --chart-state-unseen: var(--color-muted-foreground); /* #98988f */
+  --chart-state-learning: var(--calyxa-mode-explore-text); /* #7dd3fc */
+  --chart-state-weak: var(--calyxa-ping-watch-text); /* #fde68a */
+  --chart-state-mastered: var(--color-accent-emphasis); /* #86efac */
+  --chart-state-forgotten: var(--color-danger); /* #fca5a5 */
+
+  --chart-correct: var(--color-accent-emphasis); /* #86efac */
+  --chart-partial: var(--calyxa-ping-watch-text); /* #fde68a */
+  --chart-incorrect: var(--color-danger); /* #fca5a5 */
+}

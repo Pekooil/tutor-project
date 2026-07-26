@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { NAV_ITEMS, isStudioView } from '@/components/studio/nav'
 
-// The studio's three destinations are rendered by THREE surfaces — the icon
+// The studio's destinations are rendered by THREE surfaces — the icon
 // rail, the floating bottom-left bubble bar, and the mobile tab bar — all reading
 // this one list. These tests pin the two things that would silently break the
 // chrome if the list drifted: which route lights up which item, and where the
@@ -18,10 +18,11 @@ const byLabel = (label: string) => {
 }
 
 describe('studio nav', () => {
-  it('has the three expected destinations, in rail order', () => {
-    // Three, not five: quiz and flashcards are panel states inside Notes now,
-    // not destinations of their own.
-    expect(NAV_ITEMS.map((i) => i.label)).toEqual(['Dashboard', 'Notes', 'Session history'])
+  it('has the four expected destinations, in rail order', () => {
+    // Quiz and flashcards are NOT here: they are panel states inside Notes, not
+    // destinations of their own. Progress is (the whole-account reading), and it
+    // sits between Notes and History.
+    expect(NAV_ITEMS.map((i) => i.label)).toEqual(['Dashboard', 'Notes', 'Progress', 'Session history'])
   })
 
   it('lights up exactly one item per studio route', () => {
@@ -31,6 +32,7 @@ describe('studio nav', () => {
     expect(activeOn('/notes/algebra.quadratics.factoring')).toEqual(['Notes'])
     expect(activeOn('/sessions')).toEqual(['Session history'])
     expect(activeOn('/sessions/abc-123')).toEqual(['Session history'])
+    expect(activeOn('/data')).toEqual(['Progress'])
     // The retired quiz/flashcard routes redirect into notes, so Notes owns them.
     expect(activeOn('/quiz/algebra.quadratics.factoring')).toEqual(['Notes'])
     expect(activeOn('/flashcards/algebra.quadratics.factoring')).toEqual(['Notes'])
@@ -49,21 +51,17 @@ describe('studio nav', () => {
     expect(NAV_ITEMS.filter((i) => i.match('/studio-preview'))).toHaveLength(0)
   })
 
-  it('deep-links Notes when a concept is open', () => {
-    const key = 'algebra.quadratics.factoring'
-    expect(byLabel('Notes').href(key)).toBe(`/notes/${key}`)
-  })
-
-  it('falls back to the bare index route when no concept is open', () => {
-    // The index routes resolve the student's current concept server-side and
-    // redirect — which is exactly what a nav button with no concept in hand wants.
-    expect(byLabel('Notes').href(null)).toBe('/notes')
+  it('sends every rail item to a destination, never to the open concept', () => {
+    // Notes used to deep-link to whatever concept was open, which meant that
+    // while READING a concept you could not reach the library from the rail —
+    // the one place you would go to find a different one. /notes is a real index
+    // now, so every item ignores the concept key.
+    for (const key of [null, 'algebra.quadratics.factoring', 'a b/c']) {
+      expect(byLabel('Notes').href(key)).toBe('/notes')
+    }
     expect(byLabel('Dashboard').href(null)).toBe('/dashboard')
     expect(byLabel('Session history').href(null)).toBe('/sessions')
-  })
-
-  it('encodes the concept key so a key with separators survives the URL', () => {
-    expect(byLabel('Notes').href('a b/c')).toBe('/notes/a%20b%2Fc')
+    expect(byLabel('Progress').href(null)).toBe('/data')
   })
 })
 
@@ -81,6 +79,10 @@ describe('studio vs legacy chrome', () => {
       '/notes/algebra.quadratics.factoring',
       // The History tab, rebuilt on tokens (studio/HistoryScreen).
       '/sessions',
+      '/sessions/abc-123',
+      '/account',
+      '/billing',
+      '/misconceptions/m1',
       '/studio-preview',
     ]) {
       expect(isStudioView(p), `${p} should be studio chrome`).toBe(true)
@@ -88,19 +90,19 @@ describe('studio vs legacy chrome', () => {
   })
 
   it('treats every remaining pre-studio screen as legacy chrome, so it renders light', () => {
-    // These are the routes whose text was illegible in dark mode.
-    for (const p of [
-      '/account',
-      '/billing',
-      '/referral',
-      '/library',
-      '/kits/session-1',
-      '/misconceptions/m1',
-      // The session DETAIL page is still the pre-studio screen — only the index
-      // was rebuilt, which is why isStudioView matches '/sessions' exactly.
-      '/sessions/abc',
-    ]) {
+    // What is LEFT after the 2026-07-25 sweep. /account, /billing,
+    // /misconceptions/[id] and /sessions/[id] used to be here — they were the
+    // four the studio actually linked to, so following any of them from the dark
+    // studio landed on a white page. All four are studio views now; these three
+    // survive only because nothing in the studio links to them.
+    for (const p of ['/referral', '/library', '/kits/session-1']) {
       expect(isStudioView(p), `${p} should be legacy chrome`).toBe(false)
+    }
+  })
+
+  it('treats the rebuilt settings and drill-down screens as studio chrome', () => {
+    for (const p of ['/account', '/billing', '/misconceptions/m1', '/sessions/abc-123']) {
+      expect(isStudioView(p), `${p} should be studio chrome`).toBe(true)
     }
   })
 })

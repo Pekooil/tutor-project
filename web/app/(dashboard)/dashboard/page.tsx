@@ -2,10 +2,9 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { loadDashboard } from '@/lib/learning/dashboard-read'
 import { loadSessionQuota } from '@/lib/learning/activity-read'
-import { loadNavUser } from '@/components/dashboard/premium/user-info'
 import { todaysReview } from '@/components/dashboard/premium/derive'
-import { buildStudioCatalog } from '@/components/studio/catalog-read'
 import { DashboardScreen } from '@/components/studio/DashboardScreen'
+import { reviewSchedule } from '@/components/studio/schedule'
 
 // The post-login home — the Notebook Studio dashboard: today's review first,
 // then the browser over every subject and concept that has been tutored.
@@ -27,20 +26,16 @@ export default async function DashboardPage() {
   }
 
   const now = new Date()
-  const [data, navUser, quota] = await Promise.all([
-    loadDashboard(supabase),
-    loadNavUser(supabase),
-    loadSessionQuota(supabase),
-  ])
-  const subjects = await buildStudioCatalog(supabase, data, now)
+  const [data, quota] = await Promise.all([loadDashboard(supabase), loadSessionQuota(supabase)])
+
+  const schedule = reviewSchedule(data.dueQueue, data.activity, now)
 
   return (
     <DashboardScreen
-      firstName={navUser.name.split(' ')[0]}
       now={now}
       quota={quota}
       due={todaysReview(data, now)}
-      subjects={subjects}
+      schedule={schedule}
       isEmpty={data.isEmpty}
     />
   )

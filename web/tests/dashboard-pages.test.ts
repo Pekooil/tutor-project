@@ -39,6 +39,7 @@ vi.mock('@/components/dashboard/premium/user-info', () => ({ loadNavUser: navUse
 vi.mock('@/components/studio/catalog-read', () => ({ buildStudioCatalog: catalogMock }))
 
 const dashboardPage = await import('../app/(dashboard)/dashboard/page')
+const notesIndexPage = await import('../app/(dashboard)/notes/page')
 
 function fakeSupabase(user: { id: string } | null) {
   return { auth: { getUser: async () => ({ data: { user }, error: null }) } }
@@ -121,6 +122,7 @@ const RICH_DATA: DashboardData = {
       strand: 'geometry',
       strandLabel: STRAND_LABELS.geometry,
       dueAt: '2026-07-10T00:00:00.000Z',
+      lastReviewAt: '2026-07-07T00:00:00.000Z',
       intervalDays: 3,
       priority: 0.9,
       lapses: 1,
@@ -192,13 +194,29 @@ const CATALOG = [
   },
 ]
 
-async function render(user: { id: string } | null, data: DashboardData): Promise<string> {
+const DEFAULT_QUOTA = { tier: 'free', isPro: false, limit: 10, used: 3, remaining: 7, resetsAt: null }
+
+async function render(
+  user: { id: string } | null,
+  data: DashboardData,
+  quota: Record<string, unknown> = DEFAULT_QUOTA
+): Promise<string> {
   createClientMock.mockResolvedValue(fakeSupabase(user))
   loadDashboardMock.mockResolvedValue(data)
   navUserMock.mockResolvedValue({ name: 'Ada Lovelace', initials: 'AL', planLabel: 'Free' })
-  quotaMock.mockResolvedValue({ tier: 'free', isPro: false, limit: 10, used: 3, remaining: 7, resetsAt: null })
+  quotaMock.mockResolvedValue(quota)
   catalogMock.mockResolvedValue(data.isEmpty ? [] : CATALOG)
   return renderToStaticMarkup(await dashboardPage.default())
+}
+
+/** The library at /notes, which owns the subject → concept browser since the
+ *  2026-07-25 move. Same mocks — it reads the same catalog the dashboard used
+ *  to. */
+async function renderLibrary(user: { id: string } | null, data: DashboardData): Promise<string> {
+  createClientMock.mockResolvedValue(fakeSupabase(user))
+  loadDashboardMock.mockResolvedValue(data)
+  catalogMock.mockResolvedValue(data.isEmpty ? [] : CATALOG)
+  return renderToStaticMarkup(await notesIndexPage.default())
 }
 
 beforeEach(() => {
@@ -217,12 +235,15 @@ afterEach(() => {
 describe('Dashboard home (/dashboard)', () => {
   it('renders the studio dashboard for an authed user with data', async () => {
     const html = await render(USER, RICH_DATA)
-    // Greeting uses the first name; Today's Review is the dominant action; the
-    // browser lists the tutored subject and its concepts underneath.
-    expect(html).toContain('Ada')
+    // The heading is a plain tab title, NOT a greeting — no time-of-day copy and
+    // no first name. Today's Review is the dominant action; the browser lists the
+    // tutored subject and its concepts underneath.
+    expect(html).toContain('>Dashboard<')
+    expect(html).not.toMatch(/Good (morning|afternoon|evening)/)
     expect(html).toContain('Start review')
-    expect(html).toContain('Everything tutored')
-    expect(html).toContain(NODE_TITLE)
+    // The subject → concept browser moved to /notes; the dashboard is now only
+    // "what do I do right now".
+    expect(html).not.toContain('Subjects &amp; concepts')
     expect(loadDashboardMock).toHaveBeenCalledOnce()
   })
 
@@ -231,37 +252,49 @@ describe('Dashboard home (/dashboard)', () => {
     expect(html).toContain('7 of 10 sessions left this month')
   })
 
-  it('links a concept row to its notes, not the retired concept workspace', async () => {
-    const html = await render(USER, RICH_DATA)
-    expect(html).toContain('/notes/algebra.linear-equations.one-variable')
-    expect(html).not.toContain('/concepts/algebra.linear-equations.one-variable')
+  // The quota pill used to be an inert <span>, and NOTHING in the product linked
+  // to /billing — so the Stripe checkout Sprint 23 shipped had no entry point on
+  // the surface it was designed to launch from. Pinned here because a dead
+  // upgrade path fails silently: everything still renders, it just cannot be
+  // reached, which is exactly what happened the first time.
+  it('makes the quota pill a route into billing', async () => {
+    expect(await render(USER, RICH_DATA)).toContain('href="/billing"')
   })
 
-  it('shows the per-concept study-material counts', async () => {
-    const html = await render(USER, RICH_DATA)
-    expect(html).toContain('3 quiz')
-    expect(html).toContain('4 cards')
-    expect(html).toContain('1 misconception')
+  it('offers a way out when the free allowance is spent, not just a warning', async () => {
+    const html = await render(USER, RICH_DATA, {
+      tier: 'free',
+      isPro: false,
+      limit: 10,
+      used: 10,
+      remaining: 0,
+      resetsAt: '2026-08-12T00:00:00.000Z',
+    })
+    expect(html).toContain('No sessions left this month')
+    expect(html).toContain('Session limit reached')
+    // Says when it comes back on its own — a capped student should not have to
+    // pay to find out the cap is temporary.
+    expect(html).toContain('August 12')
+    expect(html).toContain('See plans')
   })
 
-  it('surfaces a watched slip separately from a confirmed gap', async () => {
-    const html = await render(USER, RICH_DATA)
-    // A concept with nothing confirmed but something watched says so, rather
-    // than claiming "No gaps" (which would hide it) or "misconceptions" (which
-    // would overstate a single slip).
-    expect(html).toContain('2 watching')
-    expect(html).toContain('1 to fix')
-    // The confirmed count must NOT absorb the watched ones.
-    expect(html).not.toContain('3 to fix')
+  it('does not nag an account that still has sessions left', async () => {
+    expect(await render(USER, RICH_DATA)).not.toContain('Session limit reached')
   })
+
+
+
 
   it('renders the activation state for a fresh user (no crash)', async () => {
     const html = await render(USER, EMPTY_DATA)
     // Cold start → a single "set up + first session" call, not the daily loop.
     expect(html).toContain('Welcome to Calyxa')
     expect(html).toContain('Start your first session')
-    expect(html).toContain('Set up Calyxa')
-    expect(html).toContain('/welcome')
+    // The cold-start CTA is the Chrome Web Store: sessions only ever start in
+    // the extension, and the /welcome walkthrough that used to sit in between
+    // was retired with the two-workflow onboarding cleanup (2026-07-25).
+    expect(html).toContain('Add Calyxa to Chrome')
+    expect(html).toContain('chromewebstore.google.com')
     // No browser surfaces for an empty account.
     expect(html).not.toContain('Everything tutored')
     expect(html).not.toContain('Start review')
@@ -272,5 +305,44 @@ describe('Dashboard home (/dashboard)', () => {
     expect(redirectMock).toHaveBeenCalledWith('/login')
     // Never reads dashboard data for a signed-out request.
     expect(loadDashboardMock).not.toHaveBeenCalled()
+  })
+})
+
+// The library — the subject → concept browser. It lived at the bottom of the
+// dashboard until 2026-07-25; /notes was a bare redirect to the last-touched
+// concept, so there was no index anywhere in the product.
+describe('Notes index (/notes)', () => {
+  it('links a concept row to its notes, not the retired concept workspace', async () => {
+    const html = await renderLibrary(USER, RICH_DATA)
+    expect(html).toContain('/notes/algebra.linear-equations.one-variable')
+    expect(html).not.toContain('/concepts/algebra.linear-equations.one-variable')
+  })
+
+  it('shows the per-concept study-material counts', async () => {
+    const html = await renderLibrary(USER, RICH_DATA)
+    expect(html).toContain('3 quiz')
+    expect(html).toContain('4 cards')
+    expect(html).toContain('1 misconception')
+  })
+
+  it('surfaces a watched slip separately from a confirmed gap', async () => {
+    const html = await renderLibrary(USER, RICH_DATA)
+    // A concept with nothing confirmed but something watched says so, rather
+    // than claiming "No gaps" (which would hide it) or "misconceptions" (which
+    // would overstate a single slip).
+    expect(html).toContain('2 watching')
+    expect(html).toContain('1 to fix')
+    // The confirmed count must NOT absorb the watched ones.
+    expect(html).not.toContain('3 to fix')
+  })
+
+  it('is the index, not a redirect to the last concept', async () => {
+    const html = await renderLibrary(USER, RICH_DATA)
+    expect(html).toContain('Subjects &amp; concepts')
+    expect(redirectMock).not.toHaveBeenCalled()
+  })
+
+  it('offers a search box, since scrolling the tree was the problem', async () => {
+    expect(await renderLibrary(USER, RICH_DATA)).toContain('Search subjects and concepts')
   })
 })
