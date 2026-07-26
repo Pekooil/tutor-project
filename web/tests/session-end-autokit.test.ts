@@ -1,9 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// The misconception → auto study-kit hook in POST /api/session/end (workflow
-// replacing spaced-repetition review). It must fire generateAndPersistStudyKit
-// ONLY when the session spotted a new misconception AND no kit already exists
-// for the session — and never turn an already-successful end into an error.
+// The auto study-kit hook in POST /api/session/end.
+//
+// Rewritten 2026-07-26: kits now generate after EVERY session that practised
+// something (recap.concepts), not only one that spotted a new misconception —
+// a clean session still produced work worth revising, and the extension recap
+// now shows the kit being built instead of offering a button.
+//
+// It also moved into after(), so the model call no longer delays the recap.
+// These tests run `after` callbacks inline (see the next/server mock) because
+// there is no Next request lifecycle here to flush them.
+//
+// Unchanged: it must never turn an already-successful end into an error, must
+// stay idempotent against an existing kit, and must obey the kill switch.
 
 const { clientFromBearerMock, endSessionMock, reconcileMock, recapMock, generateMock } = vi.hoisted(() => ({
   clientFromBearerMock: vi.fn(),
@@ -14,6 +23,12 @@ const { clientFromBearerMock, endSessionMock, reconcileMock, recapMock, generate
 }))
 
 vi.mock('server-only', () => ({}))
+// Run after() callbacks immediately. Everything else in next/server (notably
+// NextResponse, which the route returns) must stay real.
+vi.mock('next/server', async () => {
+  const actual = await vi.importActual<typeof import('next/server')>('next/server')
+  return { ...actual, after: (fn: () => unknown) => { void fn() } }
+})
 vi.mock('@/lib/auth/bearer', () => ({ clientFromBearer: clientFromBearerMock }))
 vi.mock('@/lib/tier/session-gate', () => ({ endSession: endSessionMock }))
 vi.mock('@/lib/learning/apply', () => ({ reconcileSession: reconcileMock }))
@@ -31,7 +46,12 @@ function fakeSupabase(existingKits: number) {
   return {
     from: () => ({
       select: () => ({
-        eq: async () => ({ count: existingKits, error: null }),
+        // study_artifact count (the idempotency signal) awaits the eq() itself;
+        // the sessions score_at_start read chains .maybeSingle() off it. One
+        // shape serves both.
+        eq: Object.assign(async () => ({ count: existingKits, error: null }), {
+          maybeSingle: async () => ({ data: { score_at_start: null }, error: null }),
+        }),
       }),
     }),
   }
@@ -45,13 +65,14 @@ function req() {
   })
 }
 
-function setup(opts: { misconceptionsAdded: unknown[]; existingKits: number }) {
+function setup(opts: { concepts?: unknown[]; misconceptionsAdded?: unknown[]; existingKits: number }) {
   const supabase = fakeSupabase(opts.existingKits)
   clientFromBearerMock.mockResolvedValue({ supabase, user: { id: USER } })
   endSessionMock.mockResolvedValue({ data: [{ id: SESSION, ended_at: '2026-07-15T00:00:00Z', interaction_count: 3 }], error: null })
   recapMock.mockResolvedValue({
-    concepts: [],
-    misconceptionsAdded: opts.misconceptionsAdded,
+    // A practised concept is now what gates generation.
+    concepts: opts.concepts ?? [{ conceptKey: 'algebra.factoring' }],
+    misconceptionsAdded: opts.misconceptionsAdded ?? [],
     misconceptionsResolved: [],
     nextReviews: [],
     trends: [],
@@ -65,31 +86,31 @@ beforeEach(() => {
   generateMock.mockResolvedValue({ kit: { notes: ['n'], problems: [], flashcards: [] } })
 })
 
-describe('session/end auto study-kit hook', () => {
-  it('generates a kit when a new misconception was spotted and none exists yet', async () => {
-    setup({ misconceptionsAdded: [{ conceptKey: 'geometry.circle' }], existingKits: 0 })
+describe('session/end auto study-kit hook (every session)', () => {
+  it('generates a kit after ANY session that practised something', async () => {
+    setup({ existingKits: 0 })
     const res = await POST(req())
     expect(res.status).toBe(200)
     expect(generateMock).toHaveBeenCalledTimes(1)
     expect(generateMock).toHaveBeenCalledWith(expect.anything(), USER, SESSION)
   })
 
-  it('does NOT generate when the session spotted no new misconception', async () => {
-    setup({ misconceptionsAdded: [], existingKits: 0 })
+  it('does NOT generate when the session practised nothing gradable', async () => {
+    setup({ concepts: [], existingKits: 0 })
     const res = await POST(req())
     expect(res.status).toBe(200)
     expect(generateMock).not.toHaveBeenCalled()
   })
 
   it('does NOT generate when a kit already exists for the session (idempotent)', async () => {
-    setup({ misconceptionsAdded: [{ conceptKey: 'geometry.circle' }], existingKits: 2 })
+    setup({ existingKits: 2 })
     const res = await POST(req())
     expect(res.status).toBe(200)
     expect(generateMock).not.toHaveBeenCalled()
   })
 
   it('does NOT generate when the kill switch is set', async () => {
-    setup({ misconceptionsAdded: [{ conceptKey: 'geometry.circle' }], existingKits: 0 })
+    setup({ existingKits: 0 })
     process.env.CALYXA_DISABLE_AUTO_STUDY_KIT = '1'
     const res = await POST(req())
     expect(res.status).toBe(200)
@@ -97,7 +118,7 @@ describe('session/end auto study-kit hook', () => {
   })
 
   it('still returns a successful end even if generation throws', async () => {
-    setup({ misconceptionsAdded: [{ conceptKey: 'geometry.circle' }], existingKits: 0 })
+    setup({ existingKits: 0 })
     generateMock.mockRejectedValue(new Error('model down'))
     const res = await POST(req())
     expect(res.status).toBe(200)

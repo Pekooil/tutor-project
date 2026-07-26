@@ -751,10 +751,17 @@ export default defineContentScript({
       if (message.type === 'SESSION_ENDED') {
         // `sessionId` (Sprint 21 Task 5, ADR-049) rides through to the recap
         // card so it can generate a study kit for the just-ended session.
-        const { recap, sessionId } = (message.payload ?? {}) as SessionEndedPayload;
+        // `scoreChange` (2026-07-26) rides through the same way: what this
+        // session moved on the dashboard's progress score, omitted when there
+        // was no pre-session snapshot to diff or nothing moved.
+        const { recap, sessionId, scoreChange } = (message.payload ?? {}) as SessionEndedPayload;
         window.dispatchEvent(
           new CustomEvent(SESSION_RECAP_EVENT, {
-            detail: { ...(recap ? { recap } : {}), ...(sessionId ? { sessionId } : {}) },
+            detail: {
+              ...(recap ? { recap } : {}),
+              ...(sessionId ? { sessionId } : {}),
+              ...(scoreChange ? { scoreChange } : {}),
+            },
           }),
         );
         return;

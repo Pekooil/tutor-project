@@ -83,6 +83,14 @@ afterEach(async () => {
 });
 
 describe('RecapCard "Generated for you" surface', () => {
+  it('never offers a manual generate button — the kit makes itself', async () => {
+    const c = await mount(
+      baseProps({ sessionId: 'sess-42', onGenerateStudyKit: vi.fn().mockResolvedValue({ kit: KIT }) }),
+    );
+    expect(button(c, /make a study kit/i)).toBeUndefined();
+    expect(c.textContent).toMatch(/study kit is ready/i);
+  });
+
   it('renders the reserved placeholder (and no generate button) when generation is unavailable', async () => {
     // No transport at all.
     const c1 = await mount(baseProps({ onGenerateStudyKit: undefined }));
@@ -99,8 +107,8 @@ describe('RecapCard "Generated for you" surface', () => {
     const onGenerate = vi.fn().mockResolvedValue({ kit: KIT } as StudyKitResult);
     const c = await mount(baseProps({ sessionId: 'sess-42', onGenerateStudyKit: onGenerate }));
 
-    await click(button(c, /make a study kit/i));
-
+    // Generation is AUTOMATIC now (2026-07-26) — no click. The card fires on
+    // mount, so mounting IS the trigger.
     expect(onGenerate).toHaveBeenCalledWith('sess-42');
     // The summary: what the kit contains, by count.
     expect(c.textContent).toMatch(/study kit is ready/i);
@@ -124,7 +132,6 @@ describe('RecapCard "Generated for you" surface', () => {
     const onGenerate = vi.fn().mockResolvedValue({ refused: 'cost' } as StudyKitResult);
     const c = await mount(baseProps({ onGenerateStudyKit: onGenerate }));
 
-    await click(button(c, /make a study kit/i));
 
     expect(c.textContent).toMatch(/resting for today/i);
     expect(c.querySelectorAll('.cx-recap-placeholder')).toHaveLength(2);
@@ -136,7 +143,6 @@ describe('RecapCard "Generated for you" surface', () => {
     const onGenerate = vi.fn().mockResolvedValue({ refused: 'empty' } as StudyKitResult);
     const c = await mount(baseProps({ onGenerateStudyKit: onGenerate }));
 
-    await click(button(c, /make a study kit/i));
 
     expect(c.textContent).toMatch(/wasn't enough/i);
     expect(c.querySelectorAll('.cx-recap-placeholder')).toHaveLength(2);
@@ -149,7 +155,6 @@ describe('RecapCard "Generated for you" surface', () => {
       .mockResolvedValueOnce({ kit: KIT } as StudyKitResult);
     const c = await mount(baseProps({ onGenerateStudyKit: onGenerate }));
 
-    await click(button(c, /make a study kit/i));
 
     expect(c.textContent).toMatch(/couldn't generate/i);
     expect(c.querySelectorAll('.cx-recap-placeholder')).toHaveLength(2);

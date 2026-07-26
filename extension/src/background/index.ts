@@ -1047,7 +1047,7 @@ async function handleEndSession(): Promise<CalyxaMessage> {
   }
   try {
     const transcript = await getRunningTranscript();
-    const { recap } = await api.endSession(active.sessionId, transcript ?? undefined);
+    const { recap, scoreChange } = await api.endSession(active.sessionId, transcript ?? undefined);
     await clearRunningTranscript();
     // `sessionId` (Sprint 21 Task 5, ADR-049) rides the broadcast so the recap
     // card can generate a study kit for THIS session -- by the time the recap
@@ -1055,7 +1055,11 @@ async function handleEndSession(): Promise<CalyxaMessage> {
     // so this broadcast is the only place the ended id is still known.
     void broadcastToAllTabs({
       type: 'SESSION_ENDED',
-      payload: { ...(recap ? { recap } : {}), sessionId: active.sessionId },
+      payload: {
+        ...(recap ? { recap } : {}),
+        ...(scoreChange ? { scoreChange } : {}),
+        sessionId: active.sessionId,
+      },
     });
     return buildSessionState();
   } catch (error) {

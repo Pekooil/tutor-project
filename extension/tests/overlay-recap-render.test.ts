@@ -106,7 +106,7 @@ afterEach(async () => {
 });
 
 describe('Overlay completion → recap-card render', () => {
-  it('renders the recap card (with "Make a study kit") when a real recap arrives, and generates for that session', async () => {
+  it('renders the recap card when a real recap arrives, and auto-generates for that session', async () => {
     const onGenerateStudyKit = vi.fn().mockResolvedValue({ kit: KIT } as StudyKitResult);
     const c = await mount(baseProps({ onGenerateStudyKit }));
 
@@ -120,15 +120,10 @@ describe('Overlay completion → recap-card render', () => {
     expect(c.textContent).toContain('Factoring quadratics');
     expect(c.textContent).toContain('Complete session');
 
-    // Task 5's "Make a study kit" entry point is reachable via the real flow.
-    const button = makeKitButton(c);
-    expect(button).toBeTruthy();
-
-    // And it generates for the sessionId that rode the recap event (Task 5's
-    // sessionId plumbing, end to end through the real Overlay).
-    await act(async () => {
-      button!.click();
-    });
+    // Generation is automatic (2026-07-26): no button, and it already fired
+    // for the sessionId that rode the recap event — the Task-5 sessionId
+    // plumbing, end to end through the real Overlay.
+    expect(makeKitButton(c)).toBeFalsy();
     await flush();
     expect(onGenerateStudyKit).toHaveBeenCalledWith('sess-42');
     // The kit renders as the compact summary (2026-07-16), never the materials.

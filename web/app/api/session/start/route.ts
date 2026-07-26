@@ -3,6 +3,7 @@ import { clientFromBearer } from '@/lib/auth/bearer'
 import { startSession, type SessionMode } from '@/lib/tier/session-gate'
 import { reconcileUnappliedForUser } from '@/lib/learning/apply'
 import { hashPageDomain } from '@/lib/privacy/url-hash'
+import { readScoreSnapshot } from '@/lib/learning/score-snapshot'
 import { resolveEntitlements, FREE_ENTITLEMENTS } from '@/lib/entitlements/resolve'
 
 export async function POST(request: Request) {
@@ -82,6 +83,28 @@ export async function POST(request: Request) {
       console.error('session/start: cross-session reconcile failed', err)
     })
   )
+
+  // Progress-score snapshot (migration 0028), for the end-of-session "what
+  // changed" summary. Taken HERE because none of the three signals can be
+  // reconstructed after the fact: mastery only moves on the daily cron, and
+  // accuracy/consistency are windowed over activity days that this session is
+  // about to alter.
+  //
+  // after() for the same reason as the reconcile above — start latency is felt
+  // by a student waiting for the pill, and two extra reads are never worth it.
+  // The write races this session's first interaction in principle; in practice
+  // a turn takes seconds and this takes milliseconds, and losing the race costs
+  // one summary, not correctness. Failures are swallowed: no snapshot simply
+  // means the recap shows no summary.
+  after(async () => {
+    try {
+      const snapshot = await readScoreSnapshot(auth.supabase)
+      if (!snapshot) return
+      await auth.supabase.from('sessions').update({ score_at_start: snapshot }).eq('id', data.id)
+    } catch (err) {
+      console.error('session/start: score snapshot failed', err)
+    }
+  })
 
   return NextResponse.json({
     sessionId: data.id,

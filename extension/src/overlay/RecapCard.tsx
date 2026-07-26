@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { API_BASE } from '../lib/api';
-import type { SessionRecap, StudyKit, StudyKitResult } from '../types/messages';
+import type { ScoreChange, SessionRecap, StudyKit, StudyKitResult } from '../types/messages';
 import { conceptOutcome } from './session-flow';
 
 // The post-session recap (design state 7b in the revised board): the panel
@@ -46,6 +46,7 @@ export function RecapCard({
   disabled,
   onDone,
   sessionId,
+  scoreChange = null,
   onGenerateStudyKit,
 }: {
   recap: SessionRecap;
@@ -58,6 +59,9 @@ export function RecapCard({
   // for. null when the recap broadcast carried none; generation is then
   // unavailable and the placeholder shows.
   sessionId: string | null;
+  // What this session moved on the dashboard's progress score (2026-07-26).
+  // null when there was no pre-session snapshot to diff, or nothing budged.
+  scoreChange?: ScoreChange | null;
   // The study-kit generation transport (optional -- see the component comment's
   // degrade note). Resolves { kit } / { refused }; rejects on a real failure.
   onGenerateStudyKit?: (sessionId: string) => Promise<StudyKitResult>;
@@ -122,6 +126,7 @@ export function RecapCard({
           </div>
         </div>
       )}
+      {scoreChange && <ScoreDeltaRow change={scoreChange} />}
       <StudyKitSection
         sessionId={sessionId}
         disabled={disabled}
@@ -135,6 +140,70 @@ export function RecapCard({
       >
         Complete session
       </button>
+    </div>
+  );
+}
+
+/** Signed, rounded delta — "+3", "-2". Zero is rendered as a dash rather than
+ *  "+0": a signal that held steady is not a gain, and padding the row with
+ *  fake movement is how a summary stops being trusted. */
+function deltaText(change: number | null): string {
+  if (change === null) return '—';
+  const rounded = Math.round(change);
+  if (rounded === 0) return '—';
+  return rounded > 0 ? `+${rounded}` : `${rounded}`;
+}
+
+// The end-of-session score summary (2026-07-26, Darcy): which parts of the
+// /data progress score this session moved. Deliberately one compact row rather
+// than a chart -- the recap card is a pill surface, and the full breakdown
+// already lives on the dashboard. Only signals that actually moved are
+// emphasised; the rest sit muted so the row still shows the whole formula.
+function ScoreDeltaRow({ change }: { change: ScoreChange }) {
+  return (
+    <div>
+      <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.11em] text-[var(--calyxa-hint-text)]">
+        Your progress score
+        {typeof change.after === 'number' && (
+          <span className="ml-1 normal-case tracking-normal text-foreground">
+            {change.after}
+            {typeof change.change === 'number' && change.change !== 0 && (
+              <span className="ml-1 font-semibold text-accent-emphasis">
+                {deltaText(change.change)}
+              </span>
+            )}
+          </span>
+        )}
+      </div>
+      <div className="flex gap-1.5">
+        {change.signals.map((signal) => {
+          const moved = signal.change !== null && Math.round(signal.change) !== 0;
+          return (
+            <div
+              key={signal.key}
+              className={`flex flex-1 flex-col gap-0.5 rounded-[10px] border px-2.5 py-2 ${
+                moved ? 'border-accent-subtle bg-accent-subtle' : 'border-border bg-background'
+              }`}
+            >
+              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--calyxa-hint-text)]">
+                {signal.label}
+              </span>
+              <span className="flex items-baseline gap-1">
+                <span className="text-[14px] font-semibold text-foreground">
+                  {signal.after ?? '—'}
+                </span>
+                <span
+                  className={`text-[11px] font-semibold ${
+                    moved ? 'text-accent-emphasis' : 'text-[var(--calyxa-hint-text)]'
+                  }`}
+                >
+                  {deltaText(signal.change)}
+                </span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -160,6 +229,27 @@ function StudyKitSection({
   // either, the section shows the reserved placeholder tiles and offers
   // nothing -- there is nothing to generate against.
   const canGenerate = !!onGenerateStudyKit && !!sessionId;
+
+  // Kits generate AUTOMATICALLY now (2026-07-26, Darcy) -- the student no
+  // longer has to ask. The card fires on mount and shows the work happening,
+  // because a recap that just sat there with a button was read as "nothing
+  // was made for me".
+  //
+  // The server also generates for every session in /api/session/end's after(),
+  // so a student who dismisses the pill mid-generation still gets their kit.
+  // Both paths skip when an artifact already exists for the session, so
+  // whichever arrives second is a cheap read, not a second model call.
+  //
+  // Fires once per mount: `startedRef` never resets, so a re-render (a parent
+  // state change while the recap is up) cannot kick off a duplicate.
+  const startedRef = useRef(false);
+  useEffect(() => {
+    if (startedRef.current || !canGenerate || disabled) return;
+    startedRef.current = true;
+    void handleGenerate();
+    // Deliberately not re-running on transport identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canGenerate, disabled]);
 
   async function handleGenerate() {
     if (!onGenerateStudyKit || !sessionId) return;
@@ -188,26 +278,22 @@ function StudyKitSection({
 
       {!canGenerate || phase === 'idle' || phase === 'loading' ? (
         canGenerate ? (
-          <button
-            type="button"
-            onClick={handleGenerate}
-            disabled={disabled || phase === 'loading'}
-            className="flex h-[46px] w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] border border-border bg-background px-3 text-[13px] font-semibold text-foreground outline-none hover:bg-[var(--calyxa-sage-border)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+          // Working state. No button: the kit is already being made, so the
+          // only honest thing to show is that it is happening.
+          <div
+            aria-live="polite"
+            className="flex h-[46px] w-full items-center justify-center gap-2 rounded-[10px] border border-border bg-background px-3 text-[13px] text-foreground"
           >
-            {phase === 'loading' ? (
-              'Generating your study kit…'
-            ) : (
-              <>
-                <span aria-hidden="true">✦</span>
-                <span className="flex flex-col items-start leading-tight">
-                  <span>Make a study kit</span>
-                  <span className="text-[10.5px] font-normal text-[var(--calyxa-hint-text)]">
-                    Notes, practice, and flashcards from this session
-                  </span>
-                </span>
-              </>
-            )}
-          </button>
+            <span aria-hidden="true" className="animate-pulse">
+              ✦
+            </span>
+            <span className="flex flex-col items-start leading-tight">
+              <span className="font-semibold">Calyxa is making your study kit…</span>
+              <span className="text-[10.5px] font-normal text-[var(--calyxa-hint-text)]">
+                Notes, practice, and flashcards from this session
+              </span>
+            </span>
+          </div>
         ) : (
           // Generation unavailable (no transport / no sessionId): the board's
           // reserved placeholder, unchanged from pre-Sprint-21.

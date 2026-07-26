@@ -12,6 +12,7 @@ import { CalyxaMark } from '@calyxa/ui';
 import './Overlay.css';
 import { API_BASE } from '../lib/api';
 import type {
+  ScoreChange,
   Annotation,
   AnswerField,
   PageTopic,
@@ -703,6 +704,7 @@ export function Overlay({
 
   // ---- Session flow state (ADR-024/025/030, unchanged semantics) ----
   const [recap, setRecap] = useState<SessionRecap | null>(null);
+  const [scoreChange, setScoreChange] = useState<ScoreChange | null>(null);
   // The just-ended session's id (Sprint 21 Task 5, ADR-049), captured from the
   // recap broadcast so the recap card can generate a study kit for it -- the
   // active session is already cleared by the time the recap renders, so this is
@@ -744,7 +746,11 @@ export function Overlay({
   const [closeState, setCloseState] = useState<CloseChoreographyState>('idle');
   const [bloom, setBloom] = useState<{ line: string } | null>(null);
   const bloomTimerRef = useRef<number | null>(null);
-  const pendingRecapRef = useRef<{ recap: SessionRecap | null; sessionId: string | null } | null>(null);
+  const pendingRecapRef = useRef<{
+    recap: SessionRecap | null;
+    sessionId: string | null;
+    scoreChange: ScoreChange | null;
+  } | null>(null);
 
   // ---- Voice plumbing refs (unchanged) ----
   const recordingRef = useRef<RecordingHandle | null>(null);
@@ -1091,17 +1097,24 @@ export function Overlay({
   // here, and any still-queued pins yield to the terminal state.
   useEffect(() => {
     function onSessionRecap(event: Event) {
-      const detail = (event as CustomEvent<{ recap?: SessionRecap; sessionId?: string }>).detail;
+      const detail = (
+        event as CustomEvent<{
+          recap?: SessionRecap;
+          sessionId?: string;
+          scoreChange?: ScoreChange;
+        }>
+      ).detail;
       const arrived = detail?.recap ?? null;
       // The ended session's id (Sprint 21 Task 5, ADR-049) rides the same
       // event so the recap card can generate a study kit for it.
       const sessionId = detail?.sessionId ?? null;
+      const score = detail?.scoreChange ?? null;
       // Hold the summary while the congratulation bloom is still on screen;
       // the bloom timer reveals it the moment the congratulation ends.
       if (bloomTimerRef.current !== null) {
-        pendingRecapRef.current = { recap: arrived, sessionId };
+        pendingRecapRef.current = { recap: arrived, sessionId, scoreChange: score };
       } else {
-        applyRecap(arrived, sessionId);
+        applyRecap(arrived, sessionId, score);
       }
     }
     window.addEventListener(SESSION_RECAP_EVENT, onSessionRecap);
@@ -1109,9 +1122,14 @@ export function Overlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function applyRecap(arrived: SessionRecap | null, sessionId: string | null = null) {
+  function applyRecap(
+    arrived: SessionRecap | null,
+    sessionId: string | null = null,
+    scoreChange: ScoreChange | null = null,
+  ) {
     setRecap(arrived);
     setEndedSessionId(sessionId);
+    setScoreChange(scoreChange);
     shownPinKeysRef.current.clear();
     setPinQueue([]);
     // The session is over -- the mode walks to its terminal Reviewing state.
@@ -1410,7 +1428,11 @@ export function Overlay({
           setBloom(null);
           bloomTimerRef.current = null;
           if (pendingRecapRef.current !== null) {
-            applyRecap(pendingRecapRef.current.recap, pendingRecapRef.current.sessionId);
+            applyRecap(
+              pendingRecapRef.current.recap,
+              pendingRecapRef.current.sessionId,
+              pendingRecapRef.current.scoreChange,
+            );
             pendingRecapRef.current = null;
           }
         }, BLOOM_MS);
@@ -2014,6 +2036,7 @@ export function Overlay({
           disabled={ending}
           onDone={handleRecapDone}
           sessionId={endedSessionId}
+          scoreChange={scoreChange}
           onGenerateStudyKit={onGenerateStudyKit}
         />
       </div>

@@ -478,7 +478,34 @@ export type SessionRecap = {
 // (handleEndSession), so onGetActiveSessionId would return undefined by then;
 // carrying the id on the broadcast is the only place it's still known. Absent
 // only in the degenerate "ended with no active session" path.
-export type SessionEndedPayload = { recap?: SessionRecap; sessionId?: string };
+// What this session moved on the web dashboard's progress score (mastery 50 /
+// accuracy 30 / consistency 20). Computed server-side by diffing a snapshot
+// taken when the session OPENED against one taken as it ends -- see
+// web/lib/learning/score-snapshot.ts for why an after-the-fact reconstruction
+// is impossible. OMITTED entirely (never null/{}) when there is no snapshot to
+// diff or nothing moved, the same additive-omission discipline as `recap`.
+export type ScoreSignalDelta = {
+  key: 'mastery' | 'accuracy' | 'consistency';
+  label: string;
+  before: number | null;
+  after: number | null;
+  /** after - before, only when both are known. Null for a signal that just
+   *  unlocked -- a first reading is not a gain. */
+  change: number | null;
+};
+
+export type ScoreChange = {
+  before: number | null;
+  after: number | null;
+  change: number | null;
+  signals: ScoreSignalDelta[];
+};
+
+export type SessionEndedPayload = {
+  recap?: SessionRecap;
+  sessionId?: string;
+  scoreChange?: ScoreChange;
+};
 
 // Sprint 21 / Task 5 (ADR-049): the study kit as it crosses the wire back to
 // the recap card -- the client-side mirror of the /api/study/generate + /list

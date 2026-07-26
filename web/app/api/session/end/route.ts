@@ -1,10 +1,16 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { clientFromBearer } from '@/lib/auth/bearer'
 import { endSession } from '@/lib/tier/session-gate'
 import { reconcileSession } from '@/lib/learning/apply'
 import { buildSessionRecap, type SessionRecap } from '@/lib/learning/recap'
 import { generateAndPersistStudyKit } from '@/lib/study/generate-and-persist'
 import { updateSessionNotebooks } from '@/lib/notebook/update'
+import {
+  diffScore,
+  parseScoreSnapshot,
+  readScoreSnapshot,
+  type ScoreChange,
+} from '@/lib/learning/score-snapshot'
 
 // Ends a session (Sprint 04 behaviour, unchanged). ADR-019 retires the
 // end-of-session summariser Anthropic call (ADR-015) -- learning state is
@@ -66,32 +72,40 @@ export async function POST(request: Request) {
     console.error('session/end: recap build failed', err)
   }
 
-  // Misconception → study-kit workflow: when this session SPOTTED a new
-  // misconception, auto-generate its study kit so the student can practice it
-  // on the web dashboard (there is no spaced-repetition review flow anymore).
-  // Best-effort, the same posture as the reconcile/recap above — it never
-  // blocks or alters the already-successful end response. Guarded four ways:
-  //   1. a kill switch (CALYXA_DISABLE_AUTO_STUDY_KIT=1) — a prod safety valve
-  //      AND the isolation session-lifecycle integration tests set so they never
-  //      exercise generation (mirrors the COST_*_OVERRIDE test convention),
-  //   2. only when `recap.misconceptionsAdded` is non-empty (a NEW misconception),
-  //   3. skip if a kit already exists for this session (idempotent; session/end
-  //      is itself once-per-session via the open→ended guard, but a manual
-  //      extension-recap generation may have beaten us to it),
-  //   4. cost-guarded inside generateAndPersistStudyKit (hard cap → silent no-op).
+  // Study kits now generate after EVERY session, not only one that spotted a
+  // new misconception (2026-07-26, Darcy). A student who had a clean session
+  // still practised something worth revising, and the extension's recap now
+  // shows the kit being built rather than offering a button, so a session that
+  // silently produced nothing read as the feature being broken.
+  //
+  // Moved into after(): the model call used to run BEFORE this response
+  // returned, which delayed the recap card by the length of a generation. The
+  // recap must appear the instant the session ends and report the kit as
+  // in-progress, so the work happens after the response is sent.
+  //
+  // Guards, unchanged in spirit:
+  //   1. kill switch (CALYXA_DISABLE_AUTO_STUDY_KIT=1) — the prod valve AND
+  //      what the session-lifecycle integration tests set so they never call
+  //      the model,
+  //   2. only for a session with something gradable (recap.concepts),
+  //   3. skip if a kit already exists (idempotent — the extension recap may
+  //      have asked for one first),
+  //   4. cost-guarded inside generateAndPersistStudyKit (hard cap → no-op).
   const autoKitEnabled = process.env.CALYXA_DISABLE_AUTO_STUDY_KIT !== '1'
-  if (autoKitEnabled && recap && recap.misconceptionsAdded.length > 0) {
-    try {
-      const { count } = await auth.supabase
-        .from('study_artifact')
-        .select('id', { count: 'exact', head: true })
-        .eq('session_id', body.sessionId)
-      if (!count) {
-        await generateAndPersistStudyKit(auth.supabase, auth.user.id, body.sessionId)
+  if (autoKitEnabled && recap && recap.concepts.length > 0) {
+    after(async () => {
+      try {
+        const { count } = await auth.supabase
+          .from('study_artifact')
+          .select('id', { count: 'exact', head: true })
+          .eq('session_id', body.sessionId)
+        if (!count) {
+          await generateAndPersistStudyKit(auth.supabase, auth.user.id, body.sessionId)
+        }
+      } catch (err) {
+        console.error('session/end: auto study-kit generation failed', err)
       }
-    } catch (err) {
-      console.error('session/end: auto study-kit generation failed', err)
-    }
+    })
   }
 
   // Personal Notebook (ADR-054): after EVERY session that practiced a concept,
@@ -115,10 +129,37 @@ export async function POST(request: Request) {
     }
   }
 
+  // What this session moved on the /data progress score. The "before" was
+  // snapshotted when the session opened (migration 0028) because none of the
+  // three signals can be reconstructed afterwards. Unlike the blocks above this
+  // one IS awaited — the summary is part of what the recap renders, so it
+  // cannot arrive later — but it degrades to omitted on any failure, and a
+  // session that started before 0028 simply has no snapshot to diff.
+  let scoreChange: ScoreChange | null = null
+  if (recap && recap.concepts.length > 0) {
+    try {
+      // Read the snapshot directly: end_session is an RPC with a fixed row
+      // shape, so widening it to carry this column would mean changing the
+      // function. One indexed by-id select is cheaper than that risk.
+      const { data: snapRow } = await auth.supabase
+        .from('sessions')
+        .select('score_at_start')
+        .eq('id', body.sessionId)
+        .maybeSingle()
+      const before = parseScoreSnapshot(snapRow?.score_at_start ?? null)
+      if (before) {
+        scoreChange = diffScore(before, await readScoreSnapshot(auth.supabase))
+      }
+    } catch (err) {
+      console.error('session/end: score diff failed', err)
+    }
+  }
+
   return NextResponse.json({
     sessionId: ended.id,
     endedAt: ended.ended_at,
     interactionCount: ended.interaction_count,
     ...(recap ? { recap } : {}),
+    ...(scoreChange ? { scoreChange } : {}),
   })
 }

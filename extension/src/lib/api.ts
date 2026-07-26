@@ -19,6 +19,7 @@ import type {
   ReferralStatusPayload,
   SendFeedbackPayload,
   SessionCompletion,
+  ScoreChange,
   SessionRecap,
   SessionStartInfo,
   StatusPin,
@@ -210,7 +211,10 @@ export async function startSession({
 // in aiTurn() below. Omitted (not `undefined`, not `{}`) for a session with
 // no gradable interactions. The storage clear and error handling are
 // otherwise unchanged.
-export async function endSession(sessionId: string, transcript?: TurnMessage[]): Promise<{ recap?: SessionRecap }> {
+export async function endSession(
+  sessionId: string,
+  transcript?: TurnMessage[],
+): Promise<{ recap?: SessionRecap; scoreChange?: ScoreChange }> {
   const res = await authorizedFetch('/api/session/end', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -224,7 +228,10 @@ export async function endSession(sessionId: string, transcript?: TurnMessage[]):
 
   await clearActiveSession();
 
-  return { ...(body.recap ? { recap: body.recap as SessionRecap } : {}) };
+  return {
+    ...(body.recap ? { recap: body.recap as SessionRecap } : {}),
+    ...(body.scoreChange ? { scoreChange: body.scoreChange as ScoreChange } : {}),
+  };
 }
 
 /**
