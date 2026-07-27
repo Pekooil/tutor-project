@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { NAV_ITEMS } from './nav'
-import { T, MOTION } from './tokens'
+import { T, MOTION, SHADOW } from './tokens'
 
 // The floating bottom-left nav bar, on every post-login route.
 //
@@ -38,9 +38,11 @@ export function StudioNavBar({
         gap: 6,
         padding: 6,
         borderRadius: 999,
-        background: T.card,
-        border: `1px solid ${T.border}`,
-        boxShadow: 'var(--shadow-panel)',
+        background: T.cardSoft,
+        border: `1px solid ${T.frame}`,
+        backdropFilter: 'blur(22px) saturate(1.5)',
+        WebkitBackdropFilter: 'blur(22px) saturate(1.5)',
+        boxShadow: SHADOW.soft,
         fontSize: 12,
       }}
     >

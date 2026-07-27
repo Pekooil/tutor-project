@@ -47,11 +47,11 @@ export function MobileTabBar() {
             href={tab.href}
             aria-current={active ? 'page' : undefined}
             className="cx-tabbar-item"
-            style={{ color: active ? T.accentInk : T.muted }}
+            style={{ color: active ? T.accentDeep : T.muted }}
           >
             <span
               className="cx-tabbar-icon"
-              style={{ background: active ? T.accentSubtle : 'transparent' }}
+              style={{ background: active ? T.mint32 : 'transparent' }}
             >
               <Glyph size={21} />
             </span>

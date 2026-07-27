@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { RecentSession } from '@/lib/learning/activity-read'
-import { T, ORDINAL, MOTION, eyebrow, pill } from './tokens'
+import { T, ORDINAL, MOTION, RADIUS, mintTile, pageEyebrow, pill } from './tokens'
 import { ChevronRight, HistoryIcon, MicIcon, NotesIcon } from './icons'
 
 // Session history — a token-based studio view.
@@ -69,11 +69,11 @@ function SessionRow({ session }: { session: RecentSession }) {
     display: 'flex' as const,
     alignItems: 'center' as const,
     gap: 14,
-    padding: '13px 16px',
-    // Row inside the day-group card → visible frame.
+    padding: '13px 15px',
+    // Row inside the day-group card → its own raised fill and the soft frame.
     border: `1px solid ${T.frame}`,
-    borderRadius: 11,
-    background: 'transparent',
+    borderRadius: RADIUS.box,
+    background: T.raised4,
     color: T.ink,
     textDecoration: 'none' as const,
     transition: `background ${MOTION.fast} ${MOTION.ease}, border-color ${MOTION.fast} ${MOTION.ease}`,
@@ -84,15 +84,7 @@ function SessionRow({ session }: { session: RecentSession }) {
       <span
         aria-hidden="true"
         style={{
-          width: 34,
-          height: 34,
-          flexShrink: 0,
-          borderRadius: 10,
-          background: T.accentSubtle,
-          color: T.accentInk,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          ...mintTile,
         }}
       >
         {voice ? <MicIcon size={16} /> : <NotesIcon size={16} />}
@@ -101,7 +93,7 @@ function SessionRow({ session }: { session: RecentSession }) {
       <span style={{ minWidth: 0, flex: 1 }}>
         {/* The concept leads — it's what makes a row identifiable. The mode and
             timing are the supporting detail, not the headline. */}
-        <span style={{ display: 'block', fontSize: 14.5, fontWeight: 600 }}>
+        <span style={{ display: 'block', fontSize: 14, fontWeight: 500 }}>
           {session.conceptTitle ?? (voice ? 'Voice session' : 'Text session')}
         </span>
         <span style={{ display: 'block', fontSize: 11.5, color: T.muted, marginTop: 2 }}>
@@ -114,7 +106,7 @@ function SessionRow({ session }: { session: RecentSession }) {
       {session.hasKit && (
         <span
           title="This session produced a study kit"
-          style={{ ...pill, ...ORDINAL.green, padding: '3px 9px', fontSize: 11, fontWeight: 700 }}
+          style={{ ...pill, ...ORDINAL.green, padding: '3px 9px', fontSize: 11, fontWeight: 600 }}
         >
           Study kit
         </span>
@@ -152,9 +144,9 @@ export function HistoryScreen({ sessions, now }: { sessions: RecentSession[]; no
   const withKit = sessions.filter((s) => s.hasKit).length
 
   return (
-    <div style={{ padding: '8px 40px 48px', maxWidth: 1020, margin: '0 auto' }}>
-      <div style={{ ...eyebrow, color: T.muted }}>Sessions</div>
-      <h2 style={{ fontSize: 32, lineHeight: 1.18, fontWeight: 600, letterSpacing: '-0.015em', margin: '6px 0 0' }}>
+    <div style={{ padding: '26px 40px 56px', maxWidth: 1020, margin: '0 auto' }}>
+      <div style={{ ...pageEyebrow, color: T.muted }}>Sessions</div>
+      <h2 style={{ fontSize: 32, lineHeight: '38px', fontWeight: 600, letterSpacing: '-0.015em', margin: '6px 0 0' }}>
         Your tutoring history
       </h2>
       <p style={{ marginTop: 8, marginBottom: 0, fontSize: 14.5, color: T.muted }}>
@@ -167,11 +159,9 @@ export function HistoryScreen({ sessions, now }: { sessions: RecentSession[]; no
 
       {sessions.length === 0 ? (
         <div
+          className="cx-card"
           style={{
             marginTop: 22,
-            background: T.card,
-            border: `1px solid ${T.border}`,
-            borderRadius: 14,
             padding: '28px 26px',
             display: 'flex',
             alignItems: 'center',
@@ -184,21 +174,17 @@ export function HistoryScreen({ sessions, now }: { sessions: RecentSession[]; no
           Open the Calyxa extension on any math problem and start a session.
         </div>
       ) : (
-        groups.map((group) => (
-          <section key={group.label} style={{ marginTop: 26 }}>
-            <div style={{ ...eyebrow, color: T.muted, fontWeight: 600, letterSpacing: '0.14em' }}>
-              {group.label}
-            </div>
+        groups.map((group, i) => (
+          <section key={group.label} className="cx-rise" style={{ marginTop: 26, ['--cx-i' as string]: i }}>
+            <div style={{ ...pageEyebrow, color: T.muted }}>{group.label}</div>
             <div
+              className="cx-card"
               style={{
                 marginTop: 10,
-                background: T.card,
-                border: `1px solid ${T.border}`,
-                borderRadius: 14,
-                padding: '8px 12px 12px',
+                padding: '11px 12px 14px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 6,
+                gap: 7,
               }}
             >
               {group.items.map((s) => (

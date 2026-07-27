@@ -8,7 +8,7 @@ import type { DashboardMisconception } from '@/lib/learning/dashboard-read'
 import type { NotebookSection, NotebookStep, NotebookSubsection } from '@/lib/notebook/tool'
 import type { StudioNotes } from './notes-read'
 import { misconceptionState, MISCONCEPTION_MEANING, type MisconceptionState } from './misconception'
-import { T, ORDINAL, SHADOW, MOTION, pill, eyebrow as eyebrowStyle } from './tokens'
+import { T, ORDINAL, SHADOW, MOTION, RULE, pill, eyebrow as eyebrowStyle } from './tokens'
 import { MathCapsule, MathCapsuleBlock, MathText } from './math'
 import { SECTION_ICON, ChecklistIcon, PencilIcon } from './icons'
 
@@ -46,10 +46,10 @@ function ChangeGroup({
   tone: 'green' | 'amber' | 'neutral'
 }) {
   if (items.length === 0) return null
-  const dot = tone === 'green' ? T.a1 : tone === 'amber' ? T.a2 : T.borderStrong
+  const dot = tone === 'green' ? T.greenDot : tone === 'amber' ? T.amber : T.faintRule
   // The card is a neutral surface, not a tint — so these use the theme-aware
   // inks, not the ordinals' `-deep` values (see tokens.ts).
-  const ink = tone === 'green' ? T.ink1 : tone === 'amber' ? T.ink2 : T.muted
+  const ink = tone === 'green' ? T.accentInk : tone === 'amber' ? T.amber : T.muted
 
   return (
     <div>
@@ -59,7 +59,7 @@ function ChangeGroup({
           alignItems: 'center',
           gap: 7,
           fontSize: 10.5,
-          fontWeight: 700,
+          fontWeight: 600,
           letterSpacing: '0.09em',
           textTransform: 'uppercase',
           color: ink,
@@ -92,16 +92,16 @@ function RevisionCard({
     <section
       style={{
         marginTop: 22,
-        background: T.surface,
-        border: `1px solid ${T.border}`,
-        borderRadius: 12,
+        background: T.raised2,
+        border: `1px solid ${T.frame}`,
+        borderRadius: 14,
         padding: '18px 20px',
         display: 'flex',
         flexDirection: 'column',
         gap: 16,
       }}
     >
-      <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>
+      <h3 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>
         {sessionDate ? `Since your ${sessionDate} session` : 'Since your last session'}
       </h3>
       <ChangeGroup label="You improved" items={revision.improved} tone="green" />
@@ -120,10 +120,10 @@ function RevisionCard({
 // mistake a misconception is the kind of overstatement that makes a student
 // distrust the whole page.
 const FLAG: Record<MisconceptionState, { copy: string; dot: string; set: CSSProperties }> = {
-  resolved: { copy: 'Solid last session', dot: T.a1, set: ORDINAL.green },
-  watching: { copy: 'Slipped here once', dot: T.a3, set: ORDINAL.blue },
-  improving: { copy: 'Getting this right lately', dot: T.a2, set: ORDINAL.amber },
-  active: { copy: 'Missed more than once', dot: T.a2, set: ORDINAL.amber },
+  resolved: { copy: 'Solid last session', dot: T.greenDot, set: ORDINAL.green },
+  watching: { copy: 'Slipped here once', dot: T.blue, set: ORDINAL.blue },
+  improving: { copy: 'Getting this right lately', dot: T.amber, set: ORDINAL.amber },
+  active: { copy: 'Missed more than once', dot: T.amber, set: ORDINAL.amber },
 }
 
 function StatusPill({ misconception }: { misconception: DashboardMisconception }) {
@@ -156,11 +156,11 @@ function MarginFlag({ label, detail }: { label: string; detail: string }) {
           width: 11,
           height: 11,
           borderRadius: '50%',
-          background: T.a2,
+          background: T.amber,
           border: 'none',
           padding: 0,
           cursor: 'pointer',
-          boxShadow: `0 0 0 4px ${T.a2Tint}, 0 0 0 5px ${T.a2Edge}`,
+          boxShadow: `0 0 0 4px ${T.amberBg}, 0 0 0 5px ${T.amberEdge}`,
         }}
       />
       {open && (
@@ -174,7 +174,7 @@ function MarginFlag({ label, detail }: { label: string; detail: string }) {
             zIndex: 5,
             display: 'block',
             // Floats above the notes card, so same reasoning as the why-note.
-            background: T.surface,
+            background: T.raised2,
             border: `1px solid ${T.frame}`,
             borderRadius: 10,
             padding: '11px 13px',
@@ -185,11 +185,11 @@ function MarginFlag({ label, detail }: { label: string; detail: string }) {
             style={{
               display: 'block',
               fontSize: 10.5,
-              fontWeight: 700,
+              fontWeight: 600,
               letterSpacing: '0.09em',
               textTransform: 'uppercase',
               // The popover is a card, not a tint → theme-aware ink.
-              color: T.ink2,
+              color: T.amber,
               marginBottom: 5,
             }}
           >
@@ -219,9 +219,9 @@ function YourAttempt({
   return (
     <div
       style={{
-        background: T.a2Tint,
-        border: `1px solid ${T.a2}`,
-        borderRadius: 10,
+        background: T.amberBg2,
+        border: `1px solid ${T.amberEdge}`,
+        borderRadius: 12,
         padding: '14px 16px',
         marginTop: 12,
       }}
@@ -232,26 +232,25 @@ function YourAttempt({
           alignItems: 'center',
           gap: 7,
           fontSize: 10.5,
-          fontWeight: 700,
+          fontWeight: 600,
           letterSpacing: '0.09em',
           textTransform: 'uppercase',
-          color: T.a2Deep,
+          color: T.amber,
         }}
       >
-        <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: T.a2 }} />
+        <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: T.amber }} />
         Your attempt{sessionLabel ? ` · ${sessionLabel}` : ''}
       </div>
 
-      {/* The whole callout sits on the amber tint, which is light-only — every
-          child sets the deep amber ink rather than inheriting the page colour,
-          or the card turns into light-on-light in dark mode. */}
+      {/* The callout's amber tint flips with the theme now, so its children take
+          the matching amber INK rather than a light-only `-deep` hex. */}
       {mistake.studentAttempt && (
         <div style={{ marginTop: 10 }}>
           <MathCapsule expr={mistake.studentAttempt} tone="mistake" />
         </div>
       )}
 
-      <p style={{ margin: '10px 0 0', fontSize: 13.5, lineHeight: 1.6, color: T.a2Deep }}>
+      <p style={{ margin: '10px 0 0', fontSize: 13.5, lineHeight: 1.6, color: T.amber }}>
         {mistake.whatWentWrong} {mistake.watchFor}
       </p>
 
@@ -265,7 +264,7 @@ function YourAttempt({
           border: 'none',
           padding: 0,
           cursor: 'pointer',
-          color: T.a2Deep,
+          color: T.amber,
           fontSize: 13,
           fontWeight: 600,
         }}
@@ -312,9 +311,9 @@ function StepList({
                 fontSize: 11.5,
                 fontWeight: 600,
                 transform: 'translateY(4px)',
-                background: flagged ? T.a2Tint : T.surface,
-                border: `1.5px solid ${flagged ? T.a2 : T.borderStrong}`,
-                color: flagged ? T.a2Deep : T.muted,
+                background: flagged ? T.amberBg : T.raised2,
+                border: `1.5px solid ${flagged ? T.amberEdge : T.borderStrong}`,
+                color: flagged ? T.amber : T.muted,
               }}
             >
               {i + 1}
@@ -371,7 +370,7 @@ function Subsection({
           </div>
         )
       ) : (
-        <h3 style={{ fontSize: 19, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <h3 style={{ fontSize: 19, fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {block.heading}
           {misconception && <StatusPill misconception={misconception} />}
         </h3>
@@ -418,11 +417,11 @@ function Section({
   const Glyph = SECTION_ICON[section.icon] ?? PencilIcon
   return (
     <section>
-      <hr style={{ border: 'none', borderTop: `1px solid ${T.border}`, margin: '36px 0' }} />
+      <hr style={{ border: 'none', borderTop: RULE, margin: '34px 0' }} />
       <h2
         style={{
-          fontSize: 28,
-          fontWeight: 700,
+          fontSize: 26,
+          fontWeight: 600,
           letterSpacing: '-0.015em',
           margin: 0,
           display: 'flex',
@@ -539,7 +538,7 @@ function AnnotationMark({
           <div
             style={{
               marginTop: 8,
-              background: T.surface,
+              background: T.raised2,
               border: `1px solid ${T.frame}`,
               borderRadius: 10,
               padding: '10px 12px',
@@ -570,11 +569,11 @@ function AnnotationsSection({
 
   return (
     <section>
-      <hr style={{ border: 'none', borderTop: `1px solid ${T.border}`, margin: '36px 0' }} />
+      <hr style={{ border: 'none', borderTop: RULE, margin: '34px 0' }} />
       <h2
         style={{
-          fontSize: 28,
-          fontWeight: 700,
+          fontSize: 26,
+          fontWeight: 600,
           letterSpacing: '-0.015em',
           margin: 0,
           display: 'flex',
@@ -598,7 +597,7 @@ function AnnotationsSection({
               gap: 10,
               flexWrap: 'wrap',
               paddingBottom: 12,
-              borderBottom: `1px solid ${T.border}`,
+              borderBottom: RULE,
             }}
           >
             <span style={{ ...eyebrowStyle, color: T.muted }}>
@@ -634,7 +633,7 @@ function AnnotationsSection({
                 padding: 0,
                 cursor: 'pointer',
                 // On the card, not on a tint → theme-aware ink.
-                color: T.ink2,
+                color: T.amber,
                 fontSize: 13,
                 fontWeight: 600,
               }}
@@ -662,11 +661,11 @@ function KitNotesSection({ notes }: { notes: string[] }) {
 
   return (
     <section>
-      <hr style={{ border: 'none', borderTop: `1px solid ${T.border}`, margin: '36px 0' }} />
+      <hr style={{ border: 'none', borderTop: RULE, margin: '34px 0' }} />
       <h2
         style={{
-          fontSize: 28,
-          fontWeight: 700,
+          fontSize: 26,
+          fontWeight: 600,
           letterSpacing: '-0.015em',
           margin: 0,
           display: 'flex',
@@ -690,7 +689,7 @@ function KitNotesSection({ notes }: { notes: string[] }) {
                 width: 5,
                 height: 5,
                 borderRadius: '50%',
-                background: T.borderStrong,
+                background: T.faintRule,
                 marginTop: 11,
                 flexShrink: 0,
               }}
@@ -730,14 +729,14 @@ export function NotesDocument({
   const sessionLabel = data.lastSession ? `${shortDate(data.lastSession.startedAt)} session` : ''
 
   return (
-    <article style={{ padding: '48px 56px 80px' }}>
+    <article style={{ padding: '44px 56px 80px', maxWidth: 720, margin: '0 auto' }}>
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
         <CalyxaMark style={{ width: 30, height: 30, flexShrink: 0 }} />
         <h2
           style={{
-            fontSize: 40,
+            fontSize: 38,
             lineHeight: 1.2,
-            fontWeight: 700,
+            fontWeight: 600,
             letterSpacing: '-0.02em',
             margin: 0,
             textAlign: 'center',
@@ -761,7 +760,7 @@ export function NotesDocument({
               a document that starts straight into Key Points reads as a fragment.
               A notebook with no summary yet says so rather than vanishing. */}
           <>
-              <h2 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.01em', margin: '44px 0 16px' }}>
+              <h2 style={{ fontSize: 23, fontWeight: 600, letterSpacing: '-0.01em', margin: '44px 0 16px' }}>
                 Brief Overview
               </h2>
               <p style={{ margin: 0, fontSize: 16.5, lineHeight: 1.75 }}>
@@ -788,7 +787,7 @@ export function NotesDocument({
 
           {notebook.keyPoints.length > 0 && (
             <>
-              <h2 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.01em', margin: '36px 0 16px' }}>
+              <h2 style={{ fontSize: 23, fontWeight: 600, letterSpacing: '-0.01em', margin: '34px 0 16px' }}>
                 Key Points
               </h2>
               <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -800,7 +799,7 @@ export function NotesDocument({
                         width: 5,
                         height: 5,
                         borderRadius: '50%',
-                        background: T.borderStrong,
+                        background: T.faintRule,
                         marginTop: 11,
                         flexShrink: 0,
                       }}

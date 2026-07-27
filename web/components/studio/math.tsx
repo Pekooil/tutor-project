@@ -100,10 +100,10 @@ export function MathCapsule({
         maxWidth: '100%',
         // rounded-lg → --radius-lg (16px), per the extension's class.
         borderRadius: 16,
-        background: correct ? T.accentSubtle : T.a2Tint,
+        background: correct ? T.greenTint : T.amberBg,
         // Both theme-aware on the correct path. The amber tint has no dark variant,
         // so it pairs with its own `-deep` ink (the ADR-029 AA'd pairing).
-        color: correct ? T.accentInk : T.a2Deep,
+        color: correct ? T.accentInk : T.amber,
         padding: '2px 10px',
         fontSize: size,
         fontWeight: 600,

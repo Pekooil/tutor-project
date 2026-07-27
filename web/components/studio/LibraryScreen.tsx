@@ -4,8 +4,9 @@ import { useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import Link from 'next/link'
 import type { StudioConcept, StudioSubject } from './catalog-read'
-import { T, ORDINAL, eyebrow, pill } from './tokens'
+import { T, ORDINAL, RADIUS, pageEyebrow, pill } from './tokens'
 import { MOTION } from './tokens'
+import { strandColorVar } from './chart-tokens'
 import { ChevronDown, ChevronRight } from './icons'
 
 // The library — every subject and concept Calyxa has tutored, browsable.
@@ -59,11 +60,13 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`
 }
 
-/** The concept-row dot: a confirmed gap, a due review, or solid. */
+/** The concept-row dot: a confirmed gap, a due review, or solid. Reads the
+ *  status tones, not the annotation ordinals — an ordinal has no dark variant,
+ *  and this dot sits on a dark card. */
 const STATUS_DOT: Record<StudioConcept['status'], string> = {
-  gap: T.a2,
-  due: T.a3,
-  solid: T.a1,
+  gap: T.amber,
+  due: T.blue,
+  solid: T.greenDot,
 }
 
 function ArtifactPill({
@@ -91,7 +94,7 @@ function ArtifactPill({
         ...set,
         padding: '3px 9px',
         fontSize: 11,
-        fontWeight: tone === 'neutral' ? 600 : 700,
+        fontWeight: 600,
       }}
     >
       {children}
@@ -105,7 +108,7 @@ function ArtifactPill({
  *  that is mostly gaps looks amber at a glance rather than needing arithmetic. */
 function MasteryMeter({ value }: { value: number }) {
   const percent = Math.round(Math.min(Math.max(value, 0), 1) * 100)
-  const fill = percent >= 80 ? T.a1 : percent >= 50 ? T.a3 : T.a2
+  const fill = percent >= 80 ? T.greenDot : percent >= 50 ? T.blue : T.amber
 
   return (
     <span
@@ -117,20 +120,21 @@ function MasteryMeter({ value }: { value: number }) {
         aria-hidden="true"
         style={{
           width: 84,
-          height: 6,
-          borderRadius: 3,
-          background: T.surface,
+          height: 7,
+          borderRadius: RADIUS.pill,
+          background: T.track,
           overflow: 'hidden',
           display: 'block',
         }}
       >
         <span
+          className="cx-bar"
           style={{
             display: 'block',
             width: `${percent}%`,
             height: '100%',
             background: fill,
-            borderRadius: 3,
+            borderRadius: RADIUS.pill,
             transition: `width ${MOTION.base} ${MOTION.ease}`,
           }}
         />
@@ -178,11 +182,12 @@ function ConceptRow({ concept }: { concept: StudioConcept }) {
         alignItems: 'center',
         gap: 14,
         width: '100%',
-        padding: '13px 16px',
-        // Row inside the subject card → visible frame, not the invisible `border`.
+        padding: '13px 15px',
+        // Row inside the subject card → its own raised fill and the soft frame,
+        // so the box reads without leaning on a heavy outline.
         border: `1px solid ${T.frame}`,
-        borderRadius: 11,
-        background: 'transparent',
+        borderRadius: RADIUS.box,
+        background: T.raised4,
         color: T.ink,
         textDecoration: 'none',
         transition: `background ${MOTION.fast} ${MOTION.ease}, border-color ${MOTION.fast} ${MOTION.ease}`,
@@ -199,7 +204,7 @@ function ConceptRow({ concept }: { concept: StudioConcept }) {
         }}
       />
       <span style={{ minWidth: 0, flex: 1 }}>
-        <span style={{ display: 'block', fontSize: 14.5, fontWeight: 600 }}>{concept.title}</span>
+        <span style={{ display: 'block', fontSize: 14, fontWeight: 500 }}>{concept.title}</span>
         <span style={{ display: 'block', fontSize: 11.5, color: T.muted, marginTop: 2 }}>
           {concept.sessions > 0 ? plural(concept.sessions, 'session') : 'no sessions yet'}
           {concept.lastPracticedAt ? ` · last ${shortDate(concept.lastPracticedAt)}` : ''}
@@ -229,8 +234,12 @@ function SubjectCard({
   onToggle: () => void
   now: Date
 }) {
+  // The tile carries the SUBJECT's colour, tinted — the same hue its row gets in
+  // Progress's "By subject", so a subject looks like itself everywhere.
+  const subjectColor = strandColorVar(subject.key)
+
   return (
-    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, overflow: 'hidden' }}>
+    <div className="cx-card">
       <button
         type="button"
         onClick={onToggle}
@@ -241,7 +250,7 @@ function SubjectCard({
           alignItems: 'center',
           gap: 16,
           width: '100%',
-          padding: '18px 22px',
+          padding: '17px 20px',
           background: 'transparent',
           border: 'none',
           cursor: 'pointer',
@@ -254,11 +263,11 @@ function SubjectCard({
           style={{
             width: 40,
             height: 40,
-            borderRadius: 11,
-            background: T.accentSubtle,
-            color: T.accentInk,
-            fontSize: 15,
-            fontWeight: 700,
+            borderRadius: RADIUS.box,
+            background: `color-mix(in srgb, ${subjectColor} var(--studio-tile-tint), transparent)`,
+            color: subjectColor,
+            fontSize: 12,
+            fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -269,7 +278,7 @@ function SubjectCard({
         </span>
 
         <span style={{ minWidth: 0, flex: 1 }}>
-          <span style={{ display: 'block', fontSize: 17, fontWeight: 600 }}>{subject.label}</span>
+          <span style={{ display: 'block', fontSize: 16.5, fontWeight: 600 }}>{subject.label}</span>
           <span style={{ display: 'block', fontSize: 12.5, color: T.muted, marginTop: 2 }}>
             {plural(subject.concepts.length, 'concept')} · {recencyLabel(subject.lastPracticedAt, now)}
           </span>
@@ -280,14 +289,14 @@ function SubjectCard({
         {subject.misconceptionCount > 0 ? (
           <span
             title="Confirmed misconceptions still going wrong"
-            style={{ ...pill, ...ORDINAL.amber, padding: '3px 9px', fontSize: 11.5, fontWeight: 700 }}
+            style={{ ...pill, ...ORDINAL.amber, padding: '3px 9px', fontSize: 11.5, fontWeight: 600 }}
           >
             {subject.misconceptionCount} to fix
           </span>
         ) : subject.watchingCount > 0 ? (
           <span
             title="Slips seen once — Calyxa is watching whether they repeat"
-            style={{ ...pill, ...ORDINAL.blue, padding: '3px 9px', fontSize: 11.5, fontWeight: 700 }}
+            style={{ ...pill, ...ORDINAL.blue, padding: '3px 9px', fontSize: 11.5, fontWeight: 600 }}
           >
             {subject.watchingCount} watching
           </span>
@@ -309,8 +318,8 @@ function SubjectCard({
       {open && (
         <div
           style={{
-            borderTop: `1px solid ${T.border}`,
-            padding: '8px 12px 14px',
+            borderTop: `1px solid ${T.hairline}`,
+            padding: '11px 12px 14px',
             display: 'flex',
             flexDirection: 'column',
             gap: 6,
@@ -368,10 +377,10 @@ export function LibraryScreen({ subjects, now }: { subjects: StudioSubject[]; no
   const conceptCount = subjects.reduce((a, s) => a + s.concepts.length, 0)
 
   return (
-    <div style={{ padding: '8px 40px 56px' }}>
+    <div style={{ padding: '26px 40px 56px' }}>
       <div style={{ maxWidth: 1020, margin: '0 auto' }}>
-        <div style={{ ...eyebrow, fontWeight: 600, letterSpacing: '0.14em', color: T.muted }}>Everything tutored</div>
-        <h1 style={{ margin: '6px 0 0', fontSize: 32, lineHeight: 1.18, fontWeight: 600, letterSpacing: '-0.015em' }}>
+        <div style={{ ...pageEyebrow, color: T.muted }}>Everything tutored</div>
+        <h1 style={{ margin: '6px 0 0', fontSize: 32, lineHeight: '38px', fontWeight: 600, letterSpacing: '-0.015em' }}>
           Subjects &amp; concepts
         </h1>
         <p style={{ margin: '8px 0 0', fontSize: 14.5, color: T.muted }}>
@@ -390,11 +399,11 @@ export function LibraryScreen({ subjects, now }: { subjects: StudioSubject[]; no
             style={{
               flex: '1 1 260px',
               minWidth: 200,
-              height: 38,
-              padding: '0 14px',
-              borderRadius: 10,
-              border: `1px solid ${T.border}`,
-              background: T.card,
+              height: 40,
+              padding: '0 16px',
+              borderRadius: RADIUS.pill,
+              border: `1px solid ${T.frame}`,
+              background: T.field,
               color: T.ink,
               fontSize: 13.5,
               fontFamily: 'inherit',
@@ -402,18 +411,32 @@ export function LibraryScreen({ subjects, now }: { subjects: StudioSubject[]; no
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 12.5, color: T.muted, fontWeight: 600 }}>Sort</span>
-            <div role="group" aria-label="Sort subjects" style={{ display: 'flex', gap: 6 }}>
+            {/* A segmented control, not three loose buttons: one pill container
+                holding three seats, so "these are the three modes, one is on"
+                is legible before any label is read. */}
+            <div
+              role="group"
+              aria-label="Sort subjects"
+              style={{
+                display: 'flex',
+                gap: 2,
+                padding: 4,
+                borderRadius: RADIUS.pill,
+                background: T.cardSoft,
+                border: `1px solid ${T.frame}`,
+              }}
+            >
               {SORTS.map((s) => {
                 const on = s.key === sort
                 const style: CSSProperties = {
-                  borderRadius: 9,
-                  padding: '7px 13px',
+                  borderRadius: RADIUS.pill,
+                  padding: '6px 13px',
                   fontSize: 12.5,
                   fontWeight: 600,
                   cursor: 'pointer',
-                  background: on ? T.accent : T.card,
+                  background: on ? T.accent : 'transparent',
                   color: on ? T.onAccent : T.muted,
-                  border: on ? '1px solid transparent' : `1px solid ${T.border}`,
+                  border: 'none',
                 }
                 return (
                   <button key={s.key} type="button" aria-pressed={on} onClick={() => setSort(s.key)} style={style}>
@@ -427,16 +450,7 @@ export function LibraryScreen({ subjects, now }: { subjects: StudioSubject[]; no
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 18 }}>
           {sorted.length === 0 ? (
-            <div
-              style={{
-                background: T.card,
-                border: `1px solid ${T.border}`,
-                borderRadius: 14,
-                padding: '28px 26px',
-                color: T.muted,
-                fontSize: 14.5,
-              }}
-            >
+            <div className="cx-card" style={{ padding: '28px 26px', color: T.muted, fontSize: 14.5 }}>
               {q
                 ? `Nothing matches “${query.trim()}”.`
                 : 'Nothing tutored yet. Once you finish a session in the extension, every concept it covered shows up here.'}

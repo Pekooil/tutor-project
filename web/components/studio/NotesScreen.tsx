@@ -4,7 +4,7 @@ import { useState } from 'react'
 import type { StudioNotes } from './notes-read'
 import { NotesDocument } from './NotesDocument'
 import { AskCalyxaPanel, type PanelState } from './AskCalyxaPanel'
-import { T, MOTION } from './tokens'
+import { T, MOTION, SHADOW } from './tokens'
 import { ChevronRight } from './icons'
 
 // Screen 2 — the Notes view: the concept's notebook on the left (60%) and the
@@ -16,10 +16,16 @@ export function NotesScreen({ data }: { data: StudioNotes }) {
   const [collapsed, setCollapsed] = useState(false)
   const [pending, setPending] = useState<string | null>(null)
 
+  // The two columns are glass cards that SCROLL, so they carry the recipe inline
+  // rather than the `cx-card` class — that class's `overflow: hidden` (which is
+  // what clips its sheen to the radius) would kill the column's own scrolling.
   const cardStyle = {
     background: T.card,
     border: `1px solid ${T.border}`,
-    borderRadius: 14,
+    borderRadius: 17,
+    backdropFilter: 'blur(22px) saturate(1.5)',
+    WebkitBackdropFilter: 'blur(22px) saturate(1.5)',
+    boxShadow: SHADOW.card,
     minHeight: 0,
     overflowY: 'auto' as const,
   }
@@ -99,8 +105,9 @@ export function NotesScreen({ data }: { data: StudioNotes }) {
             border: 'none',
             background: T.accent,
             color: T.onAccent,
+            boxShadow: SHADOW.button,
             fontSize: 13,
-            fontWeight: 700,
+            fontWeight: 600,
             cursor: 'pointer',
           }}
         >

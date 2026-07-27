@@ -88,6 +88,82 @@ export async function ensureReferralCode(
   return null
 }
 
+/** One accepted invite, as the REFERRER is allowed to see it. */
+export type ReferredSignup = {
+  /** The `referral` row id — a stable React key that is not the friend's user id. */
+  id: string
+  /** `d••••@gmail.com`. Never the full address — see readReferredSignups. */
+  maskedEmail: string
+  /** ISO timestamp of the signup. */
+  joinedAt: string
+}
+
+/** `darcy2008@gmail.com` → `d••••@gmail.com`.
+ *
+ *  Enough for the referrer to recognise someone they invited, not enough to
+ *  harvest an address from a link that was shared further than intended. The
+ *  dot count is fixed, so the mask never leaks the local-part's length either. */
+function maskEmail(email: string): string {
+  const at = email.lastIndexOf('@')
+  if (at <= 0) return '••••'
+  const local = email.slice(0, at)
+  const domain = email.slice(at)
+  return `${local[0]}••••${domain}`
+}
+
+/** Who accepted this user's invite, newest first.
+ *
+ *  Two clients on purpose. The LIST of referred users is read through the
+ *  caller's own RLS-scoped client, so `referral_select_own` is what proves the
+ *  caller is the referrer — authorization is never a filter we wrote. Only THEN
+ *  does the admin client resolve those specific ids to emails, because
+ *  `users_select_own` (correctly) does not let one user read another's row, and
+ *  the address is masked here, server-side, before it can reach the browser.
+ *
+ *  Returns [] rather than throwing: the invite card is a side feature and must
+ *  never be able to take the billing page down with it. */
+export async function readReferredSignups(
+  supabase: SupabaseClient,
+  admin: SupabaseClient,
+  userId: string
+): Promise<ReferredSignup[]> {
+  const { data: rows, error } = await supabase
+    .from('referral')
+    .select('id, referred_user_id, created_at')
+    .eq('referrer_id', userId)
+    .order('created_at', { ascending: false })
+
+  if (error || !rows || rows.length === 0) {
+    if (error) console.error('referral: referred-signups read failed', error)
+    return []
+  }
+
+  const ids = rows.map((r) => r.referred_user_id as string)
+  const { data: friends, error: friendsError } = await admin
+    .from('users')
+    .select('id, email')
+    .in('id', ids)
+
+  if (friendsError) {
+    console.error('referral: referred-signups email read failed', friendsError)
+  }
+
+  const emailById = new Map<string, string>()
+  for (const f of friends ?? []) emailById.set(f.id as string, (f.email as string) ?? '')
+
+  return rows.map((r) => {
+    const email = emailById.get(r.referred_user_id as string) ?? ''
+    return {
+      id: r.id as string,
+      // A deleted account leaves its `referral` row behind (the FK cascades, so
+      // in practice it doesn't — but a failed lookup must still render as
+      // something honest rather than an empty line).
+      maskedEmail: email ? maskEmail(email) : 'A friend',
+      joinedAt: r.created_at as string,
+    }
+  })
+}
+
 export type ReferralStatus = {
   code: string | null
   link: string | null

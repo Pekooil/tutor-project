@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { KitProblem } from '@/components/dashboard/premium/kit-read'
-import { T, ORDINAL, MOTION, accentButton, ghostButton } from './tokens'
+import { T, ORDINAL, MOTION, RADIUS, accentButton, ghostButton } from './tokens'
 import { MathText } from './math'
 import { ChevronLeft, ChevronRight, LightbulbIcon, TrophyIcon } from './icons'
 
@@ -113,7 +113,7 @@ export function PanelQuiz({
     return (
       <>
         {back}
-        <h3 style={{ fontSize: 16, fontWeight: 700, margin: '14px 0 6px' }}>No quiz yet</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, margin: '14px 0 6px' }}>No quiz yet</h3>
         <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.55, margin: 0 }}>
           Calyxa builds practice problems from a finished session on {title}. Work it in the extension and
           they show up here.
@@ -128,7 +128,7 @@ export function PanelQuiz({
       <>
         {back}
         <div style={{ textAlign: 'center', marginTop: 28 }}>
-          <p style={{ fontSize: 44, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>
+          <p style={{ fontSize: 44, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}>
             {score} / {total}
           </p>
           <p style={{ fontSize: 13.5, color: T.muted, lineHeight: 1.55, margin: '10px 0 4px' }}>
@@ -165,17 +165,17 @@ export function PanelQuiz({
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
         <TrophyIcon size={16} style={{ color: T.muted, flexShrink: 0 }} />
-        <div style={{ flex: 1, height: 8, borderRadius: 4, background: T.surface, overflow: 'hidden' }}>
+        <div style={{ flex: 1, height: 8, borderRadius: 4, background: T.track, overflow: 'hidden' }}>
           <div
             style={{
               width: `${progress}%`,
               height: '100%',
-              background: T.a1,
+              background: T.greenDot,
               transition: `width ${MOTION.base} ${MOTION.ease}`,
             }}
           />
         </div>
-        <span style={{ fontSize: 12, fontWeight: 700, color: T.muted, flexShrink: 0 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: T.muted, flexShrink: 0 }}>
           {index + 1} / {total}
         </span>
       </div>
@@ -193,18 +193,17 @@ export function PanelQuiz({
             <div
               style={{
                 marginTop: 12,
-                background: T.accentSubtle,
-                border: `1px solid ${T.a1Edge}`,
-                borderRadius: 10,
+                background: T.greenTint,
+                border: `1px solid ${T.mintEdge}`,
+                borderRadius: RADIUS.box,
                 padding: '11px 13px',
                 fontSize: 12.5,
                 lineHeight: 1.55,
-                // `accentSubtle` is dark-aware, so this block composites dark in
-                // dark mode — theme-aware ink, not the fixed `a1Deep`.
-                color: T.ink1,
+                // The mint tint is theme-aware, so the ink on it has to be too.
+                color: T.accentInk,
               }}
             >
-              <strong style={{ fontWeight: 700 }}>Hint: </strong>
+              <strong style={{ fontWeight: 600 }}>Hint: </strong>
               <MathText expr={problem.solution.split(/[.;]/)[0]} />…
             </div>
           )}
@@ -229,16 +228,16 @@ export function PanelQuiz({
           <div
             style={{
               marginTop: 14,
-              background: T.surface,
-              // Inside the panel card → visible frame.
+              // Inside the panel card → a raised step, plus the soft frame.
+              background: T.raised2,
               border: `1px solid ${T.frame}`,
-              borderRadius: 10,
+              borderRadius: RADIUS.box,
               padding: '11px 13px',
               fontSize: 13,
               lineHeight: 1.6,
             }}
           >
-            <strong style={{ color: T.accentInk, fontWeight: 700 }}>Why: </strong>
+            <strong style={{ color: T.accentInk, fontWeight: 600 }}>Why: </strong>
             <MathText expr={problem.solution} />
           </div>
 
@@ -263,7 +262,7 @@ export function PanelQuiz({
                     justifyContent: 'center',
                     gap: 8,
                     padding: '11px 14px',
-                    borderRadius: 11,
+                    borderRadius: RADIUS.box,
                     fontSize: 13.5,
                     fontWeight: 600,
                     cursor: 'pointer',
@@ -273,7 +272,7 @@ export function PanelQuiz({
                     opacity: verdicts[index] && !on ? 0.55 : 1,
                   }}
                 >
-                  <span aria-hidden="true" style={{ fontWeight: 700 }}>
+                  <span aria-hidden="true" style={{ fontWeight: 600 }}>
                     {glyph}
                   </span>
                   {label}

@@ -4,7 +4,7 @@ import type { AnalyticsInput, OpenGap, ProgressScore, Signal, StrandRow } from '
 import { CLOSES_AT_CONSECUTIVE_CORRECT, progressData } from './analytics'
 import { strandColorVar } from './chart-tokens'
 import { Meter, NUM, Sparkline } from './data-charts'
-import { T, ORDINAL, RULE, accentButton, eyebrow, pill } from './tokens'
+import { T, ORDINAL, RULE, RADIUS, accentButton, eyebrow, pageEyebrow, pill } from './tokens'
 import { ChevronRight } from './icons'
 import { STORE_URL } from '@/lib/store-url'
 
@@ -24,11 +24,6 @@ import { STORE_URL } from '@/lib/store-url'
 const MAX_W = 1020
 
 const sectionLabel: CSSProperties = { ...eyebrow, color: T.muted }
-
-/** The card surface the design draws everything on (#fff + #e5e3de border). */
-function card(radius: number): CSSProperties {
-  return { background: T.card, border: `1px solid ${T.border}`, borderRadius: radius }
-}
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`
@@ -54,7 +49,7 @@ function DeltaPill({ delta }: { delta: number }) {
         gap: 6,
         padding: '4px 11px',
         fontSize: 12.5,
-        fontWeight: 700,
+        fontWeight: 600,
       }}
     >
       <svg width="9" height="9" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
@@ -76,9 +71,9 @@ function SignalRow({ signal, limiting }: { signal: Signal; limiting: boolean }) 
         // The design paints the limiting signal amber and the rest green — the
         // one place colour carries meaning here, so it follows the data rather
         // than being fixed per row.
-        <Meter value={signal.value} fill={limiting ? T.ink2 : T.accentInk} />
+        <Meter value={signal.value} fill={limiting ? T.amber : T.accentInk} />
       )}
-      <span style={{ ...NUM, fontSize: 13.5, fontWeight: 700, width: 30, textAlign: 'right' }}>
+      <span style={{ ...NUM, fontSize: 13.5, fontWeight: 600, width: 30, textAlign: 'right' }}>
         {signal.value ?? '—'}
       </span>
     </div>
@@ -89,8 +84,8 @@ function Hero({ progress }: { progress: ProgressScore }) {
   const { narrative } = progress
   return (
     <section
+      className="cx-card cx-rise"
       style={{
-        ...card(16),
         marginTop: 24,
         padding: '26px 28px',
         display: 'flex',
@@ -101,7 +96,7 @@ function Hero({ progress }: { progress: ProgressScore }) {
     >
       <div style={{ flex: '1 1 300px', minWidth: 280 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-          <span style={{ ...NUM, fontSize: 64, fontWeight: 700, letterSpacing: '-0.045em', lineHeight: 0.9 }}>
+          <span style={{ ...NUM, fontSize: 64, fontWeight: 600, letterSpacing: '-0.045em', lineHeight: 0.9 }}>
             {progress.score ?? '—'}
           </span>
           <span style={{ ...NUM, fontSize: 16, fontWeight: 600, color: T.muted }}>/ 100</span>
@@ -145,7 +140,15 @@ function Hero({ progress }: { progress: ProgressScore }) {
 
         {progress.series ? (
           <>
-            <div style={{ marginTop: 10 }}>
+            <div
+              style={{
+                marginTop: 10,
+                padding: '12px 12px 8px',
+                borderRadius: 14,
+                background: T.raised3,
+                border: `1px solid ${T.frame}`,
+              }}
+            >
               <Sparkline
                 points={progress.series}
                 label={`Progress score moving from ${progress.range!.from} to ${progress.range!.to} across ${plural(progress.series.length, 'recorded day')}`}
@@ -196,7 +199,7 @@ function CardHead({ title, badge, tone }: { title: string; badge?: string; tone:
 function ReviewCardView({ review }: { review: ReturnType<typeof progressData>['review'] }) {
   const count = review.due.length
   return (
-    <div style={{ ...card(14), padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div className="cx-card" style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
       <CardHead
         title={count === 0 ? 'Nothing due today' : `${plural(count, 'review')} due today`}
         badge={review.overdue > 0 ? `${review.overdue} overdue` : undefined}
@@ -247,7 +250,7 @@ function ReviewCardView({ review }: { review: ReturnType<typeof progressData>['r
 
       {count > 0 && review.startHref && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <Link href={review.startHref} style={{ ...accentButton, fontSize: 14, padding: '11px 20px' }}>
+          <Link href={review.startHref} style={{ ...accentButton, borderRadius: RADIUS.pill, fontSize: 14, padding: '11px 20px' }}>
             Start review →
           </Link>
           <span style={{ fontSize: 12.5, color: T.muted }}>about {plural(review.minutes, 'minute')}</span>
@@ -267,8 +270,9 @@ function GapRow({ gap }: { gap: OpenGap }) {
         alignItems: 'center',
         gap: 12,
         padding: '11px 13px',
+        background: T.row,
         border: `1px solid ${T.frame}`,
-        borderRadius: 11,
+        borderRadius: RADIUS.box,
         color: T.ink,
         textDecoration: 'none',
       }}
@@ -282,7 +286,7 @@ function GapRow({ gap }: { gap: OpenGap }) {
           borderRadius: '50%',
           // A confirmed pattern is the caution tone; a slip seen once is not yet
           // a gap, so it stays neutral rather than borrowing the same weight.
-          background: gap.status === 'active' ? T.ink2 : T.muted,
+          background: gap.status === 'active' ? T.amber : T.muted,
         }}
       />
       <span style={{ flex: 1, minWidth: 0 }}>
@@ -302,7 +306,7 @@ function GapRow({ gap }: { gap: OpenGap }) {
               width: 6,
               height: 6,
               borderRadius: '50%',
-              background: i < gap.consecutiveCorrect ? T.accentInk : T.frame,
+              background: i < gap.consecutiveCorrect ? T.accentInk : T.dotInactive,
             }}
           />
         ))}
@@ -313,7 +317,7 @@ function GapRow({ gap }: { gap: OpenGap }) {
 
 function GapsCardView({ gaps }: { gaps: ReturnType<typeof progressData>['gaps'] }) {
   return (
-    <div style={{ ...card(14), padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div className="cx-card" style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
       <CardHead
         title={gaps.open.length === 0 ? 'No gaps open' : `${plural(gaps.open.length, 'gap')} still open`}
         badge={gaps.resolved > 0 ? `${gaps.resolved} fixed` : undefined}
@@ -356,7 +360,7 @@ function StrandRowView({ row }: { row: StrandRow }) {
       <span aria-hidden="true" style={{ flex: 'none', width: 8, height: 8, borderRadius: 2, background: color }} />
       <span style={{ flex: '0 0 150px', fontSize: 14.5, fontWeight: 600 }}>{row.label}</span>
       <Meter value={row.mastery} fill={color} height={8} />
-      <span style={{ ...NUM, fontSize: 14.5, fontWeight: 700, width: 44, textAlign: 'right' }}>{row.mastery}%</span>
+      <span style={{ ...NUM, fontSize: 14.5, fontWeight: 600, width: 44, textAlign: 'right' }}>{row.mastery}%</span>
       <span style={{ ...NUM, fontSize: 12, color: T.muted, width: 80, textAlign: 'right' }}>
         {plural(row.concepts, 'concept')}
       </span>
@@ -388,7 +392,7 @@ function StrandRowView({ row }: { row: StrandRow }) {
 
 function ColdStart() {
   return (
-    <div style={{ ...card(16), marginTop: 32, padding: '56px 32px', textAlign: 'center' }}>
+    <div className="cx-card" style={{ marginTop: 32, padding: '56px 32px', textAlign: 'center' }}>
       <div style={{ ...sectionLabel, letterSpacing: '0.12em' }}>Progress</div>
       <h2 style={{ margin: '12px 0 0', fontSize: 24, fontWeight: 600, letterSpacing: '-0.02em' }}>
         Nothing to show yet
@@ -399,7 +403,10 @@ function ColdStart() {
       </p>
       {/* Sessions start in the extension, not the web app, so this points at the
           install rather than pretending the web app can open one. */}
-      <a href={STORE_URL} style={{ ...accentButton, marginTop: 22, fontSize: 14.5, padding: '12px 22px' }}>
+      <a
+        href={STORE_URL}
+        style={{ ...accentButton, borderRadius: RADIUS.pill, marginTop: 22, fontSize: 14.5, padding: '12px 22px' }}
+      >
         Add Calyxa to Chrome →
       </a>
     </div>
@@ -419,14 +426,14 @@ export function DataScreen({ input }: { input: AnalyticsInput }) {
   })
 
   return (
-    <div style={{ padding: '8px 40px 56px' }}>
+    <div style={{ padding: '26px 40px 56px' }}>
       <div style={{ maxWidth: MAX_W, margin: '0 auto' }}>
         {data.cold ? (
           <ColdStart />
         ) : (
           <>
-            <div style={{ ...sectionLabel, letterSpacing: '0.14em', fontWeight: 600 }}>{today}</div>
-            <h1 style={{ margin: '6px 0 0', fontSize: 32, lineHeight: 1.18, fontWeight: 600, letterSpacing: '-0.015em' }}>
+            <div style={{ ...pageEyebrow, color: T.muted }}>{today}</div>
+            <h1 style={{ margin: '6px 0 0', fontSize: 32, lineHeight: '38px', fontWeight: 600, letterSpacing: '-0.015em' }}>
               Progress
             </h1>
 
@@ -441,7 +448,7 @@ export function DataScreen({ input }: { input: AnalyticsInput }) {
             {data.strands.length > 0 && (
               <>
                 <SectionLabel>By subject</SectionLabel>
-                <section style={{ ...card(14), marginTop: 12, padding: '4px 22px 18px' }}>
+                <section className="cx-card" style={{ marginTop: 12, padding: '4px 22px 18px' }}>
                   {data.strands.map((row) => (
                     <StrandRowView key={row.strand} row={row} />
                   ))}

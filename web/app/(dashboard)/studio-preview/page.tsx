@@ -818,10 +818,21 @@ export default async function StudioPreviewPage({
             quotaResets: 'August 12, 2026',
             referral: {
               link: 'https://calyxa.app/?ref=DARCY42',
-              referralCount: 1,
+              referralCount: 4,
               referralsPerReward: 3,
               rewardSessions: 10,
               toNextReward: 2,
+              bonusSessions: 10,
+              // Newest first, like the real read — so the harness exercises the
+              // "which invite completed a reward" counting from the far end.
+              // Newest first, like the real read — so the harness exercises the
+              // "which invite completed a reward" counting from the far end.
+              signups: [
+                { id: 's4', maskedEmail: 'p••••@gmail.com', joinedAt: '2026-07-24T15:02:00Z' },
+                { id: 's3', maskedEmail: 'm••••@outlook.com', joinedAt: '2026-07-19T09:41:00Z' },
+                { id: 's2', maskedEmail: 'j••••@gmail.com', joinedAt: '2026-07-11T18:20:00Z' },
+                { id: 's1', maskedEmail: 'a••••@icloud.com', joinedAt: '2026-07-04T12:05:00Z' },
+              ],
             },
             checkout: null,
           }}

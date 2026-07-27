@@ -15,7 +15,7 @@ import {
   MISCONCEPTION_MEANING,
   type MisconceptionState,
 } from './misconception'
-import { T, ORDINAL, SHADOW, MOTION, pill } from './tokens'
+import { T, ORDINAL, SHADOW, MOTION, RADIUS, pill } from './tokens'
 import { ArrowUpIcon, CardsIcon, ChecklistIcon, ChevronLeft, ChevronRight, ExpandIcon, MicIcon, PaperclipIcon, TargetIcon } from './icons'
 
 // Screen 2b — the Ask Calyxa panel beside the notes. Three states, as the design
@@ -59,11 +59,11 @@ function shortDate(iso: string): string {
 
 const cardBase: CSSProperties = {
   position: 'relative',
-  background: T.card,
-  // Card-on-card: this sits inside the panel card, so it needs the visible frame
-  // rather than `border`, which is invisible in dark mode.
+  // Card-on-card: it sits inside the panel's own glass, so it takes the RAISED
+  // fill and the soft frame — a step up in surface, not a heavier outline.
+  background: T.raised,
   border: `1px solid ${T.frame}`,
-  borderRadius: 13,
+  borderRadius: 14,
   color: T.ink,
   textDecoration: 'none',
   display: 'block',
@@ -100,7 +100,7 @@ function StudyCard({
           <span
             style={{
               fontSize: wide ? 20 : 18,
-              fontWeight: 700,
+              fontWeight: 600,
               minWidth: 0,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -167,9 +167,9 @@ function Composer({
         display: 'flex',
         alignItems: 'center',
         gap: 4,
-        borderRadius: 999,
-        background: T.card,
-        border: `1px solid color-mix(in srgb, var(--color-accent-glow) 60%, transparent)`,
+        borderRadius: RADIUS.pill,
+        background: T.raised,
+        border: `1px solid ${T.mintEdge}`,
         padding: '8px 10px 8px 20px',
         boxShadow: SHADOW.composer,
         marginTop: 14,
@@ -227,6 +227,7 @@ function Composer({
           border: 'none',
           background: T.accent,
           color: T.onAccent,
+          boxShadow: SHADOW.button,
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
@@ -334,9 +335,9 @@ export function AskCalyxaPanel({
           left: 14,
           width: 34,
           height: 34,
-          borderRadius: 9,
-          background: T.card,
-          border: `1px solid ${T.border}`,
+          borderRadius: 10,
+          background: T.raised3,
+          border: `1px solid ${T.borderStrong}`,
           color: T.muted,
           opacity: 0.55,
           cursor: 'not-allowed',
@@ -364,7 +365,7 @@ export function AskCalyxaPanel({
             <StudyCard
               wide
               onClick={() => onState('misc')}
-              icon={<TargetIcon size={19} style={{ color: T.a2Deep }} />}
+              icon={<TargetIcon size={19} style={{ color: T.amber }} />}
               title="Misconceptions"
               subtitle={
                 // Name the two kinds separately rather than summing them — "3"
@@ -387,7 +388,7 @@ export function AskCalyxaPanel({
                         : ORDINAL.green),
                     padding: '2px 9px',
                     fontSize: 12,
-                    fontWeight: 700,
+                    fontWeight: 600,
                   }}
                 >
                   {openCount > 0 ? openCount : counts.watching}
@@ -407,7 +408,7 @@ export function AskCalyxaPanel({
             <StudyCard
               onClick={cardCount > 0 ? () => onState('flash') : undefined}
               disabledNote={cardCount > 0 ? undefined : 'No flashcards generated for this concept yet'}
-              icon={<CardsIcon size={17} style={{ color: T.a3Deep }} />}
+              icon={<CardsIcon size={17} style={{ color: T.blue }} />}
               title="Flashcards"
               subtitle={cardCount > 0 ? `${cardCount} cards` : 'Study with active recall'}
             />
@@ -458,7 +459,7 @@ export function AskCalyxaPanel({
             <ChevronLeft size={14} /> Back
           </button>
 
-          <h3 style={{ fontSize: 16, fontWeight: 700, margin: '14px 0 4px' }}>Your tracked misconceptions</h3>
+          <h3 style={{ fontSize: 16, fontWeight: 600, margin: '14px 0 4px' }}>Your tracked misconceptions</h3>
           <p style={{ fontSize: 13, color: T.muted, margin: '0 0 14px', lineHeight: 1.55 }}>
             {misconceptions.length === 0 ? (
               // Be specific about WHY it's empty — "nothing tracked" alone reads
@@ -491,8 +492,8 @@ export function AskCalyxaPanel({
                     gap: 10,
                     padding: '12px 14px',
                     border: `1px solid ${T.frame}`,
-                    borderRadius: 10,
-                    background: 'transparent',
+                    borderRadius: RADIUS.box,
+                    background: T.row,
                     color: T.ink,
                     cursor: 'pointer',
                     textAlign: 'left',
@@ -513,7 +514,7 @@ export function AskCalyxaPanel({
                       ...STATUS_SET[state],
                       padding: '3px 9px',
                       fontSize: 10.5,
-                      fontWeight: 700,
+                      fontWeight: 600,
                       letterSpacing: '0.04em',
                       textTransform: 'uppercase',
                     }}
@@ -560,7 +561,7 @@ export function AskCalyxaPanel({
                   fontSize: 13,
                   lineHeight: 1.55,
                   borderRadius: m.role === 'student' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-                  background: m.role === 'student' ? T.accent : T.surface,
+                  background: m.role === 'student' ? T.accent : T.raised2,
                   color: m.role === 'student' ? T.onAccent : T.ink,
                 }}
               >

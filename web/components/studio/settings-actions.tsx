@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
-import { T, MOTION, accentButton, ghostButton } from './tokens'
+import { T, MOTION, RADIUS, accentButton, ghostButton } from './tokens'
 
 // The interactive bits of the Account and Billing screens, on studio tokens.
 //
@@ -51,21 +51,36 @@ export function BillingActions({ isPro, upgradeLabel }: { isPro: boolean; upgrad
     }
   }
 
+  const button = (
+    <button
+      type="button"
+      onClick={() => void go(isPro ? '/api/billing/portal' : '/api/billing/checkout')}
+      disabled={busy}
+      style={{
+        ...(isPro ? ghostButton : accentButton),
+        borderRadius: RADIUS.pill,
+        padding: '11px 20px',
+        fontSize: 14,
+        ...busyStyle(busy),
+      }}
+    >
+      {busy ? 'One moment…' : isPro ? 'Manage subscription' : upgradeLabel}
+    </button>
+  )
+
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => void go(isPro ? '/api/billing/portal' : '/api/billing/checkout')}
-        disabled={busy}
-        style={{
-          ...(isPro ? ghostButton : accentButton),
-          padding: '11px 20px',
-          fontSize: 14,
-          ...busyStyle(busy),
-        }}
-      >
-        {busy ? 'One moment…' : isPro ? 'Manage subscription' : upgradeLabel}
-      </button>
+      {/* Upgrade is the page's primary action, so it breathes. "Manage
+          subscription" is a ghost and stays still — a pulsing portal link would
+          be pushing a Pro user toward nothing in particular. */}
+      {isPro ? (
+        button
+      ) : (
+        <span className="cx-glowwrap">
+          <span aria-hidden className="cx-glow cx-breathe" />
+          {button}
+        </span>
+      )}
       <ErrorNote message={error} />
     </div>
   )
@@ -117,7 +132,7 @@ export function ReferralActions({ initialLink }: { initialLink: string | null })
           type="button"
           onClick={() => void createLink()}
           disabled={busy}
-          style={{ ...ghostButton, padding: '9px 16px', fontSize: 13, ...busyStyle(busy) }}
+          style={{ ...ghostButton, borderRadius: RADIUS.pill, padding: '9px 17px', fontSize: 13, ...busyStyle(busy) }}
         >
           {busy ? 'Creating…' : 'Create my invite link'}
         </button>
@@ -133,10 +148,10 @@ export function ReferralActions({ initialLink }: { initialLink: string | null })
           style={{
             flex: '1 1 260px',
             minWidth: 0,
-            padding: '9px 12px',
-            borderRadius: 10,
+            padding: '9px 16px',
+            borderRadius: RADIUS.pill,
             border: `1px solid ${T.frame}`,
-            background: T.hover,
+            background: T.raised3,
             fontSize: 12.5,
             color: T.inkSoft,
             overflow: 'hidden',
@@ -151,7 +166,8 @@ export function ReferralActions({ initialLink }: { initialLink: string | null })
           onClick={() => void copy()}
           style={{
             ...ghostButton,
-            padding: '9px 16px',
+            borderRadius: RADIUS.pill,
+            padding: '9px 17px',
             fontSize: 13,
             flex: 'none',
             transition: `color ${MOTION.fast} ${MOTION.ease}`,
@@ -179,7 +195,7 @@ export function LogoutButton() {
         window.location.href = '/'
       }}
       disabled={busy}
-      style={{ ...ghostButton, padding: '9px 16px', fontSize: 13, ...busyStyle(busy) }}
+      style={{ ...ghostButton, borderRadius: RADIUS.pill, padding: '9px 17px', fontSize: 13, ...busyStyle(busy) }}
     >
       {busy ? 'Signing out…' : 'Sign out'}
     </button>
@@ -214,10 +230,11 @@ export function DeleteAccountButton() {
           onClick={() => setConfirming(true)}
           style={{
             ...ghostButton,
-            padding: '9px 16px',
+            borderRadius: RADIUS.pill,
+            padding: '9px 17px',
             fontSize: 13,
             color: T.danger,
-            borderColor: 'color-mix(in srgb, var(--color-danger) 40%, transparent)',
+            borderColor: T.dangerEdge,
           }}
         >
           Delete my account
@@ -240,11 +257,12 @@ export function DeleteAccountButton() {
           disabled={busy}
           style={{
             ...ghostButton,
-            padding: '9px 16px',
+            borderRadius: RADIUS.pill,
+            padding: '9px 17px',
             fontSize: 13,
             color: T.danger,
-            borderColor: 'color-mix(in srgb, var(--color-danger) 55%, transparent)',
-            background: 'color-mix(in srgb, var(--color-danger) 10%, transparent)',
+            borderColor: T.dangerEdge,
+            background: T.dangerBg,
             ...busyStyle(busy),
           }}
         >
@@ -254,7 +272,7 @@ export function DeleteAccountButton() {
           type="button"
           onClick={() => setConfirming(false)}
           disabled={busy}
-          style={{ ...ghostButton, padding: '9px 16px', fontSize: 13, ...busyStyle(busy) }}
+          style={{ ...ghostButton, borderRadius: RADIUS.pill, padding: '9px 17px', fontSize: 13, ...busyStyle(busy) }}
         >
           Keep my account
         </button>

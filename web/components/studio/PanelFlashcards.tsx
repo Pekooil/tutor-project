@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import type { KitFlashcard } from '@/components/dashboard/premium/kit-read'
-import { T, SHADOW, MOTION, accentButton, ghostButton } from './tokens'
+import { T, SHADOW, MOTION, RADIUS, accentButton, ghostButton } from './tokens'
 import { MathText } from './math'
 import { ChevronLeft } from './icons'
 
@@ -68,7 +68,7 @@ export function PanelFlashcards({
     return (
       <>
         {back}
-        <h3 style={{ fontSize: 16, fontWeight: 700, margin: '14px 0 6px' }}>No flashcards yet</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, margin: '14px 0 6px' }}>No flashcards yet</h3>
         <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.55, margin: 0 }}>
           Calyxa builds a deck from a finished session on {title}. Work it in the extension and the cards show
           up here.
@@ -81,7 +81,7 @@ export function PanelFlashcards({
     return (
       <>
         {back}
-        <h3 style={{ fontSize: 16, fontWeight: 700, margin: '14px 0 4px' }}>Flashcards</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, margin: '14px 0 4px' }}>Flashcards</h3>
         <p style={{ fontSize: 13, color: T.muted, margin: '0 0 14px' }}>
           How many of your {cards.length} cards do you want?
         </p>
@@ -100,14 +100,14 @@ export function PanelFlashcards({
                   flexDirection: 'column',
                   alignItems: 'center',
                   padding: '14px 6px',
-                  borderRadius: 11,
+                  borderRadius: RADIUS.box,
                   cursor: 'pointer',
                   background: on ? T.accent : 'transparent',
                   border: `1.5px solid ${on ? T.accent : T.frame}`,
                   color: on ? T.onAccent : T.ink,
                 }}
               >
-                <span style={{ fontSize: 20, fontWeight: 700 }}>{size.n}</span>
+                <span style={{ fontSize: 20, fontWeight: 600 }}>{size.n}</span>
                 <span style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>{size.label}</span>
               </button>
             )
@@ -141,7 +141,7 @@ export function PanelFlashcards({
     position: 'absolute' as const,
     inset: 0,
     backfaceVisibility: 'hidden' as const,
-    borderRadius: 14,
+    borderRadius: RADIUS.capsule,
     padding: 20,
     display: 'flex',
     flexDirection: 'column' as const,
@@ -151,7 +151,7 @@ export function PanelFlashcards({
     textAlign: 'center' as const,
   }
 
-  const label = { fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase' as const }
+  const label = { fontSize: 10, fontWeight: 600, letterSpacing: '0.09em', textTransform: 'uppercase' as const }
 
   return (
     <>
@@ -188,7 +188,7 @@ export function PanelFlashcards({
             transition: `transform calc(${MOTION.base} * 2.25) ${MOTION.ease}`,
           }}
         >
-          <span style={{ ...face, background: T.card, border: `1px solid ${T.frame}`, boxShadow: SHADOW.flashcard }}>
+          <span style={{ ...face, background: T.raised, border: `1px solid ${T.frame}`, boxShadow: SHADOW.flashcard }}>
             <span style={{ ...label, color: T.muted }}>Prompt</span>
             <span style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.45, color: T.ink }}>
               <MathText expr={card.front} />
@@ -200,14 +200,15 @@ export function PanelFlashcards({
             style={{
               ...face,
               transform: 'rotateY(180deg)',
-              background: T.accentSubtle,
-              border: `1px solid ${T.a1Edge}`,
+              background: T.mintTile,
+              border: `1px solid ${T.mintEdge}`,
+              boxShadow: SHADOW.flashcard,
             }}
           >
-            {/* `accentSubtle` IS dark-aware (unlike the annot tints), so the card
-                back composites dark in dark mode — its ink must be the theme-aware
-                `ink1`, not the fixed `a1Deep`, which measured 2.38:1 here. */}
-            <span style={{ ...label, color: T.ink1 }}>Answer</span>
+            {/* The mint face is theme-aware (unlike the annotation tints), so the
+                ink on it must be too — `accentInk`, not the fixed `a1Deep`, which
+                measured 2.38:1 here. */}
+            <span style={{ ...label, color: T.accentInk }}>Answer</span>
             <span style={{ fontSize: 14.5, fontWeight: 500, lineHeight: 1.5, color: T.ink }}>
               <MathText expr={card.back} />
             </span>

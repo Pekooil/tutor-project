@@ -63,9 +63,12 @@ function isPublicPath(pathname: string) {
   // (Sprint 20, ADR-031) is a different case, not a bearer-only one: it's hit by
   // a signed-out visitor on the public landing page, so it's simply public,
   // like '/' itself, rather than exempted from a cookie check it'd otherwise need.
-  // /robots.txt is public for the same reason: crawlers are signed-out visitors,
-  // and redirecting them to /login reads as an invalid robots.txt (the config
-  // matcher below only exempts image extensions, so .txt lands here).
+  // /robots.txt and /sitemap.xml are public for the same reason: crawlers are
+  // signed-out visitors, and redirecting them to /login reads as an invalid
+  // robots.txt / an unfetchable sitemap. Both are ALSO excluded by the config
+  // matcher below, so in practice this function never sees them — they are kept
+  // here belt-and-braces (like /welcome above) so the crawler paths stay public
+  // regardless of how the matcher is edited later.
   //
   // Sprint 16 / Task 9 (found during manual acceptance, not the route-level
   // test suite — those import route handlers directly and never go through
@@ -83,6 +86,7 @@ function isPublicPath(pathname: string) {
   return (
     PUBLIC_PATHS.includes(pathname) ||
     pathname === '/robots.txt' ||
+    pathname === '/sitemap.xml' ||
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/session') ||
     pathname.startsWith('/api/ai') ||
@@ -180,6 +184,17 @@ export async function proxy(request: NextRequest) {
   return response
 }
 
+// /sitemap.xml and /robots.txt are excluded at the MATCHER level, not just via
+// isPublicPath: they are crawler-facing files served by app/sitemap.ts and
+// app/robots.ts, and this gate must never run for them. Before this exclusion
+// /sitemap.xml fell through to the cookie check and Googlebot — a signed-out
+// visitor — got a 307 to /login instead of XML, which Search Console reports as
+// "Couldn't fetch". Excluding here (rather than only adding them to
+// PUBLIC_PATHS) also skips the per-request supabase.auth.getUser() round-trip
+// on every crawl. The matcher's existing extension list only covers images, so
+// .xml/.txt would otherwise land in the gate.
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|sitemap\\.xml|robots\\.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
 }

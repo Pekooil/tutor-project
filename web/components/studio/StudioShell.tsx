@@ -8,8 +8,8 @@ import { CalyxaMark } from '@calyxa/ui'
 import { MobileTabBar } from './MobileTabBar'
 import { StudioNavBar } from './StudioNavBar'
 import { NAV_ITEMS, isStudioView } from './nav'
-import { T, MOTION, eyebrow, pill } from './tokens'
-import { HistoryIcon, KebabIcon, MoonIcon, ShareIcon, SunIcon } from './icons'
+import { T, MOTION, SHADOW, RADIUS, eyebrow, pill } from './tokens'
+import { GiftIcon, HistoryIcon, KebabIcon, MoonIcon, ShareIcon, SunIcon } from './icons'
 
 // The Notebook Studio's global chrome — a 64px left icon rail and a 60px top
 // bar, present on every post-login route. It replaces the floating pill nav so
@@ -54,16 +54,29 @@ export function StudioTitle({ concept, subject, conceptKey, fullBleed }: StudioT
 const railButton = (active: boolean): CSSProperties => ({
   width: 40,
   height: 40,
-  borderRadius: 10,
+  borderRadius: RADIUS.box,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  background: active ? T.accentSubtle : 'transparent',
-  color: active ? T.accentInk : T.muted,
+  background: active ? T.mint32 : 'transparent',
+  color: active ? T.accentDeep : T.muted,
   border: 'none',
   cursor: 'pointer',
   transition: `background ${MOTION.fast} ${MOTION.ease}, color ${MOTION.fast} ${MOTION.ease}`,
 })
+
+/** A 34×34 ghost square in the top bar. */
+const barButton: CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: RADIUS.tile,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'transparent',
+  color: T.muted,
+  transition: `background ${MOTION.fast} ${MOTION.ease}, color ${MOTION.fast} ${MOTION.ease}`,
+}
 
 
 // ── The shell ────────────────────────────────────────────────────────────────
@@ -138,6 +151,13 @@ export function StudioShell({
         // the light legacy screens. globals.css owns both.
         style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}
       >
+        {/* The page ground's three fixed mint blooms. Decorative and inert —
+            `pointer-events: none` and a negative z-index inside the shell's own
+            stacking context, so they never intercept a click or cover content. */}
+        <span aria-hidden className="cx-bloom cx-bloom-1" />
+        <span aria-hidden className="cx-bloom cx-bloom-2" />
+        <span aria-hidden className="cx-bloom cx-bloom-3" />
+
         <nav
           aria-label="Primary"
           className="cx-rail"
@@ -145,7 +165,11 @@ export function StudioShell({
             width: 64,
             flex: '0 0 64px',
             height: '100%',
-            borderRight: `1px solid ${T.border}`,
+            background: T.cardSoft,
+            borderRight: `1px solid ${T.frame}`,
+            backdropFilter: 'blur(24px) saturate(1.5)',
+            WebkitBackdropFilter: 'blur(24px) saturate(1.5)',
+            boxShadow: SHADOW.rail,
             padding: '14px 0 16px',
             display: 'flex',
             flexDirection: 'column',
@@ -180,6 +204,22 @@ export function StudioShell({
 
           <div style={{ flex: 1 }} />
 
+          {/* Invite friends. Deep-links to the invite card on the plan page
+              rather than the top of it — the point of the button is the link a
+              student is about to copy, not the subscription above it.
+              Deliberately BELOW the spacer with the toggle and the avatar: it is
+              a standing offer, not a fifth destination, so it stays out of the
+              four-item primary group the rail's `aria-current` describes. */}
+          <Link
+            href="/billing#invite"
+            aria-label="Invite friends — earn free sessions"
+            title="Invite friends — earn free sessions"
+            className="cx-rail-btn"
+            style={railButton(false)}
+          >
+            <GiftIcon size={18} />
+          </Link>
+
           {/* Always available: the toggle drives the chrome, which is present on
               every route, so it is never a dead control. */}
           <button
@@ -192,27 +232,32 @@ export function StudioShell({
             {theme === 'dark' ? <SunIcon size={18} /> : <MoonIcon size={18} />}
           </button>
 
-          <Link
-            href="/account"
-            aria-label={`Account — ${name}`}
-            title={name}
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: '50%',
-              background: T.accent,
-              color: T.onAccent,
-              fontSize: 14,
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginTop: 4,
-              textDecoration: 'none',
-            }}
-          >
-            {initials}
-          </Link>
+          {/* A STATIC mint bloom, not the breathing one — the avatar is always
+              on screen, and a permanent pulse in the corner of the eye is noise
+              rather than emphasis. */}
+          <span className="cx-glowwrap" style={{ marginTop: 4 }}>
+            <span aria-hidden className="cx-glow" />
+            <Link
+              href="/account"
+              aria-label={`Account — ${name}`}
+              title={name}
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: '50%',
+                background: T.accent,
+                color: T.onAccent,
+                fontSize: 14,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                textDecoration: 'none',
+              }}
+            >
+              {initials}
+            </Link>
+          </span>
         </nav>
 
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
@@ -220,7 +265,11 @@ export function StudioShell({
             style={{
               height: 60,
               flex: '0 0 60px',
-              padding: '0 20px',
+              padding: '0 22px',
+              background: T.topbar,
+              borderBottom: `1px solid ${T.hairline}`,
+              backdropFilter: 'blur(24px) saturate(1.5)',
+              WebkitBackdropFilter: 'blur(24px) saturate(1.5)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -242,21 +291,7 @@ export function StudioShell({
             </h1>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-              <Link
-                href="/sessions"
-                aria-label="Session history"
-                className="cx-rail-btn"
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: 9,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'transparent',
-                  color: T.muted,
-                }}
-              >
+              <Link href="/sessions" aria-label="Session history" className="cx-rail-btn" style={barButton}>
                 <HistoryIcon size={17} />
               </Link>
 
@@ -267,13 +302,13 @@ export function StudioShell({
                 style={{
                   ...pill,
                   height: 34,
-                  padding: '0 14px',
-                  background: T.accent,
-                  color: T.onAccent,
+                  padding: '0 15px',
+                  background: T.mint30,
+                  color: T.accentDeep,
                   border: 'none',
                   fontSize: 13,
-                  fontWeight: 700,
-                  opacity: 0.55,
+                  fontWeight: 600,
+                  opacity: 0.6,
                   cursor: 'not-allowed',
                 }}
               >
@@ -281,21 +316,7 @@ export function StudioShell({
                 Share
               </button>
 
-              <Link
-                href="/account"
-                aria-label="Account settings"
-                className="cx-rail-btn"
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: 9,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'transparent',
-                  color: T.muted,
-                }}
-              >
+              <Link href="/account" aria-label="Account settings" className="cx-rail-btn" style={barButton}>
                 <KebabIcon size={16} />
               </Link>
             </div>

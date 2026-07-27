@@ -98,11 +98,12 @@ export function Meter({ value, fill = T.accentInk, height = 7 }: { value: number
         minWidth: 60,
         height,
         borderRadius: 4,
-        background: T.hover,
+        background: T.track,
         overflow: 'hidden',
       }}
     >
       <span
+        className="cx-bar"
         style={{
           display: 'block',
           width: `${Math.max(0, Math.min(100, value))}%`,

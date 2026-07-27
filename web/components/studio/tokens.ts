@@ -13,10 +13,28 @@ import type { CSSProperties } from 'react'
 export const T = {
   bg: 'var(--color-background)',
   card: 'var(--studio-card)',
+  /** The second glass weight — strips, bands and the rail. */
+  cardSoft: 'var(--studio-card-soft)',
+  topbar: 'var(--studio-topbar)',
+  /** The four raised steps, brightest first: composer + flip-card face (0),
+   *  why-note + chat bubble (2), ghost button (3), inner row fill (4). */
+  raised: 'var(--studio-raised)',
+  raised2: 'var(--studio-raised-2)',
+  raised3: 'var(--studio-raised-3)',
+  raised4: 'var(--studio-raised-4)',
+  field: 'var(--studio-field)',
+  row: 'var(--studio-row)',
   surface: 'var(--color-surface)',
   hover: 'var(--studio-hover)',
   border: 'var(--color-border)',
   borderStrong: 'var(--color-border-strong)',
+  /** An in-card rule. Lighter than a card edge — see RULE below. */
+  hairline: 'var(--studio-hairline)',
+  /** A meter's unfilled groove. */
+  track: 'var(--studio-track)',
+  /** The neutral (non-status) chip fill. */
+  chip: 'var(--studio-chip)',
+  dotInactive: 'var(--studio-dot-inactive)',
   /** A VISIBLE frame, for a card sitting on another card.
    *
    *  `border` is invisible in dark mode (measured 1.19–1.47:1 against the surfaces
@@ -35,6 +53,9 @@ export const T = {
    *  bar. It is theme.css's own chip-text token, not a bespoke grey. */
   inkSoft: 'var(--calyxa-chip-text)',
   muted: 'var(--color-muted-foreground)',
+  /** Quieter than `muted` — dates, counters, day-of-month ticks. Never body copy. */
+  faint: 'var(--studio-faint)',
+  faintRule: 'var(--studio-faint-rule)',
   danger: 'var(--color-danger)',
 
   /** The brand's filled CTA — light green fill, dark green text.
@@ -49,8 +70,40 @@ export const T = {
   accent: 'var(--color-accent-fill)',
   onAccent: 'var(--color-accent-fill-foreground)',
   accentInk: 'var(--color-accent-emphasis)',
+  /** Accent text ON a mint tint (deeper than `accentInk` in light, brighter in
+   *  dark) — the pairing the handoff uses for badges and rail-active glyphs. */
+  accentDeep: 'var(--studio-accent-deep)',
   accentSubtle: 'var(--color-accent-subtle)',
   focus: 'var(--color-focus-ring)',
+
+  /** The mint ladder — one hue, eight strengths, so a tint never has to be
+   *  mixed at the call site. Tile = the 34px icon square; pill = a header
+   *  action; 30/32 = badges and the rail's active cell; hover/soft/faint are
+   *  the three washes. */
+  mintTile: 'var(--studio-mint-tile)',
+  mintPill: 'var(--studio-mint-pill)',
+  mint30: 'var(--studio-mint-30)',
+  mint32: 'var(--studio-mint-32)',
+  mintHover: 'var(--studio-mint-hover)',
+  mintSoft: 'var(--studio-mint-soft)',
+  mintFaint: 'var(--studio-mint-faint)',
+  mintEdge: 'var(--studio-mint-edge)',
+  greenTint: 'var(--studio-green-tint)',
+  /** A studied/progress dot — a FILL, not text. */
+  greenDot: 'var(--studio-green-dot)',
+
+  /** Status tones, dark-legible in both themes. `a2*`/`a3*` below are the
+   *  annotation ordinals and stay reserved for the annotation layer. */
+  amber: 'var(--studio-amber-ink)',
+  amberBg: 'var(--studio-amber-bg)',
+  amberBg2: 'var(--studio-amber-bg-2)',
+  amberEdge: 'var(--studio-amber-edge)',
+  dangerBg: 'var(--studio-danger-bg)',
+  dangerEdge: 'var(--studio-danger-edge)',
+  blue: 'var(--studio-blue-ink)',
+  blueBg: 'var(--studio-blue-bg)',
+  blueEdge: 'var(--studio-blue-edge)',
+  blueDeep: 'var(--studio-blue-deep)',
 
   // Annotation ordinals ("Meadow", ADR-029). 1 = solid/correct, 2 = the
   // misconception amber, 3 = the flashcards blue / due-for-review.
@@ -81,17 +134,19 @@ export const T = {
   ink2: 'var(--calyxa-ping-watch-text)',
 } as const
 
-// Shadows from the handoff. `--shadow-panel` is the brand's one named shadow and
-// covers the popover; the rest are the same ink at lighter weights.
+// Shadows from the premium handoff. Every one is a token so the dark theme can
+// carry its own, far deeper ink — a light-mode shadow does nothing on a dark
+// surface, which is exactly why the flat design had to lean on borders instead.
 export const SHADOW = {
-  pill: '0 1px 2px rgb(15 23 42 / 0.06)',
-  card: '0 2px 8px rgb(15 23 42 / 0.05)',
-  note: '0 4px 14px rgb(15 23 42 / 0.08)',
-  flashcard: '0 6px 20px rgb(15 23 42 / 0.08)',
+  pill: 'var(--studio-shadow-pill)',
+  card: 'var(--studio-shadow-card)',
+  soft: 'var(--studio-shadow-soft)',
+  button: 'var(--studio-shadow-btn)',
+  note: 'var(--studio-shadow-note)',
+  flashcard: 'var(--studio-shadow-flash)',
+  rail: 'var(--studio-shadow-rail)',
   popover: 'var(--shadow-panel)',
-  // The extension's ambient-pill breathing glow, on the accent-glow tokens.
-  composer:
-    '0 0 0 1px color-mix(in srgb, var(--color-accent-glow-strong) 18%, transparent), 0 0 26px color-mix(in srgb, var(--color-accent-glow-strong) 30%, transparent)',
+  composer: 'var(--studio-composer-glow)',
 } as const
 
 /** Motion routed through theme.css's duration tokens, which already zero
@@ -103,27 +158,56 @@ export const MOTION = {
 } as const
 
 
+/** The premium look tops out at 600 — nothing in the studio is 700. */
 export const eyebrow: CSSProperties = {
-  fontSize: 10.5,
-  fontWeight: 700,
+  fontSize: 10,
+  fontWeight: 600,
   letterSpacing: '0.12em',
   textTransform: 'uppercase',
 }
 
+/** The page-level eyebrow, one notch wider than a card's. */
+export const pageEyebrow: CSSProperties = { ...eyebrow, letterSpacing: '0.14em' }
+
+/** The handoff's radius scale. Cards 17, inner boxes 12, icon tiles 11/12, the
+ *  notebook math capsule 16, everything pill-shaped 999. */
+export const RADIUS = {
+  card: 17,
+  box: 12,
+  tile: 11,
+  capsule: 16,
+  pill: 999,
+} as const
+
+/** The glass card, as inline style, for the handful of places that can't take
+ *  the `cx-card` class (a card whose fill is overridden, or one that must keep
+ *  `overflow: visible`). Prefer the class: it also draws the top sheen. */
 export const cardBox: CSSProperties = {
   background: T.card,
   border: `1px solid ${T.border}`,
-  borderRadius: 14,
+  borderRadius: RADIUS.card,
+  backdropFilter: 'blur(22px) saturate(1.5)',
+  WebkitBackdropFilter: 'blur(22px) saturate(1.5)',
+  boxShadow: SHADOW.card,
 }
 
-/** A separator INSIDE a card — a row rule, not a card edge.
- *
- *  Not `--color-border`: that token is #2a2b27 in dark and measures ~1.2:1
- *  against the card it would sit on, so every in-card rule disappeared. Derived
- *  from the foreground instead, it lands at the design's weight in light (10% of
- *  #1c1c1a on white ≈ #e6e6e5) and stays visible in dark. `--studio-frame` is
- *  the other candidate and is far too heavy — it is sized for a card edge. */
-export const RULE = `1px solid color-mix(in srgb, ${T.ink} 10%, transparent)`
+/** The 34px mint square that opens a card header, holding a 15–16px glyph. */
+export const mintTile: CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: RADIUS.tile,
+  background: T.mintTile,
+  color: T.accentInk,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  flexShrink: 0,
+}
+
+/** A separator INSIDE a card — a row rule, not a card edge. Its own token now
+ *  (the handoff gives the hairline a weight per theme) rather than a mix of the
+ *  foreground; `--studio-frame` remains the heavier card-on-card edge. */
+export const RULE = `1px solid ${T.hairline}`
 
 /** The accent-filled action button (brand rule: light fill, dark text — never
  *  light text on an accent fill). */
@@ -131,21 +215,22 @@ export const accentButton: CSSProperties = {
   background: T.accent,
   color: T.onAccent,
   border: 'none',
-  borderRadius: 12,
-  fontWeight: 700,
+  borderRadius: RADIUS.box,
+  fontWeight: 600,
   cursor: 'pointer',
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
   gap: 8,
   textDecoration: 'none',
+  boxShadow: SHADOW.button,
 }
 
 export const ghostButton: CSSProperties = {
-  background: T.card,
+  background: T.raised3,
   color: T.ink,
-  border: `1px solid ${T.border}`,
-  borderRadius: 12,
+  border: `1px solid ${T.borderStrong}`,
+  borderRadius: RADIUS.box,
   fontWeight: 600,
   cursor: 'pointer',
   display: 'inline-flex',
@@ -164,18 +249,21 @@ export const pill: CSSProperties = {
   whiteSpace: 'nowrap',
 }
 
-/** The three ordinal "sets" the design names — tint fill, tint border, deep
- *  text — used for status chips, flags and result states. */
+/** The status "sets" the design names — tint fill, tint border, legible ink —
+ *  used for status chips, flags and result states.
+ *
+ *  These read the STUDIO status tokens, not the annotation ordinals. The
+ *  ordinals (`aN*`) are light-only by construction — theme.css gives them no
+ *  dark variant, so `-deep` stays a dark hue on a dark card — and they remain
+ *  what the annotation layer in `NotesDocument` uses, where the tint underneath
+ *  them is the matching light one. Everywhere else, a chip needs a tone that
+ *  flips with the theme, which is what these four do. */
 export const ORDINAL = {
-  green: { background: T.a1Tint, border: `1px solid ${T.a1Edge}`, color: T.a1Deep },
-  amber: { background: T.a2Tint, border: `1px solid ${T.a2Edge}`, color: T.a2Deep },
-  blue: { background: T.a3Tint, border: `1px solid ${T.a3Edge}`, color: T.a3Deep },
-  neutral: { background: T.card, border: `1px solid ${T.border}`, color: T.muted },
-  danger: {
-    background: 'color-mix(in srgb, var(--color-danger) 8%, var(--color-background))',
-    border: '1px solid color-mix(in srgb, var(--color-danger) 35%, transparent)',
-    color: T.danger,
-  },
+  green: { background: T.greenTint, border: `1px solid ${T.mintEdge}`, color: T.accentInk },
+  amber: { background: T.amberBg, border: `1px solid ${T.amberEdge}`, color: T.amber },
+  blue: { background: T.blueBg, border: `1px solid ${T.blueEdge}`, color: T.blue },
+  neutral: { background: T.chip, border: `1px solid ${T.border}`, color: T.muted },
+  danger: { background: T.dangerBg, border: `1px solid ${T.dangerEdge}`, color: T.danger },
 } as const
 
 export type OrdinalKey = keyof typeof ORDINAL

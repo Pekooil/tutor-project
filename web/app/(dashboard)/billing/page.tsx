@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { loadSessionQuota } from '@/lib/learning/activity-read'
-import { readReferralStatus } from '@/lib/referral/referral'
+import { readReferralStatus, readReferredSignups } from '@/lib/referral/referral'
 import { BillingScreen } from '@/components/studio/SettingsScreen'
 
 // Sprint 23 / Task 7 (ADR-050/051): the billing page — where a student upgrades
@@ -37,7 +38,7 @@ export default async function BillingPage({
     redirect('/login')
   }
 
-  const [{ data: profile }, quota, referral, { checkout }] = await Promise.all([
+  const [{ data: profile }, quota, referral, signups, { checkout }] = await Promise.all([
     supabase
       .from('users')
       .select('subscription_tier, subscription_status, subscription_renews_at')
@@ -47,6 +48,10 @@ export default async function BillingPage({
     // ADR-053: the invite link lives on the plan card too, so a student managing
     // their plan can earn free sessions without leaving for /referral.
     readReferralStatus(supabase, user.id),
+    // Who actually accepted. Read as the caller (referral_select_own is the
+    // authorization), with the admin client used only to resolve those ids to
+    // MASKED emails — see readReferredSignups.
+    readReferredSignups(supabase, createAdminClient(), user.id),
     searchParams,
   ])
 
@@ -68,6 +73,8 @@ export default async function BillingPage({
               referralsPerReward: referral.referralsPerReward,
               rewardSessions: referral.rewardSessions,
               toNextReward: referral.toNextReward,
+              bonusSessions: referral.bonusSessions,
+              signups,
             }
           : null,
         // The webhook is the source of truth for the plan flip; this is only an

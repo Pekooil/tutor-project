@@ -4,8 +4,9 @@ import Link from 'next/link'
 import type { SessionQuota } from '@/lib/learning/activity-read'
 import type { ReviewConcept } from '@/components/dashboard/premium/derive'
 import { longDate, reviewMinutes } from '@/components/dashboard/premium/derive'
-import { T, ORDINAL, eyebrow, accentButton, pill } from './tokens'
-import { CalendarIcon, LightbulbIcon } from './icons'
+import { T, ORDINAL, RULE, RADIUS, eyebrow, pageEyebrow, mintTile, accentButton, pill } from './tokens'
+import { CalendarIcon, ClockIcon, LightbulbIcon } from './icons'
+import { strandColorVar } from './chart-tokens'
 import type { ReviewSchedule } from './schedule'
 import { ScheduleSection } from './ScheduleSection'
 import { STORE_URL } from '@/lib/store-url'
@@ -62,7 +63,7 @@ function SessionsLeftPill({ quota }: { quota: SessionQuota }) {
       href="/billing"
       className="cx-quota-pill"
       title={quota.isPro ? 'Manage your subscription' : 'See plans and upgrade'}
-      style={{ ...pill, ...set, padding: '5px 12px', fontSize: 12.5, fontWeight: 600 }}
+      style={{ ...pill, ...set, padding: '5px 13px', fontSize: 12.5, fontWeight: 600 }}
     >
       <CalendarIcon size={13} />
       {copy}
@@ -80,24 +81,23 @@ function CappedNotice({ quota }: { quota: SessionQuota }) {
   const resets = resetDay(quota.resetsAt)
   return (
     <section
+      className="cx-card-soft cx-rise"
       style={{
         marginTop: 22,
-        background: T.card,
-        border: `1px solid ${T.border}`,
-        // The one signal of state. A full amber tint band is an ORDINAL fill —
+        // The one signal of state. A full amber tint band is a status FILL —
         // light with dark ink — which on the dark studio reads as a warning slab;
         // a rule carries the same meaning at the right volume.
-        borderLeft: `3px solid ${T.a2}`,
-        borderRadius: 16,
+        borderLeft: `3px solid ${T.amber}`,
         padding: '18px 22px',
         display: 'flex',
         alignItems: 'center',
         gap: 20,
         flexWrap: 'wrap',
+        ['--cx-i' as string]: 1,
       }}
     >
       <div style={{ flex: '1 1 340px', minWidth: 260 }}>
-        <div style={{ ...eyebrow, color: T.ink2 }}>Session limit reached</div>
+        <div style={{ ...eyebrow, color: T.amber }}>Session limit reached</div>
         <h3 style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.01em', margin: '7px 0 0' }}>
           You&rsquo;ve used all {plural(quota.limit, 'session')} this month
         </h3>
@@ -120,9 +120,9 @@ function CappedNotice({ quota }: { quota: SessionQuota }) {
  *  screen a new signup sees.) */
 function ActivationView({ now }: { now: Date }) {
   return (
-    <div style={{ padding: '8px 40px 48px', maxWidth: 1020, margin: '0 auto' }}>
-      <div style={{ ...eyebrow, fontWeight: 600, letterSpacing: '0.14em', color: T.muted }}>{longDate(now)}</div>
-      <h2 style={{ fontSize: 32, lineHeight: 1.18, fontWeight: 600, letterSpacing: '-0.015em', margin: '6px 0 0' }}>
+    <div style={{ padding: '26px 40px 56px', maxWidth: 1020, margin: '0 auto' }}>
+      <div style={{ ...pageEyebrow, color: T.muted }}>{longDate(now)}</div>
+      <h2 style={{ fontSize: 32, lineHeight: '38px', fontWeight: 600, letterSpacing: '-0.015em', margin: '6px 0 0' }}>
         Welcome to Calyxa
       </h2>
       <p style={{ marginTop: 8, marginBottom: 0, fontSize: 14.5, color: T.muted }}>
@@ -130,15 +130,7 @@ function ActivationView({ now }: { now: Date }) {
         only setup there is.
       </p>
 
-      <section
-        style={{
-          marginTop: 22,
-          background: T.card,
-          border: `1px solid ${T.border}`,
-          borderRadius: 16,
-          padding: '24px 26px',
-        }}
-      >
+      <section className="cx-card cx-rise" style={{ marginTop: 22, padding: '24px 26px', ['--cx-i' as string]: 1 }}>
         <div style={{ ...eyebrow, color: T.accentInk }}>Get started</div>
         <h3 style={{ fontSize: 24, fontWeight: 600, letterSpacing: '-0.015em', margin: '8px 0 0' }}>
           Start your first session
@@ -166,10 +158,10 @@ function ActivationView({ now }: { now: Date }) {
                   height: 22,
                   flexShrink: 0,
                   borderRadius: '50%',
-                  background: T.accentSubtle,
+                  background: T.mintTile,
                   color: T.accentInk,
                   fontSize: 11.5,
-                  fontWeight: 700,
+                  fontWeight: 600,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -184,9 +176,12 @@ function ActivationView({ now }: { now: Date }) {
         {/* Sessions only ever start in the extension, so the empty state sends
             them to install it. The retired /welcome wizard used to sit in
             between; it taught nothing the extension's own onboarding does not. */}
-        <a href={STORE_URL} style={{ ...accentButton, padding: '12px 22px', fontSize: 14.5 }}>
-          Add Calyxa to Chrome →
-        </a>
+        <span className="cx-glowwrap">
+          <span aria-hidden className="cx-glow cx-breathe" />
+          <a href={STORE_URL} style={{ ...accentButton, borderRadius: RADIUS.pill, padding: '12px 22px', fontSize: 14.5 }}>
+            Add Calyxa to Chrome →
+          </a>
+        </span>
       </section>
     </div>
   )
@@ -219,9 +214,9 @@ export function DashboardScreen({
       : 'Nothing due right now — open Notes to pick any concept and review it.'
 
   return (
-    <div style={{ padding: '8px 40px 48px', maxWidth: 1020, margin: '0 auto' }}>
+    <div style={{ padding: '26px 40px 56px', maxWidth: 1020, margin: '0 auto' }}>
       {/* 1a — status header */}
-      <div style={{ ...eyebrow, fontWeight: 600, letterSpacing: '0.14em', color: T.muted }}>{longDate(now)}</div>
+      <div style={{ ...pageEyebrow, color: T.muted }}>{longDate(now)}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 6 }}>
         <h2
           style={{
@@ -244,24 +239,29 @@ export function DashboardScreen({
       {capped && <CappedNotice quota={quota} />}
 
       {/* 1b — Today's Review, the one dominant action */}
-      <section
-        style={{
-          marginTop: 22,
-          background: T.card,
-          border: `1px solid ${T.border}`,
-          borderRadius: 16,
-          padding: '24px 26px',
-        }}
-      >
-        <div style={{ ...eyebrow, color: T.accentInk }}>Today&rsquo;s review</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 8 }}>
-          <h3 style={{ fontSize: 24, fontWeight: 600, letterSpacing: '-0.015em', margin: 0, flex: 1 }}>
-            {due.length > 0 ? `${plural(due.length, 'concept')}, ${minutes} minutes` : 'You’re all caught up'}
-          </h3>
+      <section className="cx-card cx-rise" style={{ marginTop: 22, padding: '22px 24px 20px', ['--cx-i' as string]: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <span style={mintTile}>
+            <ClockIcon size={16} />
+          </span>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ ...eyebrow, color: T.accentInk }}>Today&rsquo;s review</div>
+            <h3 style={{ fontSize: 23, lineHeight: '28px', fontWeight: 600, letterSpacing: '-0.015em', margin: '2px 0 0' }}>
+              {due.length > 0 ? `${plural(due.length, 'concept')}, ${minutes} minutes` : 'You’re all caught up'}
+            </h3>
+          </div>
           {startHref && (
-            <Link href={startHref} style={{ ...accentButton, padding: '12px 22px', fontSize: 14.5 }}>
-              Start review →
-            </Link>
+            /* The page's one primary action, so it is the one thing that
+               breathes — a blurred mint radial behind the pill. */
+            <span className="cx-glowwrap">
+              <span aria-hidden className="cx-glow cx-breathe" />
+              <Link
+                href={startHref}
+                style={{ ...accentButton, borderRadius: RADIUS.pill, padding: '12px 22px', fontSize: 14.5 }}
+              >
+                Start review →
+              </Link>
+            </span>
           )}
         </div>
 
@@ -270,27 +270,42 @@ export function DashboardScreen({
             into a wall of pills that buried its own button. The three shown are
             the front of the queue, which is the order "Start review" works in. */}
         {due.length > 0 && (
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 16 }}>
-            {due.slice(0, CHIP_LIMIT).map((c, i) => (
-              <span
-                key={c.conceptKey}
-                style={{
-                  ...pill,
-                  ...(i === 0 ? ORDINAL.amber : ORDINAL.neutral),
-                  padding: '7px 14px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                }}
-              >
-                {c.title} · {c.overdue ? 'overdue' : 'due today'}
-              </span>
-            ))}
-            {due.length > CHIP_LIMIT && (
-              <span style={{ fontSize: 13, fontWeight: 600, color: T.muted }}>
-                +{due.length - CHIP_LIMIT} more
-              </span>
-            )}
-          </div>
+          <>
+            <div style={{ borderTop: RULE, margin: '18px 0 0' }} />
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 16 }}>
+              {due.slice(0, CHIP_LIMIT).map((c) => (
+                <span
+                  key={c.conceptKey}
+                  style={{
+                    ...pill,
+                    ...(c.overdue ? ORDINAL.danger : ORDINAL.neutral),
+                    padding: '7px 14px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                  }}
+                >
+                  {/* Overdue is already carried by the chip's tone, so the dot
+                      goes back to naming the SUBJECT — the one thing the chip's
+                      text doesn't say. */}
+                  <span
+                    aria-hidden
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: c.overdue ? T.danger : strandColorVar(c.strand),
+                    }}
+                  />
+                  {c.title} · {c.overdue ? 'overdue' : 'due today'}
+                </span>
+              ))}
+              {due.length > CHIP_LIMIT && (
+                <span style={{ fontSize: 13, fontWeight: 600, color: T.muted }}>
+                  +{due.length - CHIP_LIMIT} more
+                </span>
+              )}
+            </div>
+          </>
         )}
 
       </section>

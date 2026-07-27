@@ -3,7 +3,7 @@ import Link from 'next/link'
 import type { MisconceptionDetail } from '@/components/dashboard/premium/detail-read'
 import type { SessionDetail, SnapshotAnnotation, WorkedSnapshot } from '@/components/dashboard/premium/snapshots-read'
 import { strandColorVar } from './chart-tokens'
-import { T, ORDINAL, RULE, eyebrow, ghostButton, pill } from './tokens'
+import { T, ORDINAL, RULE, RADIUS, eyebrow, ghostButton, pageEyebrow, pill } from './tokens'
 import { ChevronLeft, ChevronRight } from './icons'
 
 // The two remaining drill-downs, rebuilt on studio tokens: a misconception
@@ -19,9 +19,8 @@ const MAX_W = 1020
 
 const sectionLabel: CSSProperties = { ...eyebrow, color: T.muted }
 
-function card(): CSSProperties {
-  return { background: T.card, border: `1px solid ${T.border}`, borderRadius: 16, padding: '20px 22px' }
-}
+/** A detail card's box metrics; the glass comes from the `cx-card` class. */
+const card: CSSProperties = { padding: '20px 22px' }
 
 function BackLink({ href, children }: { href: string; children: string }) {
   return (
@@ -61,13 +60,11 @@ function DetailPage({
   children: React.ReactNode
 }) {
   return (
-    <div style={{ padding: '8px 40px 56px' }}>
+    <div style={{ padding: '26px 40px 56px' }}>
       <div style={{ maxWidth: MAX_W, margin: '0 auto' }}>
         <BackLink href={back.href}>{back.label}</BackLink>
-        <div style={{ ...sectionLabel, letterSpacing: '0.14em', fontWeight: 600, color: eyebrowColor ?? T.muted }}>
-          {eyebrowText}
-        </div>
-        <h1 style={{ margin: '6px 0 0', fontSize: 32, lineHeight: 1.18, fontWeight: 600, letterSpacing: '-0.015em' }}>
+        <div style={{ ...pageEyebrow, color: eyebrowColor ?? T.muted }}>{eyebrowText}</div>
+        <h1 style={{ margin: '6px 0 0', fontSize: 32, lineHeight: '38px', fontWeight: 600, letterSpacing: '-0.015em' }}>
           {title}
         </h1>
         {sub && <p style={{ margin: '8px 0 0', fontSize: 14, color: T.muted }}>{sub}</p>}
@@ -89,7 +86,7 @@ function Row({ label, value, first, tone }: { label: string; value: string; firs
       }}
     >
       <span style={{ fontSize: 13, color: T.muted }}>{label}</span>
-      <span style={{ fontSize: 13.5, fontWeight: 500, color: tone === 'green' ? T.ink1 : T.ink }}>{value}</span>
+      <span style={{ fontSize: 13.5, fontWeight: 500, color: tone === 'green' ? T.accentInk : T.ink }}>{value}</span>
     </div>
   )
 }
@@ -123,7 +120,7 @@ export function MisconceptionDetailScreen({ detail }: { detail: MisconceptionDet
       eyebrowColor={strandColorVar(m.strand)}
       title={m.description || m.title}
     >
-      <section style={{ ...card(), marginTop: 22 }}>
+      <section className="cx-card cx-rise" style={{ ...card, marginTop: 22 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
           <span
             style={{
@@ -131,7 +128,7 @@ export function MisconceptionDetailScreen({ detail }: { detail: MisconceptionDet
               ...ORDINAL.neutral,
               padding: '3px 9px',
               fontSize: 10,
-              fontWeight: 700,
+              fontWeight: 600,
               letterSpacing: '0.09em',
               textTransform: 'uppercase',
             }}
@@ -145,7 +142,7 @@ export function MisconceptionDetailScreen({ detail }: { detail: MisconceptionDet
               marginLeft: 'auto',
               padding: '3px 9px',
               fontSize: 10,
-              fontWeight: 700,
+              fontWeight: 600,
               letterSpacing: '0.09em',
               textTransform: 'uppercase',
             }}
@@ -188,19 +185,19 @@ export function MisconceptionDetailScreen({ detail }: { detail: MisconceptionDet
                   width: 20,
                   height: 6,
                   borderRadius: 99,
-                  background: i < filled ? T.accentInk : `color-mix(in srgb, ${T.ink} 14%, transparent)`,
+                  background: i < filled ? T.accentInk : T.dotInactive,
                 }}
               />
             ))}
           </span>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: filled > 0 ? T.ink1 : T.muted }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: filled > 0 ? T.accentInk : T.muted }}>
             {filled} of {detail.resolutionStreak}
           </span>
         </div>
       </section>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }} className="cx-progress-pair">
-        <section style={card()}>
+        <section className="cx-card" style={card}>
           <div style={{ ...sectionLabel, marginBottom: 10 }}>History</div>
           <Row first label="Times seen" value={String(m.occurrenceCount)} />
           <Row label="First seen" value={day(m.firstSeenAt)} />
@@ -208,7 +205,7 @@ export function MisconceptionDetailScreen({ detail }: { detail: MisconceptionDet
           {resolved && m.resolvedAt && <Row label="Resolved" value={day(m.resolvedAt)} tone="green" />}
         </section>
 
-        <section style={card()}>
+        <section className="cx-card" style={card}>
           <div style={{ ...sectionLabel, marginBottom: 10 }}>Concept</div>
           <p style={{ margin: '0 0 14px', fontSize: 13.5, lineHeight: 1.6, color: T.muted }}>
             {node
@@ -220,7 +217,7 @@ export function MisconceptionDetailScreen({ detail }: { detail: MisconceptionDet
               notes are both the current home and a studio screen. */}
           <Link
             href={`/notes/${encodeURIComponent(m.conceptKey)}`}
-            style={{ ...ghostButton, padding: '9px 16px', fontSize: 13 }}
+            style={{ ...ghostButton, borderRadius: RADIUS.pill, padding: '9px 17px', fontSize: 13 }}
           >
             Open notes and practise
             <ChevronRight size={13} />
@@ -244,7 +241,7 @@ function Annotation({ a }: { a: SnapshotAnnotation }) {
             color: T.ink,
             padding: '6px 10px',
             borderRadius: 8,
-            background: T.hover,
+            background: T.raised4,
             display: 'inline-block',
           }}
         >
@@ -255,7 +252,7 @@ function Annotation({ a }: { a: SnapshotAnnotation }) {
         <div style={{ display: 'flex', gap: 8, marginTop: a.targetText ? 6 : 0 }}>
           {/* The ordinal colours have no dark variant, so the rule uses the
               amber that DOES flip rather than the annotation palette. */}
-          <span style={{ flex: 'none', width: 3, borderRadius: 99, background: T.ink2, opacity: 0.75 }} />
+          <span style={{ flex: 'none', width: 3, borderRadius: 99, background: T.amber, opacity: 0.75 }} />
           <div style={{ minWidth: 0 }}>
             {a.label && <span style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{a.label}</span>}
             {a.note && (
@@ -273,7 +270,7 @@ function Annotation({ a }: { a: SnapshotAnnotation }) {
 function SnapshotCard({ snapshot }: { snapshot: WorkedSnapshot }) {
   const { annotations, tutorResponse, misconception, studentTranscript, conceptTitle, turnIndex } = snapshot
   return (
-    <div style={{ border: `1px solid ${T.frame}`, borderRadius: 14, padding: '14px 16px' }}>
+    <div style={{ background: T.row, border: `1px solid ${T.frame}`, borderRadius: 14, padding: '14px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
         <span style={{ ...sectionLabel, fontSize: 9.5 }}>{conceptTitle ?? `Turn ${turnIndex}`}</span>
         {misconception && (
@@ -294,7 +291,7 @@ function SnapshotCard({ snapshot }: { snapshot: WorkedSnapshot }) {
           style={{
             borderRadius: 12,
             border: `1px solid ${T.frame}`,
-            background: T.hover,
+            background: T.raised4,
             padding: '12px 14px 2px',
             marginBottom: tutorResponse ? 10 : 0,
           }}
@@ -328,11 +325,11 @@ export function SessionDetailScreen({ detail }: { detail: SessionDetail }) {
       sub={`${started.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} · ${duration(detail.startedAt, detail.endedAt)} · ${detail.snapshots.length} turn${detail.snapshots.length === 1 ? '' : 's'}`}
     >
       {detail.snapshots.length === 0 ? (
-        <section style={{ ...card(), marginTop: 22, fontSize: 14, color: T.muted }}>
+        <section style={{ ...card, marginTop: 22, fontSize: 14, color: T.muted }}>
           This session has no recorded turns.
         </section>
       ) : (
-        <section style={{ ...card(), marginTop: 22 }}>
+        <section className="cx-card cx-rise" style={{ ...card, marginTop: 22 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 14 }}>
             <span style={sectionLabel}>Worked-problem timeline</span>
             {annotated > 0 && <span style={{ fontSize: 12, color: T.muted }}>{annotated} annotated</span>}

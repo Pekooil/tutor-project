@@ -117,6 +117,31 @@ export function ShareIcon(p: IconProps) {
   )
 }
 
+/** Invite friends. A wrapped box with a lid and a ribbon — the one glyph in the
+ *  rail that has to read as "there is something free here" at 18px. */
+export function GiftIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 11h16v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" />
+      <path d="M3 7.5h18V11H3z" />
+      <path d="M12 7.5V21" />
+      <path d="M12 7.5S10.8 3 8.6 3a2.3 2.3 0 0 0 0 4.5z" />
+      <path d="M12 7.5S13.2 3 15.4 3a2.3 2.3 0 0 1 0 4.5z" />
+    </Icon>
+  )
+}
+
+/** Today's Review. A clock, not a checklist — the card is about WHEN a concept
+ *  is due, and the checklist glyph already belongs to Quizzes. */
+export function ClockIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5.2l3.2 2" />
+    </Icon>
+  )
+}
+
 export function ChevronDown(p: IconProps) {
   return (
     <Icon {...p}>

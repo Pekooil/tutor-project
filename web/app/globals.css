@@ -319,7 +319,6 @@ html {
     border: 1px solid rgba(28, 28, 26, 0.1);
     border-radius: 22px;
     backdrop-filter: blur(24px) saturate(1.5);
-    -webkit-backdrop-filter: blur(24px) saturate(1.5);
     box-shadow: 0 18px 44px rgba(28, 40, 30, 0.16), 0 2px 8px rgba(28, 40, 30, 0.08);
   }
 }
@@ -332,38 +331,193 @@ html {
  * values the token set does not already name; both are DERIVED from the shipped
  * tokens so they follow the theme rather than pinning a hex.
  * ─────────────────────────────────────────────────────────────────────────── */
+/* ── Premium restyle (design handoff "Notebook Studio — Premium Dark") ───────
+   The studio's flat panels become GLASS: a translucent fill over a blurred,
+   saturated backdrop, a top sheen, a deeper ambient shadow, and three fixed
+   mint blooms on the page ground. Every value below is the handoff's, and every
+   one is SCOPED TO `.cx-studio` — `packages/ui/theme.css` is shared with the
+   extension overlay, which must not move, so the repointing lands here instead.
+
+   Two kinds of declaration in this block:
+   - `--studio-*`: the new roles the shared token set doesn't name (glass fills,
+     raised steps, sheen, mint ladder, per-role shadows, blooms).
+   - `--color-*` / `--calyxa-*` repoints: the handoff changes what an EXISTING
+     role resolves to (ground, ink, muted, edges, on-accent). Keeping the names
+     means `tokens.ts` — and therefore every component — is untouched by the
+     colour change. */
 .cx-app.cx-studio {
-  --studio-card: var(--color-background);
-  --studio-hover: color-mix(in srgb, var(--color-foreground) 4%, transparent);
-  /* A frame that is actually VISIBLE, for a card sitting on another card.
-     `--color-border` is #2a2b27 in dark — measured 1.19–1.47:1 against the
-     surfaces either side of it, i.e. invisible, well under the 3:1 WCAG asks of a
-     UI boundary. It reads fine where a card sits on the PAGE (the background
-     step does the separating), but a card-on-card has no surface step to lean on
-     and simply disappears. Light mode keeps the normal border. */
-  --studio-frame: var(--color-border);
+  /* Ground & glass surfaces (light = the premium warm palette). */
+  --color-background: #f2f1ed;
+  --studio-card: rgba(255, 255, 255, 0.8);
+  --studio-card-soft: rgba(255, 255, 255, 0.72);
+  --studio-topbar: rgba(255, 255, 255, 0.55);
+  --studio-raised: rgba(255, 255, 255, 0.85);
+  --studio-raised-2: rgba(255, 255, 255, 0.7);
+  --studio-raised-3: rgba(255, 255, 255, 0.6);
+  --studio-raised-4: rgba(255, 255, 255, 0.5);
+  --studio-field: rgba(255, 255, 255, 0.75);
+  --studio-row: rgba(28, 28, 26, 0.028);
+  --studio-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 42%);
+  /* `--color-surface` stays a real RAISED surface (chat bubbles, step circles),
+     not the hover wash — `--studio-hover` is the wash. */
+  --color-surface: rgba(255, 255, 255, 0.7);
+
+  /* Lines & fills. */
+  --color-border: rgba(28, 28, 26, 0.1);
+  --color-border-strong: rgba(28, 28, 26, 0.12);
+  /* The card-on-card frame. The 36%-white floor the flat design needed is gone
+     with the glass: a nested box now sits on its own raised fill over a blurred
+     parent, so the surface step — not the hairline — is what identifies it, and
+     the handoff's soft edge is the intended weight. */
+  --studio-frame: rgba(28, 28, 26, 0.09);
+  --studio-hairline: rgba(28, 28, 26, 0.07);
+  --studio-track: rgba(28, 28, 26, 0.06);
+  --studio-chip: rgba(28, 28, 26, 0.05);
+  --studio-hover: rgba(28, 28, 26, 0.045);
+  --studio-dot-inactive: rgba(28, 28, 26, 0.16);
+
+  /* Text. */
+  --color-foreground: #1c1c1a;
+  --calyxa-chip-text: #4b4a45;
+  --color-muted-foreground: #6b6b65;
+  /* The handoff's faint is #9a988f, which measures 2.82:1 on the white glass —
+     and this token carries real 9.5px text (the strip's day-of-month), so it has
+     to clear the 4.5:1 AA floor. #767469 is the lightest step that does (4.58:1)
+     while staying visibly quieter than `muted` (#6b6b65, 5.24:1). Same deviation,
+     same reason, as the dark half below. `--studio-faint-rule` is untouched: it
+     is a DOT and a RULE, never text, so the 3:1 non-text bar applies. */
+  --studio-faint: #767469;
+  --studio-faint-rule: #c9c7c0;
+
+  /* Accent ladder — one mint, eight strengths. */
+  --studio-mint-tile: rgba(134, 239, 172, 0.24);
+  --studio-mint-pill: rgba(134, 239, 172, 0.28);
+  --studio-mint-30: rgba(134, 239, 172, 0.3);
+  --studio-mint-32: rgba(134, 239, 172, 0.32);
+  --studio-mint-hover: rgba(134, 239, 172, 0.2);
+  --studio-mint-soft: rgba(134, 239, 172, 0.16);
+  --studio-mint-faint: rgba(134, 239, 172, 0.08);
+  --studio-mint-edge: rgba(22, 101, 52, 0.28);
+  --studio-green-tint: #f0fdf4;
+  --studio-green-dot: #4ade80;
+  --studio-accent-deep: #14532d;
+
+  /* Status tones. */
+  --studio-amber-ink: #92400e;
+  --studio-amber-bg: rgba(146, 64, 14, 0.09);
+  --studio-amber-bg-2: rgba(146, 64, 14, 0.06);
+  --studio-amber-edge: rgba(146, 64, 14, 0.35);
+  --studio-danger-ink: #b91c1c;
+  --studio-danger-bg: #fef2f2;
+  --studio-danger-edge: rgba(185, 28, 28, 0.3);
+  --studio-blue-ink: #2563eb;
+  --studio-blue-bg: rgba(37, 99, 235, 0.08);
+  --studio-blue-edge: rgba(37, 99, 235, 0.3);
+  --studio-blue-deep: #1e40af;
+
+  /* Subject tiles tint their course colour at this strength. */
+  --studio-tile-tint: 9%;
+
+  /* Shadows. */
+  --studio-shadow-card: 0 18px 44px rgba(28, 40, 30, 0.14), 0 2px 8px rgba(28, 40, 30, 0.07);
+  --studio-shadow-soft: 0 12px 32px rgba(28, 40, 30, 0.08), 0 2px 8px rgba(28, 40, 30, 0.05);
+  --studio-shadow-btn: 0 2px 8px rgba(28, 40, 30, 0.14);
+  --studio-shadow-pill: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --studio-shadow-note: 0 4px 14px rgba(15, 23, 42, 0.08);
+  --studio-shadow-flash: 0 6px 20px rgba(28, 40, 30, 0.1);
+  --studio-shadow-rail: 2px 0 22px rgba(28, 40, 30, 0.05);
+  --studio-composer-glow: 0 0 0 1px rgba(134, 239, 172, 0.18), 0 0 26px rgba(134, 239, 172, 0.3);
+
+  /* Ambient bloom. */
+  --studio-bloom-1: rgba(187, 247, 208, 0.42);
+  --studio-bloom-2: rgba(134, 239, 172, 0.2);
+  --studio-bloom-3: rgba(123, 237, 170, 0.15);
+
   background: var(--color-background);
   color: var(--color-foreground);
+  position: relative;
+  isolation: isolate;
 }
 /* Both forms: the shell stamps data-theme on ITSELF (so the server-rendered
    HTML is already dark and there is no light flash) and on <body> (so anything
    portalled outside the shell inherits the same token set). */
 .cx-app.cx-studio[data-theme='dark'],
 [data-theme='dark'] .cx-app.cx-studio {
-  /* In dark the card must lift off the page the way it does in the reference;
-     in light the two are the same white and the 1px border does the work. */
-  --studio-card: color-mix(in srgb, #fff 4%, var(--color-background));
-  --studio-hover: color-mix(in srgb, #fff 6%, transparent);
-  /* 36% is the DARKEST white that still clears 3:1 against both surfaces the
-     frame sits between (3.01 inside / 3.25 outside). 40% read as too heavy an
-     outline; 34% drops the inside edge to 2.85 and fails. So this is the floor —
-     any softer and the boundary stops meeting the contrast bar for a UI element.
-     Dark-mode borders have to be LIGHTER than their surface: a dark border on a
-     dark surface is nothing, and the drop shadows that carry this separation in
-     light mode do nothing here either.
-     Light mode is untouched — `--color-border` resolves to #79766e there (globals'
-     shadcn mapping shadows theme.css's #e5e3de) and already measures ~4.2:1. */
-  --studio-frame: color-mix(in srgb, #fff 36%, transparent);
+  --color-background: #0e100f;
+  --studio-card: rgba(255, 255, 255, 0.055);
+  --studio-card-soft: rgba(255, 255, 255, 0.042);
+  --studio-topbar: rgba(255, 255, 255, 0.032);
+  --studio-raised: rgba(255, 255, 255, 0.075);
+  --studio-raised-2: rgba(255, 255, 255, 0.058);
+  --studio-raised-3: rgba(255, 255, 255, 0.05);
+  --studio-raised-4: rgba(255, 255, 255, 0.04);
+  --studio-field: rgba(255, 255, 255, 0.05);
+  --studio-row: rgba(255, 255, 255, 0.035);
+  --studio-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 42%);
+  --color-surface: rgba(255, 255, 255, 0.058);
+
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-border-strong: rgba(255, 255, 255, 0.13);
+  --studio-frame: rgba(255, 255, 255, 0.085);
+  --studio-hairline: rgba(255, 255, 255, 0.08);
+  --studio-track: rgba(255, 255, 255, 0.09);
+  --studio-chip: rgba(255, 255, 255, 0.07);
+  --studio-hover: rgba(255, 255, 255, 0.06);
+  --studio-dot-inactive: rgba(255, 255, 255, 0.2);
+
+  --color-foreground: #eceae4;
+  --calyxa-chip-text: #c7c6bf;
+  --color-muted-foreground: #9d9c93;
+  /* The handoff's faint is #7c7b73. Measured on the glass card it lands at
+     3.98:1 — under the 4.5:1 AA floor, and this token carries real 9.5px text
+     (the strip's day-of-month). Lifted to the lightest value that still reads as
+     "quieter than muted" while clearing the bar: 4.62:1 on the card, 5.55:1 on
+     the page ground. The only deviation from the handoff's colour table. */
+  --studio-faint: #87867e;
+  --studio-faint-rule: rgba(255, 255, 255, 0.24);
+
+  /* Dark ink on the mint fill goes a shade deeper than the light theme's. */
+  --color-accent-fill-foreground: #0d3b21;
+  --studio-mint-tile: rgba(134, 239, 172, 0.14);
+  --studio-mint-pill: rgba(134, 239, 172, 0.16);
+  --studio-mint-30: rgba(134, 239, 172, 0.18);
+  --studio-mint-32: rgba(134, 239, 172, 0.2);
+  --studio-mint-hover: rgba(134, 239, 172, 0.16);
+  --studio-mint-soft: rgba(134, 239, 172, 0.12);
+  --studio-mint-faint: rgba(134, 239, 172, 0.07);
+  --studio-mint-edge: rgba(134, 239, 172, 0.3);
+  --studio-green-tint: rgba(134, 239, 172, 0.14);
+  --studio-green-dot: #86efac;
+  --studio-accent-deep: #bbf7d0;
+
+  --studio-amber-ink: #fde68a;
+  --studio-amber-bg: rgba(253, 230, 138, 0.14);
+  --studio-amber-bg-2: rgba(253, 230, 138, 0.1);
+  --studio-amber-edge: rgba(253, 230, 138, 0.4);
+  --studio-danger-ink: #fca5a5;
+  --studio-danger-bg: rgba(248, 113, 113, 0.15);
+  --studio-danger-edge: rgba(248, 113, 113, 0.35);
+  --studio-blue-ink: #93c5fd;
+  --studio-blue-bg: rgba(147, 197, 253, 0.14);
+  --studio-blue-edge: rgba(147, 197, 253, 0.35);
+  --studio-blue-deep: #bfdbfe;
+
+  --studio-tile-tint: 13%;
+
+  --studio-shadow-card: 0 26px 64px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --studio-shadow-soft: 0 18px 44px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --studio-shadow-btn: 0 2px 10px rgba(0, 0, 0, 0.5);
+  --studio-shadow-pill: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --studio-shadow-note: 0 6px 18px rgba(0, 0, 0, 0.4);
+  --studio-shadow-flash: 0 10px 28px rgba(0, 0, 0, 0.5);
+  --studio-shadow-rail: 2px 0 26px rgba(0, 0, 0, 0.45);
+  --studio-composer-glow: 0 0 0 1px rgba(134, 239, 172, 0.22), 0 0 30px rgba(134, 239, 172, 0.16);
+
+  --studio-bloom-1: rgba(134, 239, 172, 0.12);
+  --studio-bloom-2: rgba(74, 222, 128, 0.08);
+  --studio-bloom-3: rgba(123, 237, 170, 0.06);
 }
 .cx-app.cx-studio ::selection {
   background: var(--color-accent-glow);
@@ -382,20 +536,128 @@ html {
 /* Rail + top-bar icon buttons: transparent until hovered, then the surface
    wash. `!important` beats the inline `background` the component sets. */
 .cx-studio .cx-rail-btn:hover {
-  background: var(--color-surface) !important;
+  background: var(--studio-hover) !important;
   color: var(--color-foreground) !important;
   text-decoration: none;
 }
 
-/* Rows and cards that light up on hover. */
+/* Rows and cards that light up on hover — mint, per the premium handoff, so a
+   row reads as "an accent thing you can open" rather than a grey highlight. */
 .cx-studio .cx-row:hover {
-  background: var(--color-surface) !important;
+  background: var(--studio-mint-hover) !important;
   text-decoration: none;
 }
 .cx-studio .cx-row-edge:hover {
-  background: var(--color-surface) !important;
-  border-color: var(--calyxa-annot-1-tint-border) !important;
+  background: var(--studio-mint-hover) !important;
+  border-color: var(--studio-mint-edge) !important;
   text-decoration: none;
+}
+
+/* ── Glass ───────────────────────────────────────────────────────────────────
+   The handoff's one card recipe, as a class rather than nineteen copies of the
+   same inline block: translucent fill, blurred + saturated backdrop, hairline
+   edge, 17px radius, ambient shadow, and a top sheen drawn by `::before`.
+   Components carry only their own padding and layout.
+
+   `::before` (not `::after`) so a card's own absolutely-positioned children
+   still paint above the sheen without every one of them needing a z-index. */
+.cx-studio .cx-card,
+.cx-studio .cx-card-soft {
+  position: relative;
+  overflow: hidden;
+  border-radius: 17px;
+  border: 1px solid var(--color-border);
+  backdrop-filter: blur(22px) saturate(1.5);
+}
+.cx-studio .cx-card {
+  background: var(--studio-card);
+  box-shadow: var(--studio-shadow-card);
+}
+.cx-studio .cx-card-soft {
+  background: var(--studio-card-soft);
+  box-shadow: var(--studio-shadow-soft);
+}
+.cx-studio .cx-card::before,
+.cx-studio .cx-card-soft::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--studio-sheen);
+  pointer-events: none;
+}
+/* Card content sits above the sheen. */
+.cx-studio .cx-card > *,
+.cx-studio .cx-card-soft > * {
+  position: relative;
+}
+
+/* ── Ambient bloom ───────────────────────────────────────────────────────────
+   Three fixed mint radials on the page ground. `z-index: -1` inside the shell's
+   `isolation: isolate` keeps them behind every sibling but still in front of
+   the root's own background paint, and `pointer-events: none` keeps them out of
+   hit-testing entirely. */
+.cx-studio .cx-bloom {
+  position: fixed;
+  z-index: -1;
+  pointer-events: none;
+}
+.cx-studio .cx-bloom-1 {
+  left: 46%;
+  top: -280px;
+  width: 900px;
+  height: 560px;
+  background: radial-gradient(closest-side, var(--studio-bloom-1), transparent);
+}
+.cx-studio .cx-bloom-2 {
+  left: -180px;
+  bottom: -200px;
+  width: 520px;
+  height: 520px;
+  background: radial-gradient(circle, var(--studio-bloom-2), transparent 70%);
+}
+.cx-studio .cx-bloom-3 {
+  right: -160px;
+  top: 36%;
+  width: 480px;
+  height: 480px;
+  background: radial-gradient(circle, var(--studio-bloom-3), transparent 70%);
+}
+
+/* ── Motion ──────────────────────────────────────────────────────────────────
+   Entrance pop, staggered down the page by `--cx-i`; bar grow; and the breathing
+   mint bloom behind primary CTAs and the "today" cell. The `.cx-app *`
+   reduced-motion rule above already neutralises all three. */
+.cx-studio .cx-rise {
+  animation: cxPop 0.5s cubic-bezier(0.3, 1.4, 0.4, 1) both;
+  animation-delay: calc(var(--cx-i, 0) * 0.06s);
+}
+.cx-studio .cx-bar {
+  transform-origin: left center;
+  animation: cxGrow 0.9s cubic-bezier(0.3, 1.2, 0.4, 1) both;
+  animation-delay: 0.25s;
+}
+.cx-studio .cx-breathe {
+  animation: cxBreathe 3s ease-in-out infinite;
+}
+/* The bloom itself: a blurred mint radial sitting behind its trigger. The
+   wrapper is `position: relative`, set inline where it is used. */
+.cx-studio .cx-glowwrap {
+  position: relative;
+  display: inline-flex;
+}
+.cx-studio .cx-glowwrap > .cx-glow {
+  position: absolute;
+  inset: -10px;
+  border-radius: 999px;
+  background: radial-gradient(circle, var(--studio-mint-32), transparent 70%);
+  filter: blur(10px);
+  pointer-events: none;
+  z-index: 0;
+}
+.cx-studio .cx-glowwrap > *:not(.cx-glow) {
+  position: relative;
+  z-index: 1;
 }
 
 /* The pre-studio screens (account, billing, sessions, library, …) keep the warm

@@ -5,8 +5,8 @@ import Link from 'next/link'
 import type { ReviewSchedule, StripDay } from './schedule'
 import { agoLabel } from './schedule'
 import { strandColorVar } from './chart-tokens'
-import { T, RULE, eyebrow, pill } from './tokens'
-import { ChevronRight } from './icons'
+import { T, ORDINAL, RULE, RADIUS, eyebrow, mintTile, pill } from './tokens'
+import { CalendarIcon, ChevronRight } from './icons'
 
 // The review schedule, made visible.
 //
@@ -27,19 +27,19 @@ import { ChevronRight } from './icons'
 // here would put the same names on the page twice. The strip's highlighted cell
 // is what ties the three together.
 
-const CELL = 34
+const CELL = 36
 
 const sectionLabel: CSSProperties = { ...eyebrow, color: T.muted, fontSize: 9.5 }
 
 function StripCell({ d }: { d: StripDay }) {
   const base: CSSProperties = {
     height: CELL,
-    borderRadius: 9,
+    borderRadius: RADIUS.tile,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 600,
     fontVariantNumeric: 'tabular-nums',
   }
 
@@ -58,7 +58,7 @@ function StripCell({ d }: { d: StripDay }) {
             width: 7,
             height: 7,
             borderRadius: '50%',
-            background: d.studied ? T.accentInk : `color-mix(in srgb, ${T.ink} 16%, transparent)`,
+            background: d.studied ? T.accentInk : T.dotInactive,
           }}
         />
       </div>
@@ -66,7 +66,7 @@ function StripCell({ d }: { d: StripDay }) {
   }
 
   const has = d.count > 0
-  return (
+  const cell = (
     <div
       title={
         d.isToday
@@ -75,14 +75,26 @@ function StripCell({ d }: { d: StripDay }) {
       }
       style={{
         ...base,
-        background: d.isToday ? T.accent : has ? `color-mix(in srgb, ${T.ink} 8%, transparent)` : 'transparent',
-        color: d.isToday ? T.onAccent : has ? T.ink : T.muted,
+        width: d.isToday ? '100%' : undefined,
+        background: d.isToday ? T.accent : has ? T.chip : 'transparent',
+        color: d.isToday ? T.onAccent : has ? T.ink : T.faint,
         border: d.isToday ? 'none' : `1px solid ${has ? T.frame : 'transparent'}`,
         boxSizing: 'border-box',
       }}
     >
       {has ? d.count : '·'}
     </div>
+  )
+
+  // Today breathes — the same mint bloom the primary CTA gets, so the eye lands
+  // on "now" without the cell having to shout in colour.
+  return d.isToday ? (
+    <span className="cx-glowwrap" style={{ display: 'flex' }}>
+      <span aria-hidden className="cx-glow cx-breathe" />
+      {cell}
+    </span>
+  ) : (
+    cell
   )
 }
 
@@ -91,7 +103,7 @@ function Strip({ strip }: { strip: StripDay[] }) {
     <div
       role="img"
       aria-label={`Two-week review schedule. ${strip.filter((d) => d.isPast && d.studied).length} of the last 7 days studied; ${strip.filter((d) => !d.isPast).reduce((a, d) => a + d.count, 0)} concepts scheduled over the next week.`}
-      style={{ display: 'flex', gap: 4, minWidth: 0 }}
+      style={{ display: 'flex', gap: 5, minWidth: 0 }}
     >
       {strip.map((d) => (
         <div key={d.day} style={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -101,7 +113,7 @@ function Strip({ strip }: { strip: StripDay[] }) {
               fontSize: 9.5,
               textAlign: 'center',
               color: d.isToday ? T.accentInk : T.muted,
-              fontWeight: d.isToday ? 700 : 500,
+              fontWeight: d.isToday ? 600 : 500,
             }}
           >
             {d.tick}
@@ -112,7 +124,7 @@ function Strip({ strip }: { strip: StripDay[] }) {
             style={{
               fontSize: 9.5,
               textAlign: 'center',
-              color: T.muted,
+              color: T.faint,
               fontVariantNumeric: 'tabular-nums',
             }}
           >
@@ -134,8 +146,9 @@ function ConceptLine({ conceptKey, title, strand, meta }: { conceptKey: string; 
         alignItems: 'center',
         gap: 10,
         padding: '9px 11px',
+        background: T.row,
         border: `1px solid ${T.frame}`,
-        borderRadius: 10,
+        borderRadius: RADIUS.box,
         color: T.ink,
         textDecoration: 'none',
       }}
@@ -182,17 +195,14 @@ export function ScheduleSection({ schedule }: { schedule: ReviewSchedule }) {
   const studiedLast7 = schedule.strip.filter((d) => d.isPast && d.studied).length
 
   return (
-    <section
-      style={{
-        marginTop: 22,
-        background: T.card,
-        border: `1px solid ${T.border}`,
-        borderRadius: 16,
-        padding: '20px 24px 22px',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ ...eyebrow, color: T.muted }}>Review schedule</div>
+    <section className="cx-card cx-rise" style={{ marginTop: 22, padding: '20px 24px 22px', ['--cx-i' as string]: 3 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={mintTile}>
+            <CalendarIcon size={15} />
+          </span>
+          <div style={{ ...eyebrow, color: T.muted }}>Review schedule</div>
+        </div>
         <span style={{ fontSize: 12, color: T.muted }}>
           Calyxa spaces each concept out as it sticks, and pulls it back sooner when you slip.
         </span>
@@ -224,7 +234,9 @@ export function ScheduleSection({ schedule }: { schedule: ReviewSchedule }) {
         {schedule.overdueCount > 0 && (
           <>
             <span aria-hidden="true">·</span>
-            <span style={{ ...pill, color: T.ink2, fontWeight: 700 }}>{schedule.overdueCount} overdue</span>
+            <span style={{ ...pill, ...ORDINAL.danger, padding: '2px 9px', fontWeight: 600 }}>
+              {schedule.overdueCount} overdue
+            </span>
           </>
         )}
       </div>
@@ -287,7 +299,7 @@ export function ScheduleSection({ schedule }: { schedule: ReviewSchedule }) {
                 style={{
                   ...pill,
                   fontSize: 12,
-                  fontWeight: 700,
+                  fontWeight: 600,
                   color: T.muted,
                   fontVariantNumeric: 'tabular-nums',
                   flexShrink: 0,
