@@ -57,11 +57,13 @@ function send(message: unknown): void {
 export function pushSessionToExtension(session: Session): void {
   send({
     type: 'AUTH_SESSION',
-    session: {
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-      expires_at: session.expires_at ?? undefined,
-      user: { id: session.user.id, email: session.user.email ?? null },
+    payload: {
+      session: {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        expires_at: session.expires_at ?? undefined,
+        user: { id: session.user.id, email: session.user.email ?? null },
+      },
     },
   })
 }
