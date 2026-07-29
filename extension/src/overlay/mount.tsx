@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { Overlay, type TurnResult } from './Overlay';
+import { Overlay, type HomeworkTransports, type TurnResult } from './Overlay';
 import type {
   Annotation,
   PageTopic,
@@ -108,6 +108,14 @@ export type OverlayTransports = {
    */
   onReferralOffer?: () => Promise<ReferralOffer | null>;
   onCreateReferralLink?: () => Promise<{ code: string; link: string }>;
+  /**
+   * The v4 homework session's transports (spec slice 1). The content script
+   * owns the read-only page scan and chrome.storage.local; the overlay reaches
+   * both only through here, the same "sole chrome / DOM surface" role every
+   * other transport in this file plays. Optional as a whole -- omitted, the
+   * overlay is exactly the shipped one-off tutor.
+   */
+  homework?: HomeworkTransports;
 };
 
 export type MountOverlayOptions = OverlayTransports;

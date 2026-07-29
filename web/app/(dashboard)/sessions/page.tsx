@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { loadRecentSessions } from '@/lib/learning/activity-read'
 import { loadStudyKits } from '@/components/dashboard/premium/kits-read'
+import { loadHomeworkHistory } from '@/lib/learning/homework-read'
 import { HistoryScreen } from '@/components/studio/HistoryScreen'
 
 // Sessions — chronological tutoring history from the sessions table, each tagged
@@ -24,7 +25,12 @@ export default async function SessionsPage() {
   }
 
   const kits = await loadStudyKits(supabase)
-  const sessions = await loadRecentSessions(supabase, new Set(kits.map((k) => k.href)))
+  // v4 (ADR-057): homework sets are the unit here, so they load alongside the
+  // tutoring sessions they nest.
+  const [sessions, homework] = await Promise.all([
+    loadRecentSessions(supabase, new Set(kits.map((k) => k.href))),
+    loadHomeworkHistory(supabase),
+  ])
 
-  return <HistoryScreen sessions={sessions} now={new Date()} />
+  return <HistoryScreen sessions={sessions} homework={homework} now={new Date()} />
 }

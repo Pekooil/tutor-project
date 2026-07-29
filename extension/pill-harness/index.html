@@ -48,21 +48,53 @@
         border-bottom: 1.5px solid #e5e3de;
         width: 70%;
       }
+      .problems {
+        margin: 6px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+      .problems li {
+        padding: 15px 0;
+        border-bottom: 1px solid #e5e3de;
+        font-family: Georgia, 'Times New Roman', serif;
+        font-size: 19px;
+      }
+      @media (prefers-color-scheme: dark) {
+        html,
+        body {
+          background: #131412;
+          color: #f1f1ed;
+        }
+        .sheet {
+          background: #1c1d1a;
+          border-color: #2a2b27;
+        }
+        .problems li {
+          border-bottom-color: #2a2b27;
+        }
+        .eyebrow {
+          color: #98988f;
+        }
+      }
     </style>
   </head>
   <body>
     <div class="sheet">
       <span class="eyebrow">Algebra II · Unit 4</span>
       <h1>Factoring practice — quadratic equations</h1>
-      <div class="problem"><span>1&nbsp;&nbsp;x² + 7x + 12 = 0</span></div>
-      <div class="problem">
-        <div style="display: flex; flex-direction: column; gap: 12px; flex: 1">
-          <span>2&nbsp;&nbsp;x² − 5x + 6 = 0</span>
-          <div class="blank"></div>
-          <div class="blank"></div>
-        </div>
-      </div>
-      <div class="problem"><span>3&nbsp;&nbsp;2x² − 8x = 0</span></div>
+      <!-- A full 8-problem set: the v4 homework scan enumerates these for
+           real (problemScanner.ts reads the DOM, nothing is stubbed), so the
+           opener's count and labels here are the genuine article. -->
+      <ol class="problems">
+        <li>1. x² + 7x + 12 = 0</li>
+        <li>2. x² − 5x + 6 = 0</li>
+        <li>3. x² − 9 = 0</li>
+        <li>4. 2x² − 8x = 0</li>
+        <li>5. x² − x − 12 = 0</li>
+        <li>6. x² + 2x − 15 = 0</li>
+        <li>7. 3x² + 12x + 9 = 0</li>
+        <li>8. x² − 10x + 25 = 0</li>
+      </ol>
     </div>
     <div id="calyxa-root"></div>
     <script type="module" src="/main.tsx"></script>

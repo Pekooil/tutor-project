@@ -92,6 +92,9 @@ describe('history rows link into the studio, not the old transcript page', () =>
     return renderToStaticMarkup(
       createElement(HistoryScreen, {
         sessions: sessions as never,
+        // v4 (ADR-057): no synced homework sets in this fixture, so every
+        // tutoring session here is a genuine one-off and renders as Quick help.
+        homework: [],
         now: new Date('2026-07-22T18:00:00.000Z'),
       })
     )
@@ -125,7 +128,11 @@ describe('history rows link into the studio, not the old transcript page', () =>
     const html = await renderHistory([
       { ...base, id: 's9', hasKit: false, kitHref: null, conceptKey: null, conceptTitle: null },
     ])
-    expect(html).toContain('no concept recorded')
+    // v4 (ADR-057) retired the "· no concept recorded" suffix: the row's TITLE
+    // is now "Quick help", which says the same thing without the apology. The
+    // inertness is what this test is actually about, and it still holds.
+    expect(html).toContain('Quick help')
+    expect(html).toContain('This session recorded no concept, so it has no notes')
     expect(html).not.toContain('href="/sessions/s9"')
     expect(html).not.toContain('href="/notes/')
   })

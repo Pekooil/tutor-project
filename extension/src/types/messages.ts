@@ -145,6 +145,10 @@ export type MessageType =
   | 'OPENING_SCAN'
   | 'SEND_TELEMETRY'
   | 'SEND_FEEDBACK'
+  // ADR-057: mirror completed/paused v4 homework sessions to the server so the
+  // Studio dashboard can read them. Fire-and-forget by design -- see
+  // background/index.ts's handler.
+  | 'SYNC_HOMEWORK'
   | 'LOG_ERROR'
   | 'GENERATE_STUDY_KIT'
   | 'STUDY_KIT_REPLY'

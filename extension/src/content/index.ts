@@ -13,6 +13,21 @@ import {
   type EquationRegistry,
 } from './annotations';
 import { extractPageContext } from './pageExtractor';
+import { readPageGrade, scanProblems, type ScannedProblem } from './problemScanner';
+import {
+  appendHomeworkHistory,
+  clearActiveHomework,
+  clearSynced,
+  enqueueForSync,
+  loadActiveHomework,
+  loadHomeworkHistory,
+  loadSoundMuted,
+  loadSyncQueue,
+  saveActiveHomework,
+  saveSoundMuted,
+} from '../lib/homeworkStore';
+import type { HomeworkSession } from '../overlay/homework/types';
+import type { HomeworkTransports } from '../overlay/Overlay';
 import { installGlobalErrorCapture } from '../lib/monitoring';
 import type {
   AiReplyPayload,
@@ -507,6 +522,175 @@ async function createReferralLink(): Promise<{ code: string; link: string }> {
   return reply;
 }
 
+// ---- The v4 homework session's transports (spec slice 1) ----------------
+//
+// Elements never leave this file. The overlay gets serializable
+// SetProblems; the live nodes stay here in `homeworkElements`, indexed by the
+// SAME sourceIndex the overlay carries -- the exact discipline the equation
+// registry already uses for annotations (ADR-022/ADR-023). That is what lets
+// readPageGrade below re-read the page's own verdict at tap time without the
+// overlay ever holding a DOM reference.
+let homeworkElements: (Element | null)[] = [];
+
+/** origin + pathname. The resume/navigation identity (spec §1 + §7). */
+function homeworkLocationKey(): string {
+  return `${window.location.origin}${window.location.pathname}`;
+}
+
+/**
+ * The scan (spec §1): a single read-only DOM pass with ZERO model calls, so
+ * the count is available synchronously and the opener can paint immediately.
+ * Naming the topic is a separate, racing call (homeworkConcept below).
+ */
+function runHomeworkScan(): ReturnType<HomeworkTransports['scan']> {
+  const result = scanProblems();
+  homeworkElements = result.problems.map((problem: ScannedProblem) => problem.element);
+  return {
+    problems: result.problems.map((problem) => ({
+      label: problem.label,
+      snippet: problem.snippet,
+      sourceIndex: problem.index,
+    })),
+    graded: result.graded,
+    confidence: result.confidence,
+    locationKey: homeworkLocationKey(),
+    pageTitle: document.title ? document.title.slice(0, 120) : null,
+  };
+}
+
+/**
+ * The ONE model call the scan is allowed. Reuses the shipped OPENING_SCAN
+ * transport -- same auth, same cost guard, same free-cap behavior -- and takes
+ * only the concept title off it. Annotations are deliberately NOT drawn here:
+ * this is a "what is this page about" read at the START of a homework hour,
+ * not a tutoring turn, and marking up the page before the student has asked
+ * for help would be the wrong kind of proactive.
+ *
+ * Resolves null on every degrade path (nothing plausible on the page, a
+ * refusal, a failure, or no confident topic), and the opener then simply
+ * renders the count.
+ */
+async function homeworkConcept(): Promise<string | null> {
+  if (!isPlausibleProblem(capturedPageContext)) {
+    // The scan runs off a fresh capture: the pill expanded to reach the start
+    // button, which already fired handlePanelExpand.
+    handlePanelExpand();
+    if (!isPlausibleProblem(capturedPageContext)) return null;
+  }
+
+  try {
+    const response: CalyxaMessage = await chrome.runtime.sendMessage({
+      type: 'OPENING_SCAN',
+      payload: { pageContext: capturedPageContext },
+    } satisfies CalyxaMessage);
+    const payload = response?.payload as OpeningScanReplyPayload | undefined;
+    if (!payload || 'error' in payload) return null;
+    const title = payload.topic?.title?.trim();
+    return title ? title : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The page's own verdict for one problem, re-read live (spec §6). */
+function homeworkPageGrade(sourceIndex: number): 'correct' | 'incorrect' | null {
+  return readPageGrade(homeworkElements[sourceIndex] ?? null);
+}
+
+// SHA-256 of origin+pathname. The server never receives the URL itself -- the
+// same discipline `sessions.page_url_hash` established and ADR-047 restated
+// for the dashboard. Salt-free on purpose: this is a same-user grouping key,
+// not an anonymisation claim, and a salt the client holds would add nothing.
+async function hashLocation(value: string): Promise<string> {
+  try {
+    const bytes = new TextEncoder().encode(value);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  } catch {
+    // No SubtleCrypto (an exotic embedder): a stable non-reversing fallback is
+    // still better than shipping the plaintext URL.
+    let hash = 0;
+    for (let i = 0; i < value.length; i++) hash = (hash * 31 + value.charCodeAt(i)) | 0;
+    return `fnv${(hash >>> 0).toString(16)}`;
+  }
+}
+
+/** The wire shape web/lib/homework/sync-shape.ts validates. */
+async function toSyncPayload(session: HomeworkSession, tutoringSessionId: string | undefined) {
+  return {
+    id: session.id,
+    tutoringSessionId: tutoringSessionId ?? null,
+    locationHash: await hashLocation(session.locationKey),
+    title: session.pageTitle,
+    concept: session.concept,
+    denominator: session.denominator,
+    graded: session.graded,
+    status: session.status,
+    problems: session.completed.map((problem) => ({
+      index: problem.index,
+      label: problem.label,
+      outcome: problem.outcome,
+      seconds: problem.seconds,
+      ...(problem.pageGrade ? { pageGrade: problem.pageGrade } : {}),
+    })),
+    totalSeconds: Math.max(
+      0,
+      Math.round((session.accumulatedMs + (session.runningSince ? Date.now() - session.runningSince : 0)) / 1000),
+    ),
+    longestUnaidedRun: session.completed.reduce(
+      (best, problem) => {
+        if (problem.outcome === 'tutored') return { run: 0, best: best.best };
+        const run = best.run + 1;
+        return { run, best: Math.max(best.best, run) };
+      },
+      { run: 0, best: 0 },
+    ).best,
+    startedAt: new Date(session.startedAt).toISOString(),
+    endedAt: session.endedAt ? new Date(session.endedAt).toISOString() : null,
+  };
+}
+
+/**
+ * Enqueues a set and flushes the whole queue (ADR-057). Called when a set
+ * completes or pauses -- NEVER on a tap, which must not touch the network.
+ *
+ * Swallows everything: the local store already holds the truth, so a failed
+ * mirror is invisible to the student and simply retried the next time a set
+ * pauses or completes.
+ */
+async function syncHomework(session: HomeworkSession): Promise<void> {
+  try {
+    await enqueueForSync(session);
+    const queue = await loadSyncQueue();
+    if (queue.length === 0) return;
+    const tutoringSessionId = await getActiveSessionId();
+    const payload = await Promise.all(queue.map((entry) => toSyncPayload(entry, tutoringSessionId)));
+    const response: CalyxaMessage = await chrome.runtime.sendMessage({
+      type: 'SYNC_HOMEWORK',
+      payload: { sessions: payload },
+    } satisfies CalyxaMessage);
+    const synced = (response?.payload as { synced?: string[] } | undefined)?.synced ?? [];
+    await clearSynced(synced);
+  } catch {
+    // Worker asleep, offline, signed out -- all of them mean "try again later".
+  }
+}
+
+const homeworkTransports: HomeworkTransports = {
+  scan: runHomeworkScan,
+  concept: homeworkConcept,
+  locationKey: homeworkLocationKey,
+  readPageGrade: homeworkPageGrade,
+  loadSession: loadActiveHomework,
+  saveSession: saveActiveHomework,
+  clearSession: clearActiveHomework,
+  loadHistory: loadHomeworkHistory,
+  appendHistory: appendHomeworkHistory,
+  loadMuted: loadSoundMuted,
+  saveMuted: saveSoundMuted,
+  syncSession: syncHomework,
+};
+
 // Set by sendAiTurn's voice-path branch above when a reply arrives, and
 // consumed the moment TTS playback actually starts (handleVoicePlaybackStart
 // below) -- the gap between the two is exactly the onSynthesize + audio-
@@ -849,6 +1033,10 @@ export default defineContentScript({
           // the link creation (user-initiated, throws so the card can retry).
           onReferralOffer: fetchReferralOffer,
           onCreateReferralLink: createReferralLink,
+          // The v4 homework session (spec slice 1): the read-only page scan
+          // plus chrome.storage.local, bundled so the overlay reaches neither
+          // directly.
+          homework: homeworkTransports,
         });
       },
       onRemove: (root) => {

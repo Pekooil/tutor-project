@@ -106,13 +106,20 @@ function collectShadowRoots(root: ParentNode, into: ShadowRoot[]): void {
 // Computed once per extractPageContext() call (not once per adapter) so the
 // (rare, but page-size-proportional) recursive sweep above happens a single
 // time per overlay open.
-function collectSearchRoots(): (Document | ShadowRoot)[] {
+//
+// Exported for problemScanner.ts (the v4 homework-session scan), which needs
+// the IDENTICAL read boundary this file established -- every open host-page
+// shadow root, the overlay's own subtree never revisited, closed roots
+// unreadable by design. One walk definition, two readers.
+export function collectSearchRoots(): (Document | ShadowRoot)[] {
   const shadowRoots: ShadowRoot[] = [];
   collectShadowRoots(document, shadowRoots);
   return [document, ...shadowRoots];
 }
 
-function queryExcludingOverlay<E extends Element>(
+// Exported alongside collectSearchRoots for problemScanner.ts -- same reason:
+// the overlay-exclusion rule (ADR-002) must have exactly one definition.
+export function queryExcludingOverlay<E extends Element>(
   selector: string,
   roots: (Document | ShadowRoot)[],
 ): E[] {

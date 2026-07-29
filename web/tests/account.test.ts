@@ -208,11 +208,34 @@ async function seedAllTables(userId: string) {
     .insert({ referrer_id: userId, referred_user_id: userId })
   if (referralErr) throw new Error(`seed referral failed: ${referralErr.message}`)
 
+  // ADR-057: a synced v4 homework session must be export- AND erasure-covered,
+  // the same Sprint 16 invariant every user-scoped table carries.
+  const { error: homeworkErr } = await admin.from('homework_session').insert({
+    id: crypto.randomUUID(),
+    user_id: userId,
+    tutoring_session_id: session.id,
+    location_hash: `fixture-loc-${userId}`,
+    title: 'Fixture worksheet',
+    concept: 'Fixture concept',
+    denominator: 2,
+    graded: false,
+    status: 'complete',
+    problems: [
+      { index: 0, label: '1', outcome: 'ok', seconds: 60 },
+      { index: 1, label: '2', outcome: 'tutored', seconds: 120 },
+    ],
+    total_seconds: 180,
+    longest_unaided_run: 1,
+    started_at: new Date().toISOString(),
+    ended_at: new Date().toISOString(),
+  })
+  if (homeworkErr) throw new Error(`seed homework_session failed: ${homeworkErr.message}`)
+
   return { sessionId: session.id as string }
 }
 
 async function existsInAnyTable(userId: string): Promise<Record<string, number>> {
-  const tables = ['users', 'sessions', 'knowledge_nodes', 'misconceptions', 'session_interactions', 'reinforcement_schedule', 'feedback', 'telemetry_event', 'study_artifact', 'concept_notebook', 'voice_spend', 'signup_ip', 'referral']
+  const tables = ['users', 'sessions', 'knowledge_nodes', 'misconceptions', 'session_interactions', 'reinforcement_schedule', 'feedback', 'telemetry_event', 'study_artifact', 'concept_notebook', 'voice_spend', 'signup_ip', 'referral', 'homework_session']
   const counts: Record<string, number> = {}
 
   for (const table of tables) {

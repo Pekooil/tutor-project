@@ -1,12 +1,9 @@
 'use client'
 
 import type { CSSProperties } from 'react'
-import Link from 'next/link'
 import type { ReviewSchedule, StripDay } from './schedule'
-import { agoLabel } from './schedule'
-import { strandColorVar } from './chart-tokens'
-import { T, ORDINAL, RULE, RADIUS, eyebrow, mintTile, pill } from './tokens'
-import { CalendarIcon, ChevronRight } from './icons'
+import { T, ORDINAL, RADIUS, eyebrow, mintTile, pill } from './tokens'
+import { CalendarIcon } from './icons'
 
 // The review schedule, made visible.
 //
@@ -28,8 +25,6 @@ import { CalendarIcon, ChevronRight } from './icons'
 // is what ties the three together.
 
 const CELL = 36
-
-const sectionLabel: CSSProperties = { ...eyebrow, color: T.muted, fontSize: 9.5 }
 
 function StripCell({ d }: { d: StripDay }) {
   const base: CSSProperties = {
@@ -136,61 +131,6 @@ function Strip({ strip }: { strip: StripDay[] }) {
   )
 }
 
-function ConceptLine({ conceptKey, title, strand, meta }: { conceptKey: string; title: string; strand: string; meta: string }) {
-  return (
-    <Link
-      href={`/notes/${encodeURIComponent(conceptKey)}`}
-      className="cx-row-edge"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '9px 11px',
-        background: T.row,
-        border: `1px solid ${T.frame}`,
-        borderRadius: RADIUS.box,
-        color: T.ink,
-        textDecoration: 'none',
-      }}
-    >
-      <span
-        aria-hidden="true"
-        style={{ flex: 'none', width: 6, height: 6, borderRadius: '50%', background: strandColorVar(strand) }}
-      />
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span
-          style={{
-            display: 'block',
-            fontSize: 13,
-            fontWeight: 600,
-            lineHeight: 1.35,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {title}
-        </span>
-        <span style={{ display: 'block', fontSize: 11, color: T.muted, marginTop: 2 }}>{meta}</span>
-      </span>
-      <ChevronRight size={12} style={{ color: T.muted, flexShrink: 0 }} />
-    </Link>
-  )
-}
-
-function Column({ label, empty, children }: { label: string; empty: string; children: React.ReactNode[] }) {
-  return (
-    <div style={{ minWidth: 0 }}>
-      <div style={{ ...sectionLabel, marginBottom: 10 }}>{label}</div>
-      {children.length === 0 ? (
-        <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: T.muted }}>{empty}</p>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>{children}</div>
-      )}
-    </div>
-  )
-}
-
 export function ScheduleSection({ schedule }: { schedule: ReviewSchedule }) {
   const studiedLast7 = schedule.strip.filter((d) => d.isPast && d.studied).length
 
@@ -234,83 +174,20 @@ export function ScheduleSection({ schedule }: { schedule: ReviewSchedule }) {
         {schedule.overdueCount > 0 && (
           <>
             <span aria-hidden="true">·</span>
-            <span style={{ ...pill, ...ORDINAL.danger, padding: '2px 9px', fontWeight: 600 }}>
+            {/* v4: overdue is AMBER, never red — attention, not failure. */}
+            <span style={{ ...pill, ...ORDINAL.amber, padding: '2px 9px', fontWeight: 600 }}>
               {schedule.overdueCount} overdue
             </span>
           </>
         )}
       </div>
 
-      {/* `cx-progress-pair` rather than a schedule-specific class: it already is
-          "two equal columns that collapse to one", which is exactly this. */}
-      <div
-        className="cx-progress-pair"
-        style={{ marginTop: 20, paddingTop: 18, borderTop: RULE, gap: 24 }}
-      >
-        <Column
-          label="Already done"
-          empty="Nothing reviewed in the last two weeks."
-          children={schedule.done.map((d) => (
-            <ConceptLine
-              key={d.conceptKey}
-              conceptKey={d.conceptKey}
-              title={d.title}
-              strand={d.strand}
-              meta={`Reviewed ${agoLabel(d.daysAgo)} · ${d.label}`}
-            />
-          ))}
-        />
-
-        <Column
-          label="Coming up"
-          empty="Nothing scheduled yet — concepts get a review date once you have been tutored on them."
-          children={schedule.upcoming.map((u) => (
-            <div
-              key={u.day}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '9px 11px',
-                border: `1px solid ${T.frame}`,
-                borderRadius: 10,
-              }}
-            >
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 13, fontWeight: 600, lineHeight: 1.35 }}>
-                  {u.label}
-                </span>
-                <span
-                  style={{
-                    display: 'block',
-                    fontSize: 11,
-                    color: T.muted,
-                    marginTop: 2,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {u.titles.slice(0, 2).join(', ')}
-                  {u.titles.length > 2 ? ` +${u.titles.length - 2} more` : ''}
-                </span>
-              </span>
-              <span
-                style={{
-                  ...pill,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: T.muted,
-                  fontVariantNumeric: 'tabular-nums',
-                  flexShrink: 0,
-                }}
-              >
-                {u.count}
-              </span>
-            </div>
-          ))}
-        />
-      </div>
+      {/* v4 removes the "Already done" / "Coming up" columns that used to sit
+          here. They restated the strip directly above them in list form — the
+          same concept names twice on the dashboard's fourth block — and they
+          were the single biggest reason this card dominated a page whose job is
+          "what do I do right now". The strip plus the one stats line above IS
+          the schedule; anything more belongs on Progress. */}
     </section>
   )
 }

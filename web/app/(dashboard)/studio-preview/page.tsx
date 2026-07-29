@@ -3,6 +3,8 @@ import { parseNotebook } from '@/lib/notebook/tool'
 import type { DashboardActivityDay, DashboardData, DashboardMisconception } from '@/lib/learning/dashboard-read'
 import type { MasteryTrendDay } from '@/lib/learning/analytics-read'
 import type { RecentSession } from '@/lib/learning/activity-read'
+import { comparisonLine, type HomeworkSessionRow } from '@/lib/learning/homework-read'
+import { HomeworkSummaryScreen } from '@/components/studio/HomeworkSummaryScreen'
 import { DataScreen } from '@/components/studio/DataScreen'
 import { LibraryScreen } from '@/components/studio/LibraryScreen'
 import { reviewSchedule } from '@/components/studio/schedule'
@@ -493,6 +495,7 @@ const VIEWS = [
   { key: 'gap', label: 'Gap' },
   { key: 'session', label: 'Session' },
   { key: 'history', label: 'History' },
+  { key: 'summary', label: 'Set summary' },
 ]
 
 // ── Data view ────────────────────────────────────────────────────────────────
@@ -723,6 +726,77 @@ const SESSIONS: RecentSession[] = [
   { id: 's8', startedAt: iso('2026-07-09'), endedAt: iso('2026-07-09'), mode: 'text', hasKit: true, kitHref: '/kits/s8', conceptKey: 'precalc.exp.log', conceptTitle: 'Exponential & Log Functions' },
 ]
 
+// v4 homework fixtures (ADR-057). Deliberately covers the cases that are hard
+// to reach with a real account: a paused set, a finished set with a mixed
+// outcome timeline AND a page-grade mismatch, and a tutoring session nested
+// inside a set (s1) alongside genuine one-offs.
+const HOMEWORK: HomeworkSessionRow[] = [
+  {
+    id: 'hw-paused',
+    tutoringSessionId: null,
+    title: 'Stoichiometry worksheet',
+    concept: 'Mole ratios',
+    denominator: 8,
+    graded: false,
+    status: 'paused',
+    problems: [
+      { index: 0, label: '1', outcome: 'ok', seconds: 140 },
+      { index: 1, label: '2', outcome: 'ok', seconds: 95 },
+      { index: 2, label: '3', outcome: 'shaky', seconds: 260 },
+      { index: 3, label: '4', outcome: 'ok', seconds: 120 },
+      { index: 4, label: '5', outcome: 'ok', seconds: 180 },
+    ],
+    totalSeconds: 795,
+    longestUnaidedRun: 5,
+    startedAt: iso('2026-07-22T13:40:00Z'),
+    endedAt: null,
+  },
+  {
+    id: 'hw-latest',
+    tutoringSessionId: 's1',
+    title: 'Factoring practice — Set 3',
+    concept: 'Factoring quadratics',
+    denominator: 8,
+    graded: true,
+    status: 'complete',
+    problems: [
+      { index: 0, label: '1', outcome: 'ok', seconds: 180, pageGrade: 'correct' },
+      { index: 1, label: '2', outcome: 'ok', seconds: 240 },
+      { index: 2, label: '3', outcome: 'ok', seconds: 120 },
+      { index: 3, label: '4', outcome: 'shaky', seconds: 540 },
+      // The self-report vs. page-grade conflict (spec §6) — surfaced once, in
+      // amber, on the summary detail.
+      { index: 4, label: '5', outcome: 'ok', seconds: 300, pageGrade: 'incorrect' },
+      { index: 5, label: '6', outcome: 'tutored', seconds: 360 },
+      { index: 6, label: '7', outcome: 'ok', seconds: 200 },
+      { index: 7, label: '8', outcome: 'ok', seconds: 340 },
+    ],
+    totalSeconds: 2280,
+    longestUnaidedRun: 5,
+    startedAt: iso('2026-07-21T18:05:00Z'),
+    endedAt: iso('2026-07-21T18:43:00Z'),
+  },
+  {
+    id: 'hw-older',
+    tutoringSessionId: null,
+    title: 'Factoring practice — Set 2',
+    concept: 'Factoring quadratics',
+    denominator: 8,
+    graded: true,
+    status: 'complete',
+    problems: Array.from({ length: 8 }, (_, index) => ({
+      index,
+      label: String(index + 1),
+      outcome: 'ok' as const,
+      seconds: 375,
+    })),
+    totalSeconds: 3000,
+    longestUnaidedRun: 8,
+    startedAt: iso('2026-07-14T18:00:00Z'),
+    endedAt: iso('2026-07-14T18:50:00Z'),
+  },
+]
+
 export default async function StudioPreviewPage({
   searchParams,
 }: {
@@ -932,6 +1006,24 @@ export default async function StudioPreviewPage({
     )
   }
 
+  if (view === 'summary') {
+    // The v4 session-summary detail against the fixture set that carries a
+    // mixed timeline AND a page-grade mismatch — both otherwise only reachable
+    // by doing a real homework set wrong on purpose.
+    return (
+      <>
+        <div style={{ overflowY: 'auto', flex: 1, minHeight: 0 }}>
+          <HomeworkSummaryScreen
+            row={HOMEWORK[1]}
+            comparison={comparisonLine(HOMEWORK[1], HOMEWORK)}
+            kitHref="/library"
+          />
+        </div>
+        {switcher}
+      </>
+    )
+  }
+
   if (view === 'history') {
     // The real /sessions screen, rendered against mock sessions. No light wrapper
     // any more: HistoryScreen is token-based, so it themes with the shell like
@@ -939,7 +1031,7 @@ export default async function StudioPreviewPage({
     return (
       <>
         <div style={{ overflowY: 'auto', flex: 1, minHeight: 0 }}>
-          <HistoryScreen sessions={SESSIONS} now={NOW} />
+          <HistoryScreen sessions={SESSIONS} homework={HOMEWORK} now={NOW} />
         </div>
         {switcher}
       </>
@@ -973,6 +1065,18 @@ export default async function StudioPreviewPage({
         }))}
         schedule={reviewSchedule(DASH_DUE, DASH_ACTIVITY, NOW)}
         isEmpty={false}
+        // v4 (ADR-057). ?view=dash&state=nohomework drops both blocks, which is
+        // what an account that has only ever used Quick help actually sees.
+        homework={
+          state === 'nohomework'
+            ? { paused: null, latest: null, latestComparison: '', latestKitHref: null }
+            : {
+                paused: HOMEWORK[0],
+                latest: HOMEWORK[1],
+                latestComparison: comparisonLine(HOMEWORK[1], HOMEWORK),
+                latestKitHref: '/library',
+              }
+        }
       />
       {switcher}
     </>

@@ -376,6 +376,28 @@ html {
   --studio-hover: rgba(28, 28, 26, 0.045);
   --studio-dot-inactive: rgba(28, 28, 26, 0.16);
 
+  /* v4 homework-outcome fills (ADR-057). The one place a homework outcome
+     becomes a colour: the dashboard's problem-by-problem timeline and the
+     summary detail's bars.
+
+     Deliberately PASTEL FILLS with DARK INK, and deliberately IDENTICAL in both
+     themes (there is no dark override below). A pastel is light against any page
+     background, so one pair stays legible in light and dark alike, which is
+     exactly what the existing status tokens could not do here: --studio-green-dot
+     is pale while --studio-amber-ink is near-brown, so a timeline filled with
+     those read as three unrelated materials in light mode, and the ORDINAL chip
+     tints (8-9% alpha) are far too faint to encode anything in a chart segment.
+
+     Measured on the fill: ok 6.49:1, shaky 5.70:1, tutored 8.02:1, all AA. There
+     is no `incorrect` member and there must never be one: nothing in this feature
+     is punitive, and "worked together" is amber, not red. */
+  --studio-outcome-ok: #86efac;
+  --studio-outcome-ok-ink: #14532d;
+  --studio-outcome-shaky: #93c5fd;
+  --studio-outcome-shaky-ink: #1e3a8a;
+  --studio-outcome-tutored: #fde68a;
+  --studio-outcome-tutored-ink: #78350f;
+
   /* Text. */
   --color-foreground: #1c1c1a;
   --calyxa-chip-text: #4b4a45;

@@ -753,6 +753,30 @@ export async function sendTelemetry(events: TelemetryEvent[]): Promise<void> {
  * user-initiated, so a failure is NOT silently swallowed the way telemetry
  * is.
  */
+/**
+ * Mirrors completed/paused homework sessions to the server (ADR-057), so the
+ * Studio v4 dashboard can show sets that outlive one browser profile.
+ *
+ * Resolves the ids the server actually accepted, so the caller can clear
+ * exactly those from its retry queue and keep the rest. Throws on a transport
+ * or auth failure -- but the CALLER swallows it: this is a mirror, never the
+ * source of truth, and a student mid-set must never feel a failed sync.
+ */
+export async function syncHomeworkSessions(sessions: unknown[]): Promise<string[]> {
+  const res = await authorizedFetch('/api/homework/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessions }),
+  });
+
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((body as { error?: string }).error ?? `homework_sync failed: ${res.status}`);
+  }
+  const synced = (body as { synced?: unknown }).synced;
+  return Array.isArray(synced) ? synced.filter((id): id is string => typeof id === 'string') : [];
+}
+
 export async function sendFeedback(payload: SendFeedbackPayload): Promise<void> {
   const res = await authorizedFetch('/api/feedback', {
     method: 'POST',

@@ -5,6 +5,7 @@ import { loadSessionQuota } from '@/lib/learning/activity-read'
 import { todaysReview } from '@/components/dashboard/premium/derive'
 import { DashboardScreen } from '@/components/studio/DashboardScreen'
 import { reviewSchedule } from '@/components/studio/schedule'
+import { comparisonLine, loadHomeworkDashboard, loadHomeworkHistory } from '@/lib/learning/homework-read'
 
 // The post-login home — the Notebook Studio dashboard: today's review first,
 // then the browser over every subject and concept that has been tutored.
@@ -26,7 +27,14 @@ export default async function DashboardPage() {
   }
 
   const now = new Date()
-  const [data, quota] = await Promise.all([loadDashboard(supabase), loadSessionQuota(supabase)])
+  // The v4 homework reads (ADR-057) ride the same parallel fetch as the rest —
+  // they must never serialize behind the profile read on the critical path.
+  const [data, quota, homeworkDash, homeworkHistory] = await Promise.all([
+    loadDashboard(supabase),
+    loadSessionQuota(supabase),
+    loadHomeworkDashboard(supabase),
+    loadHomeworkHistory(supabase, 20),
+  ])
 
   const schedule = reviewSchedule(data.dueQueue, data.activity, now)
 
@@ -37,6 +45,16 @@ export default async function DashboardPage() {
       due={todaysReview(data, now)}
       schedule={schedule}
       isEmpty={data.isEmpty}
+      homework={{
+        paused: homeworkDash.paused,
+        latest: homeworkDash.latest,
+        // Self-comparison is always against the student's OWN history, never
+        // other students, and only against a set of comparable size.
+        latestComparison: homeworkDash.latest ? comparisonLine(homeworkDash.latest, homeworkHistory) : '',
+        // Only claimed when the set actually opened a tutoring session, since
+        // that is the only case a kit exists to link to.
+        latestKitHref: homeworkDash.latest?.tutoringSessionId ? '/library' : null,
+      }}
     />
   )
 }

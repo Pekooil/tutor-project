@@ -9,6 +9,8 @@ import { CalendarIcon, ClockIcon, LightbulbIcon } from './icons'
 import { strandColorVar } from './chart-tokens'
 import type { ReviewSchedule } from './schedule'
 import { ScheduleSection } from './ScheduleSection'
+import { LatestSetBlock, ResumeBlock } from './HomeworkBlocks'
+import type { HomeworkSessionRow } from '@/lib/learning/homework-read'
 import { STORE_URL } from '@/lib/store-url'
 
 // Screen 1 — the studio dashboard. ONE job: answer "what do I do right now?" —
@@ -193,6 +195,7 @@ export function DashboardScreen({
   due,
   schedule,
   isEmpty,
+  homework,
 }: {
   now: Date
   quota: SessionQuota
@@ -201,6 +204,14 @@ export function DashboardScreen({
   schedule: ReviewSchedule
   /** True when the account has no practiced concepts at all (loadDashboard). */
   isEmpty: boolean
+  /** The v4 homework blocks (ADR-057). Both halves are independently optional:
+   *  a student with no paused set and no finished set simply sees neither. */
+  homework: {
+    paused: HomeworkSessionRow | null
+    latest: HomeworkSessionRow | null
+    latestComparison: string
+    latestKitHref: string | null
+  }
 }) {
   if (isEmpty) return <ActivationView now={now} />
 
@@ -237,6 +248,21 @@ export function DashboardScreen({
           explains why the product is degraded, and it hands off directly to the
           card underneath ("reviews still work"). Renders nothing otherwise. */}
       {capped && <CappedNotice quota={quota} />}
+
+      {/* v4 block 1 — the paused set. First because lossless resume is the
+          mechanic: if something was left unfinished, that is the answer to
+          "what do I do right now", ahead of any review. */}
+      {homework.paused && <ResumeBlock row={homework.paused} />}
+
+      {/* v4 block 2 — the last homework session's summary, kept here after it
+          auto-fired in the extension. */}
+      {homework.latest && (
+        <LatestSetBlock
+          row={homework.latest}
+          comparison={homework.latestComparison}
+          kitHref={homework.latestKitHref}
+        />
+      )}
 
       {/* 1b — Today's Review, the one dominant action */}
       <section className="cx-card cx-rise" style={{ marginTop: 22, padding: '22px 24px 20px', ['--cx-i' as string]: 2 }}>
@@ -278,7 +304,10 @@ export function DashboardScreen({
                   key={c.conceptKey}
                   style={{
                     ...pill,
-                    ...(c.overdue ? ORDINAL.danger : ORDINAL.neutral),
+                    // v4: overdue is AMBER, never red. Nothing in this pass is
+                    // punitive — an overdue review is attention, not failure,
+                    // and the danger tone said the opposite.
+                    ...(c.overdue ? ORDINAL.amber : ORDINAL.neutral),
                     padding: '7px 14px',
                     fontSize: 13,
                     fontWeight: 600,
@@ -293,7 +322,7 @@ export function DashboardScreen({
                       width: 6,
                       height: 6,
                       borderRadius: '50%',
-                      background: c.overdue ? T.danger : strandColorVar(c.strand),
+                      background: c.overdue ? T.amber : strandColorVar(c.strand),
                     }}
                   />
                   {c.title} · {c.overdue ? 'overdue' : 'due today'}

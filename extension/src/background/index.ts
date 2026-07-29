@@ -177,6 +177,18 @@ export default defineBackground(() => {
         // save failure.
         void handleSendFeedback(message.payload as SendFeedbackPayload).then(sendResponse);
         return true;
+      case 'SYNC_HOMEWORK': {
+        // ADR-057: fire-and-forget, like SEND_TELEMETRY and unlike
+        // SEND_FEEDBACK. A homework set lives in chrome.storage.local and the
+        // student's taps were already acknowledged locally -- this mirror
+        // exists only so the Studio dashboard can read the set later, so a
+        // failure must never surface, block, or retry in a way the student can
+        // feel. The content script re-pushes its unsynced queue on the next
+        // pause/completion.
+        const { sessions } = message.payload as { sessions: unknown[] };
+        void handleSyncHomework(sessions).then(sendResponse);
+        return true;
+      }
       case 'LOG_ERROR':
         // Fire-and-forget relay of an ALREADY-scrubbed content-script error
         // (monitoring.ts scrubbed it before it left the content script) to
@@ -740,6 +752,23 @@ async function handleSendFeedback(payload: SendFeedbackPayload): Promise<CalyxaM
   } catch (error) {
     const reply: SendFeedbackReplyPayload = { error: toErrorMessage(error) };
     return { type: 'SEND_FEEDBACK', payload: reply };
+  }
+}
+
+/**
+ * Mirrors homework sessions to /api/homework/sync (ADR-057). Replies with the
+ * ids the server ACCEPTED so the content script can clear exactly those from
+ * its queue and keep retrying the rest; a total failure replies with an empty
+ * list, which the caller treats as "nothing cleared, try again later" rather
+ * than as an error worth showing anyone.
+ */
+async function handleSyncHomework(sessions: unknown[]): Promise<CalyxaMessage> {
+  try {
+    const synced = await api.syncHomeworkSessions(sessions);
+    return { type: 'SYNC_HOMEWORK', payload: { synced } };
+  } catch (error) {
+    console.debug('Calyxa SW: homework sync deferred', toErrorMessage(error));
+    return { type: 'SYNC_HOMEWORK', payload: { synced: [] } };
   }
 }
 

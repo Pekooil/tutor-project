@@ -49,6 +49,52 @@ import { prewarmMic, releaseWarmMic, startRecording, type RecordingHandle, type 
 import { NOT_SURE_CHIP, buildStickingChips, bloomLine } from './session-flow';
 import { createSentenceAccumulator, micStateReducer, wordsDueByTime } from './voice-timing';
 import type { MilestoneMeta } from './pings';
+// ---- v4 homework session (spec slice 1) ----
+import {
+  HomeworkOpenerCard,
+  HomeworkSummaryCard,
+  ManualCountCard,
+  ReactionChip,
+  ResumeChip,
+} from './homework/HomeworkCards';
+import { CompletionTrio, MuteButton, PauseButton, ProgressTrack, RemainingRing } from './homework/HomeworkPill';
+import { buildOpener, meanMinutesPerProblem, type OpenerLines } from './homework/opener';
+import {
+  BLUR_PAUSE_AFTER_MS,
+  UNDO_WINDOW_MS,
+  createSession,
+  currentProblem,
+  isExpired,
+  pauseSession,
+  problemElapsedMs,
+  recordTap,
+  remainingMinutes,
+  resumeSession,
+  sessionElapsedMs,
+  undoLastTap,
+} from './homework/session';
+import { buildSummary, toHistoryEntry, type HomeworkSummary } from './homework/summary';
+import {
+  EMPTY_STUCK_MEMORY,
+  STUCK_OFFER_SUB,
+  clearStuckOffer,
+  recordStuckDeclined,
+  recordStuckOffered,
+  shouldRaiseHand,
+  stuckOfferLine,
+  type StuckMemory,
+} from './homework/stuck';
+import { playTapSound } from './homework/sound';
+import type {
+  HomeworkHistoryEntry,
+  HomeworkSession,
+  Outcome,
+  PageGrade,
+  Reaction,
+  ReactionMemory,
+  SetProblem,
+} from './homework/types';
+import { parseCompletionUtterance } from './homework/vocabulary';
 
 // The panel-close signal (Sprint 12 Task 6): dispatched on an EXPLICIT
 // collapse to idle (Escape, a confirmed session end, the recap's Complete
@@ -232,7 +278,23 @@ const INACTIVITY_END_MS = 3 * 60_000;
 // The hover row grows past the design's fixed 284px when a session is live:
 // end-session ✕ + the feedback affordance join behind a divider (Darcy's
 // call, 2026-07-13 -- both needed a home once the panel header retired).
-export type PillState = 'idle' | 'hover' | 'text' | 'scan' | 'think' | 'listen' | 'speak';
+//
+// The v4 homework states (spec §2 "Idle pill with progress bar"): while a set
+// is running the pill is never the 39x5 sliver -- it is a quiet bar that says
+// something (hwIdle), and it opens to the full referee row on approach
+// (hwWork). hwTutor is the same object during a tutoring detour: the bar
+// stays, the trio yields to the tutoring controls.
+export type PillState =
+  | 'idle'
+  | 'hover'
+  | 'text'
+  | 'scan'
+  | 'think'
+  | 'listen'
+  | 'speak'
+  | 'hwIdle'
+  | 'hwWork'
+  | 'hwTutor';
 export const PILL_SHAPES: Record<PillState, [number, number, number]> = {
   idle: [39, 5, 3],
   hover: [284, 52, 26],
@@ -241,8 +303,17 @@ export const PILL_SHAPES: Record<PillState, [number, number, number]> = {
   think: [152, 46, 23],
   listen: [204, 52, 26],
   speak: [216, 52, 26],
+  // hwWork is sized to its widest real content (track + ring + count + trio +
+  // mute + pause ≈ 505px measured) plus breathing room; the ring is absent
+  // until there is pace history, which is the only variable piece.
+  hwIdle: [194, 32, 99],
+  hwWork: [536, 60, 99],
+  hwTutor: [352, 60, 99],
 };
 const HOVER_SESSION_WIDTH = 383;
+// The pre-session hover row gains the "Start homework session" affordance, so
+// it needs room the shipped 284px row doesn't have.
+const HOVER_HOMEWORK_WIDTH = 476;
 
 /**
  * The annotations/annotationColors extras every committed assistant
@@ -465,18 +536,73 @@ export function mathChainFromReply(reply: string): string[] | null {
 // display spec.
 export type SurfaceKind =
   | 'endConfirm'
+  | 'hwSummary'
   | 'bloom'
   | 'recap'
   | 'feedback'
   | 'transcript'
-  | 'caption'
   | 'notice'
+  | 'history'
+  | 'caption'
+  | 'hwOpener'
+  | 'hwManual'
+  | 'hwNavigated'
+  | 'hwStuck'
   | 'concept'
   | 'conceptFallback'
-  | 'history'
   | 'answer'
+  | 'hwReaction'
+  | 'hwResume'
   | 'referral'
   | 'ping';
+
+// ---- The v4 homework session's transports (spec slice 1) ----
+//
+// Same discipline as every other transport here: Overlay.tsx never imports
+// chrome.* or touches the host DOM. The content script owns the scan (a
+// read-only DOM pass) and chrome.storage.local; this object is the overlay's
+// only window onto either. Optional as a whole, so a harness or a mount that
+// predates this wiring simply renders without the homework flow.
+export type HomeworkTransports = {
+  /**
+   * One read-only DOM pass (content/problemScanner.ts). ZERO model calls, so
+   * the count can be shown the instant it returns. `concept` is deliberately
+   * absent -- naming the topic is onConcept's job below, and the opener
+   * renders without it rather than guessing.
+   */
+  scan: () => {
+    problems: SetProblem[];
+    graded: boolean;
+    confidence: 'high' | 'low';
+    locationKey: string;
+    pageTitle: string | null;
+  };
+  /**
+   * Names the topic. The ONE model call the scan is allowed (spec §1), fired
+   * in parallel with the opener's reveal and dropped entirely if it misses the
+   * ceiling or comes back unconfident -- a wrong topic on the first screen
+   * destroys trust immediately.
+   */
+  concept: () => Promise<string | null>;
+  /** origin+pathname right now -- how SPA navigation is noticed (spec §1). */
+  locationKey: () => string;
+  /** The page's own verdict for a problem, re-read live at tap time (spec §6). */
+  readPageGrade: (sourceIndex: number) => PageGrade | null;
+  loadSession: () => Promise<HomeworkSession | null>;
+  saveSession: (session: HomeworkSession) => Promise<void>;
+  clearSession: () => Promise<void>;
+  loadHistory: () => Promise<HomeworkHistoryEntry[]>;
+  appendHistory: (entry: HomeworkHistoryEntry) => Promise<void>;
+  loadMuted: () => Promise<boolean>;
+  saveMuted: (muted: boolean) => Promise<void>;
+  /**
+   * Mirrors a set to the server (ADR-057), so the Studio dashboard can read
+   * sets that outlive one browser profile. Called ONLY when a set completes or
+   * pauses -- never on a tap. Optional, and never rejects: local storage is
+   * the source of truth, so a failed mirror is invisible and simply retried.
+   */
+  syncSession?: (session: HomeworkSession) => Promise<void>;
+};
 
 // Calyxa overlay — the "Calyxa Ambient Pill" redesign (2026-07-13).
 //
@@ -519,6 +645,7 @@ export function Overlay({
   onGenerateStudyKit,
   onReferralOffer,
   onCreateReferralLink,
+  homework,
 }: {
   // `sessionStart` rides ONLY the session's first turn (the concept card's
   // confirm / reframe start), always with an empty `messages` array: the
@@ -598,6 +725,9 @@ export function Overlay({
   // shareable link idempotently and rejects on failure (the card retries).
   onReferralOffer?: () => Promise<ReferralOffer | null>;
   onCreateReferralLink?: () => Promise<{ code: string; link: string }>;
+  // The v4 homework session (spec slice 1). Optional as a whole -- absent, the
+  // overlay is exactly the shipped one-off tutor.
+  homework?: HomeworkTransports;
 }) {
   // ---- Shell + theme (the ambient pill's own state) ----
   // The user-driven base state: hover/text are chosen expansions; every
@@ -752,6 +882,58 @@ export function Overlay({
     scoreChange: ScoreChange | null;
   } | null>(null);
 
+  // ---- v4 homework session state (spec slice 1) ----
+  // `hw` is the whole persisted session; every other piece here is either a
+  // transient surface or bookkeeping the session itself must not carry.
+  const [hw, setHw] = useState<HomeworkSession | null>(null);
+  const [hwHistory, setHwHistory] = useState<HomeworkHistoryEntry[]>([]);
+  const [hwPhase, setHwPhase] = useState<'off' | 'scanning' | 'opener' | 'manual' | 'active' | 'summary'>('off');
+  const [hwScan, setHwScan] = useState<{
+    problems: SetProblem[];
+    graded: boolean;
+    confidence: 'high' | 'low';
+    locationKey: string;
+    pageTitle: string | null;
+  } | null>(null);
+  const [hwOpener, setHwOpener] = useState<OpenerLines | null>(null);
+  const [hwConcept, setHwConcept] = useState<string | null>(null);
+  const [hwConceptPending, setHwConceptPending] = useState(false);
+  const [hwReaction, setHwReaction] = useState<{ reaction: Reaction; id: number } | null>(null);
+  const hwReactionIdRef = useRef(0);
+  // The undo window's snapshot (spec §4): held for UNDO_WINDOW_MS so a
+  // reverted tap also gives back the reaction budget it consumed.
+  const [hwUndo, setHwUndo] = useState<{
+    memory: ReactionMemory;
+    problemStartedAt: number;
+    id: number;
+  } | null>(null);
+  const [hwSummary, setHwSummary] = useState<HomeworkSummary | null>(null);
+  // A restorable session found on load, offered rather than auto-entered.
+  const [hwResume, setHwResume] = useState<HomeworkSession | null>(null);
+  // Set when the page navigated out from under a live set (spec §1): the
+  // session is NEVER silently retargeted or re-scanned -- the student decides.
+  const [hwNavigated, setHwNavigated] = useState(false);
+  const [hwMuted, setHwMuted] = useState(false);
+  // The tutoring detour's sequence position, or null. Set on a "stuck" tap,
+  // cleared when the student comes back to the set.
+  const [hwTutoring, setHwTutoring] = useState<number | null>(null);
+  // Stuck detection (the design's "raise hand"). The memory is per-set and
+  // deliberately NOT persisted with the session: a decline is a statement
+  // about tonight's mood, and a resumed set should get its safety net back
+  // rather than inherit an hours-old "leave me alone".
+  const [hwStuck, setHwStuck] = useState<StuckMemory>(EMPTY_STUCK_MEMORY);
+  // The sequence index the offer is currently on screen for, or null.
+  const [hwStuckOffer, setHwStuckOffer] = useState<number | null>(null);
+  // Bumped whenever a MOMENT-tone reaction fires -- the ONLY thing that
+  // lights the breathing glow (spec §5; if it fired on every tap it would
+  // stop meaning anything).
+  const [hwMomentAt, setHwMomentAt] = useState<number | null>(null);
+  // Re-render clock for the remaining-time ring. The value itself is never
+  // read -- the ring recomputes from Date.now() on each render, and this only
+  // exists to schedule those renders. It is never a countdown the student can
+  // fall behind (spec §2).
+  const [, setHwTick] = useState(0);
+
   // ---- Voice plumbing refs (unchanged) ----
   const recordingRef = useRef<RecordingHandle | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -767,6 +949,8 @@ export function Overlay({
   const sessionLive = kickoffStarted || messages.some((message) => message.role === 'user');
 
   // ---- The pill's derived state ----
+  // A homework set is RUNNING: the pill owes the student a progress bar.
+  const hwRunning = hw !== null && hwPhase === 'active';
   const pill: PillState =
     recording || connecting
       ? 'listen'
@@ -774,26 +958,50 @@ export function Overlay({
         ? 'speak'
         : voiceThinking
           ? 'think'
-          : scanPending
+          : scanPending || hwPhase === 'scanning'
             ? 'scan'
             : shell === 'text'
               ? 'text'
               : busy
                 ? 'think'
-                : shell === 'hover'
-                  ? 'hover'
-                  : 'idle';
-  const expanded = pill !== 'idle';
+                : hwRunning
+                  ? hwTutoring !== null
+                    ? 'hwTutor'
+                    : shell === 'hover'
+                      ? 'hwWork'
+                      : 'hwIdle'
+                  : shell === 'hover'
+                    ? 'hover'
+                    : 'idle';
+  // hwIdle is a RESTING shape, not an expansion: it must not fire the
+  // page-recapture signal on every tap, hold the mic warm for a whole
+  // homework hour, or make Escape think there is something to collapse.
+  const expanded = pill !== 'idle' && pill !== 'hwIdle';
   const hoverExtras = sessionLive;
   const [pillW, pillH, pillR] =
-    pill === 'hover' && hoverExtras ? [HOVER_SESSION_WIDTH, 52, 26] : PILL_SHAPES[pill];
+    pill === 'hover'
+      ? homework && !hwRunning && !sessionLive
+        ? [HOVER_HOMEWORK_WIDTH, 52, 26]
+        : hoverExtras
+          ? [HOVER_SESSION_WIDTH, 52, 26]
+          : PILL_SHAPES.hover
+      : PILL_SHAPES[pill];
 
   // ---- The single transient surface (priority order, one at a time) ----
+  // The homework surfaces slot in by the same rule the rest already follow:
+  // an explicit dialog outranks terminal states, which outrank live turn
+  // surfaces, which outrank the ambient ones. The summary sits with the
+  // terminal states; the opener and the navigation offer with the pre-session
+  // ones; the reaction chip and resume offer are ambient.
   const surfaceKind: SurfaceKind | null = endConfirmOpen
     ? 'endConfirm'
-    : bloom
+    : hwSummary
+      ? 'hwSummary'
+      : bloom
       ? 'bloom'
-      : recap
+      // A homework set owns the terminal slot: the tutoring recap must not
+      // interrupt a set that is still running (the detour ended, not the set).
+      : recap && !hwRunning
         ? 'recap'
         : feedbackOpen
           ? 'feedback'
@@ -811,24 +1019,41 @@ export function Overlay({
                   ? 'history'
                   : streamingTokens.length > 0 || playing || captionHold
                     ? 'caption'
-                    : !sessionLive && closeState === 'idle' && !busy && scan?.topic
-                      ? 'concept'
-                      : !sessionLive && closeState === 'idle' && !busy && scanSettled && !scan?.topic
-                        ? 'conceptFallback'
-                        : ((chips && chips.length > 0) || (answerFields && answerFields.length > 0)) &&
-                            !busy &&
-                            closeState === 'idle'
-                          ? 'answer'
-                          // The referral card (ADR-053) is ambient-priority:
-                          // it only ever fires at session close, so nothing
-                          // above it is normally live -- but if a new
-                          // conversation starts it yields to every working
-                          // surface (and sendStudentMessage clears it).
-                          : referralOffer
-                            ? 'referral'
-                            : pinQueue.length > 0
-                              ? 'ping'
-                              : null;
+                    : hwPhase === 'opener' && hwOpener && hwScan
+                      ? 'hwOpener'
+                      : hwPhase === 'manual'
+                        ? 'hwManual'
+                        : hwNavigated
+                          ? 'hwNavigated'
+                          // The raise-hand offer outranks the ambient cards
+                          // below it but yields to every working surface
+                          // above -- it is an interruption by definition, so
+                          // it must never interrupt something the student is
+                          // already doing.
+                          : hwStuckOffer !== null
+                            ? 'hwStuck'
+                            : !sessionLive && closeState === 'idle' && !busy && scan?.topic
+                            ? 'concept'
+                            : !sessionLive && closeState === 'idle' && !busy && scanSettled && !scan?.topic
+                              ? 'conceptFallback'
+                              : ((chips && chips.length > 0) || (answerFields && answerFields.length > 0)) &&
+                                  !busy &&
+                                  closeState === 'idle'
+                                ? 'answer'
+                                : hwReaction
+                                  ? 'hwReaction'
+                                  : hwResume
+                                    ? 'hwResume'
+                                    // The referral card (ADR-053) is ambient-priority:
+                                    // it only ever fires at session close, so nothing
+                                    // above it is normally live -- but if a new
+                                    // conversation starts it yields to every working
+                                    // surface (and sendStudentMessage clears it).
+                                    : referralOffer
+                                      ? 'referral'
+                                      : pinQueue.length > 0
+                                        ? 'ping'
+                                        : null;
 
   // ---- Small shared helpers ----
   function appendStreamToken(text: string) {
@@ -1082,6 +1307,9 @@ export function Overlay({
     setCaptionMath(null);
     setNotice(null);
     setReferralOffer(null); // an explicit collapse dismisses the nudge too
+    // The reaction chip is transient chrome; the SET itself is untouched --
+    // Escape has never been an end, and it must not become one here.
+    setHwReaction(null);
     // A dismissed concept card is consumed -- the student declined the
     // detection, so it never re-pops on the next hover (typing/speaking
     // still starts a session normally).
@@ -1260,6 +1488,477 @@ export function Overlay({
     await onReportFeedback({ ...payload, ...(sessionId ? { sessionId } : {}) });
   }
 
+  // ══ v4 homework session (spec slice 1) ═════════════════════════════════
+
+  // How long a reaction chip holds the slot. A moment gets longer than a
+  // whisper for the same reason it gets the glow: it is rarer and it is meant
+  // to land. Both outlive the 5s undo window so the escape hatch is never
+  // taken off screen before it expires.
+  const HW_REACTION_HOLD_MS = 5400;
+  const HW_MOMENT_HOLD_MS = 7000;
+  // Spec §1's hard ceiling: past this the opener ships without the concept
+  // name rather than shimmering at the student.
+  const HW_CONCEPT_CEILING_MS = 4000;
+  // How long the moment glow breathes before the pill goes quiet again.
+  const HW_GLOW_MS = 3200;
+
+  // ---- Boot: restore the toggle, the pace history, and any paused set ----
+  useEffect(() => {
+    if (!homework) return;
+    let cancelled = false;
+    void (async () => {
+      const [muted, history, stored] = await Promise.all([
+        homework.loadMuted(),
+        homework.loadHistory(),
+        homework.loadSession(),
+      ]);
+      if (cancelled) return;
+      setHwMuted(muted);
+      setHwHistory(history);
+      if (!stored) return;
+      // Spec §7: a paused set older than ~18h is closed out rather than
+      // resumed -- it should not ambush the student the next evening.
+      if (isExpired(stored, Date.now())) {
+        void homework.clearSession();
+        return;
+      }
+      if (stored.status === 'complete') {
+        void homework.clearSession();
+        return;
+      }
+      // Resume is OFFERED, only on a page whose origin+path matches.
+      if (stored.locationKey === homework.locationKey()) setHwResume(stored);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---- Persist after every change (spec §7) ----
+  // Local-first and fire-and-forget: a failed write must never block or lose
+  // a tap the student already saw acknowledged.
+  useEffect(() => {
+    if (!homework || !hw) return;
+    void homework.saveSession(hw);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hw]);
+
+  // ---- The remaining-time ring's clock ----
+  useEffect(() => {
+    if (!hwRunning) return;
+    const timer = window.setInterval(() => setHwTick((value) => value + 1), 15_000);
+    return () => window.clearInterval(timer);
+  }, [hwRunning]);
+
+  // ---- Tab-blur pause (spec §4) ----
+  // A dinner break must not render as "47 minutes on that one". Under the
+  // 2-minute threshold nothing happens at all -- glancing at another tab is
+  // not a break.
+  useEffect(() => {
+    if (!hwRunning) return;
+    let hiddenAt: number | null = null;
+    function onVisibility() {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        return;
+      }
+      const away = hiddenAt;
+      hiddenAt = null;
+      if (away === null || Date.now() - away < BLUR_PAUSE_AFTER_MS) return;
+      setHw((current) => (current ? resumeSession(pauseSession(current, away), Date.now()) : current));
+    }
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [hwRunning]);
+
+  // ---- SPA navigation (spec §1) ----
+  // Do NOT re-scan and do NOT silently retarget: the session and its
+  // denominator are kept, and the student is offered the pause. Polled rather
+  // than event-driven because pushState fires no event of its own.
+  useEffect(() => {
+    if (!homework || !hwRunning || !hw) return;
+    const timer = window.setInterval(() => {
+      if (homework.locationKey() !== hw.locationKey) setHwNavigated(true);
+    }, 1500);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hwRunning, hw?.locationKey]);
+
+  // ---- The reaction chip's own window + the undo window ----
+  const hwReactionId = hwReaction?.id ?? null;
+  useEffect(() => {
+    if (hwReactionId === null || !hwReaction) return;
+    const hold = hwReaction.reaction.tone === 'moment' ? HW_MOMENT_HOLD_MS : HW_REACTION_HOLD_MS;
+    const timer = window.setTimeout(() => dismissSurface(() => setHwReaction(null)), hold);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hwReactionId]);
+
+  const hwUndoId = hwUndo?.id ?? null;
+  useEffect(() => {
+    if (hwUndoId === null) return;
+    const timer = window.setTimeout(() => setHwUndo(null), UNDO_WINDOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [hwUndoId]);
+
+  // ---- The moment glow (spec §5: moments only) ----
+  useEffect(() => {
+    if (hwMomentAt === null) return;
+    const timer = window.setTimeout(() => setHwMomentAt(null), HW_GLOW_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hwMomentAt]);
+
+  /**
+   * Starts a set. The count comes back synchronously from a local DOM pass and
+   * the opener renders immediately; the concept name is raced against the
+   * spec's 4s ceiling and simply omitted if it loses, comes back empty, or
+   * fails outright.
+   */
+  function startHomework() {
+    if (!homework || hwRunning || hwPhase === 'scanning') return;
+    setShell('idle');
+    setHwResume(null);
+    setHwSummary(null);
+    setHwNavigated(false);
+    setHwPhase('scanning');
+
+    // Deferred a frame so the pill's scan state actually paints before the
+    // (synchronous, page-size-proportional) DOM walk runs.
+    window.setTimeout(() => {
+      const result = homework.scan();
+      if (result.problems.length === 0) {
+        // Spec §1: never fail silently, never show a broken session.
+        setHwScan(result);
+        setHwPhase('manual');
+        return;
+      }
+      setHwScan(result);
+      setHwConcept(null);
+      setHwOpener(buildOpener({ concept: null, count: result.problems.length, history: hwHistory }));
+      setHwPhase('opener');
+      setHwConceptPending(true);
+
+      let settled = false;
+      const ceiling = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        setHwConceptPending(false);
+      }, HW_CONCEPT_CEILING_MS);
+
+      void homework
+        .concept()
+        .then((concept) => {
+          if (settled || !concept) return;
+          settled = true;
+          window.clearTimeout(ceiling);
+          setHwConcept(concept);
+          setHwConceptPending(false);
+          setHwOpener(buildOpener({ concept, count: result.problems.length, history: hwHistory }));
+          // A student who confirms the denominator in under a second beats
+          // the concept read back. Attach it late rather than leaving the
+          // whole set unlabelled -- the summary's self-comparison is keyed on
+          // the concept, so losing it here would cost them the comparison
+          // line on their NEXT session too.
+          setHw((current) => (current && current.concept === null ? { ...current, concept } : current));
+        })
+        .catch(() => {
+          // A failed concept read is a missing line, never a failed scan.
+        })
+        .finally(() => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(ceiling);
+          setHwConceptPending(false);
+        });
+    }, 16);
+  }
+
+  /** Confirms the denominator and freezes it for the session (spec §3). */
+  function confirmHomework(problems: SetProblem[]) {
+    if (!homework || !hwScan || problems.length === 0) return;
+    setHwPhase('active');
+    setHwOpener(null);
+    setHwConceptPending(false);
+    setHw(
+      createSession({
+        locationKey: hwScan.locationKey,
+        pageTitle: hwScan.pageTitle,
+        concept: hwConcept,
+        problems,
+        graded: hwScan.graded,
+      }),
+    );
+  }
+
+  /** The manual-count fallback's start: synthetic problems, otherwise normal. */
+  function confirmManualCount(count: number) {
+    if (!homework) return;
+    const problems: SetProblem[] = Array.from({ length: count }, (_, index) => ({
+      label: String(index + 1),
+      snippet: '',
+      sourceIndex: index,
+    }));
+    const base = hwScan ?? {
+      problems: [],
+      graded: false,
+      confidence: 'low' as const,
+      locationKey: homework.locationKey(),
+      pageTitle: null,
+    };
+    setHwScan(base);
+    setHwPhase('active');
+    setHwConceptPending(false);
+    setHw(
+      createSession({
+        locationKey: base.locationKey,
+        pageTitle: base.pageTitle,
+        concept: hwConcept,
+        problems,
+        graded: base.graded,
+      }),
+    );
+  }
+
+  function cancelHomeworkStart() {
+    setHwPhase('off');
+    setHwScan(null);
+    setHwOpener(null);
+    setHwConceptPending(false);
+  }
+
+  /**
+   * One completion tap (spec §4). The visible reaction -- key depress, sound,
+   * bar head -- is not gated on ANY async work: the state update and the sound
+   * fire synchronously here, and persistence reconciles afterwards.
+   */
+  function commitHomeworkTap(outcome: Exclude<Outcome, 'tutored'> | 'tutored') {
+    if (!homework || !hw || hw.completed.length >= hw.denominator) return;
+    const now = Date.now();
+    const problem = hw.problems[hw.completed.length];
+    // Spec §6: on a graded page the page's own verdict wins for anything the
+    // engine consumes -- but the tap still counted, and the bar does not
+    // retreat. Read live, because the mark usually only appears once the
+    // student has answered.
+    const pageGrade = hw.graded && problem ? homework.readPageGrade(problem.sourceIndex) : null;
+
+    const previousMemory = hw.reactions;
+    const previousProblemStartedAt = hw.problemStartedAt;
+    const { session, reaction } = recordTap(hw, { outcome, now, pageGrade });
+
+    playTapSound(hwMuted);
+    setHw(session);
+    setHwReaction({ reaction, id: ++hwReactionIdRef.current });
+    setHwUndo({ memory: previousMemory, problemStartedAt: previousProblemStartedAt, id: hwReactionIdRef.current });
+    if (reaction.tone === 'moment') setHwMomentAt(now);
+    // A held tutoring reply must not sit on top of the set's own feedback.
+    setCaptionHold(null);
+    setCaptionMath(null);
+    // The next problem starts with a clean safety net: a completion re-arms
+    // the detector, but a DECLINE still stands for the rest of the set.
+    setHwStuckOffer(null);
+    setHwStuck(clearStuckOffer);
+
+    if (session.completed.length >= session.denominator) finishHomework(session, now);
+  }
+
+  function handleHomeworkTap(outcome: Outcome) {
+    if (!hw || hwTutoring !== null) return;
+    // "Wrong or stuck" is not a completion -- it is a handoff. The outcome is
+    // recorded as `tutored` on the way BACK (spec §4's table).
+    if (outcome === 'tutored') {
+      startHomeworkTutoring();
+      return;
+    }
+    commitHomeworkTap(outcome);
+  }
+
+  // ---- Stuck detection (the design's "raise hand") ----
+  // Polled every 20s rather than scheduled as one timer per problem: the
+  // threshold MOVES as the session's own pace data grows, and a poll reads the
+  // current threshold instead of one frozen when the problem started.
+  // Zero model calls -- shouldRaiseHand is pure arithmetic over local state.
+  useEffect(() => {
+    if (!hw || !hwRunning || hwStuckOffer !== null) return;
+    const timer = window.setInterval(() => {
+      if (
+        shouldRaiseHand({
+          session: hw,
+          history: hwHistory,
+          memory: hwStuck,
+          problemElapsedMs: problemElapsedMs(hw, Date.now()),
+          tutoringOpen: hwTutoring !== null,
+        })
+      ) {
+        const index = hw.completed.length;
+        setHwStuckOffer(index);
+        setHwStuck((memory) => recordStuckOffered(memory, index));
+      }
+    }, 20_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hw, hwRunning, hwStuck, hwStuckOffer, hwTutoring, hwHistory]);
+
+  /** "Work it with me" -- the same handoff the Stuck tap uses, nothing parallel. */
+  function acceptStuckOffer() {
+    setHwStuckOffer(null);
+    startHomeworkTutoring();
+  }
+
+  /**
+   * "I'm good" -- refusable, and the refusal STICKS: never re-offered on this
+   * problem, and the threshold widens to its ceiling for the rest of the set.
+   */
+  function declineStuckOffer() {
+    const index = hwStuckOffer;
+    if (index === null) return;
+    setHwStuck((memory) => recordStuckDeclined(memory, index));
+    dismissSurface(() => setHwStuckOffer(null));
+  }
+
+  /**
+   * The tutoring handoff (spec §5): routes THIS problem into the EXISTING
+   * tutoring session rather than a parallel flow. No check-in card -- the
+   * student already said they're stuck, and the problem text came off the page
+   * in the scan, so the structured sessionStart carries both straight through.
+   */
+  function startHomeworkTutoring() {
+    if (!hw || busy || hwTutoring !== null) return;
+    const problem = currentProblem(hw);
+    setHwTutoring(hw.completed.length);
+    setHwReaction(null);
+    setHwUndo(null);
+    setHwStuckOffer(null);
+    setShell('idle');
+    // A synthetic problem (the manual-count fallback) has no snippet to quote;
+    // the tutor then opens on the page context it already receives.
+    const question = problem?.snippet?.trim();
+    void startSessionTurn({
+      question: question || `Problem ${problem?.label ?? hw.completed.length + 1} on this page`,
+      stickingPoint: null,
+    });
+  }
+
+  /**
+   * Back to the set: the detour's outcome is recorded as `tutored` and the bar
+   * advances exactly as it would for any other problem (spec §5). The tutoring
+   * SESSION stays open -- a set can contain several tutored problems, and
+   * re-starting one per problem would be both slower and wrong.
+   */
+  function returnToSet() {
+    if (!hw || hwTutoring === null) return;
+    setHwTutoring(null);
+    setChips(null);
+    setAnswerFields(null);
+    setCaptionHold(null);
+    setCaptionMath(null);
+    setBloom(null);
+    setCloseState((previous) => nextCloseState(previous, 'reset'));
+    commitHomeworkTap('tutored');
+  }
+
+  /** Reverts the last completion within the undo window (spec §4). */
+  function handleHomeworkUndo() {
+    if (!hw || !hwUndo) return;
+    setHw(
+      undoLastTap(hw, {
+        previousMemory: hwUndo.memory,
+        previousProblemStartedAt: hwUndo.problemStartedAt,
+        now: Date.now(),
+      }),
+    );
+    setHwUndo(null);
+    setHwSummary(null);
+    setHwPhase('active');
+    dismissSurface(() => setHwReaction(null));
+  }
+
+  /** Pause: progress saved, nothing lost, no celebration (spec §7). */
+  function pauseHomework() {
+    if (!hw) return;
+    const paused = pauseSession(hw, Date.now());
+    void homework?.saveSession(paused);
+    // ADR-057: a paused set is exactly what the dashboard's resume card shows,
+    // so it mirrors here too.
+    void homework?.syncSession?.(paused);
+    setHw(null);
+    setHwPhase('off');
+    setHwTutoring(null);
+    setHwNavigated(false);
+    setHwReaction(null);
+    setHwUndo(null);
+    setHwStuckOffer(null);
+    setHwResume(paused);
+    setShell('idle');
+  }
+
+  function acceptHomeworkResume() {
+    if (!hwResume) return;
+    const restored = resumeSession(hwResume, Date.now());
+    setHwResume(null);
+    setHwScan({
+      problems: restored.problems,
+      graded: restored.graded,
+      confidence: 'high',
+      locationKey: restored.locationKey,
+      pageTitle: restored.pageTitle,
+    });
+    setHwConcept(restored.concept);
+    setHw(restored);
+    setHwPhase('active');
+    setHwNavigated(false);
+    // A resumed set gets its safety net back: a decline said "not right now",
+    // and "now" was hours ago.
+    setHwStuck(EMPTY_STUCK_MEMORY);
+    setHwStuckOffer(null);
+  }
+
+  /**
+   * The summary fires AUTOMATICALLY on the final tap (spec §8) -- never behind
+   * a menu. A partial set never reaches here: this is only called when the
+   * completed count meets the frozen denominator.
+   */
+  function finishHomework(session: HomeworkSession, now: number) {
+    const summary = buildSummary(session, hwHistory, now);
+    const entry = toHistoryEntry(session, now);
+    setHwSummary(summary);
+    setHwPhase('summary');
+    setHwTutoring(null);
+    setHwHistory((current) => [...current, entry]);
+    void homework?.appendHistory(entry);
+    // ADR-057: mirror the finished set. Fired here and on pause only -- never
+    // on a tap, which must never touch the network.
+    void homework?.syncSession?.(session);
+    // The tutoring session (if a detour opened one) ends here so its recap and
+    // study-kit generation run -- the summary above owns the slot meanwhile.
+    if (sessionLive) void onEndSession().catch(() => {});
+  }
+
+  function dismissHomeworkSummary() {
+    setHwSummary(null);
+    setHw(null);
+    setHwPhase('off');
+    setHwScan(null);
+    setHwOpener(null);
+    setHwConcept(null);
+    setHwReaction(null);
+    setHwUndo(null);
+    setHwStuck(EMPTY_STUCK_MEMORY);
+    setHwStuckOffer(null);
+    void homework?.clearSession();
+    // The tutoring recap, if one landed while the summary was up, has already
+    // been superseded by the summary the student just read.
+    setRecap(null);
+    performClose();
+  }
+
+  function toggleHomeworkMute() {
+    const next = !hwMuted;
+    setHwMuted(next);
+    void homework?.saveMuted(next);
+  }
+
   // ---- The opening scan (ADR-030), now the viewfinder button's action ----
   // Same call, same gate posture as the old on-expand effect -- the trigger
   // moved to an explicit tap (a hover is too transient to bill against).
@@ -1418,15 +2117,21 @@ export function Overlay({
       }),
     );
     if (result.session?.complete) {
-      // A correct answer earns the section-complete bloom card, which holds
-      // BLOOM_MS then hands off to the summary (pendingRecapRef when the
-      // recap already landed).
+      // Inside a homework set, "complete" means THIS PROBLEM is done, not the
+      // session (spec §5): the bloom still fires, then the student is returned
+      // to the set with the bar advanced. The tutoring session stays open for
+      // the next problem that needs it, so no close choreography runs.
+      const insideSet = hwTutoring !== null;
       if (result.session.reason === 'solved') {
         setBloom({ line: bloomLine(checkinTopic, stickingPoint) });
         if (bloomTimerRef.current !== null) window.clearTimeout(bloomTimerRef.current);
         bloomTimerRef.current = window.setTimeout(() => {
           setBloom(null);
           bloomTimerRef.current = null;
+          if (insideSet) {
+            returnToSet();
+            return;
+          }
           if (pendingRecapRef.current !== null) {
             applyRecap(
               pendingRecapRef.current.recap,
@@ -1436,8 +2141,11 @@ export function Overlay({
             pendingRecapRef.current = null;
           }
         }, BLOOM_MS);
+      } else if (insideSet) {
+        returnToSet();
+        return;
       }
-      beginCloseChoreography();
+      if (!insideSet) beginCloseChoreography();
     }
   }
 
@@ -1499,10 +2207,31 @@ export function Overlay({
     }
   }
 
+  /**
+   * Voice/text parity (spec §4 + §10): saying or typing "done" / "shaky" /
+   * "stuck" -- or any of the reasonable synonyms vocabulary.ts accepts -- is
+   * EXACTLY equivalent to tapping. Returns true when the utterance was
+   * consumed as a tap, so the caller doesn't also send it to the tutor.
+   *
+   * Only while the set is running and no tutoring detour is open: mid-detour,
+   * "done" is an answer to the tutor, not a completion.
+   */
+  function consumedAsHomeworkTap(text: string): boolean {
+    if (!hwRunning || hwTutoring !== null) return false;
+    const outcome = parseCompletionUtterance(text);
+    if (!outcome) return false;
+    handleHomeworkTap(outcome);
+    return true;
+  }
+
   function handleTextSubmit() {
     const text = input.trim();
     if (!text || busy) return;
     setInput('');
+    if (consumedAsHomeworkTap(text)) {
+      setShell('idle');
+      return;
+    }
     void sendStudentMessage(text);
   }
 
@@ -1627,6 +2356,10 @@ export function Overlay({
       // (handoff: "disappears the moment the student stops") -- the pill's
       // think state carries the wait from here.
       dismissSurface(() => setLiveTranscript(''));
+      // Voice/text parity (spec §4): "done" spoken is the same as "done"
+      // tapped. Checked before the turn is built, so a completion never
+      // becomes a tutor message -- and never bills a turn.
+      if (consumedAsHomeworkTap(transcript)) return;
       // A voice turn starts the conversation too: any still-held scan
       // detection is dropped, same as a typed start.
       setScan(null);
@@ -1811,12 +2544,18 @@ export function Overlay({
   useEffect(() => {
     if (!sessionLive || closeState !== 'idle' || ending) return;
     if (busy || voiceThinking || playing || micState !== 'idle') return;
+    // A running homework set suspends this outright: the student is
+    // demonstrably present and working, but their taps are activity this
+    // tutoring-side timer cannot see. The set's own completion ends the
+    // session (finishHomework), so nothing is left dangling.
+    if (hwRunning) return;
     const timer = window.setTimeout(() => {
       void endLiveSession();
     }, INACTIVITY_END_MS);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    hwRunning,
     sessionLive,
     closeState,
     ending,
@@ -1853,17 +2592,26 @@ export function Overlay({
     surfaceKind === 'bloom' ||
     surfaceKind === 'recap' ||
     surfaceKind === 'endConfirm' ||
-    surfaceKind === 'feedback';
+    surfaceKind === 'feedback' ||
+    // The homework surfaces that OWN the flow: the summary is terminal, and
+    // the opener/manual-count/navigation cards are each a decision the pill
+    // must not let the student hover past.
+    surfaceKind === 'hwSummary' ||
+    surfaceKind === 'hwOpener' ||
+    surfaceKind === 'hwManual' ||
+    surfaceKind === 'hwNavigated' ||
+    surfaceKind === 'hwStuck';
 
   function handlePillEnter() {
-    if (pill === 'idle' && !hoverBlocked) setShell('hover');
+    // hwIdle is a resting shape too -- approaching it opens the referee row.
+    if ((pill === 'idle' || pill === 'hwIdle') && !hoverBlocked) setShell('hover');
   }
 
   function handlePillLeave() {
     // Mouse-out with nothing active collapses to idle (handoff rule). A
     // quiet collapse -- no PANEL_CLOSED_EVENT; a hover is too transient to
     // clear the page's annotations over.
-    if (pill === 'hover') setShell('idle');
+    if (pill === 'hover' || pill === 'hwWork') setShell('idle');
   }
 
   function openHistory() {
@@ -1941,8 +2689,21 @@ export function Overlay({
 
   // The breathing glow behind the pill: opacity steps with attention state;
   // the gradient tints to the tutor mode while speaking (handoff §glow).
-  const glowOpacity =
-    pill === 'listen' || pill === 'speak' ? 0.8 : pill === 'scan' || pill === 'think' ? 0.62 : 0.42;
+  //
+  // The homework layer adds exactly one rule, and it is load-bearing (spec
+  // §5): a MOMENT lights the glow, and nothing else does. While a set is
+  // running the resting glow is dimmed well down so the moment reads as a
+  // change rather than as more of the same.
+  const hwMomentGlow = hwMomentAt !== null;
+  const glowOpacity = hwMomentGlow
+    ? 0.85
+    : hwRunning
+      ? 0.16
+      : pill === 'listen' || pill === 'speak'
+        ? 0.8
+        : pill === 'scan' || pill === 'think'
+          ? 0.62
+          : 0.42;
   const glowBackground =
     pill === 'speak'
       ? `radial-gradient(closest-side, ${modeBorderVar} 0%, ${modeBorderVar} 48%, transparent 74%)`
@@ -1977,6 +2738,23 @@ export function Overlay({
           <AnswerChips chips={chips} disabled={answerControlsDisabled} onTap={handleChipTap} />
         </div>
       ) : null
+    ) : null;
+
+  // "Back to the set" (spec §5): while a tutoring detour is open inside a
+  // running set, the caption card carries the way home. It is always
+  // available -- the student may leave a detour whenever they like, and
+  // leaving still advances the bar.
+  const backToSet: ReactNode =
+    hwTutoring !== null && !busy && !playing && streamingTokens.length === 0 ? (
+      <div className="mt-1 border-t border-border pt-2.5">
+        <button
+          type="button"
+          onClick={returnToSet}
+          className="cx-hw-key cx-hw-key-primary w-full cursor-pointer rounded-[11px] border-0 px-3.5 py-2.5 text-[14px] font-semibold outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+        >
+          Back to the set
+        </button>
+      </div>
     ) : null;
 
   // ---- The transient surface node (exactly one) ----
@@ -2111,6 +2889,7 @@ export function Overlay({
             </p>
           </div>
           {inlineAnswer}
+          {backToSet}
         </div>
       );
     } else {
@@ -2133,6 +2912,7 @@ export function Overlay({
               {captionLive && <StreamCaret />}
             </p>
             {inlineAnswer}
+            {backToSet}
           </div>
         </div>
       );
@@ -2231,6 +3011,130 @@ export function Overlay({
           </div>
         )}
       </div>
+    );
+  } else if (surfaceKind === 'hwSummary' && hwSummary) {
+    surfaceNode = (
+      <HomeworkSummaryCard
+        summary={hwSummary}
+        studyKit={
+          // Only ever claimed when a session actually ran, since that is the
+          // only case anything was generated (spec §8's honest scope applies
+          // to the links too, not just the stats).
+          endedSessionId || sessionLive ? (
+            <a
+              href={`${API_BASE}/library`}
+              target="_blank"
+              rel="noreferrer"
+              className="relative mt-2.5 text-[13px] font-medium text-accent-emphasis underline underline-offset-2"
+            >
+              Notes and flashcards from this set →
+            </a>
+          ) : null
+        }
+        onDone={dismissHomeworkSummary}
+      />
+    );
+  } else if (surfaceKind === 'hwOpener' && hwOpener && hwScan) {
+    surfaceNode = (
+      <HomeworkOpenerCard
+        lines={hwOpener}
+        count={hwScan.problems.length}
+        confidence={hwScan.confidence}
+        labels={hwScan.problems.map((problem) => problem.label)}
+        conceptPending={hwConceptPending}
+        onConfirmAll={() => confirmHomework(hwScan.problems)}
+        onConfirmSubset={(indexes) => confirmHomework(indexes.map((index) => hwScan.problems[index]))}
+        onCancel={cancelHomeworkStart}
+      />
+    );
+  } else if (surfaceKind === 'hwManual') {
+    surfaceNode = <ManualCountCard onConfirm={confirmManualCount} onCancel={cancelHomeworkStart} />;
+  } else if (surfaceKind === 'hwNavigated' && hw) {
+    surfaceNode = (
+      <div
+        role="dialog"
+        aria-label="This looks like a different page"
+        className="cx-card w-[400px] max-w-[calc(100vw-48px)] p-4 text-foreground"
+      >
+        <p className="m-0 text-[13.5px] font-semibold">This looks like a different page.</p>
+        <p className="mb-3.5 mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+          Your set is still {hw.completed.length} of {hw.denominator}. Pause it here, or keep counting — nothing
+          is re-scanned either way.
+        </p>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setHwNavigated(false)}
+            className="cursor-pointer rounded-full border border-border bg-transparent px-3.5 py-1.5 text-[12.5px] font-medium text-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          >
+            Keep counting
+          </button>
+          <button
+            type="button"
+            onClick={pauseHomework}
+            className="cx-hw-key cx-hw-key-primary cursor-pointer rounded-full border-0 px-3.5 py-1.5 text-[12.5px] font-semibold outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          >
+            Pause the set
+          </button>
+        </div>
+      </div>
+    );
+  } else if (surfaceKind === 'hwStuck' && hw) {
+    // The raise hand (design README §7). Gentle and refusable by construction:
+    // both buttons are equal weight, "I'm good" costs one tap, and declining
+    // is remembered. It promises exactly ONE question and no answer -- the
+    // tutor's opening turn is what delivers it, which is why nothing here
+    // needed a model call to render.
+    const label = hw.problems[hw.completed.length]?.label ?? null;
+    surfaceNode = (
+      <div
+        role="dialog"
+        aria-label="Want a hand with this one?"
+        className="cx-card flex w-[430px] max-w-[calc(100vw-48px)] items-start gap-3 px-[17px] py-[15px] text-foreground"
+      >
+        <CalyxaMark aria-hidden="true" className="mt-0.5 h-[18px] w-[18px] flex-none" />
+        <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+          <span className="text-[14.5px] leading-[1.55]">
+            <strong className="font-semibold">{stuckOfferLine(label)}</strong> {STUCK_OFFER_SUB}
+          </span>
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={acceptStuckOffer}
+              disabled={busy}
+              className="cx-hw-key cx-hw-key-primary cursor-pointer rounded-[11px] border-0 px-3.5 py-2 text-[14px] font-semibold outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Work it with me
+            </button>
+            <button
+              type="button"
+              onClick={declineStuckOffer}
+              className="cursor-pointer rounded-[11px] border border-border bg-transparent px-3 py-2 text-[14px] font-medium text-muted-foreground outline-none transition-colors hover:bg-[var(--cx-chip-bg)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            >
+              I&apos;m good
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  } else if (surfaceKind === 'hwReaction' && hwReaction) {
+    surfaceNode = (
+      <ReactionChip
+        reaction={hwReaction.reaction}
+        onUndo={hwUndo && hwUndo.id === hwReaction.id ? handleHomeworkUndo : null}
+      />
+    );
+  } else if (surfaceKind === 'hwResume' && hwResume) {
+    surfaceNode = (
+      <ResumeChip
+        label={
+          hwResume.completed.length > 0
+            ? `Pick up at ${hwResume.problems[hwResume.completed.length]?.label ?? hwResume.completed.length + 1} — ${hwResume.completed.length} of ${hwResume.denominator} done`
+            : 'Set paused — pick up anytime'
+        }
+        onResume={acceptHomeworkResume}
+        onDismiss={() => dismissSurface(() => setHwResume(null))}
+      />
     );
   } else if (surfaceKind === 'concept' && scan?.topic && conceptSticking) {
     surfaceNode = (
@@ -2342,6 +3246,16 @@ export function Overlay({
     return () => window.clearTimeout(timer);
   }, [surfaceGhost]);
 
+  // ---- The homework bar's derived display values ----
+  const hwFraction = hw && hw.denominator > 0 ? hw.completed.length / hw.denominator : 0;
+  // The history-derived fallback pace, used only until this session has any
+  // observed pace of its own. null when there isn't enough history, and the
+  // ring is then simply absent rather than showing an invented number.
+  const hwPaceFallback = useMemo(() => meanMinutesPerProblem(hwHistory), [hwHistory]);
+  const hwRemaining = hw ? remainingMinutes(hw, Date.now(), hwPaceFallback) : null;
+  const hwCount = hw ? `${hw.completed.length} / ${hw.denominator}` : '';
+  const hwTapsDisabled = busy || ending || hwTutoring !== null;
+
   // ---- The pill's contents per state ----
   let pillContent: ReactNode;
   if (pill === 'idle') {
@@ -2360,6 +3274,21 @@ export function Overlay({
     pillContent = (
       <div className="cx-pill-content flex items-center gap-2 whitespace-nowrap">
         <CalyxaMark aria-hidden="true" className="h-[21px] w-[21px] flex-none" />
+        {/* The v4 entry point (spec §0.1). Offered only when there is no set
+            running and no tutoring conversation open -- both of those already
+            own the pill. */}
+        {homework && !hwRunning && !sessionLive && (
+          <>
+            <span aria-hidden="true" className="mx-0.5 h-5 w-px flex-none bg-border" />
+            <button
+              type="button"
+              onClick={startHomework}
+              className="cursor-pointer rounded-full border-0 bg-accent-subtle px-[15px] py-[9px] text-[14px] font-semibold text-accent-emphasis outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            >
+              Start homework session
+            </button>
+          </>
+        )}
         <span aria-hidden="true" className="mx-0.5 h-5 w-px flex-none bg-border" />
         <HoverButton label="Voice" title="Talk to Calyxa" onClick={() => void handleMicStart()}>
           <MicIcon />
@@ -2404,7 +3333,13 @@ export function Overlay({
         value={input}
         busy={busy}
         disabled={closeState !== 'idle'}
-        placeholder={sessionLive ? 'Answer here — or ask anything…' : 'Ask about this problem…'}
+        placeholder={
+          hwRunning && hwTutoring === null
+            ? 'done · shaky · stuck — or ask anything'
+            : sessionLive
+              ? 'Answer here — or ask anything…'
+              : 'Ask about this problem…'
+        }
         onChange={setInput}
         onSubmit={handleTextSubmit}
         onClose={() => {
@@ -2442,6 +3377,91 @@ export function Overlay({
         <span className="text-[13px] font-medium text-muted-foreground" role="status">
           Thinking
         </span>
+      </div>
+    );
+  } else if (pill === 'hwIdle' && hw) {
+    // The resting shape while a set runs (design axis 2a): quieter than the
+    // shipped sliver, but it now says something -- where you are, and roughly
+    // how much is left.
+    //
+    // A BUTTON, not a div: approaching with a mouse opens the referee row,
+    // but the trio has to be reachable without one too (spec §10's "never
+    // assume" posture applies to input, not only to speech).
+    pillContent = (
+      <button
+        type="button"
+        onClick={() => setShell('hover')}
+        aria-label={`Homework session, ${hw.completed.length} of ${hw.denominator} done. Open the controls.`}
+        className="cx-pill-content flex h-full w-full cursor-pointer items-center justify-center gap-[7px] border-0 bg-transparent p-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+      >
+        <ProgressTrack
+          completed={hw.completed}
+          denominator={hw.denominator}
+          width={130}
+          columns={30}
+          rows={2}
+          dotSize={3.4}
+          headHeight={11}
+          framed
+          showMarks={false}
+        />
+        <RemainingRing minutes={hwRemaining} fraction={hwFraction} size={20} />
+      </button>
+    );
+  } else if (pill === 'hwWork' && hw) {
+    // The referee row: bar, count, remaining, the trio, pause, mute.
+    pillContent = (
+      <div className="cx-pill-content flex items-center gap-2.5 whitespace-nowrap">
+        <ProgressTrack
+          completed={hw.completed}
+          denominator={hw.denominator}
+          width={150}
+          columns={30}
+          rows={3}
+          dotSize={4}
+          headHeight={15}
+          framed
+          showMarks
+        />
+        <span className="flex items-center gap-[7px]">
+          <RemainingRing minutes={hwRemaining} fraction={hwFraction} size={30} />
+          <span className="text-[14px] font-medium leading-[1.1] tabular-nums text-muted-foreground">
+            {hwCount}
+          </span>
+        </span>
+        <span aria-hidden="true" className="h-6 w-px flex-none bg-border" />
+        <CompletionTrio graded={hw.graded} disabled={hwTapsDisabled} onTap={handleHomeworkTap} />
+        <span aria-hidden="true" className="h-6 w-px flex-none bg-border" />
+        <MuteButton muted={hwMuted} onToggle={toggleHomeworkMute} />
+        <PauseButton onClick={pauseHomework} />
+      </div>
+    );
+  } else if (pill === 'hwTutor' && hw) {
+    // Mid-detour: the bar stays (the set didn't go anywhere), the trio yields
+    // to the tutoring controls. Voice and text are both here, always.
+    pillContent = (
+      <div className="cx-pill-content flex items-center gap-2.5 whitespace-nowrap">
+        <ProgressTrack
+          completed={hw.completed}
+          denominator={hw.denominator}
+          width={150}
+          columns={32}
+          rows={3}
+          dotSize={2.8}
+          headHeight={13}
+          framed={false}
+          showMarks
+        />
+        <span className="text-[14px] font-medium tabular-nums text-muted-foreground">{hwCount}</span>
+        <HoverButton label="Voice" title="Talk to Calyxa" onClick={() => void handleMicStart()}>
+          <MicIcon />
+        </HoverButton>
+        <HoverButton label="Text" title="Type instead" onClick={() => setShell('text')}>
+          <span className="text-[14px] font-semibold tracking-[-0.02em] text-accent-emphasis">Aa</span>
+        </HoverButton>
+        <HoverButton label="Last exchange" title="Last exchange" onClick={openHistory}>
+          <ClockIcon />
+        </HoverButton>
       </div>
     );
   } else if (pill === 'listen') {
@@ -2554,7 +3574,7 @@ export function Overlay({
                   ambiently on the pill itself, in every expanded state, not
                   only while speaking. Skipped on the idle sliver (nothing to
                   frame at 39x5). */}
-              {sessionLive && pill !== 'idle' && (
+              {sessionLive && pill !== 'idle' && pill !== 'hwIdle' && (hwTutoring !== null || !hwRunning) && (
                 <span
                   aria-hidden="true"
                   className="cx-mode-frame"

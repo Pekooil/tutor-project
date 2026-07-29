@@ -67,6 +67,14 @@ const RLS_SCOPED_TABLES = [
   // referred lives on their own users.referred_by column, already exported
   // above. FK cascades on both user columns cover erasure (migration 0024).
   'referral',
+  // ADR-057: synced v4 homework sessions -- denominator, per-problem outcomes
+  // and durations, and the set's own totals. Its `homework_session_select_own`
+  // policy makes this authenticated read Just Work (like study_artifact /
+  // concept_notebook above, not the service-role exception telemetry_event
+  // needs); the FK cascade to users covers erasure (migration 0029). Same
+  // Sprint 16 invariant: export here + erasure sweep, both asserted in
+  // tests/account.test.ts.
+  'homework_session',
 ] as const
 
 export async function GET(request: Request) {

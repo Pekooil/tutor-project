@@ -100,6 +100,16 @@ export const T = {
   amberEdge: 'var(--studio-amber-edge)',
   dangerBg: 'var(--studio-danger-bg)',
   dangerEdge: 'var(--studio-danger-edge)',
+  /** v4 homework-outcome fills (ADR-057) — pastel fill + dark ink, identical
+   *  in both themes. See the globals.css block for why the existing status
+   *  tokens could not carry a numbered chart segment. */
+  outcomeOk: 'var(--studio-outcome-ok)',
+  outcomeOkInk: 'var(--studio-outcome-ok-ink)',
+  outcomeShaky: 'var(--studio-outcome-shaky)',
+  outcomeShakyInk: 'var(--studio-outcome-shaky-ink)',
+  outcomeTutored: 'var(--studio-outcome-tutored)',
+  outcomeTutoredInk: 'var(--studio-outcome-tutored-ink)',
+
   blue: 'var(--studio-blue-ink)',
   blueBg: 'var(--studio-blue-bg)',
   blueEdge: 'var(--studio-blue-edge)',

@@ -88,6 +88,24 @@
    * .22 over a dark pill still reads correctly, per the prototype, so it is
    * deliberately NOT overridden below). */
   --cx-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 70%);
+
+  /* ── v4 homework session (spec §4) ── the charge bar's recessed track, its
+   * green dot ladder, and the one blue "worked together" ink. These are
+   * alpha/graded compositions specific to this bar, not brand palette
+   * entries, so they live here as component vars alongside --cx-pill-* rather
+   * than in theme.css. NOTE the absence of any red/amber "behind" value:
+   * nothing here is punitive, by construction (spec §10). */
+  --cx-hw-track: rgba(28, 28, 26, 0.09);
+  --cx-hw-d1: #1f9d5b;
+  --cx-hw-d2: #2fbf6e;
+  --cx-hw-d3: #3fd07a;
+  --cx-hw-d4: #4ade80;
+  --cx-hw-ds: #4ade80;
+  --cx-hw-head: linear-gradient(180deg, #86efac, #4ade80);
+  /* "Worked together" — review-blue, never a failure color. */
+  --cx-hw-info: #2563eb;
+  --cx-hw-info-bg: #eff6ff;
+  --cx-hw-key-edge: rgba(20, 83, 45, 0.45);
 }
 .cx-root[data-theme='dark'] {
   --cx-pill-bg: rgba(24, 26, 23, 0.78);
@@ -98,6 +116,16 @@
     0 2px 8px rgba(0, 0, 0, 0.35);
   --cx-chip-bg: rgba(255, 255, 255, 0.07);
   --cx-warn-bg: rgba(248, 113, 113, 0.13);
+
+  --cx-hw-track: rgba(255, 255, 255, 0.11);
+  --cx-hw-d1: #1f9d5b;
+  --cx-hw-d2: #3fd07a;
+  --cx-hw-d3: #7bedaa;
+  --cx-hw-d4: #bbf7d0;
+  --cx-hw-ds: #eafff6;
+  --cx-hw-head: linear-gradient(180deg, #f3fff8, #bbf7d0);
+  --cx-hw-info: #7dd3fc;
+  --cx-hw-info-bg: rgba(125, 211, 252, 0.14);
 }
 
 /* The one morphing object: width/height/border-radius spring between the
@@ -779,6 +807,143 @@
   background: var(--color-background);
   border: 2px solid var(--calyxa-crop-handle);
   border-radius: 2px;
+}
+
+/* ══ v4 homework session ══════════════════════════════════════════════════
+ * The charge bar, the physical keys, and the reaction chip's four tones.
+ * Everything here is additive to the shipped vocabulary above. */
+
+/* The recessed capsule the dot matrix sits in (design axis 4a): the inset
+ * shadow is what makes the charge read as filling a vessel rather than as
+ * dots floating loose in the pill. */
+.cx-hw-frame {
+  background: var(--cx-hw-track);
+  border-color: var(--cx-pill-line);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.14);
+}
+
+/* The head: where you are right now. Rounded, glowing, and it MOVES rather
+ * than the track re-drawing, so forward motion is the only thing it can
+ * express — the bar never moves backward within a session (spec §4). */
+.cx-hw-head {
+  width: 9px;
+  transform: translate(-50%, -50%);
+  border-radius: 4.5px;
+  background: var(--cx-hw-head);
+  box-shadow:
+    0 0 14px var(--color-accent-glow-strong),
+    0 0 4px var(--color-accent-glow-strong);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cx-hw-head {
+    transition: left 0.5s cubic-bezier(0.3, 1.4, 0.4, 1);
+  }
+}
+
+@keyframes cx-hw-twinkle {
+  0%,
+  100% {
+    filter: brightness(0.55);
+  }
+  50% {
+    filter: brightness(1.7);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cx-hw-twinkle {
+    animation: cx-hw-twinkle var(--cx-hw-twinkle, 2s 0s) ease-in-out infinite;
+  }
+}
+
+/* ── The physical key (spec §4: "the design's hard bottom edge, depress on
+ * press") ── the depress is pure CSS on :active, so the visible reaction
+ * lands inside the 100ms budget no matter what the click handler goes on to
+ * do (persist, sound, reaction rules). Deliberately NOT gated behind
+ * prefers-reduced-motion: a 100ms press acknowledgement is feedback, not
+ * decoration, and removing it would leave a tap with no confirmation at all. */
+.cx-hw-key {
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.1s ease,
+    background 0.2s ease;
+}
+.cx-hw-key:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+.cx-hw-key-primary {
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+  box-shadow: 0 2px 0 var(--cx-hw-key-edge);
+}
+.cx-hw-key-primary:hover:not(:disabled) {
+  background: #6ee7a0;
+}
+.cx-hw-key-secondary {
+  background: var(--color-background);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+  box-shadow: 0 2px 0 var(--color-border);
+}
+.cx-hw-key-secondary:hover:not(:disabled) {
+  background: var(--cx-chip-bg);
+}
+
+/* ── Reaction chip tones ── whisper is the resting card; moment is the only
+ * one that also fires the breathing glow (Overlay.tsx gates that), which is
+ * what keeps a moment scarce enough to read as one. Review is the blue
+ * "noted, we'll come back" ink; watch is the amber attention tone. There is
+ * no red tone here and there must never be one — nothing punitive. */
+.cx-hw-rx {
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 8px 22px rgba(28, 40, 30, 0.12);
+}
+.cx-hw-rx-whisper {
+  background: var(--cx-card-bg);
+  border-color: var(--cx-pill-line);
+  color: var(--color-foreground);
+}
+.cx-hw-rx-moment {
+  background: var(--color-accent-subtle);
+  border-color: var(--color-accent);
+  color: var(--color-accent-emphasis);
+}
+.cx-hw-rx-review {
+  background: var(--cx-hw-info-bg);
+  border-color: transparent;
+  color: var(--cx-hw-info);
+}
+.cx-hw-rx-watch {
+  background: var(--calyxa-ping-watch-bg);
+  border-color: var(--calyxa-ping-watch-border);
+  color: var(--calyxa-ping-watch-text);
+}
+
+/* The summary's check medallion. */
+.cx-hw-check {
+  background: linear-gradient(135deg, #7bedaa, #1f9d5b);
+  box-shadow: 0 0 26px rgba(74, 222, 128, 0.45);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cx-hw-check {
+    animation: cx-hw-check-pop 0.55s cubic-bezier(0.3, 1.4, 0.4, 1) both;
+  }
+}
+@keyframes cx-hw-check-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* ── RecapCard: the 7b "Generated for you" placeholder tiles ──
