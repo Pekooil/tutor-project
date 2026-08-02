@@ -16,12 +16,16 @@ import { cn } from '@/lib/utils'
 
 // ── Tutor-mode tints (the --calyxa-mode-* token triples) ─────────────────
 
-export type PillMode = 'explore' | 'coach' | 'build' | 'recover'
+export type PillMode = 'explore' | 'coach' | 'build' | 'verify' | 'recover'
 
+// Names and glyphs are TUTOR_MODES from extension/src/overlay/tutor-modes.ts.
+// `verify` was added for Landing v7's tutoring section, which plays a session
+// through to a proven answer — the mode a real session ends in.
 export const PILL_MODES: Record<PillMode, { name: string; glyph: string }> = {
   explore: { name: 'Exploring', glyph: '✧' },
   coach: { name: 'Coaching', glyph: '✚' },
   build: { name: 'Building', glyph: '▲' },
+  verify: { name: 'Verifying', glyph: '✓' },
   recover: { name: 'Recovering', glyph: '♡' },
 }
 

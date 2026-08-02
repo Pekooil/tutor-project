@@ -49,10 +49,10 @@ export function FinalCta() {
         </span>
       </div>
       <h2 className="mkt-display mkt-h2 mb-0 mt-[30px] max-w-[22ch] text-center text-foreground sm:mt-12">
-        Press and start talking.
+        Press and start the set.
       </h2>
       <p className="mb-0 mt-3 max-w-[44ch] text-center text-[13.5px] leading-[1.6] text-(--mkt-strip-text) sm:mt-[18px] sm:text-[17px]">
-        your homework is already open. so is the tutor.
+        the page is already open. this just counts what&apos;s on it.
       </p>
       <a
         href="/start"

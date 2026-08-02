@@ -12,26 +12,26 @@ import { FREE_SESSIONS_PER_MONTH } from '@/components/marketing/Pricing'
 // at /pricing, the only place pricing lives now that the landing's pricing
 // section is gone), and the coverage answer drops "after beta".
 
+// Landing v7 §7: four items with one-line answers, down from five with
+// paragraphs. "Will it just do my homework for me?" is gone — it planted an
+// objection most visitors were not having and answered it with the moral
+// framing the v7 copy rules retire.
 const FAQS = [
   {
-    q: 'Is Calyxa free to use?',
-    a: `Yes — ${FREE_SESSIONS_PER_MONTH} free sessions a month, no card. Pro lifts the cap for $10 a month; the full comparison is on the pricing page.`,
-  },
-  {
-    q: 'Which math does it cover?',
-    a: 'Pre-algebra through single-variable calculus, plus the algebra and geometry that show up on the SAT and ACT. Other subjects come later.',
-  },
-  {
-    q: 'Will it just do my homework for me?',
-    a: "No — and that isn't a limit we plan to remove. Calyxa asks the next question instead of handing over a worked solution, because the understanding is the point.",
+    q: 'Is it free?',
+    a: `${FREE_SESSIONS_PER_MONTH} sessions a month, no card. Pro lifts the cap for $10 a month.`,
   },
   {
     q: "Does it work on my school's portal?",
-    a: 'It runs on any page in Chrome — Canvas, Khan Academy, DeltaMath, MyLab, AP Classroom and the rest. Calyxa reads the page without changing it or typing into it, so it stays out of your assignment.',
+    a: 'Any page in Chrome. It reads the page and never types into it.',
+  },
+  {
+    q: 'Which math?',
+    a: 'Pre-algebra through calculus, plus SAT and ACT.',
   },
   {
     q: 'What happens to my data?',
-    a: 'Microphone audio is never stored. Page visits are kept only as a one-way hash — never the URL or the contents. You can export or permanently delete everything at any time.',
+    a: 'Audio is never stored. Page visits are kept only as a one-way hash. Delete everything any time.',
   },
 ]
 

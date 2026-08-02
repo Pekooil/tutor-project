@@ -70,7 +70,7 @@ visit are recorded only as a one-way hash — never the URL or the contents. You
 can export or permanently delete everything Calyxa holds about you at any time.
 Full details: https://calyxa.app/privacy
 
-Calyxa is currently in a private, invite-only beta.
+Calyxa is free to start, with a Pro plan for unlimited sessions.
 ```
 
 **Single purpose** (CWS requires one clear purpose)
@@ -118,6 +118,11 @@ and the deletion mechanism. Do not answer this tab from memory — use that doc.
 
 - **Visibility: Unlisted.** Installable only by direct link, discoverable by no one
   (ADR-045 / ADR-006). NOT public.
+  ⚠️ **Revisit before this submission**: ADR-045 set Unlisted for the invite-gated
+  beta; signup is now open (the 2026-07-17 public-launch conversion removed the
+  invite gate). Unlisted no longer matches an open-signup product — confirm with
+  Darcy whether to flip to Public before submitting, rather than carrying the old
+  beta-era setting forward by default.
 - Distribution: your choice of regions (all is fine for a beta).
 - Icon: the 128×128 icon already in the bundle is reused by the store; no separate
   upload needed.

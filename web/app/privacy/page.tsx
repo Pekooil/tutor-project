@@ -32,7 +32,11 @@ export const metadata: Metadata = {
 // 2026-07-20 (ADR-055): added saved worked-problem snapshots — the tutor's
 // on-problem annotations, persisted so a session can be replayed. Still no
 // screenshots, page URLs, or page contents stored.
-const LAST_UPDATED = 'July 20, 2026'
+// 2026-07-31 (ADR-056/057): added homework session records — the v4
+// "homework referee" syncs a worksheet's title, problem count, and
+// per-problem outcome/timing (never the problem text) from the extension's
+// local-first storage on completion/pause.
+const LAST_UPDATED = 'July 31, 2026'
 
 // Support/privacy contact (Darcy, 2026-07-12).
 const PRIVACY_CONTACT = 'calyxasupport@gmail.com'
@@ -177,6 +181,10 @@ export default function PrivacyPage() {
                 what="Referral data"
                 why="If you share your invite link, we keep your referral code, which accounts joined through it (so we can credit your bonus sessions), and — if you signed up through someone's link — a reference to who invited you."
               />
+              <DataRow
+                what="Homework session records"
+                why="When you work through a worksheet, the extension tracks it on your device and syncs it to your account when you finish or pause — the worksheet's title, how many problems it had, and for each one an outcome (solved, shaky, or tutored) and how long you spent. We never store the problem text itself, and the page is recorded only as the same one-way hash used elsewhere."
+              />
             </ul>
           </section>
 
@@ -268,9 +276,9 @@ export default function PrivacyPage() {
               Your account and learning data are kept until you delete them. Microphone
               audio is never persisted at all. When you delete your account, everything tied
               to it — sessions, mastery history, misconceptions, reinforcement schedule,
-              telemetry, feedback, generated study materials, personal notebooks, the
-              voice-usage counter, and our record of your subscription status — is queued
-              for permanent deletion and
+              telemetry, feedback, generated study materials, personal notebooks, homework
+              session records, the voice-usage counter, and our record of your subscription
+              status — is queued for permanent deletion and
               removed after a short grace window. (Stripe retains its own transaction
               records as required for financial compliance.)
             </p>

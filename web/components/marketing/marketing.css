@@ -38,6 +38,12 @@
   --mkt-glass-border: rgba(28, 28, 26, 0.1);
   --mkt-glass-shadow: 0 18px 44px rgba(28, 40, 30, 0.18), 0 2px 8px rgba(28, 40, 30, 0.08);
 
+  /* Surface fills, as tokens so the same primitives can paint on either
+   * theme (Landing v7). The defaults ARE the values .mkt-glass/.mkt-pill
+   * used to hardcode, so every existing light usage is unchanged. */
+  --mkt-glass-bg: rgba(255, 255, 255, 0.92);
+  --mkt-pill-bg: rgba(255, 255, 255, 0.8);
+
   /* Refined border + three elevation tiers (foreground / accent-emphasis at
    * low alpha — Stripe-style layered soft shadows, no hard edges). */
   --mkt-border-faint: rgba(28, 28, 26, 0.08);
@@ -48,6 +54,18 @@
   --mkt-shadow-3:
     0 2px 4px rgba(28, 28, 26, 0.05), 0 18px 44px -10px rgba(28, 28, 26, 0.13),
     0 56px 110px -28px rgba(22, 101, 52, 0.16);
+}
+
+/* The extension's real overlay is DARK, and the demos that recreate it stamp
+ * data-theme="dark" exactly as the extension does so the shared @calyxa/ui
+ * mode tints flip. These are the design file's overlay values: a near-black
+ * at 82-92% over the host page, hairline white border, and a shadow deep
+ * enough to read against a light worksheet. */
+.mkt [data-theme='dark'] {
+  --mkt-glass-bg: rgba(24, 26, 23, 0.9);
+  --mkt-pill-bg: rgba(24, 26, 23, 0.82);
+  --mkt-glass-border: rgba(255, 255, 255, 0.1);
+  --mkt-glass-shadow: 0 18px 44px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 /* ---- Display type ---- */
@@ -641,7 +659,7 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--mkt-pill-bg);
   border: 1px solid var(--mkt-glass-border);
   backdrop-filter: blur(24px) saturate(1.5);
   box-shadow: var(--mkt-glass-shadow);
@@ -653,7 +671,7 @@
 
 /* The transient glass surfaces stacked above the pill. */
 .mkt-glass {
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--mkt-glass-bg);
   border: 1px solid var(--mkt-glass-border);
   backdrop-filter: blur(22px) saturate(1.5);
   box-shadow: var(--mkt-glass-shadow);
@@ -796,4 +814,72 @@
 
 .mkt-pill-flip-in {
   animation: mkt-pill-flip-in var(--mkt-pill-flip-ms, 420ms) cubic-bezier(0.45, 0, 0.55, 1) both;
+}
+
+/* -- Landing v7 homework-session primitives -------------------------------
+ * The three motions the homework session needs that the tutoring demos
+ * never did: the read-only page scan, the completion check, and a bar
+ * filling to its mark. All looping motion stays behind
+ * prefers-reduced-motion: no-preference, like every primitive above.
+ */
+
+/* The scan line sweeping down a page as the extension counts problems.
+ * Read-only: nothing on the host page moves, the line passes over it. */
+@keyframes mkt-sweep {
+  0% {
+    top: -12%;
+    opacity: 0;
+  }
+
+  12% {
+    opacity: 1;
+  }
+
+  88% {
+    opacity: 1;
+  }
+
+  100% {
+    top: 102%;
+    opacity: 0;
+  }
+}
+
+/* The completion check, with the same overshoot the pill morphs on. */
+@keyframes mkt-check {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+
+  55% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* A bar growing to the width its inline style sets. */
+@keyframes mkt-grow {
+  from {
+    width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mkt-scan {
+    animation: mkt-sweep 2.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .mkt-check {
+    animation: mkt-check 0.45s cubic-bezier(0.3, 1.4, 0.4, 1) var(--mkt-check-delay, 0s) both;
+  }
+
+  .mkt-fill {
+    animation: mkt-grow 1.1s cubic-bezier(0.32, 1.1, 0.36, 1) var(--mkt-fill-delay, 0.25s) both;
+  }
 }

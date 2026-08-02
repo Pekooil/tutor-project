@@ -50,11 +50,14 @@ export default defineConfig({
     // corrected, prod-pointed resubmission — CWS will not accept a re-upload
     // carrying a version it has already seen. 0.1.2 (2026-07-18) is the
     // public-launch resubmission: redesigned pill overlay + tutorial onboarding,
-    // 10-session free cap, per-free-user voice credit cap. The `release` script
-    // (package.json) reads this value back out of the BUILT manifest.json to
-    // name the artifact `release/calyxa-<version>.zip`, so every future beta
-    // build bumps ONLY this line, per docs/release-runbook.md.
-    version: '0.1.3',
+    // 10-session free cap, per-free-user voice credit cap. 0.1.4 (2026-07-30) is
+    // the homework-session-v4 rebuild (ADR-056/057): the DOM-scan homework
+    // referee, its progress-bar/timer pill, and the on-screen tutoring handoff —
+    // landed in commit 89d837e but never bumped past 0.1.3 until now. The
+    // `release` script (package.json) reads this value back out of the BUILT
+    // manifest.json to name the artifact `release/calyxa-<version>.zip`, so
+    // every future beta build bumps ONLY this line, per docs/release-runbook.md.
+    version: '0.1.4',
     // Manifest V3 permissions. Each is justified below; nothing here that the
     // content script + background worker don't use, and deliberately NO
     // tabCapture / desktopCapture (the beta OCR path stays deferred).

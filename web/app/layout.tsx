@@ -14,11 +14,18 @@ import './globals.css'
 // NEXT_PUBLIC_SITE_URL still overrides (e.g. a preview deploy pointing at its
 // own URL); a localhost fallback here would have shipped broken unfurls to the
 // beta cohort.
-// Landing v5 (2026-07-19): title/description track the live H1 + hero sub so
+// Landing v7 (2026-07-29): title/description track the live H1 + hero sub so
 // unfurls match what the page actually says.
-const TITLE = 'Calyxa — Turn AI into your tutor, not your shortcut.'
+//
+// They had drifted badly. The tab title still said "Turn AI into your tutor,
+// not your shortcut." while the H1 said "Stop copying. Start learning." and
+// the mid-page heading said "Calyxa makes learning simple." — three different
+// positioning statements on one page, none of them the shipped product. These
+// are now the hero's own words.
+const TITLE = 'Calyxa — Get homework done. Go do what matters to you.'
 const DESCRIPTION =
-  "Calyxa sees the problem on your screen and talks you through it — never the answer, just the step you're missing."
+  'Calyxa counts the problems on any homework page, paces the set against your own history, and finds the one step ' +
+  "you're missing. A finish line you can watch move."
 
 export const metadata: Metadata = {
   metadataBase: new URL(canonicalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL, CANONICAL_SITE_URL)),

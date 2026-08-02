@@ -34,6 +34,7 @@ Every row is a real table/column, cross-checked for this disclosure — not reca
 | Monthly voice-usage counter | `voice_spend` (user + month keyed) | One estimated-cents number per month for the free-tier voice budget (migration 0023); no audio/text/page data |
 | Hashed signup network identifier | `signup_ip.ip_hash` | HMAC-SHA256(IP, server-only salt) recorded once at account creation, **solely** to cap accounts-per-network (abuse prevention, ADR-053). **The raw IP is never stored**; one-way; never used for location; deleted with the account |
 | Referral data | `users.referral_code/referred_by/referral_bonus_sessions`, `referral` | The user's shareable invite code, who invited them, which accounts joined via their link, and the bonus-session balance earned (ADR-053) |
+| Homework session records | `homework_session` | The v4 "homework referee": a worksheet's title, problem count, and per-problem outcome/time spent (no problem text) — synced from the extension's local-first storage on completion/pause, plus the same one-way hashed page identifier as `sessions.page_url_hash` (ADR-056/057); export + erasure covered |
 | _(operational, not user-identity data)_ | `cost_ledger` (day-keyed), `stripe_events` (event-id-keyed bookkeeping), `waitlist` invite columns | Anonymous; deny-all; not tied to a user |
 
 **Never collected:** microphone audio (real-time STT only, discarded — ADR-011); page
@@ -59,8 +60,8 @@ marketing* purpose.)
 | **Personal communications** | **Disclose: Yes** | Session transcripts + feedback are user-entered text | App functionality; Personalization; Developer communications (feedback) |
 | Location | No | We do **not** collect GPS/region/IP-as-location. (A one-way **hash** of the signup IP is kept solely for the per-network account cap — it cannot be reversed to an address and is never used to infer location; disclosed under PII/security below, not Location) | — |
 | **Web history** | **Disclose: Yes (minimal)** | The **hashed** page-domain identifier only | App functionality (session continuity) — see caveat below |
-| **User activity** | **Yes** | Learning-profile signals + typed telemetry | App functionality; Personalization; **Analytics** (telemetry) |
-| **Website content** | **Yes** | The math problem text / conversation content the user works through | App functionality; Personalization |
+| **User activity** | **Yes** | Learning-profile signals + typed telemetry + homework session outcomes/timing | App functionality; Personalization; **Analytics** (telemetry) |
+| **Website content** | **Yes** | The math problem text / conversation content the user works through; a homework worksheet's title (no problem text) | App functionality; Personalization |
 
 **Caveats to record verbatim where the form allows a note (or keep on hand for review
 questions):**
@@ -73,6 +74,10 @@ questions):**
   never stored.**
 - **Telemetry carries no content** — it is a closed typed set of counts and timings; it
   cannot hold a transcript, question, or URL.
+- **Homework session records hold no problem text.** Per-problem entries are an outcome
+  (ok/shaky/tutored), a page-detected label like "3", and a time spent — never the
+  problem's actual text. The worksheet **title** (e.g. "Stoichiometry worksheet") is
+  stored in the clear, the same class of data as the tutor's own `detected_topic`.
 
 ---
 

@@ -73,8 +73,10 @@ export function PlatformMarquee() {
         </div>
       </div>
 
+      {/* Landing v7 trims this to the short form — the caveat it used to
+          carry is now the FAQ's "Any page in Chrome" answer. */}
       <p className="mx-auto mb-0 mt-6 max-w-[46ch] text-center text-[15px] text-muted-foreground sm:mt-[34px] sm:max-w-none sm:text-[17px]">
-        And any other page in Chrome — Calyxa reads what&apos;s on screen, so it isn&apos;t limited to a list.
+        And any other page in Chrome.
       </p>
     </section>
   )

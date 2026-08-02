@@ -10,6 +10,8 @@ import { FinalCta } from '../components/marketing/FinalCta'
 import { Footer } from '../components/marketing/Footer'
 import { Faq } from '../components/marketing/Faq'
 import { HERO_SESSION } from '../components/marketing/HeroDemo'
+import { HowItWorks } from '../components/marketing/HowItWorks'
+import { SocraticSection } from '../components/marketing/SocraticSection'
 import { LandingFooter } from '../components/marketing/LandingFooter'
 import { LandingHero } from '../components/marketing/LandingHero'
 import { LandingNav } from '../components/marketing/LandingNav'
@@ -155,8 +157,10 @@ describe('FinalCta (SSR)', () => {
   const html = decode(renderToString(createElement(FinalCta)))
 
   it('renders the keycap closer with the fine print', () => {
-    expect(html).toContain('Press and start talking.')
-    expect(html).toContain('your homework is already open. so is the tutor.')
+    // Landing v7 (2026-07-29): "Press and start the set." — the set-scoped
+    // closer, replacing "Press and start talking."
+    expect(html).toContain('Press and start the set.')
+    expect(html).toContain("the page is already open. this just counts what's on it.")
     expect(html).toContain('10 free sessions a month · chrome, for now · alt + shift + C on windows')
   })
 })
@@ -195,38 +199,121 @@ describe('LandingNav (SSR)', () => {
 describe('LandingHero (SSR)', () => {
   const html = decode(renderToString(createElement(LandingHero, { showPlaceholders: true })))
 
-  it('keeps the existing headline and sub at the v6 hero format', () => {
-    expect(html).toContain('Stop copying.')
-    expect(html).toContain('Start learning.')
-    expect(html).toContain('Your Adaptive AI tutor that teaches directly on any homework, website, or PDF.')
+  it('carries the v7 headline and sub at the hero format', () => {
+    // Darcy, 2026-07-29: set-scoped and payoff-first, replacing both the
+    // moral "Stop copying. Start learning." and the handoff's default, which
+    // leaned on "yourself".
+    expect(html).toContain('Get homework done.')
+    expect(html).toContain('Go do what matters to you.')
+    expect(html).toContain('Any homework page. A finish line you can watch move.')
     expect(html).toContain('Add to Chrome — free')
     expect(html).toContain('10 free sessions a month · chrome, for now')
   })
 
-  it('renders the real Khan Academy demo in the right column, not the design mock', () => {
-    expect(html).toContain('khanacademy.org/math/trigonometry/right-triangles-trig')
-    expect(html).toContain('hero-khan.png')
-    expect(html).toContain('sees this page')
-    // the design file's static overlay placeholder is gone
-    expect(html).not.toContain('Static preview of the extension overlay')
+  it('retires the moral framing the v7 copy rules ban', () => {
+    expect(html).not.toContain('Stop copying')
+    expect(html).not.toContain('Start learning')
+    expect(html).not.toContain('Adaptive AI tutor')
   })
 
-  it('runs the demo voice-only — the wide text composer never renders', () => {
-    // voiceOnly (2026-07-24): the pill rests on Listening and morphs through
-    // think/speak, so there is no composer input and no ↵ hint.
-    expect(html).toContain('Listening')
-    expect(html).not.toContain('Ask about this problem…')
-    expect(html).not.toContain('<input')
-    // the pill harness still gets the full pill — Hero (SSR) above asserts
-    // the composer is present there.
+  it('renders the homework-session demo, not the scaled Khan tutoring mock', () => {
+    // The host page is a recessed context strip now; the full browser mock
+    // (menu bar, tab strip, sidebar) that painted at ~62% scale is gone.
+    expect(html).toContain('khanacademy.org')
+    expect(html).not.toContain('hero-khan.png')
+    expect(html).not.toContain('khanacademy.org/math/trigonometry/right-triangles-trig')
   })
 
-  it('is play-only — no suggestion chips and nothing clickable in the demo', () => {
-    // interactive={false}: the demo is a film, not a toy. The only <button> in
-    // the section would be a chip, and there are none.
+  it('opens on the count-and-time screen with the real session header', () => {
+    expect(html).toContain('5 / 8')
+    expect(html).toContain('min left')
+    expect(html).toContain('Stage 2 of 3')
+    expect(html).toContain('The bar, and the time')
+    expect(html).toContain('One tap per problem')
+    expect(html).toContain('It marks up your screen')
+  })
+
+  it('is play-only — nothing in the demo is clickable', () => {
     expect(html).not.toContain('<button')
-    expect(html).not.toContain('I’m stuck on this one')
-    expect(html).toContain('pointer-events-none')
+    expect(html).not.toContain('<input')
+  })
+
+  it('keeps the honest scripted-demo footnote behind showPlaceholders', () => {
+    expect(html).toContain('scripted demo')
+    const hidden = decode(renderToString(createElement(LandingHero, { showPlaceholders: false })))
+    expect(hidden).not.toContain('scripted demo')
+  })
+})
+
+describe('HowItWorks (SSR)', () => {
+  const html = decode(renderToString(createElement(HowItWorks)))
+
+  it('renders the three moves and the alone-vs-Calyxa comparison', () => {
+    expect(html).toContain("Three moves. That's it.")
+    expect(html).toContain('Open the page you were going to do anyway.')
+    expect(html).toContain('It counts the problems.')
+    expect(html).toContain('You tap one per problem.')
+    expect(html).toContain('The bar hits the end.')
+    expect(html).toContain('On your own')
+    expect(html).toContain('52 min')
+    expect(html).toContain('With Calyxa')
+    expect(html).toContain('38 min')
+    expect(html).toContain('Same eight problems')
+  })
+
+  it('leads the comparison with the delta as a headline stat, not just two bars', () => {
+    // Darcy, 2026-07-30: the "faster and less grind" argument was too quiet —
+    // no number bigger than the row labels. The delta (52 - 38) is now its own
+    // headline figure, and each row names WHERE the time goes.
+    expect(html).toContain('14')
+    expect(html).toContain('fewer minutes')
+    expect(html).toContain('less rereading, less restarting, less grind')
+    expect(html).toContain('reread the solution')
+    expect(html).toContain('one nudge')
+  })
+
+  it('never claims a pace estimate on the first session', () => {
+    // opener.ts's MIN_SESSIONS_FOR_ESTIMATE is 3 and estimateRange() returns
+    // null until then — deliberately, so a first-timer gets no estimate rather
+    // than a fabricated one. The design file's "tells you how long it'll take,
+    // from your own pace" is therefore false for every first-time reader.
+    expect(html).toContain('after a few sets')
+    expect(html).not.toContain("tells you how long it'll take, from your own pace")
+  })
+
+  it('retires the eight-step chatbot loop and its moral closing line', () => {
+    expect(html).not.toContain('Screenshot the problem')
+    expect(html).not.toContain('Open a new chat')
+    expect(html).not.toContain('Copy it down')
+    expect(html).not.toContain('cheating and learning nothing')
+  })
+})
+
+describe('SocraticSection (SSR)', () => {
+  const html = decode(renderToString(createElement(SocraticSection)))
+
+  it('makes the speed argument rather than apologising for the mechanic', () => {
+    // Reframed from the handoff's "It asks. You answer." (Darcy, 2026-07-29):
+    // in the speed lane, "never the worked solution" reads as a limitation
+    // unless the section explains why it is what makes Calyxa fast.
+    expect(html).toContain("It finds the one step you're missing.")
+    expect(html).toContain('A worked solution makes you read seven steps to find the one you')
+    expect(html).not.toContain('It asks. You answer.')
+  })
+
+  it('opens on the student turn with the reference card and no chat log', () => {
+    expect(html).toContain('2x² + 5x − 3 = 0')
+    expect(html).toContain('your page')
+    expect(html).toContain("I don't know where to start on this one")
+    expect(html).toContain('Listening')
+    expect(html).toContain('No chat log to scroll')
+  })
+
+  it('starts in Exploring — the mode a session idles at, not a fallback', () => {
+    // deriveTutorMode returns `current` for an unsignalled turn, so the first
+    // (student) turn holds the session's opening mode.
+    expect(html).toContain('Exploring')
+    expect(html).toContain('Stage 1 of 3')
   })
 })
 
@@ -265,17 +352,23 @@ describe('PlatformMarquee (SSR)', () => {
     ]) {
       expect(html).toContain(platform)
     }
-    expect(html).toContain("isn't limited to a list")
+    // Landing v7 trims the caveat sentence to the short form — the FAQ's
+    // "Does it work on my school's portal?" answer carries that idea now.
+    expect(html).toContain('And any other page in Chrome.')
   })
 })
 
 describe('StudyMaterials (SSR)', () => {
   const html = decode(renderToString(createElement(StudyMaterials)))
 
-  it('summarises the pack, naming the session it came from', () => {
-    expect(html).toContain('Every session becomes study material.')
+  it('summarises the pack, naming the set it came from', () => {
+    // Landing v7 (2026-07-29): "The set writes your study kit." — the
+    // whole-set framing, and the pack header names the SET (problems + time)
+    // rather than a session duration.
+    expect(html).toContain('The set writes your study kit.')
     expect(html).toContain('Factoring quadratics')
-    expect(html).toContain('Jul 22 tutoring session')
+    expect(html).toContain('Jul 22 set')
+    expect(html).toContain('8 problems, 38 min')
     // the three artifacts, each with its count (Darcy, 2026-07-25: a summary,
     // not the full surfaces)
     expect(html).toContain('Notes')
@@ -301,15 +394,26 @@ describe('StudyMaterials (SSR)', () => {
   it('prints the student’s own wrong work in the "Your attempt" callout', () => {
     // The product's honesty claim: the callout quotes studentAttempt verbatim
     // and offers the same follow-up the real notes view does.
-    expect(html).toContain('Your attempt · Jul 22 session')
-    expect(html).toContain('x² − 5x + 6 = (x − 2)(x + 3)')
+    expect(html).toContain('Your attempt · Jul 22 set')
+    expect(html).toContain('2x² + 5x − 3 = (2x − 1)(x + 3)')
     expect(html).toContain('Ask Calyxa about this →')
   })
 
+  it('renders the mistake equation as MathCapsule’s real shape, not italic serif', () => {
+    // Darcy, 2026-07-30 ("the font and the design", "supposed to be black"):
+    // math.tsx is explicit that the real product has NO serif and NO italic —
+    // the capsule inherits the page's sans font. mkt-math (Georgia) was the
+    // marketing page's own artboard convention, not what the studio renders.
+    expect(html).not.toContain('mkt-math')
+    expect(html).not.toMatch(/italic[^"]*">2x/)
+  })
+
   it('shows the quiz and flashcard tiles beside the notes tile', () => {
-    expect(html).toContain('1 / 6')
-    expect(html).toContain('Reveal the solution')
-    expect(html).toContain('Work it out, then reveal the solution and mark whether you had it.')
+    expect(html).toContain('2 / 6')
+    expect(html).toContain('Factor x² − 7x + 12.')
+    expect(html).toContain('−3 and −4 multiply to 12 and add to −7.')
+    expect(html).toContain('I had it')
+    expect(html).toContain('I missed it')
     expect(html).toContain('Prompt')
     expect(html).toContain('Click to flip')
   })
@@ -323,18 +427,27 @@ describe('StudyMaterials (SSR)', () => {
 describe('Faq (SSR)', () => {
   const html = decode(renderToString(createElement(Faq)))
 
-  it('renders all five questions with the first one open', () => {
+  it('renders all four questions, one-liners, with the first one open', () => {
+    // Landing v7 §7: four items down from five, one-line answers instead of
+    // paragraphs.
     expect(html).toContain('Frequently asked questions')
-    expect(html).toContain('Is Calyxa free to use?')
-    expect(html).toContain('Which math does it cover?')
-    expect(html).toContain('Will it just do my homework for me?')
+    expect(html).toContain('Is it free?')
     expect(html).toContain("Does it work on my school's portal?")
+    expect(html).toContain('Which math?')
     expect(html).toContain('What happens to my data?')
     expect(html).toContain('aria-expanded="true"')
   })
 
+  it('retires the item that planted the moral objection it then answered', () => {
+    // "Will it just do my homework for me?" is gone — it invited an objection
+    // most visitors weren't having and answered it with the moral framing the
+    // v7 copy rules ban.
+    expect(html).not.toContain('Will it just do my homework for me?')
+    expect(html).not.toContain("isn't a limit we plan to remove")
+  })
+
   it('quotes the launch free cap, not the retired beta copy', () => {
-    expect(html).toContain('10 free sessions a month, no card')
+    expect(html).toContain('10 sessions a month, no card')
     expect(html).not.toContain('The beta is free')
   })
 })

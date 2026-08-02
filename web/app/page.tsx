@@ -1,43 +1,56 @@
-import { BeforeAfter } from '@/components/marketing/BeforeAfter'
 import { Faq } from '@/components/marketing/Faq'
 import { FinalCta } from '@/components/marketing/FinalCta'
+import { HowItWorks } from '@/components/marketing/HowItWorks'
 import { LandingFooter } from '@/components/marketing/LandingFooter'
 import { LandingHero } from '@/components/marketing/LandingHero'
 import { LandingNav } from '@/components/marketing/LandingNav'
 import { PlatformMarquee } from '@/components/marketing/PlatformMarquee'
 import { Reveal } from '@/components/marketing/Reveal'
+import { SocraticSection } from '@/components/marketing/SocraticSection'
 import { StudyMaterials } from '@/components/marketing/StudyMaterials'
 import '@/components/marketing/marketing.css'
 
-// Landing v6 (design_handoff_landing_v6, 2026-07-24): nav → oversized
-// left-aligned hero with the live Khan-Academy demo → platform marquee →
-// before/after → the session → FAQ → keycap closer → dark footer. The `.mkt`
-// wrapper scopes the marketing token layer (marketing.css) to this page only —
-// product surfaces never inherit it.
+// Landing v7 (design_handoff_calyxa_landing, 2026-07-29): nav → oversized
+// left-aligned hero with the homework-session demo → platform marquee → the
+// three moves → the tutoring mechanic → the study kit → FAQ → keycap closer →
+// dark footer. The `.mkt` wrapper scopes the marketing token layer
+// (marketing.css) to this page only — product surfaces never inherit it.
 //
-// Darcy's calls on top of the design file (2026-07-24):
-//  - The hero's static overlay mock is replaced by the existing live demo
-//    (HeroDemo, the scripted Khan Academy session), scaled into the column.
-//  - The design's "Calyxa makes learning simple." tabbed feature section is
-//    replaced by the existing before/after, which shows something the hero
-//    demo doesn't — and which then took that heading (2026-07-24).
-//    Features.tsx is now unused by this page (kept on disk, still covered by
-//    its SSR tests).
-//  - The design's "But wait, there's more" section became "Every session
-//    becomes study material" and, since the hero already shows the extension
-//    at work, it now shows what a session LEAVES BEHIND. As of 2026-07-25 it
-//    SUMMARISES that rather than rendering it: one card, three small tiles
-//    (notes · quiz · flashcards) with their counts, and the two column
-//    headings above it removed. Its "Knows your weak spots." and "Private by
-//    design." cards were dropped earlier.
-//  - The two mid-page section headings (before/after + study material) dropped
-//    a type tier on 2026-07-25 (Darcy) — clamp(23px, 2.2vw, 34px) with a
-//    16.5px sub, down from a 62px cap and a 22px sub.
-//  - The testimonial marquee is dropped entirely — there are no real users to
-//    quote yet, the same rule that parked WallOfLove.tsx on 2026-07-20.
-//  - The closer is the existing FinalCta, unchanged, at its current size.
-//  - Pricing no longer renders here at all; it lives at /pricing, reachable
-//    from the nav and the footer.
+// Same page, new positioning and new product. v6 sold a tutoring chat you talk
+// to; the extension shipped a homework-session referee that counts the
+// problems, paces you against your own history, takes one tap per problem,
+// raises a hand when you stall, and closes the set. Tutoring is now the
+// subroutine it calls when you're stuck. This page describes THAT.
+//
+// Positioning: we compete on getting through homework faster, and the
+// comparison is against doing the assignment alone — never against a
+// general-purpose chatbot, which is a fight that can only be lost by entering
+// it. No moral framing anywhere: the page never says cheating, honesty,
+// integrity, "stop copying", or anything implying supervision.
+//
+// Darcy's calls on top of the design file (2026-07-29):
+//  - Headline is "Get homework done. Go do something else." over the design's
+//    "The fastest way to do your homework yourself." — that one leans on
+//    "yourself", the moral frame the handoff's own rules ban, and it was the
+//    only differentiating word in the line. This one is set-scoped (the whole
+//    assignment, not the stuck moment) and states the payoff.
+//  - §5 is reframed from "It asks. You answer." to "It finds the one step
+//    you're missing." In the speed lane, "never the worked solution" reads as
+//    a limitation; this section's job is now to explain why the Socratic
+//    mechanic is what makes it FAST, rather than to apologise for it.
+//  - The comparison bar keeps the design's 52 → 38 figures. Flagged as the
+//    page's one unverifiable claim and accepted; see HowItWorks.tsx.
+//  - The page ships as if the homework session is live — the extension build
+//    carrying it goes to the Chrome Web Store alongside this.
+//
+// Retired with v6: BeforeAfter.tsx (its eight-step "screenshot → paste → copy
+// it down" list was the page's most eye-catching motion and a tutorial for the
+// competing workflow, and its closing line carried the moral framing) and
+// HeroDemo.tsx's scripted Khan tutoring session. Both stay on disk, still
+// covered by their SSR tests; neither renders here.
+//
+// Unchanged from v6: the nav, the platform marquee, the keycap closer, the
+// dark footer, and pricing living at /pricing rather than on this page.
 //
 // showPlaceholders (handoff flag, default ON): hides the scripted-demo
 // footnote — set NEXT_PUBLIC_SHOW_PLACEHOLDERS=0 only for marketing
@@ -75,7 +88,11 @@ export default function Home() {
           <PlatformMarquee />
 
           <Reveal>
-            <BeforeAfter />
+            <HowItWorks />
+          </Reveal>
+
+          <Reveal>
+            <SocraticSection />
           </Reveal>
 
           <Reveal>
