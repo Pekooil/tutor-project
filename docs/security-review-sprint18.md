@@ -81,8 +81,10 @@ a stray permissive policy would flip the sweep red.
 - **`waitlist`** — public by design (unauthenticated visitors), service-role
   writer only. Email-validated, honeypot field, `ON CONFLICT DO NOTHING` (no
   account-enumeration leak), `source` allow-listed. **Reviewed and accepted.**
-- Both public endpoints share one gap: **no rate-limiting** — filed (§5), not a
-  Sprint 18 one-liner (needs traffic data + infra).
+- Both public endpoints shared one gap at review time: **no rate-limiting** —
+  filed (§7.1), not a Sprint 18 one-liner (needs traffic data + infra).
+  **Since RESOLVED in Sprint 19** — both now enforce
+  `web/lib/rate-limit/limiter.ts`; see §7.1.
 
 ## 4. No-secret-in-bundle (Task 3)
 
@@ -128,14 +130,22 @@ built `dist/chrome-mv3/manifest.json`):
 - No other one-line security fix was warranted: RLS is complete (§1), auth is
   sound (§2).
 
-## 7. Filed — not fixed, with reasons
+## 7. Filed — not fixed at review time, with reasons
 
-1. **Rate-limiting on the two public endpoints (`/api/errors`, `/api/waitlist`).**
-   Both are intentionally unauthenticated. Worst case is bounded today by strict
-   shape validation + honeypot + idempotency, but neither has request-rate
-   limiting. Deferred: it needs real traffic data to size and a rate-limit
-   primitive (edge middleware / Upstash) this sprint does not introduce.
-   *Spawned as a follow-up task.*
+> **Status update (2026-08-03):** all three items below have since been
+> RESOLVED. Each entry is kept for the audit trail, struck through and annotated
+> with how and when it was closed. Nothing in this section is an open finding.
+
+1. ~~**Rate-limiting on the two public endpoints (`/api/errors`, `/api/waitlist`).**~~
+   **RESOLVED (Sprint 19) — implemented.** Both are intentionally unauthenticated,
+   and at review time were bounded only by strict shape validation + honeypot +
+   idempotency, with no request-rate limiting. A Postgres-backed rate-limit
+   primitive now exists (`web/lib/rate-limit/limiter.ts`, migration
+   `0018_rate_limit.sql`) and both endpoints enforce it: `checkRateLimit(…,
+   clientBucket(request, …))` → `tooManyRequests()` in
+   `web/app/api/waitlist/route.ts` and `web/app/api/errors/route.ts`. Covered by
+   `web/tests/rate-limit.test.ts`. The original "needs real traffic data + a
+   primitive this sprint does not introduce" reasoning no longer applies.
 2. ~~**`tabs` permission minimization.**~~ **RESOLVED (Task 7, 2026-07-12) —
    dropped.** The background reads the page URL via `sender.tab.url` (exposed by
    the `<all_urls>` host permission, not `tabs`) and only `tab.id` from
@@ -143,8 +153,10 @@ built `dist/chrome-mv3/manifest.json`):
    removed and the extension reloaded, a new session still wrote a non-null
    `sessions.page_url_hash` and the toggle/broadcast paths still worked. The
    permission is now removed from `wxt.config.ts` (moved to §6, fixed-in-sprint).
-3. **Extension `API_BASE` still `http://localhost:3000`.** The manifest now
-   carries the prod origin, but `lib/api.ts`'s `API_BASE` constant still targets
-   localhost, so the shipped build does not yet talk to prod. Flipping it is a
-   **Sprint 19 (launch)** task — deliberately kept a one-line constant change
-   that needs no permissions re-review (the host permission is already in place).
+3. ~~**Extension `API_BASE` still `http://localhost:3000`.**~~ **RESOLVED
+   (Sprint 19, verified live 2026-07-15) — flipped.** At review time the manifest
+   carried the prod origin but `lib/api.ts`'s `API_BASE` constant still targeted
+   localhost, so the shipped build did not talk to prod. It is now
+   `export const API_BASE = 'https://calyxa.app'` (`extension/src/lib/api.ts:51`),
+   verified live against the deployed routes. No permissions re-review was needed
+   (the host permission was already in place).

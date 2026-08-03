@@ -19,6 +19,12 @@ extension/release/
 .env.*.local
 *.local
 
+# Python artifacts (the root cost-analysis scripts are source-only)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
 # Logs
 *.log
 npm-debug.log*

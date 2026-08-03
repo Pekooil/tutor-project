@@ -1,0 +1,64 @@
+Calyxa Source-Available License
+Copyright (c) 2026 Darcy Wang. All rights reserved.
+
+This source code is made publicly available for the purposes of transparency,
+security review, and education ONLY. It is NOT open source, and no open source
+license is granted.
+
+PERMITTED
+---------
+Subject to the restrictions below, any person may:
+
+  1. View, read, and study this source code.
+  2. Clone or download the repository for the sole purpose of personal study,
+     security review, or evaluation.
+  3. Quote short excerpts in commentary, reviews, academic work, or security
+     disclosures, with attribution to Calyxa / Darcy Wang.
+
+NOT PERMITTED
+-------------
+Without the prior written permission of the copyright holder, no person may:
+
+  1. Use this software, in whole or in part, in any product or service,
+     whether commercial or non-commercial.
+  2. Copy, modify, merge, publish, distribute, sublicense, or sell copies of
+     this software or any derivative work.
+  3. Deploy, host, or otherwise operate this software or any derivative work,
+     whether publicly or privately, for any purpose other than local personal
+     evaluation.
+  4. Reuse the prompts, prompt templates, pedagogical instruction sets,
+     curriculum data, or model tool schemas contained in this repository in any
+     other software, product, service, model training corpus, or dataset.
+  5. Use the names "Calyxa", associated logos, or associated branding, except
+     for nominative reference (e.g. naming the project in commentary).
+
+NO CONTRIBUTOR LICENSE
+----------------------
+This repository does not solicit contributions. Any contribution submitted is
+accepted only if the contributor assigns all rights in that contribution to the
+copyright holder. Unsolicited pull requests may be closed without review.
+
+RESERVATION OF RIGHTS
+---------------------
+All rights not expressly granted above are reserved by the copyright holder.
+Publication of this source code does not waive, dedicate to the public domain,
+or otherwise diminish any copyright, trade secret, trademark, or other
+intellectual property right in it.
+
+NO WARRANTY
+-----------
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+THIRD-PARTY COMPONENTS
+----------------------
+This repository depends on third-party packages listed in package.json and
+package-lock.json. Those remain governed by their own licenses; nothing here
+alters them.
+
+Permission requests: support@calyxa.app
