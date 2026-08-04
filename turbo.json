@@ -3,7 +3,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".output/**", ".wxt/**"],
+      "outputs": ["dist/**", ".output/**", ".wxt/**", ".next/**", "!.next/cache/**"],
       "env": [
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",

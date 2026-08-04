@@ -229,7 +229,6 @@ export function Hero({ showPlaceholders }: { showPlaceholders: boolean }) {
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     alt="Calyxa - Adaptive AI math tutoring that lives in your browser | Product Hunt"
                     width={200}
@@ -345,7 +344,6 @@ function MobileHero() {
           target="_blank"
           rel="noopener noreferrer"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             alt="Calyxa - Adaptive AI math tutoring that lives in your browser | Product Hunt"
             width={250}
