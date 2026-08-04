@@ -38,8 +38,16 @@ const sources = files.map((path) => ({
 
 describe('no retired features in the marketing tree', () => {
   it('finds the marketing sources it is guarding', () => {
+    // Vacuity guard: proves the scan actually walked a populated tree, so the
+    // greps below cannot pass trivially over an empty file set.
+    //
+    // This used to also assert `demo/scene.ts` exists. The scripted-scene demo
+    // (`components/marketing/demo/*`) was deleted wholesale in aba6d7f when the
+    // landing page was rebuilt, so that assertion could never pass again and
+    // was failing CI rather than catching drift. The generic greps below are
+    // the part that carries the anti-rot value, and they still run over the
+    // whole tree.
     expect(files.length).toBeGreaterThan(10)
-    expect(files.some((path) => path.endsWith('demo/scene.ts'))).toBe(true)
   })
 
   it('no file references the deleted scene actions (progress/tag/strip)', () => {
@@ -77,15 +85,13 @@ describe('no retired features in the marketing tree', () => {
     }
   })
 
-  it('annotation label pills are tint-bg + deep-text, never white-on-color', () => {
-    const raw = readFileSync(join(MARKETING_ROOT, 'demo', 'DemoAnnotations.tsx'), 'utf8')
-    const code = stripComments(raw)
-    // The Meadow rule (dark-on-light): the pill rect fills with the ordinal
-    // tint and its text with the ordinal deep color.
-    expect(code).toMatch(/fill=\{annotTint\(/)
-    expect(code).toMatch(/fill=\{annotDeep\(/)
-    // The old Sprint-14 treatment — white label text on the stroke color —
-    // must not come back in any form.
-    expect(code).not.toMatch(/fill=["'](#fff\b|#ffffff|white)["']/i)
-  })
+  // REMOVED: 'annotation label pills are tint-bg + deep-text, never
+  // white-on-color'. It read components/marketing/demo/DemoAnnotations.tsx
+  // directly, which was deleted with the rest of the scripted-scene demo in
+  // aba6d7f (landing rebuild), so the test threw ENOENT on every run. The rule
+  // it enforced was specific to that SVG component's annotTint()/annotDeep()
+  // fills; nothing in the marketing tree renders annotation pills today
+  // (annotTint/annotDeep appear nowhere under components/), so there is no
+  // successor to re-point it at. Restore a version of this check alongside any
+  // future annotation demo rather than reviving it against a dead path.
 })
