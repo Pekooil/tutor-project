@@ -3,6 +3,7 @@ import type Stripe from 'stripe'
 import { stripeClient } from '@/lib/billing/stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertCronSecret } from '@/lib/cron/auth'
+import { COMP_SUBSCRIPTION_STATUS } from '@/lib/tier/session-gate'
 
 // Sprint 23 / Task 5 (ADR-050 decision 1): the daily reconcile cron — the SAFETY
 // NET beneath the webhook. Webhooks (Task 4) are the fast path and the source of
@@ -200,6 +201,14 @@ export async function GET(request: Request) {
       )
       .not('stripe_customer_id', 'is', null)
       .is('deleted_at', null)
+      // Complimentary accounts are Pro by grant, not by Stripe, so Stripe is
+      // NOT the source of truth for them. Without this they would be
+      // downgraded to free on the next run: they can carry a stripe_customer_id
+      // from an earlier real or test checkout, and reconcileFields maps "no
+      // live subscription" to free. `comp` is the one subscription_status
+      // value that never comes from Stripe (see COMP_SUBSCRIPTION_STATUS), so
+      // it is a safe sentinel — a real Stripe status can never collide with it.
+      .neq('subscription_status', COMP_SUBSCRIPTION_STATUS)
       .order('id', { ascending: true })
       .range(from, from + USER_BATCH - 1)
 

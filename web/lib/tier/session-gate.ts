@@ -106,6 +106,93 @@ export async function sessionOverFreeCap(
   return owner?.subscription_tier === 'free' && row.counts_against_free === false
 }
 
+// The one `subscription_status` value that never originates from Stripe.
+// Marks a complimentary Pro grant (owner/test/comp accounts): tier is 'pro' so
+// every existing tier predicate — the start_session quota exemption, the
+// entitlements resolver, userOverFreeCap below — treats them as Pro with no
+// special-casing, while this status tells the reconcile cron that Stripe is
+// NOT the source of truth for the row and it must be skipped. Without that
+// skip a comp account carrying a stripe_customer_id from an earlier checkout
+// is downgraded to free on the next nightly run.
+export const COMP_SUBSCRIPTION_STATUS = 'comp'
+
+// Must match `start_session`'s `interval '30 days'` rolling window (the RPC
+// zeroes free_session_count once the period is older than this).
+const FREE_PERIOD_DAYS = 30
+const MS_PER_DAY = 86_400_000
+
+// The USER-level free-cap verdict, for paid work that is NOT a tutoring turn
+// on an existing session: the voice legs (Whisper STT / ElevenLabs TTS) and
+// study-kit generation. sessionOverFreeCap re-derives the verdict recorded on
+// a session row, which is the right authority for turns — but it needs a
+// sessionId, and returns false (uncapped) without one. That left three real
+// cost leaks for a free user past their allowance: both voice routes, which
+// only ever consulted the GLOBAL daily cost guard, and study-kit generation,
+// which had no per-user gate at all. Each is a paid provider call.
+//
+// This mirrors `start_session`'s quota arithmetic rather than re-inventing it,
+// so the two cannot drift. A free user is over the cap iff ALL hold:
+//   - subscription_tier = 'free'      (Pro and comp are quota-exempt)
+//   - the 30-day period has NOT rolled over — a stale period means the RPC
+//     would zero the count on the next start, so they are NOT over cap
+//   - free_session_count >= FREE_SESSION_LIMIT
+//   - referral_bonus_sessions <= 0    (bonus sessions are spent before the cap
+//     bites; ADR-053)
+//
+// Fails OPEN (false) on any error or missing row, matching sessionOverFreeCap
+// and costGuard: a lookup hiccup must never refuse a paying user.
+//
+// `userId` is passed explicitly and filtered on rather than leaning on RLS to
+// return exactly one row. RLS does scope `users` SELECT to auth.uid(), so the
+// filter is redundant for a bearer/cookie client — but this helper is reachable
+// from code paths that hold a SERVICE-ROLE client (admin/seed-notebooks), where
+// RLS is bypassed and an unfiltered maybeSingle() would match every user and
+// error. Filtering makes the read correct under either client.
+export async function userOverFreeCap(supabase: SupabaseClient, userId: string): Promise<boolean> {
+  // The read is wrapped because "fails OPEN" must hold for a THROWN fault too,
+  // not only a returned `{ error }` — a transport failure or a client that
+  // rejects mid-chain would otherwise propagate out of a guard whose whole
+  // contract is that it never breaks the caller.
+  let data: unknown = null
+  let error: unknown = null
+  try {
+    const result = await supabase
+      .from('users')
+      .select('subscription_tier, free_session_count, free_period_started_at, referral_bonus_sessions')
+      .eq('id', userId)
+      .maybeSingle()
+    data = result.data
+    error = result.error
+  } catch (thrown) {
+    error = thrown
+  }
+
+  if (error || !data) {
+    if (error) console.error('session-gate: user free-cap lookup failed, proceeding uncapped', error)
+    return false
+  }
+
+  const row = data as {
+    subscription_tier: string | null
+    free_session_count: number | null
+    free_period_started_at: string | null
+    referral_bonus_sessions: number | null
+  }
+
+  if (row.subscription_tier !== 'free') return false
+
+  // A period older than the window is about to be reset by the next
+  // start_session call, so the stored count is not binding.
+  const periodStarted = row.free_period_started_at ? Date.parse(row.free_period_started_at) : NaN
+  if (Number.isFinite(periodStarted) && Date.now() - periodStarted > FREE_PERIOD_DAYS * MS_PER_DAY) {
+    return false
+  }
+
+  const used = row.free_session_count ?? 0
+  const bonus = row.referral_bonus_sessions ?? 0
+  return used >= FREE_SESSION_LIMIT && bonus <= 0
+}
+
 // The cap's server-authoritative count: how many interactions (student
 // turns) this session has already persisted. RLS scopes the count to the
 // caller's own rows. Returns null on any error — the cap FAILS OPEN like

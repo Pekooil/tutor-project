@@ -34,12 +34,24 @@ vi.mock('@/lib/supabase/admin', () => ({
       let served = false
       return {
         select: () => {
+          // `neq` is applied for real, not stubbed to a pass-through: the route
+          // uses it to EXCLUDE complimentary accounts (subscription_status =
+          // 'comp'), whose tier is a grant rather than a Stripe fact. A no-op
+          // mock would let that filter rot silently and still show green.
+          const excluded: Array<{ col: string; value: unknown }> = []
           const builder: Record<string, unknown> = {
             not: () => builder,
             is: () => builder,
+            neq: (col: string, value: unknown) => {
+              excluded.push({ col, value })
+              return builder
+            },
             order: () => builder,
             range: async () => {
-              const data = served ? [] : state.users
+              const rows = state.users.filter(
+                (u) => !excluded.some(({ col, value }) => (u as Record<string, unknown>)[col] === value)
+              )
+              const data = served ? [] : rows
               served = true
               return { data, error: null }
             },
@@ -202,6 +214,63 @@ describe('GET /api/cron/stripe-reconcile — past_due grace window', () => {
 
     await get(`Bearer ${SECRET}`)
     // THE guard: remove the grace-expiry check and this stays 'pro'.
+    expect(state.updates[0].fields.subscription_tier).toBe('free')
+  })
+})
+
+describe('GET /api/cron/stripe-reconcile — complimentary accounts', () => {
+  it('never touches a comp account, even with no live Stripe subscription', async () => {
+    // Comp accounts (owner/test grants) are Pro because someone GRANTED it, not
+    // because Stripe says so. They can still carry a stripe_customer_id from an
+    // earlier checkout, and reconcileFields maps "no live subscription" to free
+    // — so without the `neq('subscription_status', 'comp')` filter this nightly
+    // cron would silently revoke the grant within a day.
+    state.users = [
+      {
+        id: 'u_comp',
+        stripe_customer_id: 'cus_comp',
+        stripe_subscription_id: 'sub_comp',
+        subscription_tier: 'pro',
+        subscription_status: 'comp',
+        subscription_renews_at: null,
+      },
+    ]
+    // Stripe's view: the only subscription is canceled — exactly what would
+    // otherwise force a downgrade.
+    state.listData = [subscription('canceled', { id: 'sub_comp', customer: 'cus_comp', daysFromNow: -30 })]
+
+    await get(`Bearer ${SECRET}`)
+
+    // THE guard: drop the comp filter and this row gets written back to 'free'.
+    expect(state.updates).toHaveLength(0)
+  })
+
+  it('still reconciles ordinary accounts alongside a comp one', async () => {
+    state.users = [
+      {
+        id: 'u_comp',
+        stripe_customer_id: 'cus_comp',
+        stripe_subscription_id: 'sub_comp',
+        subscription_tier: 'pro',
+        subscription_status: 'comp',
+        subscription_renews_at: null,
+      },
+      {
+        id: 'u_real',
+        stripe_customer_id: 'cus_real',
+        stripe_subscription_id: 'sub_real',
+        subscription_tier: 'pro',
+        subscription_status: 'active',
+        subscription_renews_at: iso(30),
+      },
+    ]
+    state.listData = [subscription('canceled', { id: 'sub_real', customer: 'cus_real', daysFromNow: -5 })]
+
+    await get(`Bearer ${SECRET}`)
+
+    // The comp row is skipped; the real cancellation is still enforced.
+    expect(state.updates).toHaveLength(1)
+    expect(state.updates[0].id).toBe('u_real')
     expect(state.updates[0].fields.subscription_tier).toBe('free')
   })
 })

@@ -27,6 +27,7 @@ import {
   endSession,
   sessionInteractionCount,
   sessionOverFreeCap,
+  userOverFreeCap,
   SESSION_STUDENT_MESSAGE_LIMIT,
   FREE_LIMIT_MESSAGE,
 } from '@/lib/tier/session-gate'
@@ -142,7 +143,7 @@ async function handleOpeningScan(
   const [{ hardExceeded }, profile, overFreeCap] = await Promise.all([
     costGuard(auth.supabase, estimateCost('claude_turn')),
     timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys, userId: auth.user.id, courseKey })),
-    sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : Promise.resolve(false),
+    sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : userOverFreeCap(auth.supabase, auth.user.id),
   ])
 
   // Free monthly cap (public launch, 2026-07-18): a proactive scan is exactly
@@ -318,7 +319,7 @@ export async function POST(request: Request) {
     timed(costGuardTimer, () => costGuard(auth.supabase, estimateCost('claude_turn'))),
     timed(profileTimer, () => loadProfile(auth.supabase, { topicKeys, userId: auth.user.id, courseKey })),
     sessionId ? sessionInteractionCount(auth.supabase, sessionId) : Promise.resolve(null),
-    sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : Promise.resolve(false),
+    sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : userOverFreeCap(auth.supabase, auth.user.id),
   ])
 
   // Session message cap (SESSION_STUDENT_MESSAGE_LIMIT): past it, no model

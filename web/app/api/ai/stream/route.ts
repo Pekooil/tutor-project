@@ -12,7 +12,7 @@ import {
 } from '@/lib/ai/page-context'
 import { costGuard } from '@/lib/tier/cost-guard'
 import { estimateCost } from '@/lib/tier/cost-model'
-import { sessionOverFreeCap, FREE_LIMIT_MESSAGE } from '@/lib/tier/session-gate'
+import { sessionOverFreeCap, userOverFreeCap, FREE_LIMIT_MESSAGE } from '@/lib/tier/session-gate'
 
 // Sprint 16 / Task 3 (ADR-041): same resting text as the other two turn
 // paths. This route currently has no client caller (extension/src/lib/
@@ -130,7 +130,7 @@ export async function POST(request: Request) {
   // Claude surface enforces the quota exactly like the two live turn paths.
   const [{ hardExceeded }, overFreeCap] = await Promise.all([
     costGuard(auth.supabase, estimateCost('claude_turn')),
-    sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : Promise.resolve(false),
+    sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : userOverFreeCap(auth.supabase, auth.user.id),
   ])
 
   if (hardExceeded || overFreeCap) {

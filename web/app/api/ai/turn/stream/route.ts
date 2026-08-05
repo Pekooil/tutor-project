@@ -13,6 +13,7 @@ import {
   endSession,
   sessionInteractionCount,
   sessionOverFreeCap,
+  userOverFreeCap,
   SESSION_STUDENT_MESSAGE_LIMIT,
   FREE_LIMIT_MESSAGE,
 } from '@/lib/tier/session-gate'
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
     costGuard(auth.supabase, estimateCost('claude_turn')),
     loadProfile(auth.supabase, { topicKeys, userId: auth.user.id, courseKey }),
     sessionId ? sessionInteractionCount(auth.supabase, sessionId) : Promise.resolve(null),
-    sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : Promise.resolve(false),
+    sessionId ? sessionOverFreeCap(auth.supabase, sessionId) : userOverFreeCap(auth.supabase, auth.user.id),
   ])
 
   // Session message cap — the streamed twin of /api/ai/turn's branch: end the

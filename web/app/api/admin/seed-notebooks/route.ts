@@ -125,7 +125,14 @@ export async function POST(request: Request) {
     if (existing) {
       kit = 'existed'
     } else {
-      const generated = await generateAndPersistStudyKit(admin, userId, session.id)
+      // enforceFreeCap: false — this is a deliberate operator backfill against a
+      // chosen account, not student-initiated usage, and it runs with a
+      // service-role client. Leaving the student quota on would silently skip
+      // exactly the over-cap accounts most likely to need backfilling. The
+      // global cost guard inside still applies.
+      const generated = await generateAndPersistStudyKit(admin, userId, session.id, {
+        enforceFreeCap: false,
+      })
       kit =
         'kit' in generated
           ? 'created'

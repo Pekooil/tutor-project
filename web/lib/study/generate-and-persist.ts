@@ -2,6 +2,7 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { costGuard } from '@/lib/tier/cost-guard'
 import { estimateCost } from '@/lib/tier/cost-model'
+import { userOverFreeCap } from '@/lib/tier/session-gate'
 import { loadSessionSource } from '@/lib/study/source'
 import { generateStudyKit } from '@/lib/study/generate'
 import { isEmptyStudyKit, type StudyKit } from '@/lib/study/tool'
@@ -21,15 +22,45 @@ export type GenerateResult =
   | { refused: 'cost' | 'empty' }
   | { error: string }
 
+export type GenerateOptions = {
+  // Whether the caller's monthly free-session allowance gates this generation.
+  // Defaults to true — every STUDENT-initiated path (the recap card's button
+  // and the automatic session-end hook) must respect it. The admin backfill
+  // (/api/admin/seed-notebooks) passes false: it is a deliberate,
+  // CRON_SECRET-gated operator action against a chosen account, and applying a
+  // student quota there would silently skip exactly the over-cap accounts an
+  // operator is most likely to be backfilling. That route still runs the
+  // global cost guard, which is the fleet-wide spend bound.
+  enforceFreeCap?: boolean
+}
+
 export async function generateAndPersistStudyKit(
   supabase: SupabaseClient,
   userId: string,
-  sessionId: string
+  sessionId: string,
+  options: GenerateOptions = {}
 ): Promise<GenerateResult> {
-  // Cost guard, BEFORE the read or the Claude call (ADR-041). costGuard fails
-  // OPEN, so only a real over-cap reaches this branch — no Claude call is made.
-  const { hardExceeded } = await costGuard(supabase, estimateCost('study_kit'))
-  if (hardExceeded) return { refused: 'cost' }
+  const { enforceFreeCap = true } = options
+  // Cost guard + the per-user free-session cap, BOTH before the read or the
+  // Claude call (ADR-041). Each fails OPEN, so only a real over-cap reaches
+  // these branches — no Claude call is made either way.
+  //
+  // The free-cap check closes a leak: study-kit generation is a paid model
+  // call with no per-user gate of its own, reachable BOTH on demand (the recap
+  // card's button → /api/study/generate) and automatically from the
+  // session-end hook. A free user past their monthly allowance could therefore
+  // still bill a generation on every session they ended. Gating the shared
+  // core rather than the route covers both call sites at once. Pro and comp
+  // accounts are exempt via userOverFreeCap's tier predicate.
+  //
+  // Reported as `refused: 'cost'` deliberately — callers already branch on it
+  // (the route returns it verbatim, the hook logs and ignores), and the
+  // student-visible outcome is identical: no kit, nothing persisted.
+  const [{ hardExceeded }, overFreeCap] = await Promise.all([
+    costGuard(supabase, estimateCost('study_kit')),
+    enforceFreeCap ? userOverFreeCap(supabase, userId) : Promise.resolve(false),
+  ])
+  if (hardExceeded || overFreeCap) return { refused: 'cost' }
 
   try {
     // The SAME per-session material the recap shows (Task 3), RLS-scoped.

@@ -5,6 +5,7 @@ import { timed } from '@/lib/voice/latency'
 import { costGuard } from '@/lib/tier/cost-guard'
 import { voiceCreditGuard } from '@/lib/tier/voice-credit'
 import { estimateCost } from '@/lib/tier/cost-model'
+import { userOverFreeCap } from '@/lib/tier/session-gate'
 
 // No storage/Blob/DB import in this module (ADR-011) — the request body is
 // held only as an in-memory ArrayBuffer and handed straight to Whisper. This
@@ -52,10 +53,21 @@ export async function POST(request: Request) {
   // (migration 0023) rides the same round trip in PARALLEL — no added
   // latency on the voice-critical path. Both guards fail open independently.
   const estimatedCents = estimateCost('whisper_stt', audio.byteLength)
-  const [{ softExceeded, hardExceeded }, voiceCredit] = await Promise.all([
+  const [{ softExceeded, hardExceeded }, voiceCredit, overFreeCap] = await Promise.all([
     costGuard(auth.supabase, estimatedCents),
     voiceCreditGuard(auth.supabase, estimatedCents),
+    userOverFreeCap(auth.supabase, auth.user.id),
   ])
+
+  // Free monthly session cap: see the identical guard in voice/tts/route.ts.
+  // A free user past their allowance must bill no provider anywhere, and this
+  // leg is reachable on its own (the extension posts audio here directly), so
+  // without this an over-cap user could still spend Whisper budget. Same
+  // degrade-to-text contract as the cost caps. Pro and comp accounts never
+  // reach here (userOverFreeCap's tier predicate).
+  if (overFreeCap) {
+    return NextResponse.json({ degraded: true, degradedCap: 'free_limit' })
+  }
 
   if (softExceeded || hardExceeded) {
     // `degradedCap` (Sprint 18 Task 8, ADR-043): telemetry support so the

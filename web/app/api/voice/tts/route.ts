@@ -3,6 +3,7 @@ import { clientFromBearer } from '@/lib/auth/bearer'
 import { synthesize } from '@/lib/voice/elevenlabs'
 import { timed } from '@/lib/voice/latency'
 import { costGuard } from '@/lib/tier/cost-guard'
+import { userOverFreeCap } from '@/lib/tier/session-gate'
 import { voiceCreditGuard } from '@/lib/tier/voice-credit'
 import { estimateCost } from '@/lib/tier/cost-model'
 
@@ -36,10 +37,23 @@ export async function POST(request: Request) {
   // Public launch (2026-07-18): the per-free-user monthly voice credit
   // (migration 0023) rides in PARALLEL, same as voice/stt/route.ts.
   const estimatedCents = estimateCost('elevenlabs_tts', text.length)
-  const [{ softExceeded, hardExceeded }, voiceCredit] = await Promise.all([
+  const [{ softExceeded, hardExceeded }, voiceCredit, overFreeCap] = await Promise.all([
     costGuard(auth.supabase, estimatedCents),
     voiceCreditGuard(auth.supabase, estimatedCents),
+    userOverFreeCap(auth.supabase, auth.user.id),
   ])
+
+  // Free monthly session cap: a free user past their allowance must generate
+  // NO provider cost anywhere, not just on tutoring turns. The turn routes
+  // already refuse via sessionOverFreeCap, but this leg was reachable
+  // independently — the extension calls /api/voice/tts directly — so an
+  // over-cap user could still bill ElevenLabs. Degrade-to-text, the same
+  // contract as the cost caps, so the overlay needs no new branch. Rides the
+  // parallel read above; Pro and comp accounts never reach here (the tier
+  // predicate inside userOverFreeCap).
+  if (overFreeCap) {
+    return NextResponse.json({ degraded: true, degradedCap: 'free_limit' })
+  }
 
   if (softExceeded || hardExceeded) {
     // `degradedCap` (Sprint 18 Task 8, ADR-043): telemetry support so the

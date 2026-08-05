@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONCEPT_KEYS } from '@calyxa/curriculum'
+import { FREE_SESSION_LIMIT } from '../lib/tier/session-gate'
 
 // Sprint 21 Task 7 (ADR-049). Two halves, both without a live table:
 //   1. parseStudyKit -- a PURE validator (tool.ts): a well-formed tool output
@@ -166,6 +167,27 @@ describe('POST /api/study/generate', () => {
     clientFromBearerOrCookie.mockResolvedValue({
       supabase: {
         from: (table: string) => {
+          // `users` is read by userOverFreeCap (the per-user free-session gate
+          // that runs alongside the cost guard). Default fixture: an in-quota
+          // free user, so these cases exercise the paths under test rather than
+          // the cap. The over-cap case has its own test below.
+          if (table === 'users') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({
+                    data: {
+                      subscription_tier: 'free',
+                      free_session_count: 0,
+                      free_period_started_at: new Date().toISOString(),
+                      referral_bonus_sessions: 0,
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+            }
+          }
           if (table !== 'study_artifact') throw new Error(`unexpected table: ${table}`)
           return { insert }
         },
@@ -185,6 +207,50 @@ describe('POST /api/study/generate', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ refused: 'cost' })
     // The whole point of "before the call": neither the read nor the generation ran.
+    expect(loadSessionSource).not.toHaveBeenCalled()
+    expect(generateStudyKit).not.toHaveBeenCalled()
+    expect(insert).not.toHaveBeenCalled()
+  })
+
+  it('free-cap: an out-of-sessions free user refuses BEFORE the Claude call', async () => {
+    // The leak this closes: study-kit generation is a paid model call that had
+    // no per-user gate, reachable both from the recap card and automatically at
+    // session end — so a free user past their monthly allowance could bill a
+    // generation on every session they finished. The global cost guard is
+    // explicitly under-cap here to prove the FREE cap is what refuses.
+    costGuard.mockResolvedValue({ softExceeded: false, hardExceeded: false })
+    clientFromBearerOrCookie.mockResolvedValue({
+      supabase: {
+        from: (table: string) => {
+          if (table === 'users') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({
+                    data: {
+                      subscription_tier: 'free',
+                      free_session_count: FREE_SESSION_LIMIT,
+                      free_period_started_at: new Date().toISOString(),
+                      referral_bonus_sessions: 0,
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+            }
+          }
+          if (table !== 'study_artifact') throw new Error(`unexpected table: ${table}`)
+          return { insert }
+        },
+      },
+      user: { id: FAKE_USER_ID },
+    })
+
+    const response = await post({ sessionId: 'sess-1' })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ refused: 'cost' })
+    // No provider spend: neither the source read nor the model call happened.
     expect(loadSessionSource).not.toHaveBeenCalled()
     expect(generateStudyKit).not.toHaveBeenCalled()
     expect(insert).not.toHaveBeenCalled()
