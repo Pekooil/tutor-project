@@ -116,15 +116,31 @@ Core Platform
 - Chrome Web Store: deployment of extension zip file
 - Vercel: hosting, deployment, analytics, and speed insights
 - Supabase: authentication and PostgreSQL database
+- Stripe: subscription billing and webhooks
+
+AI & Voice
+
+- OpenAI GPT-4o-mini — tutor responses, annotations, and study kit generation
+- OpenAI GPT-4o-mini-transcribe — speech-to-text during voice mode
+- ElevenLabs — text-to-speech during voice mode
+- Anthropic Claude Haiku 4.5 — backup tutor provider behind an environment flag
 
 Frameworks & Libraries
 
+- WXT — Manifest V3 Chrome extension framework
 - Next.js — React framework (App Router)
 - React — UI library
+- TypeScript — across the whole monorepo
 - Tailwind CSS — styling
 - Radix UI — headless UI primitives
-- Recharts — charting library
-- Lucide — icon set
-- date-fns — date utility library
-- Resend — transactional email reminders
-- Geist — font by Vercel
+- Motion — animation on the landing page
+- Geist & Schibsted Grotesk — fonts
+- Resend — transactional email for invites
+
+Tooling
+
+- Turborepo — monorepo build pipeline
+- Vitest — unit and integration tests
+- axe-core — accessibility testing
+- ESLint + Prettier — linting and formatting
+- GitHub Actions — CI
