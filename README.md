@@ -4,21 +4,21 @@ Live, browser-native math tutor that helps students complete homework more effic
 
 ## Demonstration
 
-### Home Page
+### Start Homework Session
 
-<img width="1920" height="956" alt="Screenshot 2026-06-10 at 1 00 46 AM" src="https://github.com/user-attachments/assets/56413a7e-e6d7-492a-b093-2b1d01792587" />
+![Calyxa's pill on a Khan Academy problem, ready to start a homework session](docs/screenshots/01-start-homework-session.png)
 
-### Calendar View  
+### Question Scan
 
-<img width="1920" height="957" alt="Screenshot 2026-06-10 at 1 01 09 AM" src="https://github.com/user-attachments/assets/0af9fca6-9cb5-4d40-82bf-12428211974a" />
+![Calyxa reporting it found 4 problems and asking which ones the student is doing](docs/screenshots/02-question-scan.png)
 
-### Adaptive Planner  
+### Marking Each Question
 
-<img width="1920" height="958" alt="Screenshot 2026-06-10 at 1 02 30 AM" src="https://github.com/user-attachments/assets/5a6a30c3-9be2-49d9-af62-7f0ec1985e13" />
+![The student marking a question correct with the sure, shaky, and cross buttons](docs/screenshots/03-marking-each-question.png)
 
-### Error Log  
+### Tutoring Mode
 
-<img width="1920" height="958" alt="Screenshot 2026-06-10 at 1 05 30 AM" src="https://github.com/user-attachments/assets/2354f7e8-5efc-4f32-8855-5ae6008731b9" />
+![Calyxa tutoring socratically with on-screen annotations pointing at the polynomial's terms](docs/screenshots/04-tutoring-mode.png)
 
 
 ## Motivation
