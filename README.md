@@ -28,6 +28,9 @@ I urgently needed a planner/todo list that I can just execute and rinse and repe
 This is why I made SaturnPath, a free, open-source SAT planner that uses an adaptive planner engine to feed users the best recommended questions based on their performance profile.
 
 After building SaturnPath, it came to my mind that I can build a new tool with a similar adaptive engine that not only applies to SAT materials only, but literally any subjects as a whole.
+SaturnPath was a good SAT only study schedule planner that adapts to the student, but it never handles anything that helps the student to actually get unstuck.
+The purpose of SaturnPath was so students can wake up everyday with a plan ready to execute and just drill the assigned questions, but they still need to search question up, watch videos explanations, etc.
+
 Therefore, I built Calyxa, which also runs on an adaptive learning engine that changes response based on the student's performance. However, the most significant improvement from SaturnPath is that it's now an all-round homework helper and live tutor.
 It keeps track of the student's progress, time, and provide instant tutor support with socratic tutoring, on-screen annotations, live voice conversations, and adapts to the student's responses.
 
@@ -120,27 +123,27 @@ Core Platform
 
 AI & Voice
 
-- OpenAI GPT-4o-mini — tutor responses, annotations, and study kit generation
-- OpenAI GPT-4o-mini-transcribe — speech-to-text during voice mode
-- ElevenLabs — text-to-speech during voice mode
-- Anthropic Claude Haiku 4.5 — backup tutor provider behind an environment flag
+- OpenAI GPT-4o-mini: tutor responses, annotations, and study kit generation
+- OpenAI GPT-4o-mini-transcribe: speech-to-text during voice mode
+- ElevenLabs: text-to-speech during voice mode
+- Anthropic Claude Haiku 4.5: backup tutor provider behind an environment flag
 
 Frameworks & Libraries
 
-- WXT — Manifest V3 Chrome extension framework
-- Next.js — React framework (App Router)
-- React — UI library
-- TypeScript — across the whole monorepo
-- Tailwind CSS — styling
-- Radix UI — headless UI primitives
-- Motion — animation on the landing page
-- Geist & Schibsted Grotesk — fonts
-- Resend — transactional email for invites
+- WXT: Manifest V3 Chrome extension framework
+- Next.js: React framework (App Router)
+- React: UI library
+- TypeScript: across the whole monorepo
+- Tailwind CSS: styling
+- Radix UI: headless UI primitives
+- Motion: animation on the landing page
+- Geist & Schibsted Grotesk: fonts
+- Resend: transactional email for invites
 
 Tooling
 
-- Turborepo — monorepo build pipeline
-- Vitest — unit and integration tests
-- axe-core — accessibility testing
-- ESLint + Prettier — linting and formatting
-- GitHub Actions — CI
+- Turborepo: monorepo build pipeline
+- Vitest: unit and integration tests
+- axe-core: accessibility testing
+- ESLint + Prettier: linting and formatting
+- GitHub Actions: CI
